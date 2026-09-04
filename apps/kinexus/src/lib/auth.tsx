@@ -1,12 +1,14 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Platform } from 'react-native';
+import type { User } from '@supabase/supabase-js';
 
+import { createSessionFromUrl, signInWithGoogle as startGoogleSignIn } from '@/src/lib/oauth';
 import { isSupabaseConfigured, supabase } from '@/src/lib/supabase';
 
 export type AuthUser = {
   id: string;
   email?: string;
   displayName: string;
+  avatarUrl?: string;
   isDevBypass: boolean;
 };
 
@@ -28,11 +30,20 @@ const DEV_USER: AuthUser = {
   isDevBypass: true,
 };
 
-function mapSupabaseUser(id: string, email?: string | null): AuthUser {
+function mapSupabaseUser(user: User): AuthUser {
+  const meta = user.user_metadata ?? {};
+  const fullName = typeof meta.full_name === 'string' ? meta.full_name : undefined;
+  const name = typeof meta.name === 'string' ? meta.name : undefined;
+  const avatar =
+    (typeof meta.avatar_url === 'string' && meta.avatar_url) ||
+    (typeof meta.picture === 'string' && meta.picture) ||
+    undefined;
+
   return {
-    id,
-    email: email ?? undefined,
-    displayName: email?.split('@')[0] ?? 'You',
+    id: user.id,
+    email: user.email ?? undefined,
+    displayName: fullName || name || user.email?.split('@')[0] || 'You',
+    avatarUrl: avatar,
     isDevBypass: false,
   };
 }
@@ -52,13 +63,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(({ data }) => {
       if (cancelled) return;
       const sessionUser = data.session?.user;
-      setUser(sessionUser ? mapSupabaseUser(sessionUser.id, sessionUser.email) : null);
+      setUser(sessionUser ? mapSupabaseUser(sessionUser) : null);
       setIsReady(true);
     });
 
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      const sessionUser = session?.user;
-      setUser(sessionUser ? mapSupabaseUser(sessionUser.id, sessionUser.email) : null);
+      // Defer so we do not deadlock with getSession inside the GoTrue client.
+      setTimeout(() => {
+        if (cancelled) return;
+        const sessionUser = session?.user;
+        setUser(sessionUser ? mapSupabaseUser(sessionUser) : null);
+      }, 0);
     });
 
     return () => {
@@ -77,23 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(DEV_USER);
           return;
         }
-
-        const redirectTo =
-          Platform.OS === 'web' && typeof window !== 'undefined'
-            ? window.location.origin
-            : 'kinexus://auth/callback';
-
-        const { error } = await supabase.auth.signInWithOAuth({
-          provider: 'google',
-          options: {
-            redirectTo,
-            skipBrowserRedirect: false,
-          },
-        });
-
-        if (error) {
-          throw error;
-        }
+        await startGoogleSignIn();
       },
       signInDevBypass: () => {
         setUser(DEV_USER);
@@ -118,3 +117,6 @@ export function useAuth(): AuthContextValue {
   }
   return ctx;
 }
+
+/** Used by the /auth/callback route. Re-exported so routes do not import oauth internals twice. */
+export { createSessionFromUrl };

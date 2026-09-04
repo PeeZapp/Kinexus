@@ -1,7 +1,5 @@
-/**
- * TODO(Phase 5): Vercel/Hono handlers for /ai and /scrape.
- * Verify Supabase JWT on every request. Never expose provider keys to the client.
- */
-
 export type { AiClient, AiProvider } from './ai/provider';
 export { createAiClient } from './ai/provider';
+export { scrapeRecipeUrl } from './scrape/index';
+export { app } from './app';
+export type { RecipeDraft } from './recipe-draft';

@@ -9,12 +9,17 @@ web-build/
 .next/
 .turbo/
 *.tsbuildinfo
+.vercel/
 
 # Env & secrets
 .env
 .env.local
 .env.*.local
 *.pem
+
+# Supabase CLI
+**/supabase/.temp/
+**/supabase/.branches/
 
 # Expo / React Native
 expo-env.d.ts

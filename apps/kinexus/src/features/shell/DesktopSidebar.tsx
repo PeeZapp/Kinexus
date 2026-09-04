@@ -2,13 +2,16 @@ import { Link, usePathname } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ModuleGlyph } from '@/src/features/shell/ModuleGlyph';
-import { MODULES } from '@/src/features/shell/modules';
+import { MODULES, SETTINGS_HREF, SETTINGS_PATH } from '@/src/features/shell/modules';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
+import { useHousehold } from '@/src/lib/household';
 
 export function DesktopSidebar() {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
+  const { activeHousehold } = useHousehold();
+  const settingsActive = pathname === SETTINGS_PATH || pathname.startsWith(`${SETTINGS_PATH}/`);
 
   return (
     <View style={styles.sidebar}>
@@ -27,18 +30,28 @@ export function DesktopSidebar() {
         {MODULES.map((mod) => {
           const active = pathname === mod.href || pathname.startsWith(`${mod.href}/`);
           return (
-            <Link key={mod.key} href={mod.href} asChild>
-              <Pressable style={[styles.navItem, active && styles.navItemActive]}>
-                <ModuleGlyph short={mod.short} active={active} />
-                <Text style={[styles.navLabel, active && styles.navLabelActive]}>{mod.label}</Text>
-              </Pressable>
+            <Link
+              key={mod.key}
+              href={mod.href}
+              style={StyleSheet.flatten([styles.navItem, active && styles.navItemActive])}>
+              <ModuleGlyph short={mod.short} active={active} />
+              <Text style={StyleSheet.flatten([styles.navLabel, active && styles.navLabelActive])}>{mod.label}</Text>
             </Link>
           );
         })}
+        <Link
+          href={SETTINGS_HREF}
+          style={StyleSheet.flatten([styles.navItem, settingsActive && styles.navItemActive])}>
+          <ModuleGlyph short="SE" active={settingsActive} />
+          <Text style={StyleSheet.flatten([styles.navLabel, settingsActive && styles.navLabelActive])}>
+            Settings
+          </Text>
+        </Link>
       </View>
 
       <View style={styles.footer}>
         <Text style={styles.userLabel}>{user?.displayName ?? 'Signed in'}</Text>
+        {activeHousehold ? <Text style={styles.devHint}>{activeHousehold.name}</Text> : null}
         {user?.isDevBypass ? <Text style={styles.devHint}>Dev bypass · Supabase keys pending</Text> : null}
         <Pressable onPress={() => void signOut()} style={styles.signOut}>
           <Text style={styles.signOutLabel}>Sign out</Text>

@@ -1,18 +1,20 @@
-/**
- * TODO(Phase 5): implement Anthropic and DeepSeek behind this interface.
- * Select the default with AI_PROVIDER=anthropic|deepseek.
- */
+import { AnthropicClient } from './anthropic';
+import { DeepSeekClient } from './deepseek';
 
 export type AiProvider = 'anthropic' | 'deepseek';
 
+export type AiCompleteInput = {
+  system?: string;
+  prompt: string;
+  json?: boolean;
+};
+
 export interface AiClient {
-  complete(input: { system?: string; prompt: string; json?: boolean }): Promise<string>;
+  readonly provider: AiProvider;
+  complete(input: AiCompleteInput): Promise<string>;
 }
 
-export function createAiClient(_provider: AiProvider = 'anthropic'): AiClient {
-  return {
-    async complete() {
-      throw new Error('TODO(Phase 5): AI providers are not implemented yet.');
-    },
-  };
+export function createAiClient(provider?: AiProvider): AiClient {
+  const id = provider ?? (process.env.AI_PROVIDER === 'deepseek' ? 'deepseek' : 'anthropic');
+  return id === 'deepseek' ? new DeepSeekClient() : new AnthropicClient();
 }

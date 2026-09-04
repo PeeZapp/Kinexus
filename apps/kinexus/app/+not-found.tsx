@@ -1,17 +1,22 @@
 import { Link, Stack } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { colors } from '@/src/features/shell/theme';
+import { EmptyState } from '@/src/features/shell/states';
+import { colors, space } from '@/src/features/shell/theme';
 
 export default function NotFoundScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'Not found', headerShown: false }} />
       <View style={styles.container}>
-        <Text style={styles.title}>This screen does not exist.</Text>
-        <Link href="/" style={styles.link}>
-          <Text style={styles.linkText}>Back to Kinexus</Text>
-        </Link>
+        <EmptyState
+          kicker="404"
+          title="This screen does not exist"
+          body="The link may be old, or the page moved. Meals, Settings, and sign-in are still in the sidebar / tabs.">
+          <Link href="/" style={styles.link}>
+            <Text style={styles.linkText}>Back to Kinexus</Text>
+          </Link>
+        </EmptyState>
       </View>
     </>
   );
@@ -20,23 +25,20 @@ export default function NotFoundScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
+    padding: space.lg,
     backgroundColor: colors.bg,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.text,
+    maxWidth: 560,
+    alignSelf: 'center',
+    width: '100%',
   },
   link: {
-    marginTop: 16,
-    paddingVertical: 12,
+    marginTop: 4,
+    paddingVertical: 8,
   },
   linkText: {
-    fontSize: 14,
+    fontSize: 15,
     color: colors.accent,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });

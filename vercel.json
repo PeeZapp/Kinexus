@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "pnpm install",
+  "buildCommand": "pnpm --filter @kinexus/app exec expo export --platform web",
+  "outputDirectory": "apps/kinexus/dist",
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/health", "destination": "/api/health" },
+    { "source": "/scrape", "destination": "/api/scrape" },
+    { "source": "/ai", "destination": "/api/ai" },
+    { "source": "/invite/:token", "destination": "/index.html" },
+    { "source": "/meals/recipes/:id", "destination": "/index.html" }
+  ]
+}

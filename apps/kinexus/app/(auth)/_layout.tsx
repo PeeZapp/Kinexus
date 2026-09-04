@@ -16,7 +16,7 @@ export default function AuthLayout() {
   }
 
   if (user) {
-    return <Redirect href="/meals" />;
+    return <Redirect href="/" />;
   }
 
   return <Slot />;

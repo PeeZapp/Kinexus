@@ -7,6 +7,11 @@
     "web": "pnpm --filter @kinexus/app web",
     "android": "pnpm --filter @kinexus/app android",
     "ios": "pnpm --filter @kinexus/app ios",
-    "typecheck": "pnpm -r typecheck"
+    "api": "pnpm --filter @kinexus/api dev",
+    "web:export": "pnpm --filter @kinexus/app web:export",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @kinexus/domain test",
+    "db:push": "pnpm --filter @kinexus/db db:push",
+    "db:link": "pnpm --filter @kinexus/db db:link"
   }
 }

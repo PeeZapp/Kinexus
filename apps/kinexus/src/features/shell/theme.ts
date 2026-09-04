@@ -13,6 +13,8 @@ export const colors = {
   accentSoft: 'rgba(62, 207, 191, 0.12)',
   warning: '#F5C16C',
   warningBg: '#3D2F12',
+  danger: '#F07178',
+  dangerBg: '#3A1D22',
   googleBtn: '#FFFFFF',
   googleText: '#1F1F1F',
   frame: '#1A222C',

@@ -1,13 +1,16 @@
 import { Redirect } from 'expo-router';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
+import { SETTINGS_HREF } from '@/src/features/shell/modules';
 import { colors } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
+import { useHousehold } from '@/src/lib/household';
 
 export default function Index() {
   const { user, isReady } = useAuth();
+  const { isReady: householdReady, memberships, pendingInviteToken } = useHousehold();
 
-  if (!isReady) {
+  if (!isReady || (user && !householdReady)) {
     return (
       <View style={styles.boot}>
         <ActivityIndicator color={colors.accent} />
@@ -15,7 +18,19 @@ export default function Index() {
     );
   }
 
-  return <Redirect href={user ? '/meals' : '/sign-in'} />;
+  if (!user) {
+    return <Redirect href="/sign-in" />;
+  }
+
+  if (pendingInviteToken) {
+    return <Redirect href={{ pathname: '/invite/[token]', params: { token: pendingInviteToken } }} />;
+  }
+
+  if (memberships.length === 0) {
+    return <Redirect href={SETTINGS_HREF} />;
+  }
+
+  return <Redirect href="/meals" />;
 }
 
 const styles = StyleSheet.create({

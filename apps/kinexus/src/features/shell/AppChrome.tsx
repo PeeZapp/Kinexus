@@ -7,7 +7,7 @@ import { DesktopSidebar } from '@/src/features/shell/DesktopSidebar';
 import { MobileTabBar } from '@/src/features/shell/MobileTabBar';
 import { PhoneFrame } from '@/src/features/shell/PhoneFrame';
 import { PreviewToggle } from '@/src/features/shell/PreviewToggle';
-import { moduleFromPath } from '@/src/features/shell/modules';
+import { titleFromPath } from '@/src/features/shell/modules';
 import { colors } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
 import { useExperienceMode } from '@/src/lib/experience-mode';
@@ -52,7 +52,7 @@ export function AppChrome({ children }: { children: ReactNode }) {
 function MobileShell({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
-  const current = moduleFromPath(pathname);
+  const title = titleFromPath(pathname);
   const { signOut, user } = useAuth();
 
   return (
@@ -60,7 +60,7 @@ function MobileShell({ children }: { children: ReactNode }) {
       <View style={[styles.mobileHeader, { paddingTop: Math.max(insets.top, 12) }]}>
         <View>
           <Text style={styles.mobileBrand}>Kinexus</Text>
-          <Text style={styles.mobileTitle}>{current?.label ?? 'Kinexus'}</Text>
+          <Text style={styles.mobileTitle}>{title}</Text>
         </View>
         <Pressable onPress={() => void signOut()} hitSlop={8}>
           <Text style={styles.signOut}>{user?.isDevBypass ? 'Leave dev' : 'Sign out'}</Text>

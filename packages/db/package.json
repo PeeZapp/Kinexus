@@ -2,5 +2,22 @@
   "name": "@kinexus/db",
   "version": "0.0.0",
   "private": true,
-  "description": "Supabase SQL migrations and typed client helpers"
+  "type": "module",
+  "description": "Supabase SQL migrations and typed client helpers",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "db:link": "supabase link",
+    "db:push": "supabase db push",
+    "generate-catalog": "node ./scripts/generate-catalog-sql.mjs",
+    "assign-catalog-images": "node ./scripts/assign-catalog-images.mjs"
+  },
+  "devDependencies": {
+    "supabase": "^2.40.7",
+    "typescript": "~6.0.3"
+  }
 }

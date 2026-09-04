@@ -1,0 +1,29 @@
+# Supabase CLI config for Kinexus. Remote project is linked via `pnpm --filter @kinexus/db db:link`.
+project_id = "kinexus"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 17
+
+[db.migrations]
+schema_paths = []
+
+[auth]
+enabled = true
+site_url = "http://localhost:5300"
+additional_redirect_urls = [
+  "http://localhost:5300",
+  "http://localhost:5300/auth/callback",
+  "http://localhost:5300/invite/**",
+  "kinexus://auth/callback",
+  "kinexus://invite/**",
+]
+jwt_expiry = 3600
+enable_signup = true

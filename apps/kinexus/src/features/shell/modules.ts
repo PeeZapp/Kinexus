@@ -1,4 +1,9 @@
+import type { Href } from 'expo-router';
+
 export type ModuleKey = 'meals' | 'stash' | 'nutrition' | 'train';
+
+export const SETTINGS_PATH = '/settings';
+export const SETTINGS_HREF = SETTINGS_PATH as Href;
 
 export type AppModule = {
   key: ModuleKey;
@@ -41,4 +46,13 @@ export const MODULES: readonly AppModule[] = [
 
 export function moduleFromPath(pathname: string): AppModule | undefined {
   return MODULES.find((mod) => pathname === mod.href || pathname.startsWith(`${mod.href}/`));
+}
+
+export function titleFromPath(pathname: string): string {
+  if (pathname === SETTINGS_PATH || pathname.startsWith(`${SETTINGS_PATH}/`)) return 'Settings';
+  if (pathname.startsWith('/invite')) return 'Invite';
+  if (pathname.startsWith('/meals/generate')) return 'Generate';
+  if (pathname.startsWith('/meals/shopping')) return 'Shopping';
+  if (pathname.startsWith('/meals/recipes')) return 'Recipes';
+  return moduleFromPath(pathname)?.label ?? 'Kinexus';
 }

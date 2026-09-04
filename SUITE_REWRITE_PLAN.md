@@ -1,6 +1,6 @@
 # Kinexus — Full Suite Rewrite Plan
 
-**Status:** Planning / handover for greenfield build  
+**Status:** Meals MVP — Phase 5b (harden + deploy). Product checklist: [CHECKLIST.md](./CHECKLIST.md).  
 **Workspace:** `C:\Apps\Kinexus`  
 **GitHub:** `https://github.com/PeeZapp/Kinexus` (create in Phase 0)  
 **Date locked:** 2026-09-04  
@@ -472,17 +472,19 @@ C:\Apps\RemixFit\RemixFit\      # exercise (+ mobile subfolder)
 
 ## 13. Definition of done — Meals MVP (end of Phase 5)
 
-- [ ] Google sign-in works on web and Expo Go
-- [ ] Create household + invite member + RLS verified
-- [ ] Weekly plan CRUD with desktop and mobile UIs
-- [ ] Generate Plan using goals/dietary + recipe library
-- [ ] Shopping list generated from plan, check-off syncs
-- [ ] Recipes: browse, detail, favourite, import (online)
-- [ ] Limited offline: edit slots offline, sync when back
-- [ ] Stash / Nutrition / Train visible as polished placeholders
-- [ ] Dev mobile preview toggle on web only when enabled
+Tracked with notes in [CHECKLIST.md](./CHECKLIST.md).
+
+- [x] Google sign-in works on web and Expo Go
+- [x] Create household + invite member + RLS verified
+- [x] Weekly plan CRUD with desktop and mobile UIs
+- [x] Generate Plan using goals/dietary + recipe library
+- [x] Shopping list generated from plan, check-off syncs
+- [x] Recipes: browse, detail, favourite, import (online)
+- [x] Limited offline: edit slots offline, sync when back
+- [x] Stash / Nutrition / Train visible as polished placeholders
+- [x] Dev mobile preview toggle on web only when enabled
 - [ ] Deployed web on Vercel; Supabase project live
-- [ ] Huddle / Stashd / RemixFit untouched as products
+- [x] Huddle / Stashd / RemixFit untouched as products
 
 ---
 

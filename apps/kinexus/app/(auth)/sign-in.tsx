@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
+import { getAuthRedirectUrl } from '@/src/lib/oauth';
 
 export default function SignInScreen() {
   const insets = useSafeAreaInsets();
@@ -37,8 +38,8 @@ export default function SignInScreen() {
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Sign in</Text>
         <Text style={styles.cardBody}>
-          Google auth is wired for Supabase. Until project keys are set, continue locally to explore the
-          shell.
+          Sign in with Google. After that you will create a household or accept an invite. Household
+          access uses hashed, expiring invite links — not guessable family codes.
         </Text>
 
         <Pressable
@@ -62,10 +63,21 @@ export default function SignInScreen() {
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <Text style={styles.todo}>
-          TODO(Phase 1): connect a live Supabase project and enable the Google provider. Do not add the
-          service-role key to this app.
-        </Text>
+        {isSupabaseConfigured && Platform.OS !== 'web' ? (
+          <Text style={styles.todo}>
+            Native Google uses the system browser (not the native Google SDK). Add this redirect URL in
+            Supabase Auth → URL configuration: {getAuthRedirectUrl()}
+          </Text>
+        ) : isSupabaseConfigured ? (
+          <Text style={styles.todo}>
+            After Google, you return to {typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : '/auth/callback'}.
+          </Text>
+        ) : (
+          <Text style={styles.todo}>
+            Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in apps/kinexus/.env to enable
+            live Google sign-in.
+          </Text>
+        )}
       </View>
     </View>
   );

@@ -1,4 +1,4 @@
-import { normalizeRecipeDraft, type RecipeDraft } from '../recipe-draft';
+import { normalizeRecipeDraft, type RecipeDraft } from '../recipe-draft.js';
 
 export type ScrapeResult =
   | { source: 'json-ld'; recipe: RecipeDraft }

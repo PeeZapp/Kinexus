@@ -2,9 +2,9 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 
-import { userFromRequest } from './auth';
-import { corsOrigins } from './env';
-import { handleAi, handleScrape, type AiRequestBody } from './handlers';
+import { userFromRequest } from './auth.js';
+import { corsOrigins } from './env.js';
+import { handleAi, handleScrape, type AiRequestBody } from './handlers.js';
 
 function registerMealsRoutes(router: Hono) {
   router.get('/health', (c) => c.json({ ok: true }));

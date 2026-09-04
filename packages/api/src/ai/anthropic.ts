@@ -1,4 +1,4 @@
-import type { AiClient, AiCompleteInput, AiProvider } from './provider';
+import type { AiClient, AiCompleteInput, AiProvider } from './provider.js';
 
 export class AnthropicClient implements AiClient {
   readonly provider: AiProvider = 'anthropic';

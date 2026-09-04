@@ -1,5 +1,5 @@
-import type { AiClient } from './provider';
-import { normalizeRecipeDraft, parseJsonObject, type RecipeDraft } from '../recipe-draft';
+import type { AiClient } from './provider.js';
+import { normalizeRecipeDraft, parseJsonObject, type RecipeDraft } from '../recipe-draft.js';
 
 export const RECIPE_JSON_SCHEMA = `Return ONLY a valid JSON object with these fields:
 - name (string)

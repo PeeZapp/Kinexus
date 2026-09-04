@@ -1,5 +1,5 @@
-import { AnthropicClient } from './anthropic';
-import { DeepSeekClient } from './deepseek';
+import { AnthropicClient } from './anthropic.js';
+import { DeepSeekClient } from './deepseek.js';
 
 export type AiProvider = 'anthropic' | 'deepseek';
 

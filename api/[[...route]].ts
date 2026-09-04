@@ -1,6 +1,6 @@
 import { handle } from 'hono/vercel';
 
-import { app } from '../packages/api/src/app';
+import { app } from '../packages/api/src/app.js';
 
 export const runtime = 'nodejs';
 export const GET = handle(app);

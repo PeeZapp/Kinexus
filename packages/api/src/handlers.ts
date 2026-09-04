@@ -1,7 +1,7 @@
-import { extractRecipeFromText, extractRecipeFromUrlHint } from './ai/extract';
-import { createAiClient } from './ai/provider';
-import { scrapeRecipeUrl } from './scrape/index';
-import type { RecipeDraft } from './recipe-draft';
+import { extractRecipeFromText, extractRecipeFromUrlHint } from './ai/extract.js';
+import { createAiClient } from './ai/provider.js';
+import { scrapeRecipeUrl } from './scrape/index.js';
+import type { RecipeDraft } from './recipe-draft.js';
 
 export type AiTask = 'extract_recipe' | 'extract_recipe_from_url';
 

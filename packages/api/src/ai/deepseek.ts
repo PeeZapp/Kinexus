@@ -1,4 +1,4 @@
-import type { AiClient, AiCompleteInput, AiProvider } from './provider';
+import type { AiClient, AiCompleteInput, AiProvider } from './provider.js';
 
 export class DeepSeekClient implements AiClient {
   readonly provider: AiProvider = 'deepseek';

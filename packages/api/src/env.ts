@@ -23,5 +23,5 @@ export function corsOrigins(): string[] {
   }
   const web = process.env.EXPO_PUBLIC_WEB_URL?.replace(/\/$/, '');
   if (web) list.push(web);
-  return [...new Set(list)];
+  return Array.from(new Set(list));
 }

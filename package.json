@@ -1,0 +1,12 @@
+{
+  "name": "kinexus",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "pnpm --filter @kinexus/app start",
+    "web": "pnpm --filter @kinexus/app web",
+    "android": "pnpm --filter @kinexus/app android",
+    "ios": "pnpm --filter @kinexus/app ios",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

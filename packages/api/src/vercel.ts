@@ -1,9 +1,5 @@
-import { handle } from 'hono/vercel';
+import { handle } from '@hono/node-server/vercel';
 
 import { app } from './app.js';
 
-export const runtime = 'nodejs';
-export const GET = handle(app);
-export const POST = handle(app);
-export const OPTIONS = handle(app);
 export default handle(app);

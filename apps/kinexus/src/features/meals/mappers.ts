@@ -1,13 +1,6 @@
 import type { Database, Json } from '@kinexus/db';
-import type {
-  Day,
-  Ingredient,
-  MealSlot,
-  MealSlotKey,
-  NutritionGoals,
-  Recipe,
-} from '@kinexus/domain';
-import { DAYS, MEAL_SLOTS } from '@kinexus/domain';
+import type { Day, Ingredient, MealSlot, MealSlotKey, NutritionGoals, Recipe } from '@kinexus/domain';
+import { DAYS, MEAL_SLOTS, parsePriceOverrideMap, type IngredientPriceBook } from '@kinexus/domain';
 
 type RecipeRow = Database['public']['Tables']['recipes']['Row'];
 type SlotRow = Database['public']['Tables']['meal_slots']['Row'];
@@ -69,7 +62,18 @@ export function recipeFromRow(row: RecipeRow): Recipe {
     sourceUrl: row.source_url ?? undefined,
     imageUrl: row.image_url ?? undefined,
     imageFlagged: Boolean(row.image_flagged),
+    removed: Boolean(row.removed),
     isCommunity: row.is_public && row.household_id === null,
+  };
+}
+
+export function priceBookFromRow(row: {
+  prices: Json;
+  priced_at: string;
+}): IngredientPriceBook {
+  return {
+    prices: parsePriceOverrideMap(row.prices),
+    pricedAt: row.priced_at,
   };
 }
 
@@ -98,6 +102,7 @@ export function slotFromRow(row: SlotRow): MealSlot & { id: string; updatedAt: s
     fat: asNum(row.fat),
     cookTime: asNum(row.cook_time),
     hidden: row.hidden,
+    assignedPersonId: row.assigned_person_id ?? undefined,
     updatedAt: row.client_updated_at,
   };
 }

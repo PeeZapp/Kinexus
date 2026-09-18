@@ -1,4 +1,4 @@
-import { Redirect } from 'expo-router';
+import { Redirect, usePathname } from 'expo-router';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { SETTINGS_HREF } from '@/src/features/shell/modules';
@@ -7,6 +7,7 @@ import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 
 export default function Index() {
+  const pathname = usePathname();
   const { user, isReady } = useAuth();
   const { isReady: householdReady, memberships, pendingInviteToken } = useHousehold();
 
@@ -16,6 +17,12 @@ export default function Index() {
         <ActivityIndicator color={colors.accent} />
       </View>
     );
+  }
+
+  // Index stays in the root stack. Only send people onward when they are actually at `/`,
+  // otherwise a remounted Redirect would steal whatever screen they had open.
+  if (pathname !== '/' && pathname !== '') {
+    return null;
   }
 
   if (!user) {

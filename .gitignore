@@ -21,6 +21,9 @@ web-build/
 **/supabase/.temp/
 **/supabase/.branches/
 
+# Raw third-party recipe dumps (processed catalog is committed)
+packages/db/seeds/open/
+
 # Expo / React Native
 expo-env.d.ts
 .metro-health-check*

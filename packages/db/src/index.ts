@@ -9,6 +9,8 @@ export const rpc = {
   leaveHousehold: 'leave_household',
   getOrCreateMealPlan: 'get_or_create_meal_plan',
   ensureNutritionGoals: 'ensure_household_nutrition_goals',
+  ensureFinanceBudget: 'ensure_finance_budget',
   claimCatalogEditor: 'claim_catalog_editor',
   reviewCatalogImage: 'review_catalog_image',
+  reviewCatalogRecipe: 'review_catalog_recipe',
 } as const;

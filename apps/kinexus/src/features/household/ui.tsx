@@ -109,6 +109,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     padding: space.md,
     gap: 12,
+    minWidth: 0,
+    maxWidth: '100%',
   },
   field: {
     gap: 6,

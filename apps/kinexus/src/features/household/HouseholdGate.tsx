@@ -20,7 +20,7 @@ export function HouseholdGate({ module, children }: Props) {
   const { isReady, activeHousehold, error } = useHousehold();
   const desktop = mode === 'desktop';
 
-  if (!isReady) {
+  if (!isReady && !activeHousehold) {
     return <LoadingState label={`Opening ${module}…`} />;
   }
 

@@ -21,7 +21,6 @@ export type ImportFormState = {
   ingredientsText: string;
   methodText: string;
   slots: MealSlotKey[];
-  imageUrl: string;
 };
 
 export type ImportRecipeViewProps = {

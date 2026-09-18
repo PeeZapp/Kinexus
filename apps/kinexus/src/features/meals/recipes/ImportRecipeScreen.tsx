@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
-import type { Href } from 'expo-router';
 
 import { type MealSlotKey, type Recipe } from '@kinexus/domain';
 
+import { recipeHref } from '@/src/features/meals/recipe-href';
 import { ImportDesktop } from '@/src/features/meals/recipes/ImportDesktop';
 import { ImportMobile } from '@/src/features/meals/recipes/ImportMobile';
 import type { ImportFormState } from '@/src/features/meals/recipes/ImportShared';
@@ -31,7 +31,6 @@ const EMPTY: ImportFormState = {
   ingredientsText: '',
   methodText: '',
   slots: ['dinner'],
-  imageUrl: '',
 };
 
 const SLOT_KEYS = new Set<string>([
@@ -79,7 +78,6 @@ export function ImportRecipeScreen() {
         .join('\n'),
       methodText: (recipe.method ?? []).join('\n'),
       slots: slots.length ? slots : ['dinner'],
-      imageUrl: recipe.imageUrl ?? '',
     }));
     setSource(nextSource);
   }
@@ -150,10 +148,9 @@ export function ImportRecipeScreen() {
           .filter(Boolean),
         mealSlots: form.slots.length ? form.slots : ['dinner'],
         sourceUrl: form.url.trim() || undefined,
-        imageUrl: form.imageUrl.trim() || undefined,
       };
       const saved = await meals.saveHouseholdRecipe(draft);
-      router.push(`/meals/recipes/${saved.id}` as Href);
+      router.push(recipeHref(saved.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save recipe');
     } finally {

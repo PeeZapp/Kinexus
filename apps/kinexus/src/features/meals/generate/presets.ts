@@ -6,3 +6,7 @@ export const GOAL_PRESETS: { id: string; name: string; goals: NutritionGoals }[]
   { id: 'muscle_gain', name: 'Muscle gain', goals: { calories: 2800, protein: 200, carbs: 320, fat: 80 } },
   { id: 'keto', name: 'Keto', goals: { calories: 1800, protein: 130, carbs: 25, fat: 145 } },
 ];
+
+export function goalsMatch(a: NutritionGoals, b: NutritionGoals) {
+  return a.calories === b.calories && a.protein === b.protein && a.carbs === b.carbs && a.fat === b.fat;
+}

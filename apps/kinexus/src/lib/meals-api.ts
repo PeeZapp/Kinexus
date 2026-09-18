@@ -76,6 +76,15 @@ export async function extractRecipeFromUrlHint(url: string): Promise<ImportedRec
   return data.recipe;
 }
 
+export async function refreshRecipePrices(householdId?: string): Promise<{
+  processed: number;
+  remaining: number;
+  failed: number;
+  continued: boolean;
+}> {
+  return post('/prices/refresh', { householdId });
+}
+
 export async function importRecipeFromUrl(url: string): Promise<{ recipe: ImportedRecipe; source: ImportSource }> {
   const scraped = await scrapeRecipe(url);
   if (scraped.source === 'json-ld') return { recipe: scraped.recipe, source: 'json-ld' };

@@ -1,32 +1,86 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
-import type { Href } from 'expo-router';
+
+import { approvedRecipeIdsForLibraryFilter } from '@kinexus/domain';
 
 import { RecipesDesktop } from '@/src/features/meals/recipes/RecipesDesktop';
 import { RecipesMobile } from '@/src/features/meals/recipes/RecipesMobile';
-import { matchesFilter, sortRecipes, EDITOR_FILTERS, FILTERS, type RecipeFilter } from '@/src/features/meals/recipes/filters';
+import {
+  matchesFilter,
+  sortRecipes,
+  defaultSortDir,
+  EDITOR_FILTERS,
+  FILTERS,
+  type RecipeFilter,
+  type RecipeSort,
+  type SortDir,
+} from '@/src/features/meals/recipes/filters';
+import { isRestrictedPicker, linkedPersonForUser } from '@/src/features/meals/picker-access';
+import { recipeHref } from '@/src/features/meals/recipe-href';
 import { useMealsSync } from '@/src/features/meals/use-meals-sync';
 import { useExperienceMode } from '@/src/lib/experience-mode';
+import { useAuth } from '@/src/lib/auth';
+import { useHousehold } from '@/src/lib/household';
+
+function allowlistKey(filter: RecipeFilter): 'all' | 'snack' | 'breakfast' | 'lunch' | 'dinner' | 'dessert' {
+  if (filter === 'breakfast' || filter === 'lunch' || filter === 'dinner' || filter === 'dessert' || filter === 'snack') {
+    return filter;
+  }
+  return 'all';
+}
 
 export function RecipesScreen() {
   const { mode } = useExperienceMode();
   const router = useRouter();
   const meals = useMealsSync();
+  const { user } = useAuth();
+  const { people, role } = useHousehold();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<RecipeFilter>('all');
-  const [sort, setSort] = useState<'alpha' | 'calories' | 'protein' | 'cook_time'>('alpha');
+  const [showNotForFamily, setShowNotForFamily] = useState(false);
+  const [sort, setSort] = useState<RecipeSort>('alpha');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const userId = user && !user.isDevBypass ? user.id : null;
+  const restricted = isRestrictedPicker({ role, people, userId });
+  const linked = linkedPersonForUser(people, userId);
+  const allowedIds =
+    restricted && linked
+      ? approvedRecipeIdsForLibraryFilter(meals.slotApprovals, linked.id, allowlistKey(filter))
+      : null;
 
   const recipes = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = meals.recipes.filter((recipe) => {
-      if (!matchesFilter(recipe, filter, meals.favouriteIds)) return false;
+      if (allowedIds && !allowedIds.has(recipe.id)) return false;
+      if (!matchesFilter(recipe, filter, meals.favouriteIds, showNotForFamily)) return false;
       if (!q) return true;
       return recipe.name.toLowerCase().includes(q) || (recipe.cuisine ?? '').toLowerCase().includes(q);
     });
-    return sortRecipes(filtered, sort, sort === 'alpha' ? 'asc' : 'desc');
-  }, [filter, meals.favouriteIds, meals.recipes, query, sort]);
+    return sortRecipes(filtered, sort, sortDir);
+  }, [allowedIds, filter, meals.favouriteIds, meals.recipes, query, showNotForFamily, sort, sortDir]);
 
-  const filters = meals.isCatalogEditor ? [...FILTERS, ...EDITOR_FILTERS] : FILTERS;
+  const onSort = (next: RecipeSort) => {
+    if (next === sort) {
+      setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSort(next);
+    setSortDir(defaultSortDir(next));
+  };
+
+  const filters = restricted
+    ? FILTERS.filter((item) =>
+        ['all', 'breakfast', 'lunch', 'dinner', 'snack', 'dessert', 'favourites'].includes(item.id),
+      )
+    : meals.isCatalogEditor
+      ? [...FILTERS, ...EDITOR_FILTERS]
+      : FILTERS;
+
+  const totalCount = restricted
+    ? meals.recipes.filter((r) => allowedIds?.has(r.id) && !r.removed && !r.excludedFromAuto).length
+    : filter === 'removed'
+      ? meals.recipes.filter((r) => r.removed).length
+      : meals.recipes.filter((r) => !r.removed && (showNotForFamily || !r.excludedFromAuto)).length;
 
   const props = {
     query,
@@ -34,15 +88,25 @@ export function RecipesScreen() {
     filter,
     setFilter,
     sort,
-    setSort,
+    sortDir,
+    onSort,
+    setSortDir,
     online: meals.online,
     pendingCount: meals.pendingCount,
     extra: meals.importBlockedReason,
     recipes,
+    totalCount,
+    loading: meals.isLoading,
     favouriteIds: meals.favouriteIds,
     filters,
-    showFlag: meals.isCatalogEditor,
-    onOpen: (id: string) => router.push(`/meals/recipes/${id}` as Href),
+    showNotForFamily,
+    setShowNotForFamily: restricted ? undefined : setShowNotForFamily,
+    showFlag: meals.isCatalogEditor && !restricted,
+    showImport: !restricted,
+    emptyBody: restricted
+      ? 'Only recipes approved for you are listed. Lunch and dinner are separate lists — ask an owner to add more in Picks.'
+      : undefined,
+    onOpen: (id: string) => router.push(recipeHref(id)),
   };
 
   return mode === 'desktop' ? <RecipesDesktop {...props} /> : <RecipesMobile {...props} />;

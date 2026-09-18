@@ -5,6 +5,7 @@ import {
   CreateJoinPanel,
   HouseholdSwitcher,
   InvitePanel,
+  LocationPanel,
   MembersList,
   PeoplePanel,
 } from '@/src/features/household/sections';
@@ -52,6 +53,7 @@ export function SettingsMobile() {
       <Text style={styles.title}>{activeHousehold.name}</Text>
       <ErrorText message={error} />
       <HouseholdSwitcher />
+      <LocationPanel />
       <InvitePanel />
       <MembersList members={members} />
       <PeoplePanel />

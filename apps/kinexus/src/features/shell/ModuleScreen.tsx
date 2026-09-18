@@ -41,7 +41,7 @@ export function ModuleScreen({ title, description, kicker = 'Coming later', plan
           <EmptyState
             kicker="Live now"
             title="Meals is ready"
-            body="Plan the week, generate from the catalog, shop, and import recipes. Stash, Nutrition, and Train stay shells until Meals MVP is signed off.">
+            body="Plan the week, generate from the catalog, shop, and import recipes. Lists and Money are live; Nutrition and Train stay shells until those phases start.">
             <Btn label="Open Meals" onPress={() => router.push('/meals')} />
           </EmptyState>
         </View>

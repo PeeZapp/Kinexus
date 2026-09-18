@@ -1,13 +1,13 @@
 import type { Href } from 'expo-router';
 
-export type ModuleKey = 'meals' | 'stash' | 'nutrition' | 'train';
+export type ModuleKey = 'meals' | 'lists' | 'finances' | 'nutrition' | 'train';
 
 export const SETTINGS_PATH = '/settings';
 export const SETTINGS_HREF = SETTINGS_PATH as Href;
 
 export type AppModule = {
   key: ModuleKey;
-  href: '/meals' | '/stash' | '/nutrition' | '/train';
+  href: '/meals' | '/lists' | '/finances' | '/nutrition' | '/train';
   label: string;
   short: string;
   description: string;
@@ -22,11 +22,18 @@ export const MODULES: readonly AppModule[] = [
     description: 'Weekly meal planning, recipes, and shopping.',
   },
   {
-    key: 'stash',
-    href: '/stash',
-    label: 'Stash',
-    short: 'ST',
-    description: 'Wishlist and saved finds for your household.',
+    key: 'lists',
+    href: '/lists',
+    label: 'Lists',
+    short: 'LI',
+    description: 'Household checklists, wishlists, watchlist, and saved finds.',
+  },
+  {
+    key: 'finances',
+    href: '/finances',
+    label: 'Money',
+    short: 'MN',
+    description: 'Family assets, net worth, and monthly budget.',
   },
   {
     key: 'nutrition',
@@ -51,6 +58,13 @@ export function moduleFromPath(pathname: string): AppModule | undefined {
 export function titleFromPath(pathname: string): string {
   if (pathname === SETTINGS_PATH || pathname.startsWith(`${SETTINGS_PATH}/`)) return 'Settings';
   if (pathname.startsWith('/invite')) return 'Invite';
+  if (pathname.startsWith('/lists/wishlists')) return 'Wishlists';
+  if (pathname.startsWith('/lists/watchlist')) return 'Watchlist';
+  if (pathname.startsWith('/lists/saves')) return 'Saves';
+  if (pathname.startsWith('/finances/assets')) return 'Assets';
+  if (pathname.startsWith('/finances/shares')) return 'Shares';
+  if (pathname.startsWith('/finances/collectibles')) return 'Collectibles';
+  if (pathname.startsWith('/finances/budget')) return 'Budget';
   if (pathname.startsWith('/meals/generate')) return 'Generate';
   if (pathname.startsWith('/meals/shopping')) return 'Shopping';
   if (pathname.startsWith('/meals/recipes')) return 'Recipes';

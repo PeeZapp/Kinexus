@@ -107,9 +107,21 @@ export function parseJsonObject(text: string): Record<string, unknown> {
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```\s*$/, '')
     .trim();
-  const parsed: unknown = JSON.parse(clean);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('AI did not return a JSON object');
+  const candidates = [clean];
+  const start = clean.indexOf('{');
+  const end = clean.lastIndexOf('}');
+  if (start >= 0 && end > start) candidates.push(clean.slice(start, end + 1));
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      const parsed: unknown = JSON.parse(candidate);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('AI did not return a JSON object');
+      }
+      return parsed as Record<string, unknown>;
+    } catch (err) {
+      lastError = err;
+    }
   }
-  return parsed as Record<string, unknown>;
+  throw lastError instanceof Error ? lastError : new Error('AI did not return a JSON object');
 }

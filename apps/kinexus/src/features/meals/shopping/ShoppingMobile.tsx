@@ -1,5 +1,6 @@
 import { AddItemForm, ShoppingChrome, ShoppingList } from '@/src/features/meals/shopping/ShoppingShared';
 import type { ShoppingListItem } from '@/src/features/meals/mappers';
+import { weekPlanPhrase } from '@/src/features/meals/week-labels';
 import { EmptyState } from '@/src/features/shell/states';
 
 export function ShoppingMobile(props: {
@@ -10,8 +11,11 @@ export function ShoppingMobile(props: {
   error: string | null;
   shoppingError: string | null;
   shoppingBusy: boolean;
+  plannedMealCount: number;
   active: ShoppingListItem[];
   checked: ShoppingListItem[];
+  onPrevWeek: () => void;
+  onNextWeek: () => void;
   onGenerate: () => void;
   onClearChecked: () => void;
   onToggle: (item: ShoppingListItem) => void;
@@ -27,6 +31,8 @@ export function ShoppingMobile(props: {
     error: props.error,
     shoppingError: props.shoppingError,
     shoppingBusy: props.shoppingBusy,
+    onPrevWeek: props.onPrevWeek,
+    onNextWeek: props.onNextWeek,
     onGenerate: props.onGenerate,
     onClearChecked: props.onClearChecked,
   };
@@ -35,7 +41,11 @@ export function ShoppingMobile(props: {
       {props.active.length === 0 && props.checked.length === 0 ? (
         <EmptyState
           title="List is empty"
-          body="Generate from this week’s plan to pull ingredients, or add extras below. Check-off syncs live with the household."
+          body={
+            props.plannedMealCount === 0
+              ? `No meals on ${weekPlanPhrase(props.weekStart)} yet. Fill that week first, then generate.`
+              : `Generate from ${weekPlanPhrase(props.weekStart)} to pull ingredients, or add extras below. Check-off syncs live with the household.`
+          }
         />
       ) : (
         <ShoppingList

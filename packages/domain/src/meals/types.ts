@@ -47,6 +47,28 @@ export type Ingredient = {
   baseRecipeId?: string;
 };
 
+export type RecipeCostLine = {
+  name: string;
+  amount?: string;
+  lineCost: number;
+  store?: string;
+  note?: string;
+};
+
+/** Country-scoped supermarket estimate for a recipe. Refreshed monthly. */
+export type RecipeCostEstimate = {
+  totalCost: number;
+  costPerServe: number;
+  currency: string;
+  country: string;
+  stores: string[];
+  pricedAt: string;
+  servingsBasis: number;
+  breakdown: RecipeCostLine[];
+  coveredIngredients?: number;
+  totalIngredients?: number;
+};
+
 export type Recipe = {
   id: string;
   name: string;
@@ -67,11 +89,15 @@ export type Recipe = {
   notes?: string;
   mealSlots?: MealSlotKey[];
   isComponent?: boolean;
+  /** Household marked this recipe as not for the family — skip plans and suggestions. */
   excludedFromAuto?: boolean;
   sourceUrl?: string;
   imageUrl?: string;
   imageFlagged?: boolean;
+  removed?: boolean;
   isCommunity?: boolean;
+  /** Approximate supermarket cost for the household's country. */
+  cost?: RecipeCostEstimate;
 };
 
 export type NutritionGoals = {
@@ -107,6 +133,8 @@ export type MealSlot = {
   cookTime?: number;
   hidden?: boolean;
   eatenBy?: Record<string, boolean>;
+  /** Household person who may pick the recipe for this cell. */
+  assignedPersonId?: string;
 };
 
 export type MealPlan = {

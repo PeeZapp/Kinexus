@@ -32,7 +32,7 @@ export default function SignInScreen() {
           <View style={styles.markRing} />
         </View>
         <Text style={styles.wordmark}>Kinexus</Text>
-        <Text style={styles.lede}>One suite for meals, stash, nutrition, and training.</Text>
+        <Text style={styles.lede}>One suite for meals, lists, nutrition, and training.</Text>
       </View>
 
       <View style={styles.card}>

@@ -9,7 +9,27 @@
     { "source": "/health", "destination": "/api/health" },
     { "source": "/scrape", "destination": "/api/scrape" },
     { "source": "/ai", "destination": "/api/ai" },
+    { "source": "/prices/estimate", "destination": "/api/prices/estimate" },
+    { "source": "/prices/refresh", "destination": "/api/prices/refresh" },
+    { "source": "/quotes", "destination": "/api/quotes" },
+    { "source": "/collectibles/search", "destination": "/api/collectibles/search" },
+    { "source": "/collectibles/lookup", "destination": "/api/collectibles/lookup" },
+    { "source": "/budget/classify", "destination": "/api/budget/classify" },
+    { "source": "/watchlist/search", "destination": "/api/watchlist/search" },
+    { "source": "/watchlist/lookup", "destination": "/api/watchlist/lookup" },
+    { "source": "/watchlist/resolve", "destination": "/api/watchlist/resolve" },
     { "source": "/invite/:token", "destination": "/index.html" },
     { "source": "/meals/recipes/:id", "destination": "/index.html" }
+  ],
+  "functions": {
+    "api/[[...route]].ts": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/prices/refresh",
+      "schedule": "0 6 * * *"
+    }
   ]
 }

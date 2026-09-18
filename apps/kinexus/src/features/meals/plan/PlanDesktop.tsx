@@ -1,24 +1,43 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { DAYS, DAY_LABELS, MEAL_SLOTS, mondayWeekStart, type Day, type MealSlotKey } from '@kinexus/domain';
+import { DAYS, mondayWeekStart, type Day, type MealSlotKey } from '@kinexus/domain';
 
 import { Btn, ErrorText } from '@/src/features/household/ui';
 import { OfflineBanner } from '@/src/features/meals/meals-kit';
-import { RecipePhoto, recipePhotoUrl } from '@/src/features/meals/RecipePhoto';
+import { DayPlanHeader, PlanMealCard, WeekSwitcher, dayPlanSlots } from '@/src/features/meals/plan/PlanShared';
+import { recipePhotoUrl } from '@/src/features/meals/RecipePhoto';
 import type { useMealsSync } from '@/src/features/meals/use-meals-sync';
-import { isoDayNumber, todayDay, weekDayIso, weekHeading } from '@/src/features/meals/week-labels';
-import { colors, radius } from '@/src/features/shell/theme';
+import { isoDayNumber, todayDay, weekDayIso } from '@/src/features/meals/week-labels';
+import { colors, radius, space } from '@/src/features/shell/theme';
 
 type Meals = ReturnType<typeof useMealsSync>;
 
 export function PlanDesktop({
   meals,
+  personNames,
+  expandedDays,
+  showGenerate = true,
+  canManage = false,
+  onToggleDay,
   onOpenSlot,
+  onAddSlot,
+  onRemoveSlot,
+  onRemoveDay,
+  onRestoreDay,
   onGenerate,
   onShopping,
 }: {
   meals: Meals;
+  personNames: Map<string, string>;
+  expandedDays: readonly Day[];
+  showGenerate?: boolean;
+  canManage?: boolean;
+  onToggleDay: (day: Day) => void;
   onOpenSlot: (day: Day, slot: MealSlotKey) => void;
+  onAddSlot: (day: Day) => void;
+  onRemoveSlot: (day: Day) => void;
+  onRemoveDay: (day: Day) => void;
+  onRestoreDay: (day: Day) => void;
   onGenerate: () => void;
   onShopping: () => void;
 }) {
@@ -27,136 +46,124 @@ export function PlanDesktop({
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-      <Text style={styles.kicker}>This week</Text>
-      <Text style={styles.title}>Plan</Text>
-      <View style={styles.toolbar}>
-        <Btn label="Prev" variant="secondary" onPress={() => meals.shiftWeek(-1)} />
-        <Text style={styles.week}>{weekHeading(meals.weekStart)}</Text>
-        <Btn label="Next" variant="secondary" onPress={() => meals.shiftWeek(1)} />
-        <Btn label="Generate" onPress={onGenerate} />
-        <Btn label="Shopping" variant="secondary" onPress={onShopping} />
+      <View style={styles.header}>
+        <View style={styles.headerCopy}>
+          <Text style={styles.kicker}>{thisWeek ? 'This week' : 'Meal plan'}</Text>
+          <Text style={styles.title}>Plan</Text>
+        </View>
+        <View style={styles.headerActions}>
+          {showGenerate ? <Btn label="Generate" onPress={onGenerate} /> : null}
+          <Btn label="Shopping" variant="secondary" onPress={onShopping} />
+        </View>
       </View>
+      <WeekSwitcher
+        weekStart={meals.weekStart}
+        onPrev={() => meals.shiftWeek(-1)}
+        onNext={() => meals.shiftWeek(1)}
+      />
       <OfflineBanner online={meals.online} pendingCount={meals.pendingCount} extra={meals.importBlockedReason} />
       <ErrorText message={meals.error} />
-      <ScrollView horizontal style={styles.gridWrap} contentContainerStyle={styles.grid}>
-        <View style={styles.slotCol}>
-          <View style={styles.dayHead} />
-          {meals.activeSlots.map((slot) => (
-            <Text key={slot} style={styles.slotLabel}>
-              {MEAL_SLOTS.find((s) => s.key === slot)?.label ?? slot}
-            </Text>
-          ))}
-        </View>
+      <View style={styles.days}>
         {DAYS.map((day) => {
           const iso = weekDayIso(meals.weekStart, day);
           const highlight = thisWeek && day === today;
-          const kcal = meals.activeSlots.reduce((sum, slot) => {
-            const cell = meals.slotMap.get(`${day}_${slot}`);
-            return sum + (cell?.hidden ? 0 : (cell?.calories ?? 0));
-          }, 0);
+          const { visible, addable, removed } = dayPlanSlots(meals.activeSlots, meals.slotMap, day);
+          const expanded = !removed && expandedDays.includes(day);
+          const filled = visible.filter((slot) => meals.slotMap.get(`${day}_${slot}`)?.recipeId).length;
+          const kcal = visible.reduce((sum, slot) => sum + (meals.slotMap.get(`${day}_${slot}`)?.calories ?? 0), 0);
           return (
-            <View key={day} style={[styles.dayCol, highlight && styles.dayToday]}>
-              <View style={styles.dayHead}>
-                <Text style={styles.dayName}>{DAY_LABELS[day]}</Text>
-                <Text style={styles.dayNum}>{isoDayNumber(iso)}</Text>
-                {kcal > 0 ? <Text style={styles.kcal}>{Math.round(kcal)} kcal</Text> : null}
-              </View>
-              {meals.activeSlots.map((slot) => {
-                const cell = meals.slotMap.get(`${day}_${slot}`);
-                if (cell?.hidden) {
-                  return (
-                    <Pressable key={slot} onPress={() => void meals.hideSlot(day, slot, false)} style={styles.hiddenCell}>
-                      <Text style={styles.hiddenLabel}>Hidden · show</Text>
-                    </Pressable>
-                  );
-                }
-                const filled = Boolean(cell?.recipeId);
-                return (
-                  <Pressable
-                    key={slot}
-                    onPress={() => onOpenSlot(day, slot)}
-                    style={[styles.cell, filled && styles.cellFilled]}>
-                    {filled ? (
-                      <View style={styles.cellPhoto}>
-                        <RecipePhoto
-                          uri={recipePhotoUrl(meals.recipes, cell?.recipeId)}
+            <View key={day} style={[styles.day, highlight && styles.dayToday, removed && styles.dayRemoved]}>
+              <DayPlanHeader
+                day={day}
+                dateNum={isoDayNumber(iso)}
+                highlight={highlight}
+                expanded={expanded}
+                removed={removed}
+                meta={`${filled} / ${visible.length} meals${kcal ? ` · ${Math.round(kcal).toLocaleString()} kcal` : ''}`}
+                canManage={canManage}
+                onToggle={() => onToggleDay?.(day)}
+                onRemove={() => onRemoveDay?.(day)}
+                onRestore={() => onRestoreDay?.(day)}
+              />
+              {expanded ? (
+                <View style={styles.meals}>
+                  {visible.map((slot) => {
+                    const cell = meals.slotMap.get(`${day}_${slot}`);
+                    const hasRecipe = Boolean(cell?.recipeId);
+                    const assignee = cell?.assignedPersonId ? personNames.get(cell.assignedPersonId) : null;
+                    return (
+                      <View key={slot} style={styles.mealWrap}>
+                        <PlanMealCard
+                          slot={slot}
+                          filled={hasRecipe}
+                          photoUrl={recipePhotoUrl(meals.recipes, cell?.recipeId)}
                           emoji={cell?.emoji}
-                          size="fill"
-                          radius={0}
+                          title={hasRecipe ? (cell?.recipeName ?? 'Meal') : assignee ? `${assignee} picks` : 'Add meal'}
+                          meta={
+                            assignee && hasRecipe
+                              ? `${assignee}${cell?.calories ? ` · ${cell.calories} kcal` : ''}`
+                              : cell?.calories
+                                ? `${cell.calories} kcal`
+                                : ''
+                          }
+                          photoHeight={200}
+                          onPress={() => onOpenSlot(day, slot)}
                         />
                       </View>
-                    ) : (
-                      <Text style={styles.cellEmoji}>＋</Text>
-                    )}
-                    <Text numberOfLines={2} style={styles.cellName}>
-                      {cell?.recipeName ?? 'Add'}
-                    </Text>
-                    {cell?.calories ? <Text style={styles.cellKcal}>{cell.calories} kcal</Text> : null}
-                  </Pressable>
-                );
-              })}
+                    );
+                  })}
+                  {canManage && addable.length > 0 ? (
+                    <Pressable onPress={() => onAddSlot(day)} style={styles.addSlot}>
+                      <Text style={styles.addSlotLabel}>Add slot</Text>
+                    </Pressable>
+                  ) : null}
+                  {canManage && visible.length > 0 ? (
+                    <Pressable onPress={() => onRemoveSlot(day)} style={styles.addSlot}>
+                      <Text style={styles.addSlotLabel}>Remove slot</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
           );
         })}
-      </ScrollView>
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: 48, paddingBottom: 48, gap: 14 },
+  content: { paddingHorizontal: 32, paddingBottom: 48, gap: 20 },
+  header: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16 },
+  headerCopy: { flex: 1, minWidth: 0, gap: 4 },
+  headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   kicker: { color: colors.accent, fontSize: 12, fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase' },
   title: { color: colors.text, fontSize: 40, fontWeight: '700' },
-  toolbar: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
-  week: { color: colors.text, fontWeight: '700', minWidth: 200, flexGrow: 1 },
-  gridWrap: { marginHorizontal: -8 },
-  grid: { flexDirection: 'row', gap: 8, paddingRight: 16, alignItems: 'flex-start' },
-  slotCol: { width: 100, gap: 8 },
-  slotLabel: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '700',
-    height: 132,
-    paddingTop: 56,
-  },
-  dayCol: {
-    width: 148,
-    gap: 8,
+  days: { gap: 28, width: '100%' },
+  day: {
     backgroundColor: colors.bgCard,
     borderRadius: radius.lg,
-    padding: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  dayToday: { borderColor: colors.accent },
-  dayHead: { minHeight: 64, gap: 2, paddingBottom: 4 },
-  dayName: { color: colors.text, fontWeight: '700' },
-  dayNum: { color: colors.textMuted, fontSize: 12 },
-  kcal: { color: colors.accent, fontSize: 11, fontWeight: '700' },
-  cell: {
-    minHeight: 132,
-    backgroundColor: colors.bgElevated,
-    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
     overflow: 'hidden',
-    paddingBottom: 8,
-    gap: 4,
   },
-  cellFilled: { borderColor: colors.accent },
-  cellPhoto: { height: 72, width: '100%' },
-  cellEmoji: { fontSize: 18, paddingHorizontal: 8, paddingTop: 8 },
-  cellName: { color: colors.text, fontSize: 13, fontWeight: '600', paddingHorizontal: 8 },
-  cellKcal: { color: colors.textDim, fontSize: 11, paddingHorizontal: 8 },
-  hiddenCell: {
-    minHeight: 100,
-    borderRadius: radius.md,
+  dayToday: { borderColor: colors.accent },
+  dayRemoved: { opacity: 0.72 },
+  meals: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, padding: space.md, paddingTop: 4 },
+  mealWrap: { flexGrow: 1, flexBasis: 240, minWidth: 220, maxWidth: 420 },
+  addSlot: {
+    flexGrow: 1,
+    flexBasis: 180,
+    minWidth: 160,
+    minHeight: 200,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 8,
   },
-  hiddenLabel: { color: colors.textDim, fontSize: 12 },
+  addSlotLabel: { color: colors.accent, fontSize: 14, fontWeight: '700' },
 });

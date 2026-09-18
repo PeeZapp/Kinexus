@@ -99,6 +99,32 @@ describe('recipesForSlot eligibility', () => {
     expect(pool.map((r) => r.id)).toEqual(['b1']);
   });
 
+  it('never picks recipes marked not for the family', () => {
+    const hidden = recipe({
+      id: 'h1',
+      name: 'Liver stew',
+      excludedFromAuto: true,
+      mealSlots: ['breakfast'],
+      calories: 400,
+      protein: 20,
+    });
+    const pool = recipesForSlot([breakfast, hidden], 'breakfast');
+    expect(pool.map((r) => r.id)).toEqual(['b1']);
+  });
+
+  it('never picks catalog-removed recipes', () => {
+    const gone = recipe({
+      id: 'r1',
+      name: 'Bad dump',
+      removed: true,
+      mealSlots: ['breakfast'],
+      calories: 300,
+      protein: 10,
+    });
+    const pool = recipesForSlot([breakfast, gone], 'breakfast');
+    expect(pool.map((r) => r.id)).toEqual(['b1']);
+  });
+
   it('treats snack slots as interchangeable', () => {
     const pool = recipesForSlot([morningSnack, dinner], 'afternoon_snack');
     expect(pool.map((r) => r.id)).toEqual(['s1']);
@@ -145,5 +171,25 @@ describe('generateMealPlan', () => {
     expect(plan.some((s) => s.day === 'monday' && s.slot === 'dinner')).toBe(false);
     expect(plan.length).toBe(6);
     expect(plan.every((s) => s.recipe.id === 'ok')).toBe(true);
+  });
+
+  it('only fills the days still on the plan', () => {
+    const library: Recipe[] = [
+      recipe({
+        id: 'ok',
+        name: 'OK dinner',
+        mealSlots: ['dinner'],
+        calories: 660,
+        protein: 38,
+        ingredients: [{ name: 'chicken' }],
+      }),
+    ];
+
+    const plan = generateMealPlan(['dinner'], new Set(), library, GOALS, {
+      random: () => 0,
+      days: ['monday', 'wednesday'],
+    });
+
+    expect(plan.map((row) => row.day)).toEqual(['monday', 'wednesday']);
   });
 });

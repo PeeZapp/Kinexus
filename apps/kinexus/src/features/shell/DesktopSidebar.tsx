@@ -1,4 +1,5 @@
 import { Link, usePathname } from 'expo-router';
+import type { Href } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ModuleGlyph } from '@/src/features/shell/ModuleGlyph';
@@ -22,7 +23,7 @@ export function DesktopSidebar() {
         </View>
         <View>
           <Text style={styles.wordmark}>Kinexus</Text>
-          <Text style={styles.tagline}>Meals · Stash · Nutrition · Train</Text>
+          <Text style={styles.tagline}>Meals · Lists · Money · Nutrition · Train</Text>
         </View>
       </View>
 
@@ -32,9 +33,9 @@ export function DesktopSidebar() {
           return (
             <Link
               key={mod.key}
-              href={mod.href}
+              href={mod.href as Href}
               style={StyleSheet.flatten([styles.navItem, active && styles.navItemActive])}>
-              <ModuleGlyph short={mod.short} active={active} />
+              <ModuleGlyph name={mod.key} active={active} size={22} />
               <Text style={StyleSheet.flatten([styles.navLabel, active && styles.navLabelActive])}>{mod.label}</Text>
             </Link>
           );
@@ -42,7 +43,7 @@ export function DesktopSidebar() {
         <Link
           href={SETTINGS_HREF}
           style={StyleSheet.flatten([styles.navItem, settingsActive && styles.navItemActive])}>
-          <ModuleGlyph short="SE" active={settingsActive} />
+          <ModuleGlyph name="settings" active={settingsActive} size={22} />
           <Text style={StyleSheet.flatten([styles.navLabel, settingsActive && styles.navLabelActive])}>
             Settings
           </Text>

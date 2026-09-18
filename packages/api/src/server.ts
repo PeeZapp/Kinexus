@@ -5,7 +5,7 @@ import { config } from 'dotenv';
 import { serve } from '@hono/node-server';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
-config({ path: resolve(here, '../.env') });
+config({ path: resolve(here, '../.env') }); // packages/api/.env
 config({ path: resolve(here, '../../../.env') });
 
 const { app } = await import('./app.js');

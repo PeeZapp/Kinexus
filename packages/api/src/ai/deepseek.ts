@@ -25,8 +25,8 @@ export class DeepSeekClient implements AiClient {
       body: JSON.stringify({
         model,
         messages,
-        max_tokens: 4096,
         ...(input.json ? { response_format: { type: 'json_object' } } : {}),
+        ...(input.maxTokens ? { max_tokens: input.maxTokens } : { max_tokens: 4096 }),
       }),
     });
 

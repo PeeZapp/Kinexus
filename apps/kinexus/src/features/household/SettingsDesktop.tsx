@@ -4,6 +4,7 @@ import {
   CreateJoinPanel,
   HouseholdSwitcher,
   InvitePanel,
+  LocationPanel,
   MembersList,
   PeoplePanel,
 } from '@/src/features/household/sections';
@@ -53,6 +54,7 @@ export function SettingsDesktop() {
       <View style={styles.grid}>
         <View style={styles.col}>
           <HouseholdSwitcher />
+          <LocationPanel />
           <InvitePanel />
         </View>
         <View style={styles.col}>

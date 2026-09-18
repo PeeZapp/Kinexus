@@ -38,7 +38,7 @@ function isPrivateHost(hostname: string): boolean {
   return false;
 }
 
-async function fetchPublicHtml(url: string): Promise<Response> {
+export async function fetchPublicHtml(url: string): Promise<Response> {
   let current = url;
   for (let hop = 0; hop < 4; hop += 1) {
     assertPublicHttpUrl(current);
@@ -58,7 +58,7 @@ async function fetchPublicHtml(url: string): Promise<Response> {
   throw new Error('Too many redirects');
 }
 
-function decodeEntities(html: string): string {
+export function decodeEntities(html: string): string {
   return html
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')

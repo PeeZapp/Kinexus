@@ -6,7 +6,7 @@ import { Field } from '@/src/features/household/ui';
 import { Chip } from '@/src/features/meals/meals-kit';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
-import { GOAL_PRESETS } from './presets';
+import { GOAL_PRESETS, goalsMatch } from './presets';
 
 export function SlotPicker({
   selected,
@@ -60,7 +60,12 @@ export function GoalsEditor({
       <Text style={styles.hint}>Used by generate-plan. This is not a food log.</Text>
       <View style={styles.row}>
         {GOAL_PRESETS.map((preset) => (
-          <Chip key={preset.id} label={preset.name} onPress={() => onChange(preset.goals)} />
+          <Chip
+            key={preset.id}
+            label={preset.name}
+            active={goalsMatch(goals, preset.goals)}
+            onPress={() => onChange(preset.goals)}
+          />
         ))}
       </View>
       <View style={desktop ? styles.goalGrid : styles.goalStack}>
@@ -151,3 +156,4 @@ function desktopMin() {
   return 200;
 }
 void space;
+

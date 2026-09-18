@@ -1,5 +1,6 @@
 import { Link, usePathname } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import type { Href } from 'expo-router';
+import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ModuleGlyph } from '@/src/features/shell/ModuleGlyph';
@@ -18,12 +19,12 @@ export function MobileTabBar() {
         return (
           <Link
             key={mod.key}
-            href={mod.href}
+            href={mod.href as Href}
             style={styles.tab}
             accessibilityRole="button"
+            accessibilityLabel={mod.label}
             accessibilityState={{ selected: active }}>
-            <ModuleGlyph short={mod.short} active={active} size={30} />
-            <Text style={StyleSheet.flatten([styles.label, active && styles.labelActive])}>{mod.label}</Text>
+            <ModuleGlyph name={mod.key} active={active} size={30} />
           </Link>
         );
       })}
@@ -31,9 +32,9 @@ export function MobileTabBar() {
         href={SETTINGS_HREF}
         style={styles.tab}
         accessibilityRole="button"
+        accessibilityLabel="More"
         accessibilityState={{ selected: moreActive }}>
-        <ModuleGlyph short="MO" active={moreActive} size={30} />
-        <Text style={StyleSheet.flatten([styles.label, moreActive && styles.labelActive])}>More</Text>
+        <ModuleGlyph name="settings" active={moreActive} size={30} />
       </Link>
     </View>
   );
@@ -51,15 +52,7 @@ const styles = StyleSheet.create({
   tab: {
     flex: 1,
     alignItems: 'center',
-    gap: 4,
+    justifyContent: 'center',
     minHeight: 48,
-  },
-  label: {
-    color: colors.textDim,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  labelActive: {
-    color: colors.accent,
   },
 });

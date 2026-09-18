@@ -48,6 +48,18 @@ function mapSupabaseUser(user: User): AuthUser {
   };
 }
 
+function sameAuthUser(a: AuthUser | null, b: AuthUser | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.id === b.id &&
+    a.email === b.email &&
+    a.displayName === b.displayName &&
+    a.avatarUrl === b.avatarUrl &&
+    a.isDevBypass === b.isDevBypass
+  );
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isReady, setIsReady] = useState(!isSupabaseConfigured);
@@ -63,16 +75,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(({ data }) => {
       if (cancelled) return;
       const sessionUser = data.session?.user;
-      setUser(sessionUser ? mapSupabaseUser(sessionUser) : null);
+      setUser((prev) => {
+        if (!sessionUser) return null;
+        const next = mapSupabaseUser(sessionUser);
+        return sameAuthUser(prev, next) ? prev : next;
+      });
       setIsReady(true);
     });
 
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
       // Defer so we do not deadlock with getSession inside the GoTrue client.
       setTimeout(() => {
         if (cancelled) return;
+        if (event === 'SIGNED_OUT') {
+          setUser(null);
+          return;
+        }
         const sessionUser = session?.user;
-        setUser(sessionUser ? mapSupabaseUser(sessionUser) : null);
+        if (!sessionUser) return;
+        setUser((prev) => {
+          const next = mapSupabaseUser(sessionUser);
+          return sameAuthUser(prev, next) ? prev : next;
+        });
       }, 0);
     });
 

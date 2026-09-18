@@ -2,12 +2,17 @@ import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import { LogBox, Platform } from 'react-native';
 import 'react-native-reanimated';
 
 import { AuthProvider } from '@/src/lib/auth';
 import { ExperienceProvider } from '@/src/lib/experience-mode';
 import { HouseholdProvider } from '@/src/lib/household';
 import { QueryProvider } from '@/src/lib/query';
+
+if (Platform.OS === 'web') {
+  LogBox.ignoreLogs(['Cannot redefine property: ethereum']);
+}
 
 export { ErrorBoundary } from 'expo-router';
 

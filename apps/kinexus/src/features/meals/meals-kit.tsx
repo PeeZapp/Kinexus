@@ -23,11 +23,13 @@ export function Sheet({
   title,
   onClose,
   children,
+  wide,
 }: {
   visible: boolean;
   title: string;
   onClose: () => void;
   children: ReactNode;
+  wide?: boolean;
 }) {
   const { mode } = useExperienceMode();
   const desktop = mode === 'desktop';
@@ -36,7 +38,7 @@ export function Sheet({
       <Pressable style={styles.sheetBackdrop} onPress={onClose}>
         <Pressable
           onPress={() => undefined}
-          style={[styles.sheetCard, desktop ? styles.sheetDesktop : styles.sheetMobile]}>
+          style={[styles.sheetCard, desktop ? styles.sheetDesktop : styles.sheetMobile, wide && styles.sheetWide]}>
           <View style={styles.sheetHead}>
             <Text style={styles.sheetTitle}>{title}</Text>
             <Pressable onPress={onClose} hitSlop={8}>
@@ -109,6 +111,9 @@ const styles = StyleSheet.create({
   sheetMobile: {
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
+  },
+  sheetWide: {
+    maxWidth: 760,
   },
   sheetHead: {
     flexDirection: 'row',

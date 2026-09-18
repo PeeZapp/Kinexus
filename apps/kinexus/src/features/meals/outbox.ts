@@ -16,7 +16,7 @@ export type SlotOutboxOp = {
   weekStart: string;
   day: Day;
   slotKey: MealSlotKey;
-  kind: 'assign' | 'clear' | 'hide';
+  kind: 'assign' | 'clear' | 'hide' | 'allocate';
   recipeId?: string | null;
   recipeName?: string | null;
   emoji?: string | null;
@@ -26,6 +26,7 @@ export type SlotOutboxOp = {
   fat?: number | null;
   cookTime?: number | null;
   hidden?: boolean;
+  assignedPersonId?: string | null;
   clientUpdatedAt: string;
 };
 

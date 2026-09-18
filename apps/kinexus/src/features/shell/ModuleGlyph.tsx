@@ -1,39 +1,76 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Image, Platform, StyleSheet, View, type ImageSourcePropType } from 'react-native';
 
-import { colors, radius } from '@/src/features/shell/theme';
+import type { ModuleKey } from '@/src/features/shell/modules';
+import { colors } from '@/src/features/shell/theme';
+
+export type ModuleGlyphName = ModuleKey | 'settings';
+
+const ICONS: Record<ModuleGlyphName, ImageSourcePropType> = {
+  meals: require('../../../assets/images/nav/nav-meals.png'),
+  lists: require('../../../assets/images/nav/nav-lists.png'),
+  finances: require('../../../assets/images/nav/nav-money.png'),
+  nutrition: require('../../../assets/images/nav/nav-nutrition.png'),
+  train: require('../../../assets/images/nav/nav-train.png'),
+  settings: require('../../../assets/images/nav/nav-more.png'),
+};
 
 type Props = {
-  short: string;
+  name: ModuleGlyphName;
   active?: boolean;
   size?: number;
 };
 
-export function ModuleGlyph({ short, active = false, size = 28 }: Props) {
+function assetUri(source: ImageSourcePropType): string | undefined {
+  if (typeof source === 'string') return source;
+  if (source && typeof source === 'object' && 'uri' in source && typeof source.uri === 'string') {
+    return source.uri;
+  }
+  return Image.resolveAssetSource(source)?.uri;
+}
+
+export function ModuleGlyph({ name, active = false, size = 28 }: Props) {
+  const color = active ? colors.accent : colors.textMuted;
+  const source = ICONS[name];
+
+  if (Platform.OS === 'web') {
+    const uri = assetUri(source);
+    return (
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[
+          styles.icon,
+          {
+            width: size,
+            height: size,
+            backgroundColor: color,
+          },
+          uri
+            ? ({
+                maskImage: `url("${uri}")`,
+                maskRepeat: 'no-repeat',
+                maskPosition: 'center',
+                maskSize: 'contain',
+              } as object)
+            : null,
+        ]}
+      />
+    );
+  }
+
   return (
-    <View
-      style={[
-        styles.glyph,
-        {
-          width: size,
-          height: size,
-          borderRadius: Math.max(radius.sm, size / 3.4),
-          backgroundColor: active ? colors.accentSoft : colors.bgHover,
-        },
-      ]}>
-      <Text style={[styles.label, { color: active ? colors.accent : colors.textMuted, fontSize: size * 0.36 }]}>
-        {short}
-      </Text>
-    </View>
+    <Image
+      source={source}
+      resizeMode="contain"
+      accessibilityIgnoresInvertColors
+      tintColor={color}
+      style={[styles.icon, { width: size, height: size }]}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  glyph: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  label: {
-    fontWeight: '700',
-    letterSpacing: 0.4,
+  icon: {
+    flexShrink: 0,
   },
 });

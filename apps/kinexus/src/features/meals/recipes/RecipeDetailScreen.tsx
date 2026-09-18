@@ -1,30 +1,60 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { type ReactNode, useEffect, useState } from 'react';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View, type TextStyle } from 'react-native';
+import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 
-import { MEAL_SLOTS } from '@kinexus/domain';
+import { formatCostPerServe, formatCostSource, formatDishCost, formatMoney, MEAL_SLOTS } from '@kinexus/domain';
 
 import { Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
-import { CatalogPhotoEditor } from '@/src/features/meals/recipes/CatalogPhotoEditor';
+import { recipeParam } from '@/src/features/meals/recipe-href';
+import { CatalogRemoveEditor } from '@/src/features/meals/recipes/CatalogRemoveEditor';
+import { printRecipe } from '@/src/features/meals/recipes/print-recipe';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
-import { useMealsSync } from '@/src/features/meals/use-meals-sync';
+import { fetchRecipeById, useMealsSync } from '@/src/features/meals/use-meals-sync';
+import { LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 
 export function RecipeDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id } = useLocalSearchParams<{ id: string | string[] }>();
+  const recipeId = recipeParam(id);
   const router = useRouter();
   const { mode } = useExperienceMode();
   const desktop = mode === 'desktop';
   const meals = useMealsSync();
-  const recipe = meals.recipes.find((r) => r.id === id);
+  const listed = recipeId ? meals.recipes.find((r) => r.id === recipeId) : undefined;
+  const detailQuery = useQuery({
+    queryKey: ['meals', 'recipe', recipeId, meals.market.country, meals.market.currency],
+    enabled: Boolean(recipeId && !listed),
+    queryFn: () => fetchRecipeById(recipeId!, meals.market.country, meals.market.currency),
+  });
+  const recipeRaw = listed ?? detailQuery.data ?? null;
+  const recipe = recipeRaw
+    ? {
+        ...recipeRaw,
+        excludedFromAuto: Boolean(recipeRaw.excludedFromAuto) || meals.hiddenRecipeIds.has(recipeRaw.id),
+      }
+    : null;
   const fav = recipe ? meals.favouriteIds.has(recipe.id) : false;
   const householdOwned = Boolean(recipe?.householdId && recipe.householdId === meals.householdId);
   const [notes, setNotes] = useState(recipe?.notes ?? '');
   const [error, setError] = useState<string | null>(null);
+  const [printing, setPrinting] = useState(false);
 
-  if (!recipe) {
+  useEffect(() => {
+    setNotes(recipe?.notes ?? '');
+  }, [recipe?.id, recipe?.notes]);
+
+  if (!recipe && (meals.isLoading || detailQuery.isLoading)) {
+    return (
+      <View style={[styles.root, desktop && styles.rootDesktop]}>
+        <LoadingState label="Loading recipe…" />
+      </View>
+    );
+  }
+
+  if (!recipeId || !recipe) {
     return (
       <View style={[styles.root, desktop && styles.rootDesktop]}>
         <Text style={styles.title}>Recipe not found</Text>
@@ -42,15 +72,18 @@ export function RecipeDetailScreen() {
         <RecipePhoto uri={recipe.imageUrl} emoji={recipe.emoji} size="fill" radius={0} />
       </View>
       {meals.isCatalogEditor && !recipe.householdId ? (
-        <CatalogPhotoEditor
+        <CatalogRemoveEditor
           recipe={recipe}
           online={meals.online}
-          onReview={(action, imageUrl) => meals.reviewCatalogImage(recipe.id, action, imageUrl)}
+          onReview={(action) => meals.reviewCatalogRecipe(recipe.id, action)}
         />
       ) : null}
-      <Text style={[styles.title, desktop && styles.titleDesktop]}>{recipe.name}</Text>
+      <Text style={[styles.title, desktop && styles.titleDesktop]}>
+        {recipe.name}
+      </Text>
       <Text style={styles.meta}>
         {recipe.cuisine ?? 'Recipe'} · {recipe.cookTime ?? '—'} min · {recipe.servings ?? '—'} servings
+        {formatCostPerServe(recipe.cost) ? ` · ${formatCostPerServe(recipe.cost)}` : ''}
       </Text>
       <View style={styles.macros}>
         <Macro label="kcal" value={recipe.calories} />
@@ -58,12 +91,54 @@ export function RecipeDetailScreen() {
         <Macro label="carbs" value={recipe.carbs} suffix="g" />
         <Macro label="fat" value={recipe.fat} suffix="g" />
       </View>
+      <Card>
+        <Text style={styles.heading}>Approx. cost</Text>
+        {recipe.cost ? (
+          <>
+            <Text style={styles.costHero}>{formatCostPerServe(recipe.cost)}</Text>
+            <Text style={styles.meta}>
+              {formatDishCost(recipe.cost)} for {recipe.cost.servingsBasis} servings
+            </Text>
+            {recipe.cost.coveredIngredients != null && recipe.cost.totalIngredients != null ? (
+              <Text style={styles.meta}>
+                {recipe.cost.coveredIngredients} of {recipe.cost.totalIngredients} ingredients priced
+              </Text>
+            ) : null}
+            <Text style={styles.hiddenHint}>{formatCostSource(recipe.cost)}</Text>
+          </>
+        ) : (
+          <Text style={styles.hiddenHint}>
+            Typical {meals.market.stores.join(' and ')} prices when ingredients can be matched.
+          </Text>
+        )}
+      </Card>
       <View style={styles.row}>
+        <Btn
+          label={printing ? 'Preparing print…' : 'Print'}
+          variant="secondary"
+          busy={printing}
+          onPress={() => {
+            setPrinting(true);
+            void printRecipe(recipe)
+              .catch((err) => setError(err instanceof Error ? err.message : 'Print failed'))
+              .finally(() => setPrinting(false));
+          }}
+        />
         <Btn
           label={fav ? 'Favourited' : 'Favourite'}
           variant={fav ? 'secondary' : 'primary'}
           disabled={!meals.online}
           onPress={() => void meals.toggleFavourite(recipe.id).catch((err) => setError(err instanceof Error ? err.message : 'Favourite failed'))}
+        />
+        <Btn
+          label={recipe.excludedFromAuto ? 'Include for my family' : 'Not for my family'}
+          variant={recipe.excludedFromAuto ? 'secondary' : 'ghost'}
+          disabled={!meals.online}
+          onPress={() =>
+            void meals.toggleNotForFamily(recipe.id).catch((err) =>
+              setError(err instanceof Error ? err.message : 'Could not update recipe'),
+            )
+          }
         />
         {householdOwned ? (
           <Btn
@@ -76,36 +151,64 @@ export function RecipeDetailScreen() {
           />
         ) : null}
       </View>
-      <ErrorText message={error} />
+      <Text style={styles.hiddenHint}>
+        {recipe.excludedFromAuto
+          ? 'Hidden from plans and recommendations for this household.'
+          : 'Mark not for my family to keep it in the library but skip it on plans and suggestions.'}
+      </Text>
+      <ErrorText message={error ?? detailQuery.error?.message ?? null} />
       <Card>
         <Text style={styles.heading}>Slots</Text>
-        <Text style={styles.body}>
+        <BodyText>
           {(recipe.mealSlots ?? []).map((s) => MEAL_SLOTS.find((x) => x.key === s)?.label ?? s).join(' · ') || 'Dinner'}
-        </Text>
+        </BodyText>
       </Card>
       <View style={desktop ? styles.cols : styles.stack}>
-        <Card>
-          <Text style={styles.heading}>Ingredients</Text>
-          {(recipe.ingredients ?? []).map((ing, idx) => (
-            <Text key={`${ing.name}-${idx}`} style={styles.body}>
-              {ing.amount ? `${ing.amount} ` : ''}
-              {ing.name}
-            </Text>
-          ))}
-        </Card>
-        <Card>
-          <Text style={styles.heading}>Method</Text>
-          {(recipe.method ?? []).map((step, idx) => (
-            <Text key={idx} style={styles.body}>
-              {idx + 1}. {step}
-            </Text>
-          ))}
-        </Card>
+        <View style={desktop ? styles.col : styles.stackCol}>
+          <Card>
+            <Text style={styles.heading}>Ingredients</Text>
+            {(recipe.ingredients ?? []).length === 0 ? (
+              <BodyText>No ingredients listed.</BodyText>
+            ) : (
+              (recipe.ingredients ?? []).map((ing, idx) => {
+                const line = recipe.cost?.breakdown.find(
+                  (item) => item.name.trim().toLowerCase() === ing.name.trim().toLowerCase(),
+                );
+                return (
+                  <View key={`${ing.name}-${idx}`} style={styles.ingRow}>
+                    <Text style={[styles.body, wrapText, styles.ingName]}>
+                      {ing.amount ? `${ing.amount} ` : ''}
+                      {ing.name}
+                    </Text>
+                    {line ? (
+                      <Text style={styles.ingCost}>{formatMoney(line.lineCost, recipe.cost?.currency)}</Text>
+                    ) : null}
+                  </View>
+                );
+              })
+            )}
+          </Card>
+        </View>
+        <View style={desktop ? styles.col : styles.stackCol}>
+          <Card>
+            <Text style={styles.heading}>Method</Text>
+            {(recipe.method ?? []).length === 0 ? (
+              <BodyText>No method listed.</BodyText>
+            ) : (
+              (recipe.method ?? []).map((step, idx) => (
+                <View key={idx} style={styles.step}>
+                  <Text style={styles.stepNum}>{idx + 1}.</Text>
+                  <Text style={[styles.stepText, wrapText]}>{step}</Text>
+                </View>
+              ))
+            )}
+          </Card>
+        </View>
       </View>
       {recipe.chefTip ? (
         <Card>
           <Text style={styles.heading}>Chef tip</Text>
-          <Text style={styles.body}>{recipe.chefTip}</Text>
+          <BodyText>{recipe.chefTip}</BodyText>
         </Card>
       ) : null}
       {householdOwned ? (
@@ -117,17 +220,11 @@ export function RecipeDetailScreen() {
             disabled={!meals.online}
             onPress={() => void meals.updateHouseholdRecipe(recipe.id, { notes })}
           />
-          <Btn
-            label={recipe.excludedFromAuto ? 'Include in auto-generate' : 'Exclude from auto-generate'}
-            variant="ghost"
-            disabled={!meals.online}
-            onPress={() => void meals.updateHouseholdRecipe(recipe.id, { excludedFromAuto: !recipe.excludedFromAuto })}
-          />
         </Card>
       ) : recipe.notes ? (
         <Card>
           <Text style={styles.heading}>Notes</Text>
-          <Text style={styles.body}>{recipe.notes}</Text>
+          <BodyText>{recipe.notes}</BodyText>
         </Card>
       ) : null}
     </ScrollView>
@@ -146,17 +243,39 @@ function Macro({ label, value, suffix }: { label: string; value?: number; suffix
   );
 }
 
+function BodyText({ children }: { children: ReactNode }) {
+  return (
+    <View style={styles.bodyWrap}>
+      <Text style={[styles.body, wrapText]}>{children}</Text>
+    </View>
+  );
+}
+
+const wrapText = (
+  Platform.OS === 'web'
+    ? {
+        whiteSpace: 'pre-wrap',
+        overflowWrap: 'anywhere',
+        wordBreak: 'break-word',
+      }
+    : undefined
+) as TextStyle | undefined;
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   rootDesktop: { padding: 48 },
   content: { padding: space.md, gap: 12, paddingBottom: 48 },
-  contentDesktop: { paddingHorizontal: 48, maxWidth: 980 },
+  contentDesktop: { paddingHorizontal: 48, maxWidth: 980, width: '100%', alignSelf: 'center' },
   back: { color: colors.accent, fontWeight: '700' },
   hero: { height: 220, borderRadius: radius.lg, overflow: 'hidden' },
   heroDesktop: { height: 320 },
   title: { color: colors.text, fontSize: 28, fontWeight: '700' },
   titleDesktop: { fontSize: 40 },
   meta: { color: colors.textMuted },
+  costHero: { color: colors.text, fontSize: 22, fontWeight: '800' },
+  ingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
+  ingName: { flex: 1, minWidth: 0 },
+  ingCost: { color: colors.textMuted, fontSize: 13, fontWeight: '700', flexShrink: 0 },
   macros: { flexDirection: 'row', gap: 8 },
   macro: {
     flex: 1,
@@ -169,8 +288,34 @@ const styles = StyleSheet.create({
   macroVal: { color: colors.text, fontWeight: '800', fontSize: 16 },
   macroLabel: { color: colors.textDim, fontSize: 11, textTransform: 'uppercase' },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  hiddenHint: { color: colors.textMuted, fontSize: 13, lineHeight: 19, marginTop: -4 },
   heading: { color: colors.text, fontSize: 18, fontWeight: '700' },
-  body: { color: colors.textMuted, fontSize: 14, lineHeight: 21 },
-  cols: { flexDirection: 'row', gap: 16, alignItems: 'flex-start' },
-  stack: { gap: 12 },
+  bodyWrap: { width: '100%', minWidth: 0, flexShrink: 1 },
+  body: { color: colors.textMuted, fontSize: 14, lineHeight: 21, flexShrink: 1 },
+  step: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    width: '100%',
+    minWidth: 0,
+  },
+  stepNum: {
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 21,
+    minWidth: 22,
+    flexShrink: 0,
+  },
+  stepText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 21,
+    flex: 1,
+    minWidth: 0,
+    flexShrink: 1,
+  },
+  cols: { flexDirection: 'row', gap: 16, alignItems: 'flex-start', width: '100%', minWidth: 0 },
+  col: { flex: 1, minWidth: 0, maxWidth: '100%' },
+  stack: { gap: 12, width: '100%' },
+  stackCol: { width: '100%', minWidth: 0 },
 });

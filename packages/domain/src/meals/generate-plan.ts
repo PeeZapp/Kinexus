@@ -37,6 +37,32 @@ export const ALL_MEAL_SLOTS: readonly MealSlotKey[] = [
   'dessert',
 ];
 
+export type RecipeProteinKind = 'chicken' | 'beef' | 'pork' | 'seafood' | 'plant' | 'egg' | 'turkey' | 'other';
+
+export const PROTEIN_KINDS: readonly { id: RecipeProteinKind; label: string }[] = [
+  { id: 'chicken', label: 'Chicken' },
+  { id: 'beef', label: 'Beef' },
+  { id: 'pork', label: 'Pork' },
+  { id: 'seafood', label: 'Seafood' },
+  { id: 'plant', label: 'Plant' },
+  { id: 'egg', label: 'Egg' },
+  { id: 'turkey', label: 'Turkey' },
+  { id: 'other', label: 'Other' },
+];
+
+export function recipeProteinKind(recipe: Recipe): RecipeProteinKind {
+  const names = (recipe.ingredients ?? []).map((i) => normalizeIngredientName(i.name || ''));
+  const has = (terms: string[]) => names.some((n) => terms.some((t) => n.includes(t)));
+  if (has(['chicken'])) return 'chicken';
+  if (has(['beef', 'steak', 'mince'])) return 'beef';
+  if (has(['pork', 'bacon', 'ham'])) return 'pork';
+  if (has(['salmon', 'tuna', 'fish', 'prawn', 'shrimp'])) return 'seafood';
+  if (has(['tofu', 'tempeh', 'lentil', 'bean', 'chickpea'])) return 'plant';
+  if (has(['egg'])) return 'egg';
+  if (has(['turkey'])) return 'turkey';
+  return 'other';
+}
+
 function recipeMatchesSlot(recipe: Recipe, slot: MealSlotKey): boolean {
   const rs = recipe.mealSlots ?? [];
   if (rs.includes(slot)) return true;
@@ -47,15 +73,18 @@ function recipeMatchesSlot(recipe: Recipe, slot: MealSlotKey): boolean {
   ) {
     return true;
   }
+  // Lunch dishes are usually dinner-sized; dinner slots can use them.
+  if (slot === 'dinner' && rs.includes('lunch')) return true;
   return false;
 }
 
 /**
  * Recipes that can fill a slot (falls back to the full eligible library if nothing matches).
- * Base recipes (`isComponent`) and `excludedFromAuto` recipes are never picked.
+ * Base recipes (`isComponent`), household "not for my family" (`excludedFromAuto`),
+ * and catalog-removed recipes are never picked.
  */
 export function recipesForSlot(recipes: readonly Recipe[], slot: MealSlotKey): Recipe[] {
-  const eligible = recipes.filter((r) => !r.isComponent && !r.excludedFromAuto);
+  const eligible = recipes.filter((r) => !r.isComponent && !r.excludedFromAuto && !r.removed);
   const matched = eligible.filter((r) => recipeMatchesSlot(r, slot));
   return matched.length > 0 ? matched : [...eligible];
 }
@@ -142,22 +171,15 @@ function recipeIngredientSet(recipe: Recipe): Set<string> {
   );
 }
 
-function dominantProtein(recipe: Recipe): string {
-  const names = (recipe.ingredients ?? []).map((i) => normalizeIngredientName(i.name || ''));
-  const has = (terms: string[]) => names.some((n) => terms.some((t) => n.includes(t)));
-  if (has(['chicken'])) return 'chicken';
-  if (has(['beef', 'steak', 'mince'])) return 'beef';
-  if (has(['pork', 'bacon', 'ham'])) return 'pork';
-  if (has(['salmon', 'tuna', 'fish', 'prawn', 'shrimp'])) return 'seafood';
-  if (has(['tofu', 'tempeh', 'lentil', 'bean', 'chickpea'])) return 'plant';
-  if (has(['egg'])) return 'egg';
-  if (has(['turkey'])) return 'turkey';
-  return 'other';
+function dominantProtein(recipe: Recipe): RecipeProteinKind {
+  return recipeProteinKind(recipe);
 }
 
 export type GenerateMealPlanOptions = {
   /** Injected for tests. Defaults to `Math.random`. */
   random?: () => number;
+  /** Days to fill. Defaults to the full week. */
+  days?: readonly Day[];
 };
 
 export function generateMealPlan(
@@ -182,7 +204,10 @@ export function generateMealPlan(
   const PROTEIN_HARD_CAP = 3;
   const CUISINE_HARD_CAP = 3;
 
-  for (const day of DAYS) {
+  const allowedDays = options?.days ? new Set(options.days) : null;
+  const days = allowedDays ? DAYS.filter((day) => allowedDays.has(day)) : DAYS;
+
+  for (const day of days) {
     for (const slot of selectedSlots) {
       const key = `${day}_${slot}`;
       if (existingSlotKeys.has(key)) continue;

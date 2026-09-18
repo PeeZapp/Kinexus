@@ -1,26 +1,23 @@
 # Kinexus
 
-Unified lifestyle suite (Meals · Stash · Nutrition · Train) — **App Store + web**, one Expo binary, Supabase-backed.
+Unified lifestyle suite (Meals · Lists · Money · Nutrition · Train) — **App Store + web**, one Expo binary, Supabase-backed.
 
-Meals is the live v1 module. Stash, Nutrition, and Train are intentional placeholders. There is no monetization, ads, or notifications.
+Meals, Lists, and Money are the live v1 modules. Nutrition and Train are intentional placeholders. There is no monetization, ads, or notifications.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  apps/kinexus (Expo Router — iOS, Android, web)             │
-│  ┌──────────┐ ┌──────────┐ ┌────────────┐ ┌──────────────┐ │
-│  │  Meals   │ │  Stash   │ │ Nutrition  │ │    Train     │ │
-│  │  (full)  │ │ (shell)  │ │  (shell)   │ │   (shell)    │ │
-│  └────┬─────┘ └────┬─────┘ └─────┬──────┘ └──────┬───────┘ │
-│       │  desktop sidebar vs mobile tabs (`useExperienceMode`) │
-└───────┼─────────────────────────────────────────────────────┘
+│  Meals · Lists · Money (live)  ·  Nutrition · Train (shells)│
+│  desktop sidebar vs mobile tabs (`useExperienceMode`)       │
+└───────────────────────────┬─────────────────────────────────┘
         │  TanStack Query + Supabase JS (anon key only)
         ▼
 ┌───────────────────┐     ┌──────────────────────────────────┐
 │  Supabase         │     │  packages/api (Hono)             │
-│  Auth (Google)    │     │  JWT → /health /scrape /ai       │
-│  Postgres + RLS   │     │  Anthropic | DeepSeek via env    │
+│  Auth (Google)    │     │  JWT → /health /scrape /ai /quotes │
+│  Postgres + RLS   │     │  /prices · Anthropic | DeepSeek  │
 │  Realtime         │     │  Local :5301 · Vercel /api/*     │
 └───────────────────┘     └──────────────────────────────────┘
 ```
@@ -28,11 +25,11 @@ Meals is the live v1 module. Stash, Nutrition, and Train are intentional placeho
 | Path | Role |
 |------|------|
 | `apps/kinexus` | Expo Router app |
-| `packages/domain` | Pure TS meals + household logic |
+| `packages/domain` | Pure TS meals, lists, finances, and household logic |
 | `packages/db` | SQL migrations |
-| `packages/api` | Server-only scrape + AI |
+| `packages/api` | Server-only scrape, AI import, and recipe pricing |
 
-Web is a **static export** hosted on Vercel. Scrape/AI run as Node serverless functions next to that export (`/api/health`, `/api/scrape`, `/api/ai`), also rewritten from `/health`, `/scrape`, `/ai` so local and production clients share the same paths. AI keys never go in `EXPO_PUBLIC_*`.
+Web is a **static export** hosted on Vercel. Scrape/AI/prices run as Node serverless functions next to that export (`/api/health`, `/api/scrape`, `/api/ai`, `/api/prices/*`), also rewritten from `/health`, `/scrape`, `/ai`, `/prices/*` so local and production clients share the same paths. AI keys never go in `EXPO_PUBLIC_*`.
 
 Definition of Done: [CHECKLIST.md](./CHECKLIST.md) · plan: [SUITE_REWRITE_PLAN.md](./SUITE_REWRITE_PLAN.md).
 
@@ -57,23 +54,17 @@ On macOS/Linux: `cp .env.example apps/kinexus/.env` and `cp packages/api/.env.ex
 
 ## Local runbook
 
-Two processes: Expo web on **5300**, API on **5301**.
+One command starts both processes: Expo on **5300**, API on **5301**.
 
 1. Fill `apps/kinexus/.env` (`EXPO_PUBLIC_SUPABASE_*`, `EXPO_PUBLIC_WEB_URL=http://localhost:5300`, `EXPO_PUBLIC_API_URL=http://localhost:5301`). Optional: `EXPO_PUBLIC_ENABLE_MOBILE_PREVIEW=1`.
 2. Fill `packages/api/.env` (same Supabase URL + anon key, `AI_PROVIDER`, `ANTHROPIC_API_KEY` or DeepSeek, `CORS_ORIGIN=http://localhost:5300`).
 3. Apply SQL if this database is new (below).
-4. Terminal A: `pnpm api`
-5. Terminal B: `pnpm web` → [http://localhost:5300](http://localhost:5300)
+4. From the repo root: `pnpm dev` (or `npm run dev`) → Metro QR on **5300**, API on [http://localhost:5301](http://localhost:5301).
+5. For a browser tab, `pnpm web` also starts both and opens Expo web.
 
-Do not run both commands in one PowerShell line (`pnpm api` then `pnpm web` with `>>`). If 5301 is already in use, skip a second `pnpm api`.
+If 5301 is already in use, stop the leftover API first. `pnpm api` still starts the API alone.
 
-Expo (iOS / Android / Expo Go):
-
-```bash
-pnpm dev
-```
-
-Then press `i` / `a`, or scan the QR code. Native preview builds should set `EXPO_PUBLIC_API_URL` to the deployed Vercel origin (rewrites `/scrape` there).
+Then press `i` / `a` in the Expo output, or scan the QR code. Native preview builds should set `EXPO_PUBLIC_API_URL` to the deployed Vercel origin (rewrites `/scrape` there).
 
 ```bash
 pnpm ios
@@ -90,7 +81,9 @@ Output: `apps/kinexus/dist`.
 
 ## Production runbook (Vercel)
 
-Config is in repo-root `vercel.json` (install at workspace root, export Expo web, serve `apps/kinexus/dist`, serverless API under `/api/*`).
+**One Vercel project** at the repository root. You do not need a second project for the API.
+
+`vercel.json` installs the workspace, exports Expo web to `apps/kinexus/dist`, and serves the Hono API as a serverless function (`api/[[...route]].ts` → `/api/*`). Rewrites map `/health`, `/scrape`, `/quotes`, `/collectibles/*`, and so on onto that function, so the website and API share one domain.
 
 ```bash
 npx vercel login
@@ -113,8 +106,11 @@ Set these in the project **Environment Variables** (Production + Preview). `EXPO
 | `EXPO_PUBLIC_ENABLE_MOBILE_PREVIEW` | — | **do not set** in production |
 | `SUPABASE_URL` | Runtime (API) | same as public URL |
 | `SUPABASE_ANON_KEY` | Runtime (API) | same anon key (JWT verify, not service role) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Runtime (API) | service role — recipe cost writes + monthly refresh |
+| `CRON_SECRET` | Runtime (API) | Vercel Cron `Authorization: Bearer` for `/api/prices/refresh` |
 | `AI_PROVIDER` | Runtime | `anthropic` or `deepseek` |
 | `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` | Runtime | server only |
+| `TMDB_API_KEY` | Runtime (API) | Lists → Watchlist search and where-to-watch |
 | `CORS_ORIGIN` | Runtime | `https://<prod-domain>,http://localhost:5300` |
 
 After the first URL exists, add it to Google + Supabase (next section) and tick item 11 in [CHECKLIST.md](./CHECKLIST.md).
@@ -264,7 +260,7 @@ Use two Google accounts (or two browsers / one normal + one incognito).
 8. In the Supabase SQL editor, as a sanity check (service role / postgres), confirm `household_members` has two rows for that `household_id` and `household_invites.accepted_at` is set.
 9. Optional: from a third unauthenticated `curl` with the anon key, `select` on `households` must return empty (RLS).
 
-Meals / Stash / Nutrition / Train stay gated until the signed-in user is in a household. Meals is a full Plan / Generate / Shopping / Recipes module (desktop and mobile layouts).
+Meals / Lists / Money / Nutrition / Train stay gated until the signed-in user is in a household. Meals, Lists, and Money are full modules (desktop and mobile layouts).
 
 ## Meals UI (Phase 4)
 
@@ -273,9 +269,29 @@ After signing in and joining a household, open **Meals**:
 - **Plan** — week grid (desktop) or day accordion (mobile). Tap a slot to assign, shuffle, clear, or hide.
 - **Generate** — pick slots, edit calorie/protein goals, apply household dietary filters, preview, swap, then apply. Uses `generateMealPlan` locally (not a food log).
 - **Shopping** — generate from the current week’s plan, check-off by aisle, add extras.
-- **Recipes** — catalog + household library, favourites, detail, import from URL or pasted text (scrape + AI via the API).
+- **Recipes** — catalog + household library, favourites, detail, import from URL or pasted text (scrape + AI via the API). Each recipe shows an approximate supermarket **cost per serve** (Woolworths/Coles for Australia) that refreshes on the first of the month.
 
 Use the web **Mobile preview** toggle (when `EXPO_PUBLIC_ENABLE_MOBILE_PREVIEW=1`) to check the mobile layout on desktop. Production web must omit that flag.
+
+## Lists UI
+
+Open **Lists** after joining a household:
+
+- **Lists** — household checklists.
+- **Wishlists** — products and prices.
+- **Watchlist** — movies and series. Each list is **household** (everyone) or **personal** (only you). Search TMDB or paste a title URL from IMDb, TMDB, Rotten Tomatoes, Letterboxd, or JustWatch. Streaming/rent/buy in the household country comes from TMDB / JustWatch. Apply `packages/db/supabase/migrations/20260918140000_watchlist.sql` and set `TMDB_API_KEY` on the API.
+- **Saves** — generic links.
+
+## Money UI
+
+Open **Money** after joining a household:
+
+- **Dashboard** — family net worth (assets minus debts, including listed shares) and the monthly budget snapshot.
+- **Assets** — accounts you own (cash, bank, investments, super, property, vehicles) and debts (credit, loans, mortgage). Values are entered by the household; there is no bank feed.
+- **Shares** — ASX portfolios with a HIN/SRN, holdings, and live prices via `/quotes`. Import a CommSec-style CSV or pasted CHESS statement; a HIN cannot pull holdings on its own.
+- **Budget** — set the household plan once (upload a statement or enter categories yourself). Each month keeps its own spend and entries, so you can look back at months that went over. Add this month’s purchases against a category, and expand a row to see them.
+
+Owners and admins can edit. Other members can view. Apply `packages/db/supabase/migrations/20260907200000_finances_schema.sql`, `20260908100000_finance_shares.sql`, `20260916100000_finance_standing_budget.sql`, `20260916200000_finance_budget_txns.sql`, and `20260918100000_finance_budget_setup.sql` before using this module.
 
 ## Meals API (scrape + AI)
 
@@ -284,12 +300,14 @@ Recipe import talks to `packages/api`. AI keys never go in `apps/kinexus/.env`.
 1. Copy `packages/api/.env.example` to `packages/api/.env`.
 2. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` to the same project as the app (JWT verification).
 3. Set `AI_PROVIDER=anthropic` (default) or `deepseek`, and the matching API key.
-4. In `apps/kinexus/.env`, set `EXPO_PUBLIC_API_URL=http://localhost:5301`. Restart Expo/Metro after changing this.
-5. Run the API next to Expo: `pnpm api`
+4. In `apps/kinexus/.env`, set `EXPO_PUBLIC_API_URL=http://localhost:5301`. Restart after changing this.
+5. `pnpm dev` (or `pnpm web`) starts Expo and the API together.
 
 Then `pnpm web` as usual. Import Recipe → Fetch recipe uses `/scrape` then `/ai` when the page has no JSON-LD or blocks bots.
 
-On Vercel, the same Hono app is mounted at `/api/*` and rewritten from `/health`, `/scrape`, `/ai`. Web can omit `EXPO_PUBLIC_API_URL` and call the same origin.
+On Vercel, the same Hono app is mounted at `/api/*` and rewritten from `/health`, `/scrape`, `/ai`, `/prices/*`. Web can omit `EXPO_PUBLIC_API_URL` and call the same origin.
+
+Recipe cost estimates: `POST /prices/estimate` (signed-in) prices one recipe for the household's country. `GET /api/prices/refresh` is the Vercel Cron target (`0 6 * * *` UTC). The job only does work when estimates are from a previous month, so the first of the month starts a full refresh and leftover recipes continue on later days. Set `SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET` in Vercel. Apply `packages/db/supabase/migrations/20260907170000_recipe_cost_estimates.sql`.
 
 **Provider switch:** change `AI_PROVIDER` in `packages/api/.env` (or Vercel env) and restart. Call sites always go through `createAiClient()` — no client or route changes.
 
@@ -297,13 +315,16 @@ On Vercel, the same Hono app is mounted at `/api/*` and rewritten from `/health`
 |-----|--------|---------|
 | `EXPO_PUBLIC_API_URL` | Expo `.env` / Vercel build | Public base URL of the API (`http://localhost:5301` locally; empty or prod origin on Vercel) |
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` | `packages/api/.env` / Vercel runtime | Verify the user's Supabase JWT |
+| `SUPABASE_SERVICE_ROLE_KEY` | API env | Write recipe cost estimates (cron + on-demand) |
+| `CRON_SECRET` | Vercel runtime | Protect `/api/prices/refresh` |
 | `AI_PROVIDER` | API env | `anthropic` or `deepseek` |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | API env | Anthropic Messages API |
 | `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` | API env | DeepSeek OpenAI-compatible chat |
+| `TMDB_API_KEY` | API env | Lists → Watchlist catalog + streaming providers |
 | `CORS_ORIGIN` | API env | Comma-separated allowed web origins |
 | `API_PORT` | `packages/api/.env` | Default `5301` (local only) |
 
-Generate Plan stays **local** (`generateMealPlan` in `packages/domain`). The API is for import scrape/extract only — not food-log photo or barcode endpoints.
+Generate Plan stays **local** (`generateMealPlan` in `packages/domain`). The API is for import scrape/extract and monthly recipe cost estimates — not food-log photo or barcode endpoints.
 
 ## Meals data, Realtime, and offline (Phase 3)
 
@@ -357,7 +378,7 @@ Phase 1 is Auth + household. Phase 2 is `packages/domain` meal-planning logic. P
 
 ```
 apps/kinexus      Expo Router app (iOS, Android, web)
-packages/domain   Pure TS meals + household types and plan/shopping logic
+packages/domain   Pure TS meals, lists, finances, and household logic
 packages/db       Supabase migrations + typed helpers
 packages/api      JWT-checked scrape + AI (Anthropic / DeepSeek)
 api/              Vercel serverless entry (Hono)

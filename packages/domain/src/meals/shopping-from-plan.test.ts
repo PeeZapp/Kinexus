@@ -63,4 +63,15 @@ describe('shoppingFromPlan', () => {
     // dinner oats would add another 50g + 200ml if included
     expect(items.find((i) => i.name === 'Milk')?.amount).toBe('200ml');
   });
+
+  it('ignores hidden slots even when they still have a recipe', () => {
+    const items = shoppingFromPlan({
+      plan: {
+        ...plan,
+        slots: [{ day: 'monday', slotKey: 'breakfast', recipeId: 'oats', hidden: true }],
+      },
+      recipes: [oats, porridge],
+    });
+    expect(items).toEqual([]);
+  });
 });

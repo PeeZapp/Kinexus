@@ -7,6 +7,8 @@ export type AiCompleteInput = {
   system?: string;
   prompt: string;
   json?: boolean;
+  webSearch?: boolean;
+  maxTokens?: number;
 };
 
 export interface AiClient {

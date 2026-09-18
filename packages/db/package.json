@@ -14,6 +14,7 @@
     "db:link": "supabase link",
     "db:push": "supabase db push",
     "generate-catalog": "node ./scripts/generate-catalog-sql.mjs",
+    "import-themealdb": "node ./scripts/import-themealdb.mjs",
     "assign-catalog-images": "node ./scripts/assign-catalog-images.mjs"
   },
   "devDependencies": {

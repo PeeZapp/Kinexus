@@ -169,6 +169,7 @@ export function shoppingFromPlan(input: ShoppingFromPlanInput): DerivedShoppingI
 
   for (const slot of plan.slots) {
     if (!activeSlotSet.has(slot.slotKey)) continue;
+    if (slot.hidden) continue;
     if (!slot.recipeId) continue;
     const recipe = recipeById.get(slot.recipeId);
     if (!recipe?.ingredients) continue;

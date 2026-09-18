@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import { useQueryClient } from '@tanstack/react-query';
 
 import type { HouseholdInvite, HouseholdMember, HouseholdPerson, HouseholdRole, PersonType } from '@kinexus/domain';
+import { GROCERY_MARKETS, marketForHousehold, storeListLabel } from '@kinexus/domain';
 
 import { Btn, Card, ErrorText, Field, Pill } from '@/src/features/household/ui';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { parseInviteToken } from '@/src/lib/invite';
 import { useHousehold } from '@/src/lib/household';
+import { refreshRecipePrices } from '@/src/lib/meals-api';
 
 const PERSON_TYPES: { value: PersonType; label: string }[] = [
   { value: 'adult', label: 'Adult' },
@@ -51,7 +54,7 @@ export function CreateJoinPanel() {
   return (
     <Card>
       <Text style={styles.heading}>Create a household</Text>
-      <Text style={styles.body}>A household is the shared space for Meals, Stash, Nutrition, and Train.</Text>
+      <Text style={styles.body}>A household is the shared space for Meals, Lists, Nutrition, and Train.</Text>
       <Field label="Household name" value={name} onChangeText={setName} placeholder="The Zappas" autoCapitalize="words" />
       <Btn label="Create household" onPress={() => void onCreate()} busy={busy === 'create'} disabled={!name.trim()} />
       <View style={styles.divider}>
@@ -130,6 +133,86 @@ export function HouseholdSwitcher() {
           />
         </>
       ) : null}
+      <ErrorText message={error} />
+    </Card>
+  );
+}
+
+export function LocationPanel() {
+  const { activeHousehold, canManageInvites, updateHouseholdLocation } = useHousehold();
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [pricing, setPricing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [priceNote, setPriceNote] = useState<string | null>(null);
+
+  if (!activeHousehold) return null;
+
+  const current = marketForHousehold(activeHousehold);
+
+  async function onSelect(country: string, currency: string) {
+    setError(null);
+    setBusy(true);
+    try {
+      await updateHouseholdLocation({ country, currency });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save location');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRefreshPrices() {
+    if (!activeHousehold) return;
+    setError(null);
+    setPriceNote(null);
+    setPricing(true);
+    try {
+      const result = await refreshRecipePrices(activeHousehold.id);
+      await queryClient.invalidateQueries({ queryKey: ['meals', 'recipes'] });
+      if (result.processed === 0) {
+        setPriceNote('Prices are already current for this month.');
+      } else {
+        setPriceNote('Updated supermarket prices. Open Recipes to see costs.');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update prices');
+    } finally {
+      setPricing(false);
+    }
+  }
+
+  return (
+    <Card>
+      <Text style={styles.heading}>Grocery prices</Text>
+      <Text style={styles.body}>
+        Recipe costs use typical {storeListLabel(current.stores)} prices in {current.currency}. The ingredient catalog
+        refreshes on the first of each month, or tap update below.
+      </Text>
+      {canManageInvites ? (
+        <View style={styles.wrapRow}>
+          {GROCERY_MARKETS.map((market) => (
+            <Pill
+              key={market.country}
+              label={market.label}
+              active={market.country === current.country}
+              onPress={busy ? undefined : () => void onSelect(market.country, market.currency)}
+            />
+          ))}
+        </View>
+      ) : (
+        <Text style={styles.body}>{current.label}</Text>
+      )}
+      {canManageInvites ? (
+        <Btn
+          label={pricing ? 'Updating prices…' : 'Update prices now'}
+          variant="secondary"
+          onPress={() => void onRefreshPrices()}
+          busy={pricing}
+          disabled={busy}
+        />
+      ) : null}
+      {priceNote ? <Text style={styles.body}>{priceNote}</Text> : null}
       <ErrorText message={error} />
     </Card>
   );
@@ -252,7 +335,7 @@ export function MembersList({ members }: { members: HouseholdMember[] }) {
 }
 
 export function PeoplePanel() {
-  const { people, addPerson, removePerson } = useHousehold();
+  const { people, members, addPerson, removePerson, linkPerson, canManageInvites } = useHousehold();
   const [name, setName] = useState('');
   const [personType, setPersonType] = useState<PersonType>('adult');
   const [dietary, setDietary] = useState<string[]>([]);
@@ -284,11 +367,19 @@ export function PeoplePanel() {
     <Card>
       <Text style={styles.heading}>People</Text>
       <Text style={styles.body}>
-        Non-login planning personas (kids, guests). Distinct from signed-in members.
+        Family members you plan for. Link a signed-in account so they can pick recipes on slots you assign to them.
       </Text>
       {people.length === 0 ? <Text style={styles.meta}>No people yet.</Text> : null}
       {people.map((person) => (
-        <PersonRow key={person.id} person={person} onRemove={() => void removePerson(person.id)} />
+        <PersonRow
+          key={person.id}
+          person={person}
+          members={members}
+          people={people}
+          canLink={canManageInvites}
+          onLink={(userId) => void linkPerson(person.id, userId)}
+          onRemove={() => void removePerson(person.id)}
+        />
       ))}
       <Field label="Add person" value={name} onChangeText={setName} placeholder="Name" autoCapitalize="words" />
       <View style={styles.wrapRow}>
@@ -320,19 +411,53 @@ export function PeoplePanel() {
   );
 }
 
-function PersonRow({ person, onRemove }: { person: HouseholdPerson; onRemove: () => void }) {
+function PersonRow({
+  person,
+  members,
+  people,
+  canLink,
+  onLink,
+  onRemove,
+}: {
+  person: HouseholdPerson;
+  members: HouseholdMember[];
+  people: HouseholdPerson[];
+  canLink: boolean;
+  onLink: (userId: string | null) => void;
+  onRemove: () => void;
+}) {
+  const linked = members.find((member) => member.userId === person.userId);
+  const available = members.filter(
+    (member) => member.userId === person.userId || !people.some((other) => other.userId === member.userId),
+  );
   return (
-    <View style={styles.row}>
-      <View style={styles.rowText}>
-        <Text style={styles.rowTitle}>{person.name}</Text>
-        <Text style={styles.meta}>
-          {person.personType}
-          {person.dietary.length ? ` · ${person.dietary.join(', ')}` : ''}
-        </Text>
+    <View style={styles.personBlock}>
+      <View style={styles.personHead}>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>{person.name}</Text>
+          <Text style={styles.meta}>
+            {person.personType}
+            {person.dietary.length ? ` · ${person.dietary.join(', ')}` : ''}
+            {linked ? ` · login: ${linked.profile.displayName ?? linked.profile.email ?? 'linked'}` : ''}
+          </Text>
+        </View>
+        <Pressable onPress={onRemove} hitSlop={8}>
+          <Text style={styles.dangerLink}>Remove</Text>
+        </Pressable>
       </View>
-      <Pressable onPress={onRemove} hitSlop={8}>
-        <Text style={styles.dangerLink}>Remove</Text>
-      </Pressable>
+      {canLink ? (
+        <View style={styles.wrapRow}>
+          <Pill label="No login" active={!person.userId} onPress={() => onLink(null)} />
+          {available.map((member) => (
+            <Pill
+              key={member.userId}
+              label={member.profile.displayName ?? member.profile.email ?? 'Member'}
+              active={person.userId === member.userId}
+              onPress={() => onLink(member.userId)}
+            />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -422,5 +547,17 @@ const styles = StyleSheet.create({
     color: colors.danger,
     fontSize: 13,
     fontWeight: '600',
+  },
+  personBlock: {
+    gap: 8,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  personHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
   },
 });

@@ -3,8 +3,7 @@ import { View } from 'react-native';
 import type { Recipe } from '@kinexus/domain';
 
 import { RecipeCard, RecipesChrome } from '@/src/features/meals/recipes/RecipesShared';
-import type { RecipeFilter } from '@/src/features/meals/recipes/filters';
-import { SORTS } from '@/src/features/meals/recipes/filters';
+import type { RecipeFilter, RecipeSort, SortDir } from '@/src/features/meals/recipes/filters';
 import { EmptyState } from '@/src/features/shell/states';
 
 export function RecipesDesktop(props: {
@@ -12,15 +11,23 @@ export function RecipesDesktop(props: {
   setQuery: (v: string) => void;
   filter: RecipeFilter;
   setFilter: (v: RecipeFilter) => void;
-  sort: (typeof SORTS)[number]['id'];
-  setSort: (v: (typeof SORTS)[number]['id']) => void;
+  sort: RecipeSort;
+  sortDir: SortDir;
+  onSort: (v: RecipeSort) => void;
+  setSortDir: (v: SortDir) => void;
   online: boolean;
   pendingCount: number;
   extra: string | null;
   recipes: Recipe[];
+  totalCount: number;
+  loading?: boolean;
   favouriteIds: Set<string>;
   filters: { id: RecipeFilter; label: string }[];
+  showNotForFamily?: boolean;
+  setShowNotForFamily?: (v: boolean) => void;
   showFlag?: boolean;
+  showImport?: boolean;
+  emptyBody?: string;
   onOpen: (id: string) => void;
 }) {
   return (
@@ -31,15 +38,26 @@ export function RecipesDesktop(props: {
       filter={props.filter}
       setFilter={props.setFilter}
       sort={props.sort}
-      setSort={props.setSort}
+      sortDir={props.sortDir}
+      onSort={props.onSort}
+      setSortDir={props.setSortDir}
       online={props.online}
       pendingCount={props.pendingCount}
       extra={props.extra}
-      filters={props.filters}>
+      totalCount={props.totalCount}
+      shownCount={props.recipes.length}
+      loading={props.loading}
+      filters={props.filters}
+      showNotForFamily={props.showNotForFamily}
+      setShowNotForFamily={props.setShowNotForFamily}
+      showImport={props.showImport}>
       {props.recipes.length === 0 ? (
         <EmptyState
           title="No recipes match"
-          body="Try another filter or search. Catalog recipes are read-only; import saves a copy to this household."
+          body={
+            props.emptyBody ??
+            'Try another filter or search. Catalog recipes are read-only; import saves a copy to this household.'
+          }
         />
       ) : (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>

@@ -1,10 +1,11 @@
-import { Redirect, Slot } from 'expo-router';
+import { Redirect, Slot, usePathname } from 'expo-router';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { colors } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
 
 export default function AuthLayout() {
+  const pathname = usePathname();
   const { user, isReady } = useAuth();
 
   if (!isReady) {
@@ -15,7 +16,7 @@ export default function AuthLayout() {
     );
   }
 
-  if (user) {
+  if (user && (pathname === '/sign-in' || pathname.startsWith('/sign-in/'))) {
     return <Redirect href="/" />;
   }
 

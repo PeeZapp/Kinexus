@@ -6,7 +6,8 @@ import { resolveShoppingCategory, shoppingCategoryEmoji } from '@kinexus/domain'
 import { Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
 import type { ShoppingListItem } from '@/src/features/meals/mappers';
 import { OfflineBanner } from '@/src/features/meals/meals-kit';
-import { weekHeading } from '@/src/features/meals/week-labels';
+import { WeekSwitcher } from '@/src/features/meals/plan/PlanShared';
+import { weekPlanPhrase } from '@/src/features/meals/week-labels';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
 export function ShoppingList({
@@ -109,6 +110,8 @@ export function ShoppingChrome({
   error,
   shoppingError,
   shoppingBusy,
+  onPrevWeek,
+  onNextWeek,
   onGenerate,
   onClearChecked,
   checkedCount,
@@ -122,6 +125,8 @@ export function ShoppingChrome({
   error: string | null;
   shoppingError: string | null;
   shoppingBusy: boolean;
+  onPrevWeek: () => void;
+  onNextWeek: () => void;
   onGenerate: () => void;
   onClearChecked: () => void;
   checkedCount: number;
@@ -129,9 +134,9 @@ export function ShoppingChrome({
 }) {
   return (
     <ScrollView style={styles.root} contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}>
-      <Text style={styles.kicker}>{weekHeading(weekStart)}</Text>
       <Text style={[styles.title, desktop && styles.titleDesktop]}>Shopping</Text>
-      <Text style={styles.lede}>Built from this week’s plan. Check-off needs a connection.</Text>
+      <WeekSwitcher weekStart={weekStart} onPrev={onPrevWeek} onNext={onNextWeek} />
+      <Text style={styles.lede}>Built from {weekPlanPhrase(weekStart)}. Check-off needs a connection.</Text>
       <OfflineBanner online={online} pendingCount={pendingCount} extra={importBlockedReason} />
       <ErrorText message={error} />
       <ErrorText message={shoppingError} />
@@ -155,7 +160,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { padding: space.md, gap: 14, paddingBottom: 48 },
   contentDesktop: { paddingHorizontal: 48, paddingTop: 8, maxWidth: 1100 },
-  kicker: { color: colors.accent, fontSize: 12, fontWeight: '700', letterSpacing: 1.2 },
   title: { color: colors.text, fontSize: 28, fontWeight: '700' },
   titleDesktop: { fontSize: 40 },
   lede: { color: colors.textMuted, fontSize: 15 },

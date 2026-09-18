@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -59,12 +60,14 @@ type HouseholdContextValue = {
   refresh: () => Promise<void>;
   createHousehold: (input: CreateHouseholdInput) => Promise<string>;
   renameHousehold: (name: string) => Promise<void>;
+  updateHouseholdLocation: (input: { country: string; currency: string }) => Promise<void>;
   createInvite: (role: Exclude<HouseholdRole, 'owner'>) => Promise<CreatedInvite>;
   revokeInvite: (inviteId: string) => Promise<void>;
   peekInvite: (token: string) => Promise<PeekedInvite | null>;
   acceptInvite: (token: string) => Promise<string>;
   addPerson: (input: PersonInput) => Promise<void>;
   updatePerson: (id: string, input: PersonInput) => Promise<void>;
+  linkPerson: (id: string, userId: string | null) => Promise<void>;
   removePerson: (id: string) => Promise<void>;
   leaveHousehold: () => Promise<void>;
 };
@@ -135,6 +138,7 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
   const [members, setMembers] = useState<HouseholdMember[]>([]);
   const [people, setPeople] = useState<HouseholdPerson[]>([]);
   const [invites, setInvites] = useState<HouseholdInvite[]>([]);
+  const loadedUserIdRef = useRef<string | null>(null);
 
   const load = useCallback(async (uid: string, preferredHouseholdId?: string | null) => {
     if (!supabase) {
@@ -260,6 +264,7 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
         if (!cancelled) setPendingInviteToken(pending);
 
         if (!user) {
+          loadedUserIdRef.current = null;
           setMemberships([]);
           setActiveId(null);
           setMembers([]);
@@ -269,10 +274,16 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        if (loadedUserIdRef.current === user.id) {
+          await ensureProfile(user);
+          return;
+        }
+
         setIsReady(false);
         await ensureProfile(user);
         if (cancelled) return;
         await load(user.id);
+        if (!cancelled) loadedUserIdRef.current = user.id;
       } catch (err) {
         if (!cancelled) setError(asErrorMessage(err, 'Could not load household'));
       } finally {
@@ -325,8 +336,8 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
         }
         const { data, error: rpcError } = await supabase.rpc('create_household', {
           p_name: input.name.trim(),
-          p_country: input.country ?? null,
-          p_currency: input.currency ?? null,
+          p_country: input.country ?? 'AU',
+          p_currency: input.currency ?? 'AUD',
           p_timezone: input.timezone ?? null,
         });
         if (rpcError) throw rpcError;
@@ -340,6 +351,15 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
         const { error: updateError } = await supabase
           .from('households')
           .update({ name: name.trim() })
+          .eq('id', activeHousehold.id);
+        if (updateError) throw updateError;
+        if (user) await load(user.id, activeHousehold.id);
+      },
+      updateHouseholdLocation: async (input) => {
+        if (!supabase || !activeHousehold) throw new Error('No household selected');
+        const { error: updateError } = await supabase
+          .from('households')
+          .update({ country: input.country, currency: input.currency })
           .eq('id', activeHousehold.id);
         if (updateError) throw updateError;
         if (user) await load(user.id, activeHousehold.id);
@@ -418,6 +438,15 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
             person_type: input.personType,
             dietary: input.dietary,
           })
+          .eq('id', id);
+        if (updateError) throw updateError;
+        await load(user.id, activeHouseholdId);
+      },
+      linkPerson: async (id, userId) => {
+        if (!supabase || !user) throw new Error('Not signed in');
+        const { error: updateError } = await supabase
+          .from('household_people')
+          .update({ user_id: userId })
           .eq('id', id);
         if (updateError) throw updateError;
         await load(user.id, activeHouseholdId);

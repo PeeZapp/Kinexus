@@ -1,27 +1,16 @@
 import { type ReactNode } from 'react';
-import { MEAL_SLOTS, type MealSlotKey } from '@kinexus/domain';
+import { MEAL_SLOTS } from '@kinexus/domain';
 
 import { Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
 import { Chip } from '@/src/features/meals/meals-kit';
+import { IngredientEditor, MethodEditor } from '@/src/features/meals/recipes/recipe-editors';
+import type { RecipeFormState } from '@/src/features/meals/recipes/recipe-form';
 import type { ImportSource } from '@/src/lib/meals-api';
 import { colors, space } from '@/src/features/shell/theme';
 import { StyleSheet, Text, View } from 'react-native';
 
-export type ImportFormState = {
-  url: string;
-  name: string;
-  emoji: string;
-  cuisine: string;
-  cookTime: string;
-  servings: string;
-  calories: string;
-  protein: string;
-  carbs: string;
-  fat: string;
-  ingredientsText: string;
-  methodText: string;
-  slots: MealSlotKey[];
-};
+export type { RecipeFormState };
+export type ImportFormState = RecipeFormState;
 
 export type ImportRecipeViewProps = {
   desktop: boolean;
@@ -122,33 +111,41 @@ export function ImportExtractCard(props: ImportRecipeViewProps) {
   );
 }
 
-export function ImportFieldsCard(props: ImportRecipeViewProps) {
-  const { form } = props;
+export function ImportFieldsCard({
+  desktop,
+  form,
+  setForm,
+}: {
+  desktop: boolean;
+  form: RecipeFormState;
+  setForm: (patch: Partial<RecipeFormState>) => void;
+}) {
   return (
     <>
-      <View style={props.desktop ? styles.cols : styles.stack}>
+      <View style={desktop ? styles.cols : styles.stack}>
         <Card>
-          <Field label="Name" value={form.name} onChangeText={(name) => props.setForm({ name })} placeholder="Weeknight pasta" />
-          <Field label="Emoji" value={form.emoji} onChangeText={(emoji) => props.setForm({ emoji })} />
-          <Field label="Cuisine" value={form.cuisine} onChangeText={(cuisine) => props.setForm({ cuisine })} placeholder="Italian" />
+          <Field label="Name" value={form.name} onChangeText={(name) => setForm({ name })} placeholder="Weeknight pasta" />
+          <Field label="Emoji" value={form.emoji} onChangeText={(emoji) => setForm({ emoji })} />
+          <Field label="Cuisine" value={form.cuisine} onChangeText={(cuisine) => setForm({ cuisine })} placeholder="Italian" />
           <Field
             label="Cook time (min)"
             value={form.cookTime}
-            onChangeText={(cookTime) => props.setForm({ cookTime })}
+            onChangeText={(cookTime) => setForm({ cookTime })}
             keyboardType="numeric"
           />
           <Field
             label="Servings"
             value={form.servings}
-            onChangeText={(servings) => props.setForm({ servings })}
+            onChangeText={(servings) => setForm({ servings })}
             keyboardType="numeric"
           />
         </Card>
         <Card>
-          <Field label="Calories" value={form.calories} onChangeText={(calories) => props.setForm({ calories })} keyboardType="numeric" />
-          <Field label="Protein g" value={form.protein} onChangeText={(protein) => props.setForm({ protein })} keyboardType="numeric" />
-          <Field label="Carbs g" value={form.carbs} onChangeText={(carbs) => props.setForm({ carbs })} keyboardType="numeric" />
-          <Field label="Fat g" value={form.fat} onChangeText={(fat) => props.setForm({ fat })} keyboardType="numeric" />
+          <Field label="Calories" value={form.calories} onChangeText={(calories) => setForm({ calories })} keyboardType="numeric" />
+          <Field label="Protein g" value={form.protein} onChangeText={(protein) => setForm({ protein })} keyboardType="numeric" />
+          <Field label="Carbs g" value={form.carbs} onChangeText={(carbs) => setForm({ carbs })} keyboardType="numeric" />
+          <Field label="Fat g" value={form.fat} onChangeText={(fat) => setForm({ fat })} keyboardType="numeric" />
+          <Text style={styles.hint}>Calories and macros update from the ingredient list.</Text>
           <Text style={styles.hint}>Meal slots</Text>
           <View style={styles.chips}>
             {MEAL_SLOTS.map((slot) => (
@@ -157,7 +154,7 @@ export function ImportFieldsCard(props: ImportRecipeViewProps) {
                 label={slot.label}
                 active={form.slots.includes(slot.key)}
                 onPress={() =>
-                  props.setForm({
+                  setForm({
                     slots: form.slots.includes(slot.key)
                       ? form.slots.filter((s) => s !== slot.key)
                       : [...form.slots, slot.key],
@@ -169,17 +166,22 @@ export function ImportFieldsCard(props: ImportRecipeViewProps) {
         </Card>
       </View>
       <Card>
+        <IngredientEditor ingredients={form.ingredients} setForm={setForm} />
+      </Card>
+      <Card>
+        <MethodEditor method={form.method} setForm={setForm} />
+      </Card>
+      <Card>
         <Field
-          label="Ingredients (one per line: amount | name)"
-          value={form.ingredientsText}
-          onChangeText={(ingredientsText) => props.setForm({ ingredientsText })}
-          placeholder={'200g | chicken thigh\n1 | onion'}
+          label="Chef tip"
+          value={form.chefTip}
+          onChangeText={(chefTip) => setForm({ chefTip })}
           multiline
         />
         <Field
-          label="Method (one step per line)"
-          value={form.methodText}
-          onChangeText={(methodText) => props.setForm({ methodText })}
+          label="Notes"
+          value={form.notes}
+          onChangeText={(notes) => setForm({ notes })}
           multiline
         />
       </Card>

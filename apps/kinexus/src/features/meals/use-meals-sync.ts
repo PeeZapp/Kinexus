@@ -7,6 +7,8 @@ import {
   CORE_SLOTS,
   DAYS,
   dayIsRemovedFromPlan,
+  findReplacingRecipe,
+  hideReplacedCatalogRecipes,
   MEAL_SLOTS,
   marketForHousehold,
   orderedMealSlotKeys,
@@ -24,6 +26,7 @@ import {
   priceBookFromRow,
   recipeFromRow,
   recipeToInsert,
+  recipeToUpdate,
   shoppingFromRow,
   slotFromRow,
   type ShoppingListItem,
@@ -38,6 +41,7 @@ import {
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 import { useOnline } from '@/src/lib/online';
+import { retainPostgresChannel } from '@/src/lib/realtime';
 import { supabase } from '@/src/lib/supabase';
 
 export type PlanSlot = MealSlot & { id: string; updatedAt: string };
@@ -397,33 +401,30 @@ export function useMealsSync() {
   useEffect(() => {
     const client = supabase;
     if (!client || !householdId || !online) return;
-    const channel = client
-      .channel(`meals-sync:${householdId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'meal_slots', filter: `household_id=eq.${householdId}` },
-        () => {
-          void queryClient.invalidateQueries({ queryKey: slotsKey(householdId, weekStart) });
-        },
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'shopping_items', filter: `household_id=eq.${householdId}` },
-        () => {
-          void queryClient.invalidateQueries({ queryKey: shoppingKey(householdId, weekStart) });
-        },
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'household_person_slot_recipes', filter: `household_id=eq.${householdId}` },
-        () => {
-          void queryClient.invalidateQueries({ queryKey: approvalsKey(householdId) });
-        },
-      )
-      .subscribe();
-    return () => {
-      void client.removeChannel(channel);
-    };
+    return retainPostgresChannel(client, `meals-sync:${householdId}`, (channel) =>
+      channel
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'meal_slots', filter: `household_id=eq.${householdId}` },
+          () => {
+            void queryClient.invalidateQueries({ queryKey: slotsKey(householdId, weekStart) });
+          },
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'shopping_items', filter: `household_id=eq.${householdId}` },
+          () => {
+            void queryClient.invalidateQueries({ queryKey: shoppingKey(householdId, weekStart) });
+          },
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'household_person_slot_recipes', filter: `household_id=eq.${householdId}` },
+          () => {
+            void queryClient.invalidateQueries({ queryKey: approvalsKey(householdId) });
+          },
+        ),
+    );
   }, [householdId, online, queryClient, weekStart]);
 
   const flush = useCallback(async () => {
@@ -867,6 +868,137 @@ export function useMealsSync() {
     [householdId, online, queryClient],
   );
 
+  const retargetRecipeUsage = useCallback(
+    async (fromId: string, toRecipe: Recipe) => {
+      if (!householdId || !supabase) return;
+      const denorm = denormFromRecipe(toRecipe);
+      const { error: slotsError } = await supabase
+        .from('meal_slots')
+        .update({
+          recipe_id: toRecipe.id,
+          recipe_name: denorm.recipe_name,
+          emoji: denorm.emoji,
+          protein: denorm.protein,
+          calories: denorm.calories,
+          carbs: denorm.carbs,
+          fat: denorm.fat,
+          cook_time: denorm.cook_time,
+        })
+        .eq('household_id', householdId)
+        .eq('recipe_id', fromId);
+      if (slotsError) throw slotsError;
+      if (fromId === toRecipe.id) return;
+
+      const { data: approvals, error: approvalsReadError } = await supabase
+        .from('household_person_slot_recipes')
+        .select('person_id, slot_key, created_by')
+        .eq('household_id', householdId)
+        .eq('recipe_id', fromId);
+      if (approvalsReadError) throw approvalsReadError;
+      if (approvals?.length) {
+        const { error: approvalsInsertError } = await supabase.from('household_person_slot_recipes').insert(
+          approvals.map((row) => ({
+            household_id: householdId,
+            person_id: row.person_id,
+            slot_key: row.slot_key,
+            recipe_id: toRecipe.id,
+            created_by: row.created_by,
+          })),
+        );
+        if (approvalsInsertError && approvalsInsertError.code !== '23505') throw approvalsInsertError;
+        const { error: approvalsDeleteError } = await supabase
+          .from('household_person_slot_recipes')
+          .delete()
+          .eq('household_id', householdId)
+          .eq('recipe_id', fromId);
+        if (approvalsDeleteError) throw approvalsDeleteError;
+      }
+
+      if (userId && (favQuery.data ?? []).includes(fromId)) {
+        const { error: favError } = await supabase.from('recipe_favourites').insert({
+          user_id: userId,
+          recipe_id: toRecipe.id,
+        });
+        if (favError && favError.code !== '23505') throw favError;
+      }
+    },
+    [favQuery.data, householdId, userId],
+  );
+
+  const refreshRecipeQueries = useCallback(async () => {
+    if (!householdId) return;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: recipesPrefix(householdId) }),
+      queryClient.invalidateQueries({ queryKey: ['meals', 'slots', householdId] }),
+      queryClient.invalidateQueries({ queryKey: approvalsKey(householdId) }),
+      userId ? queryClient.invalidateQueries({ queryKey: favKey(userId) }) : Promise.resolve(),
+    ]);
+  }, [householdId, queryClient, userId]);
+
+  const saveRecipeForHousehold = useCallback(
+    async (source: Recipe, draft: Omit<Recipe, 'id' | 'householdId'>, mode: 'overwrite' | 'save_as') => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      if (!online) throw new Error('Saving recipes needs a connection');
+      if (mode === 'save_as') {
+        return saveHouseholdRecipe({
+          ...draft,
+          sourcedFromRecipeId: source.id,
+          replacesSource: false,
+        });
+      }
+
+      const owned = Boolean(source.householdId && source.householdId === householdId);
+      if (owned) {
+        const { data, error } = await supabase
+          .from('recipes')
+          .update(recipeToUpdate(draft))
+          .eq('id', source.id)
+          .eq('household_id', householdId)
+          .select('*')
+          .single();
+        if (error) throw error;
+        const updated = recipeFromRow(data);
+        await retargetRecipeUsage(source.id, updated);
+        await refreshRecipeQueries();
+        return updated;
+      }
+
+      const existing = findReplacingRecipe(recipesQuery.data ?? [], source.id);
+      if (existing) {
+        const { data, error } = await supabase
+          .from('recipes')
+          .update(recipeToUpdate(draft))
+          .eq('id', existing.id)
+          .eq('household_id', householdId)
+          .select('*')
+          .single();
+        if (error) throw error;
+        const updated = recipeFromRow(data);
+        await retargetRecipeUsage(source.id, updated);
+        if (existing.id !== source.id) await retargetRecipeUsage(existing.id, updated);
+        await refreshRecipeQueries();
+        return updated;
+      }
+
+      const saved = await saveHouseholdRecipe({
+        ...draft,
+        sourcedFromRecipeId: source.id,
+        replacesSource: true,
+      });
+      await retargetRecipeUsage(source.id, saved);
+      await refreshRecipeQueries();
+      return saved;
+    },
+    [
+      householdId,
+      online,
+      recipesQuery.data,
+      refreshRecipeQueries,
+      retargetRecipeUsage,
+      saveHouseholdRecipe,
+    ],
+  );
+
   const reviewCatalogRecipe = useCallback(
     async (recipeId: string, action: 'remove' | 'restore') => {
       if (!supabase) throw new Error('Not ready');
@@ -941,7 +1073,7 @@ export function useMealsSync() {
       if (!householdId || !supabase) throw new Error('Not ready');
       if (!online) throw new Error('Shopping rebuild needs a connection');
       const slots = (slotsQuery.data ?? []).filter((slot) => !slot.hidden && slot.recipeId);
-      const recipes = recipesQuery.data ?? [];
+      const recipes = hideReplacedCatalogRecipes(overlayHiddenRecipes(recipesQuery.data ?? [], hiddenQuery.data ?? []));
       const activeSlots = planQuery.data?.activeSlots ?? [...CORE_SLOTS];
       const derived = shoppingFromPlan({
         plan: { activeSlots, slots },
@@ -975,7 +1107,7 @@ export function useMealsSync() {
   const slots = slotsQuery.data ?? [];
   const hiddenRecipeIds = useMemo(() => new Set(hiddenQuery.data ?? []), [hiddenQuery.data]);
   const recipes = useMemo(
-    () => overlayHiddenRecipes(recipesQuery.data ?? [], hiddenQuery.data ?? []),
+    () => hideReplacedCatalogRecipes(overlayHiddenRecipes(recipesQuery.data ?? [], hiddenQuery.data ?? [])),
     [hiddenQuery.data, recipesQuery.data],
   );
   const slotMap = useMemo(() => {
@@ -1032,6 +1164,7 @@ export function useMealsSync() {
     toggleNotForFamily,
     setSlotApproval,
     saveHouseholdRecipe,
+    saveRecipeForHousehold,
     deleteHouseholdRecipe,
     updateHouseholdRecipe,
     reviewCatalogRecipe,

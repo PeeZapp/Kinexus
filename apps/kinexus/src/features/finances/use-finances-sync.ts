@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import type { Database } from '@kinexus/db';
 import {
@@ -10,14 +10,28 @@ import {
   evalMoneyExpression,
   merchantKey,
   nextLinePosition,
+  normalizeAnchorMonth,
   normalizeAsxSymbol,
+  normalizeBudgetCadence,
   parseMoney,
+  canManageFinances,
+  missingAutoApplyTxns,
+  monthStartIso,
+  movedBudgetLinePositions,
+  looksLikeSurplusCaptureName,
+  surplusAllocateActions,
+  surplusCaptureLine,
+  SURPLUS_ALLOCATE_DESCRIPTION,
+  SURPLUS_ALLOCATE_MERCHANT_KEY,
+  SURPLUS_CAPTURE_NAME,
+  isBudgetSet,
   type ClassifiedStatementTxn,
-  type FinanceBudgetLine,
   type ProposedBudgetLine,
   type StatementAssignment,
   type FinanceAccount,
   type FinanceAccountKind,
+  type FinanceBudgetLine,
+  type FinanceBudgetLineCadence,
   type FinanceBudgetLineKind,
   type CollectibleCondition,
   type CollectibleKind,
@@ -30,6 +44,7 @@ import { fetchShareQuotes } from '@/src/features/finances/finance-api';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 import { useOnline } from '@/src/lib/online';
+import { retainPostgresChannel } from '@/src/lib/realtime';
 import { supabase } from '@/src/lib/supabase';
 
 function accountsKey(householdId: string) {
@@ -100,7 +115,51 @@ export type BudgetLineDraft = {
   kind: FinanceBudgetLineKind;
   name: string;
   planned?: string;
+  cadence?: FinanceBudgetLineCadence;
+  anchorMonth?: number;
+  parentId?: string | null;
+  autoApply?: boolean;
+  captureSurplus?: boolean;
 };
+
+function cadenceColumns(draft: Pick<BudgetLineDraft, 'cadence' | 'anchorMonth'>): {
+  cadence: FinanceBudgetLineCadence;
+  anchor_month: number;
+} {
+  const cadence = normalizeBudgetCadence(draft.cadence);
+  return {
+    cadence,
+    anchor_month: cadence === 'monthly' ? 1 : normalizeAnchorMonth(draft.anchorMonth),
+  };
+}
+
+function lineWriteColumns(draft: BudgetLineDraft) {
+  const captureSurplus = Boolean(draft.captureSurplus) && draft.kind === 'expense' && !draft.parentId;
+  return {
+    ...cadenceColumns(draft),
+    parent_id: captureSurplus ? null : draft.parentId ?? null,
+    auto_apply: captureSurplus ? false : Boolean(draft.autoApply),
+    capture_surplus: captureSurplus,
+  };
+}
+
+function asLine(
+  partial: Omit<FinanceBudgetLine, 'planned' | 'spent' | 'position' | 'cadence' | 'anchorMonth' | 'parentId' | 'autoApply' | 'autoAppliedMonth' | 'captureSurplus'> &
+    Partial<FinanceBudgetLine>,
+): FinanceBudgetLine {
+  return {
+    planned: 0,
+    spent: 0,
+    position: 0,
+    cadence: 'monthly',
+    anchorMonth: 1,
+    parentId: null,
+    autoApply: false,
+    autoAppliedMonth: null,
+    captureSurplus: false,
+    ...partial,
+  };
+}
 
 export type BudgetEntryDraft = {
   description: string;
@@ -183,7 +242,7 @@ async function fetchCollectibles(householdId: string) {
 }
 
 export function useFinancesSync() {
-  const { activeHousehold } = useHousehold();
+  const { activeHousehold, role } = useHousehold();
   const { user } = useAuth();
   const online = useOnline();
   const queryClient = useQueryClient();
@@ -191,6 +250,7 @@ export function useFinancesSync() {
   const userId = user && !user.isDevBypass ? user.id : null;
   const currency = activeHousehold?.currency || 'AUD';
   const ready = Boolean(householdId && supabase && online);
+  const autoApplyBusy = useRef(false);
 
   const accountsQuery = useQuery({
     queryKey: householdId ? accountsKey(householdId) : ['finances', 'accounts', 'none'],
@@ -267,19 +327,16 @@ export function useFinancesSync() {
       void queryClient.invalidateQueries({ queryKey: holdingsKey(householdId) });
       void queryClient.invalidateQueries({ queryKey: collectiblesKey(householdId) });
     };
-    const channel = client
-      .channel(`finances-sync:${householdId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_accounts', filter: `household_id=eq.${householdId}` }, invalidate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_budgets', filter: `household_id=eq.${householdId}` }, invalidate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_budget_lines', filter: `household_id=eq.${householdId}` }, invalidate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_budget_txns', filter: `household_id=eq.${householdId}` }, invalidate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_share_portfolios', filter: `household_id=eq.${householdId}` }, invalidate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_share_holdings', filter: `household_id=eq.${householdId}` }, invalidate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_collectibles', filter: `household_id=eq.${householdId}` }, invalidate)
-      .subscribe();
-    return () => {
-      void client.removeChannel(channel);
-    };
+    return retainPostgresChannel(client, `finances-sync:${householdId}`, (channel) =>
+      channel
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_accounts', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_budgets', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_budget_lines', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_budget_txns', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_share_portfolios', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_share_holdings', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_collectibles', filter: `household_id=eq.${householdId}` }, invalidate),
+    );
   }, [householdId, online, queryClient]);
 
   const createAccount = useCallback(
@@ -341,15 +398,32 @@ export function useFinancesSync() {
       if (!householdId || !supabase || !budgetQuery.data) throw new Error('Not ready');
       const name = draft.name.trim();
       if (!name) throw new Error('Give this line a name');
+      const lines = linesQuery.data ?? [];
+      const parent = draft.parentId ? lines.find((item) => item.id === draft.parentId) : null;
+      if (draft.parentId && !parent) throw new Error('That category is gone');
+      if (parent?.parentId) throw new Error('Subcategories cannot have their own subcategories');
+      const kind = parent?.kind ?? draft.kind;
+      const columns = lineWriteColumns({ ...draft, kind, parentId: parent?.id ?? null });
+      if (columns.capture_surplus) {
+        const currentCapture = lines.find((item) => item.captureSurplus);
+        if (currentCapture) {
+          const { error: clearError } = await supabase
+            .from('finance_budget_lines')
+            .update({ capture_surplus: false })
+            .eq('id', currentCapture.id);
+          throwIfError(clearError);
+        }
+      }
       const { error } = await supabase.from('finance_budget_lines').insert({
         id: Crypto.randomUUID(),
         household_id: householdId,
         budget_id: budgetQuery.data.id,
-        kind: draft.kind,
+        kind,
         name,
         planned: parseMoney(draft.planned) ?? 0,
         spent: 0,
-        position: nextLinePosition(linesQuery.data ?? [], draft.kind),
+        position: nextLinePosition(lines, kind),
+        ...columns,
       });
       throwIfError(error);
       await queryClient.invalidateQueries({ queryKey: linesKey(householdId) });
@@ -362,37 +436,71 @@ export function useFinancesSync() {
       if (!householdId || !supabase) throw new Error('Not ready');
       const name = draft.name.trim();
       if (!name) throw new Error('Give this line a name');
+      const lines = linesQuery.data ?? [];
+      const current = lines.find((item) => item.id === id);
+      if (!current) throw new Error('That line is gone');
+      const parent = draft.parentId ? lines.find((item) => item.id === draft.parentId) : null;
+      if (draft.parentId && !parent) throw new Error('That category is gone');
+      if (parent?.parentId) throw new Error('Subcategories cannot have their own subcategories');
+      if (parent && lines.some((item) => item.parentId === id)) {
+        throw new Error('Move or remove subcategories before nesting this one');
+      }
+      const kind = parent?.kind ?? draft.kind;
+      const columns = lineWriteColumns({ ...draft, kind, parentId: parent?.id ?? null });
+      if (columns.capture_surplus) {
+        const currentCapture = lines.find((item) => item.captureSurplus && item.id !== id);
+        if (currentCapture) {
+          const { error: clearError } = await supabase
+            .from('finance_budget_lines')
+            .update({ capture_surplus: false })
+            .eq('id', currentCapture.id);
+          throwIfError(clearError);
+        }
+      }
       const { error } = await supabase
         .from('finance_budget_lines')
         .update({
-          kind: draft.kind,
+          kind,
           name,
           planned: parseMoney(draft.planned) ?? 0,
+          ...columns,
         })
         .eq('id', id);
       throwIfError(error);
       await queryClient.invalidateQueries({ queryKey: linesKey(householdId) });
     },
-    [householdId, queryClient],
+    [householdId, linesQuery.data, queryClient],
   );
 
   const deleteLine = useCallback(
     async (id: string) => {
       if (!householdId || !supabase) throw new Error('Not ready');
-      const current = (linesQuery.data ?? []).find((line) => line.id === id);
+      const lines = linesQuery.data ?? [];
+      const current = lines.find((line) => line.id === id);
       if (!current) throw new Error('That line is gone');
+      const removing = [current, ...lines.filter((line) => line.parentId === id)];
       const leftoverName = current.kind === 'income' ? 'Other income' : 'Other';
-      const isFallback = current.name.trim().toLowerCase() === leftoverName.toLowerCase();
-      const remaining = (linesQuery.data ?? []).filter((line) => line.id !== id);
+      const isFallback = current.name.trim().toLowerCase() === leftoverName.toLowerCase() && !current.parentId;
+      const remaining = lines.filter((line) => !removing.some((item) => item.id === line.id));
+      for (const item of removing) {
+        const { error: surplusError } = await supabase
+          .from('finance_budget_txns')
+          .delete()
+          .eq('line_id', item.id)
+          .eq('merchant_key', SURPLUS_ALLOCATE_MERCHANT_KEY);
+        throwIfError(surplusError);
+      }
       let fallback = remaining.find(
-        (line) => line.kind === current.kind && line.name.trim().toLowerCase() === leftoverName.toLowerCase(),
+        (line) => line.kind === current.kind && !line.parentId && line.name.trim().toLowerCase() === leftoverName.toLowerCase(),
       );
       if (isFallback) {
-        const { error: ignoreError } = await supabase
-          .from('finance_budget_txns')
-          .update({ line_id: null, ignored: true })
-          .eq('line_id', id);
-        throwIfError(ignoreError);
+        for (const item of removing) {
+          const { error: ignoreError } = await supabase
+            .from('finance_budget_txns')
+            .update({ line_id: null, ignored: true })
+            .eq('line_id', item.id);
+          throwIfError(ignoreError);
+        }
       } else {
         if (!fallback && budgetQuery.data) {
           const fallbackId = Crypto.randomUUID();
@@ -406,27 +514,36 @@ export function useFinancesSync() {
             planned: 0,
             spent: 0,
             position,
+            cadence: 'monthly',
+            anchor_month: 1,
+            parent_id: null,
+            auto_apply: false,
+            capture_surplus: false,
           });
           throwIfError(insertError);
-          fallback = {
+          fallback = asLine({
             id: fallbackId,
             householdId,
             budgetId: budgetQuery.data.id,
             kind: current.kind,
             name: leftoverName,
-            planned: 0,
-            spent: 0,
             position,
-          };
+          });
           remaining.push(fallback);
         }
         if (fallback) {
-          const { error: moveError } = await supabase
-            .from('finance_budget_txns')
-            .update({ line_id: fallback.id, ignored: false })
-            .eq('line_id', id);
-          throwIfError(moveError);
+          for (const item of removing) {
+            const { error: moveError } = await supabase
+              .from('finance_budget_txns')
+              .update({ line_id: fallback.id, ignored: false })
+              .eq('line_id', item.id);
+            throwIfError(moveError);
+          }
         }
+      }
+      for (const item of removing.filter((line) => line.parentId === id)) {
+        const { error } = await supabase.from('finance_budget_lines').delete().eq('id', item.id);
+        throwIfError(error);
       }
       const { error } = await supabase.from('finance_budget_lines').delete().eq('id', id);
       throwIfError(error);
@@ -449,20 +566,82 @@ export function useFinancesSync() {
     [],
   );
 
+  const moveLine = useCallback(
+    async (id: string, direction: -1 | 1, amongIds?: readonly string[]) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      const patches = movedBudgetLinePositions(linesQuery.data ?? [], id, direction, amongIds);
+      if (patches.length === 0) return;
+      queryClient.setQueryData(linesKey(householdId), (current: FinanceBudgetLine[] | undefined) => {
+        if (!current) return current;
+        const next = new Map(patches.map((patch) => [patch.id, patch.position]));
+        return current.map((line) => (next.has(line.id) ? { ...line, position: next.get(line.id)! } : line));
+      });
+      try {
+        for (const patch of patches) {
+          const { error } = await supabase.from('finance_budget_lines').update({ position: patch.position }).eq('id', patch.id);
+          throwIfError(error);
+        }
+      } finally {
+        await queryClient.invalidateQueries({ queryKey: linesKey(householdId) });
+      }
+    },
+    [householdId, linesQuery.data, queryClient],
+  );
+
   const saveBudgetPlan = useCallback(
     async (drafts: readonly BudgetLineDraft[]) => {
       if (!householdId || !supabase || !budgetQuery.data) throw new Error('Not ready');
       const budgetId = budgetQuery.data.id;
-      const prepared = drafts
-        .map((draft) => ({
-          id: draft.id,
-          kind: draft.kind,
-          name: draft.name.trim(),
-          planned: Math.max(0, parseMoney(draft.planned) ?? 0),
-        }))
+      const named = drafts
+        .map((draft) => {
+          const cadence = cadenceColumns(draft);
+          return {
+            id: draft.id,
+            kind: draft.kind,
+            name: draft.name.trim(),
+            planned: Math.max(0, parseMoney(draft.planned) ?? 0),
+            cadence: cadence.cadence,
+            anchorMonth: cadence.anchor_month,
+            parentId: draft.parentId ?? null,
+            autoApply: Boolean(draft.autoApply),
+            captureSurplus: Boolean(draft.captureSurplus) && draft.kind === 'expense' && !draft.parentId,
+          };
+        })
         .filter((draft) => draft.name);
+      const captureIndex = [...named].reverse().findIndex((draft) => draft.captureSurplus);
+      const keepCapture = captureIndex < 0 ? -1 : named.length - 1 - captureIndex;
+      const exclusive = named.map((draft, index) => {
+        const captureSurplus = index === keepCapture;
+        return {
+          ...draft,
+          captureSurplus,
+          autoApply: captureSurplus ? false : draft.autoApply,
+          parentId: captureSurplus ? null : draft.parentId,
+        };
+      });
+      const counts = new Map<string, number>();
+      const prepared = exclusive.map((draft) => {
+        const key = `${draft.kind}:${draft.parentId ?? ''}`;
+        const position = counts.get(key) ?? 0;
+        counts.set(key, position + 1);
+        return { ...draft, position };
+      });
+      prepared.sort(
+        (a, b) =>
+          Number(Boolean(a.parentId)) - Number(Boolean(b.parentId)) ||
+          Number(a.captureSurplus) - Number(b.captureSurplus),
+      );
       if (prepared.length === 0) throw new Error('Add at least one category');
       const existing = [...(linesQuery.data ?? [])];
+      const currentCapture = existing.find((line) => line.captureSurplus);
+      if (currentCapture) {
+        const { error: clearError } = await supabase
+          .from('finance_budget_lines')
+          .update({ capture_surplus: false })
+          .eq('id', currentCapture.id);
+        throwIfError(clearError);
+        currentCapture.captureSurplus = false;
+      }
       const used = new Set<string>();
       for (const draft of prepared) {
         const match =
@@ -471,21 +650,50 @@ export function useFinancesSync() {
             (line) =>
               !used.has(line.id) &&
               line.kind === draft.kind &&
+              line.parentId === draft.parentId &&
               line.name.trim().toLowerCase() === draft.name.toLowerCase(),
           );
         if (match) {
           used.add(match.id);
-          if (match.kind !== draft.kind || match.name !== draft.name || match.planned !== draft.planned) {
+          if (
+            match.kind !== draft.kind ||
+            match.name !== draft.name ||
+            match.planned !== draft.planned ||
+            match.cadence !== draft.cadence ||
+            match.anchorMonth !== draft.anchorMonth ||
+            match.parentId !== draft.parentId ||
+            match.autoApply !== draft.autoApply ||
+            match.captureSurplus !== draft.captureSurplus ||
+            match.position !== draft.position
+          ) {
             const { error } = await supabase
               .from('finance_budget_lines')
-              .update({ kind: draft.kind, name: draft.name, planned: draft.planned })
+              .update({
+                kind: draft.kind,
+                name: draft.name,
+                planned: draft.planned,
+                cadence: draft.cadence,
+                anchor_month: draft.anchorMonth,
+                parent_id: draft.parentId,
+                auto_apply: draft.autoApply,
+                capture_surplus: draft.captureSurplus,
+                position: draft.position,
+              })
               .eq('id', match.id);
             throwIfError(error);
+            match.kind = draft.kind;
+            match.name = draft.name;
+            match.planned = draft.planned;
+            match.cadence = draft.cadence;
+            match.anchorMonth = draft.anchorMonth;
+            match.parentId = draft.parentId;
+            match.autoApply = draft.autoApply;
+            match.captureSurplus = draft.captureSurplus;
+            match.position = draft.position;
           }
           continue;
         }
-        const position = nextLinePosition(existing, draft.kind);
-        const id = Crypto.randomUUID();
+        const id = draft.id ?? Crypto.randomUUID();
         const { error } = await supabase.from('finance_budget_lines').insert({
           id,
           household_id: householdId,
@@ -494,23 +702,34 @@ export function useFinancesSync() {
           name: draft.name,
           planned: draft.planned,
           spent: 0,
-          position,
+          position: draft.position,
+          cadence: draft.cadence,
+          anchor_month: draft.anchorMonth,
+          parent_id: draft.parentId,
+          auto_apply: draft.autoApply,
+          capture_surplus: draft.captureSurplus,
         });
         throwIfError(error);
-        existing.push({
-          id,
-          householdId,
-          budgetId,
-          kind: draft.kind,
-          name: draft.name,
-          planned: draft.planned,
-          spent: 0,
-          position,
-        });
+        existing.push(
+          asLine({
+            id,
+            householdId,
+            budgetId,
+            kind: draft.kind,
+            name: draft.name,
+            planned: draft.planned,
+            position: draft.position,
+            cadence: draft.cadence,
+            anchorMonth: draft.anchorMonth,
+            parentId: draft.parentId,
+            autoApply: draft.autoApply,
+            captureSurplus: draft.captureSurplus,
+          }),
+        );
         used.add(id);
       }
-      for (const line of existing) {
-        if (used.has(line.id)) continue;
+      const unused = existing.filter((line) => !used.has(line.id));
+      for (const line of [...unused.filter((item) => item.parentId), ...unused.filter((item) => !item.parentId)]) {
         const { error } = await supabase.from('finance_budget_txns').update({ line_id: null, ignored: true }).eq('line_id', line.id);
         throwIfError(error);
         const { error: deleteError } = await supabase.from('finance_budget_lines').delete().eq('id', line.id);
@@ -546,6 +765,7 @@ export function useFinancesSync() {
         merchant_key: merchantKey(description).slice(0, 80) || 'UNKNOWN',
         amount: signed,
         ignored: false,
+        source: 'manual',
       });
       throwIfError(error);
       await queryClient.invalidateQueries({ queryKey: txnsKey(householdId) });
@@ -623,18 +843,22 @@ export function useFinancesSync() {
           planned: input.setPlanned ? proposed.spent : 0,
           spent: proposed.spent,
           position,
+          cadence: 'monthly',
+          anchor_month: 1,
         });
         throwIfError(error);
-        existing.push({
-          id,
-          householdId,
-          budgetId,
-          kind: proposed.kind,
-          name,
-          planned: input.setPlanned ? proposed.spent : 0,
-          spent: proposed.spent,
-          position,
-        });
+        existing.push(
+          asLine({
+            id,
+            householdId,
+            budgetId,
+            kind: proposed.kind,
+            name,
+            planned: input.setPlanned ? proposed.spent : 0,
+            spent: proposed.spent,
+            position,
+          }),
+        );
       }
       const { error: clearError } = await supabase.from('finance_budget_txns').delete().eq('budget_id', budgetId);
       throwIfError(clearError);
@@ -659,6 +883,7 @@ export function useFinancesSync() {
           merchant_key: txn.merchantKey.slice(0, 80) || 'UNKNOWN',
           amount: txn.amount,
           ignored: Boolean(txn.assignment.ignore),
+          source: 'import',
         });
       }
       await insertTxnRows(rows);
@@ -697,18 +922,18 @@ export function useFinancesSync() {
             planned: 0,
             spent: 0,
             position,
+            cadence: 'monthly',
+            anchor_month: 1,
           });
           throwIfError(error);
-          match = {
+          match = asLine({
             id,
             householdId,
             budgetId: budgetQuery.data.id,
             kind: input.assignment.kind,
             name,
-            planned: 0,
-            spent: 0,
             position,
-          };
+          });
           lines.push(match);
         }
         lineId = match.id;
@@ -989,6 +1214,160 @@ export function useFinancesSync() {
     [householdId, queryClient],
   );
 
+  const applyAutoDebits = useCallback(
+    async (monthStart: string = monthStartIso()) => {
+      if (!householdId || !supabase || !budgetQuery.data) return;
+      if (!canManageFinances(role)) return;
+      const lines = linesQuery.data ?? [];
+      const txns = txnsQuery.data ?? [];
+      const drafts = missingAutoApplyTxns(lines, txns, monthStart);
+      if (drafts.length === 0) return;
+      for (const draft of drafts) {
+        const line = lines.find((item) => item.id === draft.lineId);
+        if (!line) continue;
+        const signed = line.kind === 'income' ? draft.amount : -draft.amount;
+        const { error } = await supabase.from('finance_budget_txns').insert({
+          id: Crypto.randomUUID(),
+          household_id: householdId,
+          budget_id: budgetQuery.data.id,
+          line_id: line.id,
+          txn_date: draft.date,
+          description: draft.description,
+          merchant_key: draft.merchantKey,
+          amount: signed,
+          ignored: false,
+          source: 'auto',
+        });
+        if (error && error.code === '23505') continue;
+        throwIfError(error);
+        const { error: stampError } = await supabase
+          .from('finance_budget_lines')
+          .update({ auto_applied_month: monthStart })
+          .eq('id', line.id);
+        throwIfError(stampError);
+      }
+      await queryClient.invalidateQueries({ queryKey: linesKey(householdId) });
+      await queryClient.invalidateQueries({ queryKey: txnsKey(householdId) });
+    },
+    [budgetQuery.data, householdId, linesQuery.data, queryClient, role, txnsQuery.data],
+  );
+
+  const applySurplusCapture = useCallback(
+    async () => {
+      if (!householdId || !supabase || !budgetQuery.data) return;
+      if (!canManageFinances(role)) return;
+      let lines = [...(linesQuery.data ?? [])];
+      const txns = txnsQuery.data ?? [];
+      if (!isBudgetSet(lines, txns, budgetQuery.data.setupCompletedAt)) return;
+      let sink = surplusCaptureLine(lines);
+      if (!sink) {
+        const named = lines.find(
+          (line) => line.kind === 'expense' && !line.parentId && looksLikeSurplusCaptureName(line.name),
+        );
+        if (named) {
+          const { error } = await supabase
+            .from('finance_budget_lines')
+            .update({ capture_surplus: true, auto_apply: false, parent_id: null })
+            .eq('id', named.id);
+          throwIfError(error);
+          sink = { ...named, captureSurplus: true, autoApply: false, parentId: null };
+          lines = lines.map((line) => (line.id === named.id ? sink! : { ...line, captureSurplus: false }));
+        } else {
+          const id = Crypto.randomUUID();
+          const position = nextLinePosition(lines, 'expense');
+          const { error } = await supabase.from('finance_budget_lines').insert({
+            id,
+            household_id: householdId,
+            budget_id: budgetQuery.data.id,
+            kind: 'expense',
+            name: SURPLUS_CAPTURE_NAME,
+            planned: 0,
+            spent: 0,
+            position,
+            cadence: 'monthly',
+            anchor_month: 1,
+            parent_id: null,
+            auto_apply: false,
+            capture_surplus: true,
+          });
+          throwIfError(error);
+          sink = asLine({
+            id,
+            householdId,
+            budgetId: budgetQuery.data.id,
+            kind: 'expense',
+            name: SURPLUS_CAPTURE_NAME,
+            position,
+            captureSurplus: true,
+          });
+          lines = [...lines, sink];
+        }
+      }
+      const actions = surplusAllocateActions(lines, txns);
+      if (actions.length === 0) return;
+      for (const action of actions) {
+        if (action.action === 'insert') {
+          const { error } = await supabase.from('finance_budget_txns').insert({
+            id: Crypto.randomUUID(),
+            household_id: householdId,
+            budget_id: budgetQuery.data.id,
+            line_id: action.lineId,
+            txn_date: action.monthStart,
+            description: SURPLUS_ALLOCATE_DESCRIPTION,
+            merchant_key: SURPLUS_ALLOCATE_MERCHANT_KEY,
+            amount: -action.amount,
+            ignored: false,
+            source: 'auto',
+          });
+          if (error && error.code === '23505') continue;
+          throwIfError(error);
+          continue;
+        }
+        if (action.action === 'update' && action.txnId) {
+          const { error } = await supabase
+            .from('finance_budget_txns')
+            .update({
+              amount: -action.amount,
+              description: SURPLUS_ALLOCATE_DESCRIPTION,
+              merchant_key: SURPLUS_ALLOCATE_MERCHANT_KEY,
+              ignored: false,
+              source: 'auto',
+            })
+            .eq('id', action.txnId);
+          throwIfError(error);
+          continue;
+        }
+        if (action.action === 'delete' && action.txnId) {
+          const { error } = await supabase.from('finance_budget_txns').delete().eq('id', action.txnId);
+          throwIfError(error);
+        }
+      }
+      await queryClient.invalidateQueries({ queryKey: linesKey(householdId) });
+      await queryClient.invalidateQueries({ queryKey: txnsKey(householdId) });
+    },
+    [budgetQuery.data, householdId, linesQuery.data, queryClient, role, txnsQuery.data],
+  );
+
+  useEffect(() => {
+    if (!ready || !canManageFinances(role) || autoApplyBusy.current) return;
+    if (!linesQuery.data || !txnsQuery.data || !budgetQuery.data) return;
+    const lines = linesQuery.data;
+    const txns = txnsQuery.data;
+    if (!isBudgetSet(lines, txns, budgetQuery.data.setupCompletedAt)) return;
+    const needsDebit = missingAutoApplyTxns(lines, txns, monthStartIso()).length > 0;
+    const needsSurplus = !surplusCaptureLine(lines) || surplusAllocateActions(lines, txns).length > 0;
+    if (!needsDebit && !needsSurplus) return;
+    autoApplyBusy.current = true;
+    void (async () => {
+      await applyAutoDebits();
+      await applySurplusCapture();
+    })()
+      .catch(() => undefined)
+      .finally(() => {
+        autoApplyBusy.current = false;
+      });
+  }, [applyAutoDebits, applySurplusCapture, budgetQuery.data, linesQuery.data, ready, role, txnsQuery.data]);
+
   return {
     currency,
     online,
@@ -1021,10 +1400,12 @@ export function useFinancesSync() {
     createLine,
     updateLine,
     deleteLine,
+    moveLine,
     saveBudgetPlan,
     createTxn,
     deleteTxn,
     clearBudget,
+    applyAutoDebits,
     applyStatementBudget,
     reclassifyTxns,
     createPortfolio,

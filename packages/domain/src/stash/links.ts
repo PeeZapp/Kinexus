@@ -58,7 +58,11 @@ export function inferLinkType(rawUrl: string): SavedLinkType {
     host.includes('youtube.com') ||
     host === 'youtu.be' ||
     host.includes('vimeo.com') ||
-    host.includes('tiktok.com')
+    host.includes('tiktok.com') ||
+    host.includes('instagram.com') ||
+    host.includes('facebook.com') ||
+    host === 'fb.watch' ||
+    host === 'fb.com'
   ) {
     return 'video';
   }

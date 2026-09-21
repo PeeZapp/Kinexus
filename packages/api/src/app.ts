@@ -19,9 +19,29 @@ import {
 } from './handlers.js';
 import { cronAuthorized, handleEstimateRecipeCost, handleRefreshRecipeCosts } from './prices.js';
 import { handleShareQuotes } from './quotes.js';
+import {
+  handleCreateRecipeImport,
+  handleGetRecipeImport,
+  handleRecipeImportWork,
+} from './recipes/handlers.js';
 
 function registerMealsRoutes(router: Hono) {
   router.get('/health', (c) => c.json({ ok: true }));
+
+  router.post('/recipes/import', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleCreateRecipeImport(c.req.raw, body as { url?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+  router.post('/recipes/import/work', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleRecipeImportWork(c.req.raw, body as { id?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+  router.get('/recipes/:id', async (c) => {
+    const result = await handleGetRecipeImport(c.req.param('id'));
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
 
   router.post('/scrape', async (c) => {
     const authed = await userFromRequest(c.req.raw);

@@ -1,4 +1,5 @@
 import { recipesForSlot } from './generate-plan';
+import { recipeForHouseholdView } from './recipe-versions';
 import type { MealSlotKey, Recipe } from './types';
 
 export type PersonSlotApproval = {
@@ -56,7 +57,12 @@ export function recipesForPicker(
   approvedIds?: ReadonlySet<string> | null,
 ): Recipe[] {
   if (approvedIds) {
-    return recipes.filter((recipe) => approvedIds.has(recipe.id) && !recipe.removed && !recipe.isComponent);
+    const resolved = new Set(
+      [...approvedIds]
+        .map((id) => recipeForHouseholdView(recipes, id)?.id)
+        .filter((id): id is string => Boolean(id)),
+    );
+    return recipes.filter((recipe) => resolved.has(recipe.id) && !recipe.removed && !recipe.isComponent);
   }
   return recipesForSlot(recipes, slot);
 }

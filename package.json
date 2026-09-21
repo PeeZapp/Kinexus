@@ -11,7 +11,7 @@
     "api": "pnpm --filter @kinexus/api dev",
     "web:export": "pnpm --filter @kinexus/app web:export",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm --filter @kinexus/domain test",
+    "test": "pnpm --filter @kinexus/domain test && pnpm --filter @kinexus/api test",
     "db:push": "pnpm --filter @kinexus/db db:push",
     "db:link": "pnpm --filter @kinexus/db db:link"
   },

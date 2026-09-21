@@ -173,6 +173,31 @@ describe('generateMealPlan', () => {
     expect(plan.every((s) => s.recipe.id === 'ok')).toBe(true);
   });
 
+  it('does not schedule a catalog recipe that a household overwrite replaces', () => {
+    const catalog = recipe({
+      id: 'cat-burger',
+      name: 'Chicken halloumi burger',
+      mealSlots: ['dinner'],
+      calories: 660,
+      protein: 38,
+      ingredients: [{ name: 'chicken' }, { name: 'bun' }],
+    });
+    const household = recipe({
+      id: 'hh-burger',
+      name: 'Chicken halloumi burger',
+      householdId: 'hh-1',
+      sourcedFromRecipeId: 'cat-burger',
+      replacesSource: true,
+      mealSlots: ['dinner'],
+      calories: 700,
+      protein: 42,
+      ingredients: [{ name: 'chicken' }],
+    });
+    const plan = generateMealPlan(['dinner'], new Set(), [catalog, household], GOALS, { random: () => 0 });
+    expect(plan.length).toBe(7);
+    expect(plan.every((s) => s.recipe.id === 'hh-burger')).toBe(true);
+  });
+
   it('only fills the days still on the plan', () => {
     const library: Recipe[] = [
       recipe({

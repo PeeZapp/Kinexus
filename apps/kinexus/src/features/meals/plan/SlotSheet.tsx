@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   MEAL_SLOTS,
+  recipeForHouseholdView,
   recipesForPicker,
   type Day,
   type HouseholdPerson,
@@ -37,6 +38,7 @@ type Props = {
   onHide: () => void;
   onShuffle: () => void | Promise<Recipe | null>;
   onOpenRecipe: (id: string) => void;
+  onEditRecipe: (id: string) => void;
 };
 
 const EMPTY_FILTERS: SwapRecipeFilters = {};
@@ -60,6 +62,7 @@ export function SlotSheet({
   onHide,
   onShuffle,
   onOpenRecipe,
+  onEditRecipe,
 }: Props) {
   const [filters, setFilters] = useState<SwapRecipeFilters>(EMPTY_FILTERS);
   const [viewing, setViewing] = useState<Recipe | null>(null);
@@ -69,7 +72,7 @@ export function SlotSheet({
     if (!slotKey) return [];
     return recipesForPicker(recipes, slotKey, approvedIds);
   }, [approvedIds, recipes, slotKey]);
-  const currentRecipe = slot?.recipeId ? recipes.find((recipe) => recipe.id === slot.recipeId) ?? null : null;
+  const currentRecipe = recipeForHouseholdView(recipes, slot?.recipeId) ?? null;
   const showRecipe = Boolean(currentRecipe) && !picking && !viewing;
   const showPicker = canEdit && (picking || !currentRecipe);
 
@@ -101,6 +104,8 @@ export function SlotSheet({
         <RecipePeek
           recipe={currentRecipe}
           target={target}
+          onEdit={() => onEditRecipe(currentRecipe.id)}
+          onOpen={() => onOpenRecipe(currentRecipe.id)}
           belowActions={
             <>
               {canEdit || canAssign ? (
@@ -141,6 +146,7 @@ export function SlotSheet({
             </View>
           </Pressable>
           <View style={styles.actions}>
+            <ActionBtn label="Edit" onPress={() => slot.recipeId && onEditRecipe(slot.recipeId)} />
             <ActionBtn label="View recipe" onPress={() => slot.recipeId && onOpenRecipe(slot.recipeId)} />
             {canAssign ? <ActionBtn label="Clear" onPress={onClear} /> : null}
             {canAssign ? <ActionBtn label="Remove from day" onPress={onHide} /> : null}

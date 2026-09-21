@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, radius, space } from '@/src/features/shell/theme';
+import { PwaInstallHint } from '@/src/features/shell/PwaInstallHint';
 import { useAuth } from '@/src/lib/auth';
 import { getAuthRedirectUrl } from '@/src/lib/oauth';
 
@@ -25,7 +26,9 @@ export default function SignInScreen() {
   }
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top + 48, paddingBottom: insets.bottom + 24 }]}>
+    <ScrollView
+      contentContainerStyle={[styles.root, { paddingTop: insets.top + 48, paddingBottom: insets.bottom + 24 }]}
+      keyboardShouldPersistTaps="handled">
       <View style={styles.brand}>
         <View style={styles.mark}>
           <View style={styles.markDot} />
@@ -79,13 +82,18 @@ export default function SignInScreen() {
           </Text>
         )}
       </View>
-    </View>
+      {Platform.OS === 'web' ? (
+        <View style={styles.install}>
+          <PwaInstallHint />
+        </View>
+      ) : null}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   root: {
-    flex: 1,
+    flexGrow: 1,
     backgroundColor: colors.bg,
     alignItems: 'center',
     paddingHorizontal: space.lg,
@@ -202,5 +210,10 @@ const styles = StyleSheet.create({
     color: colors.textDim,
     fontSize: 12,
     lineHeight: 18,
+  },
+  install: {
+    width: '100%',
+    maxWidth: 440,
+    marginTop: space.md,
   },
 });

@@ -19,7 +19,7 @@ export function ImportMobile(props: ImportRecipeViewProps) {
         busy={props.busy}
         onSave={props.onSave}>
         <ImportExtractCard {...props} />
-        <ImportFieldsCard {...props} />
+        <ImportFieldsCard desktop={props.desktop} form={props.form} setForm={props.setForm} />
       </ImportChrome>
     </ScrollView>
   );

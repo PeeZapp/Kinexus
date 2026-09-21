@@ -24,6 +24,7 @@ import { GenerateDesktop } from '@/src/features/meals/generate/GenerateDesktop';
 import { GenerateMobile } from '@/src/features/meals/generate/GenerateMobile';
 import { Sheet } from '@/src/features/meals/meals-kit';
 import { canManageMealPlan } from '@/src/features/meals/picker-access';
+import { recipeEditHref } from '@/src/features/meals/recipe-href';
 import { RecipePeek } from '@/src/features/meals/RecipePeek';
 import { SwapRecipePicker } from '@/src/features/meals/SwapRecipePicker';
 import { useMealsSync } from '@/src/features/meals/use-meals-sync';
@@ -269,6 +270,13 @@ export function GenerateScreen() {
             recipe={peek.recipe}
             target={slotTarget(peek.slot, selectedArray, goals)}
             useLabel="Accept"
+            onEdit={() => {
+              const id = peek.recipe.id;
+              setPeek(null);
+              setTimeout(() => {
+                router.push(recipeEditHref(id));
+              }, 0);
+            }}
             onUse={() => setPeek(null)}
             onSwap={() => {
               const at = { day: peek.day, slot: peek.slot };

@@ -8,9 +8,11 @@ import {
   brickOwlSetUrl,
   parseQuotedPrice,
   pickCollectibleValue,
+  collectibleHitHasValue,
 } from './collectibles';
 import {
   applyDiscogsStats,
+  collectibleHitFromBrickEconomyApi,
   parseBrickEconomyMinifigSearch,
   parseBrickEconomySearch,
   parseBrickEconomySet,
@@ -211,5 +213,43 @@ describe('collectibles', () => {
     `);
     expect(owl).toMatchObject({ catalogId: '75192', valueUsed: 1046.28, currency: 'AUD' });
     expect(pickCollectibleValue({ valueNew: '1317.48', valueUsed: null, retailValue: null }, 'new')).toBe(1317.48);
+
+    const listed = parseBrickOwlProduct(`
+      <script type="application/ld+json">{"@type":"Product","name":"LEGO Millennium Falcon Set 75192","mpn":["75192"],"offers":{"@type":"Offer","price":1046.28,"priceCurrency":"AUD","itemCondition":"https://schema.org/UsedCondition"}}</script>
+      <tr class="odd"><td>New<br/>(Sealed)</td><td>1</td><td><span class='price'>A$1,014.33</span></td></tr>
+      <tr class="even"><td>Used<br/>(Complete)</td><td>1</td><td><span class='price'>A$681.82</span></td></tr>
+    `);
+    expect(listed).toMatchObject({ valueNew: 1014.33, valueUsed: 681.82, currency: 'AUD' });
+  });
+
+  it('ignores zero catalog quotes and blocked BrickEconomy HTML', () => {
+    expect(pickCollectibleValue({ valueNew: 0, valueUsed: 864, retailValue: 360 }, 'new')).toBe(864);
+    expect(collectibleHitHasValue({ valueNew: 0, valueUsed: null, retailValue: null })).toBe(false);
+    const blocked = parseBrickEconomySet('<title>Just a moment...</title>', {
+      kind: 'lego',
+      source: 'brickeconomy',
+      catalogId: '75192-1',
+      name: '75192 Millennium Falcon',
+      subtitle: null,
+      imageUrl: null,
+      sourceUrl: 'https://www.brickeconomy.com/set/75192-1/lego-star-wars-millennium-falcon',
+      currency: 'AUD',
+      valueNew: null,
+      valueUsed: null,
+      retailValue: null,
+    });
+    expect(blocked).toBeNull();
+    const fromApi = collectibleHitFromBrickEconomyApi(
+      {
+        set_number: '75192-1',
+        name: 'Millennium Falcon',
+        currency: 'AUD',
+        current_value_new: '1317.48',
+        current_value_used: '900',
+        retail_price_au: '1299.99',
+      },
+      'AUD',
+    );
+    expect(fromApi).toMatchObject({ catalogId: '75192-1', valueNew: 1317.48, valueUsed: 900, retailValue: 1299.99, currency: 'AUD' });
   });
 });

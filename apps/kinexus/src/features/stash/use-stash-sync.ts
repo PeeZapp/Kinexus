@@ -35,6 +35,7 @@ import { scrapeStashLink, scrapeStashProduct } from '@/src/features/stash/stash-
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 import { useOnline } from '@/src/lib/online';
+import { retainPostgresChannel } from '@/src/lib/realtime';
 import { supabase } from '@/src/lib/supabase';
 
 function productsKey(householdId: string) {
@@ -241,20 +242,17 @@ export function useStashSync() {
       void queryClient.invalidateQueries({ queryKey: collectionsKey(householdId) });
       void queryClient.invalidateQueries({ queryKey: collectionItemsKey(householdId) });
     };
-    const channel = client
-      .channel(`stash-sync:${householdId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_products', filter: `household_id=eq.${householdId}` }, invalidate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_lists', filter: `household_id=eq.${householdId}` }, invalidate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_list_people', filter: `household_id=eq.${householdId}` }, invalidate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_list_products', filter: `household_id=eq.${householdId}` }, invalidate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_list_items', filter: `household_id=eq.${householdId}` }, invalidate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_links', filter: `household_id=eq.${householdId}` }, invalidate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_link_collections', filter: `household_id=eq.${householdId}` }, invalidate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_link_collection_items', filter: `household_id=eq.${householdId}` }, invalidate)
-      .subscribe();
-    return () => {
-      void client.removeChannel(channel);
-    };
+    return retainPostgresChannel(client, `stash-sync:${householdId}`, (channel) =>
+      channel
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_products', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_lists', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_list_people', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_list_products', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_list_items', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_links', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_link_collections', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_link_collection_items', filter: `household_id=eq.${householdId}` }, invalidate),
+    );
   }, [householdId, online, queryClient]);
 
   const products = productsQuery.data ?? [];

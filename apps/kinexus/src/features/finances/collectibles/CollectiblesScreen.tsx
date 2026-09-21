@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
@@ -36,6 +36,7 @@ export function CollectiblesScreen() {
   const [actionError, setActionError] = useState<string | null>(null);
   const total = useMemo(() => collectiblesTotal(finances.collectibles), [finances.collectibles]);
   const groups = useMemo(() => groupCollectibles(finances.collectibles), [finances.collectibles]);
+  const pricedIds = useRef(new Set<string>());
 
   async function run(fn: () => Promise<unknown>): Promise<boolean> {
     setActionError(null);
@@ -88,6 +89,45 @@ export function CollectiblesScreen() {
       if (failed > 0) throw new Error(`Updated some values. ${failed} could not be refreshed.`);
     });
   }
+
+  useEffect(() => {
+    if (!canManage || !finances.online || finances.loading || busy) return;
+    const missing = finances.collectibles.filter(
+      (item) => item.catalogId && item.marketValue <= 0 && !pricedIds.current.has(item.id),
+    );
+    if (missing.length === 0) return;
+    for (const item of missing) pricedIds.current.add(item.id);
+    void (async () => {
+      for (const item of missing) {
+        try {
+          const hit = await lookupCollectibleCatalog({
+            kind: item.kind,
+            catalogId: item.catalogId!,
+            sourceUrl: item.sourceUrl,
+            currency: finances.currency,
+          });
+          const value = pickCollectibleValue(hit, item.condition);
+          if (value == null) continue;
+          await finances.updateCollectible(item.id, {
+            name: item.name,
+            kind: item.kind,
+            condition: item.condition,
+            quantity: String(item.quantity),
+            catalogId: hit.catalogId,
+            source: hit.source,
+            sourceUrl: hit.sourceUrl,
+            imageUrl: hit.imageUrl ?? item.imageUrl ?? undefined,
+            purchasedValue: item.purchasedValue != null ? String(item.purchasedValue) : '',
+            marketValue: String(value),
+            notes: item.notes ?? '',
+            valuedAt: new Date().toISOString(),
+          });
+        } catch {
+          // Keep the id marked so a failed catalog does not retry in a loop.
+        }
+      }
+    })();
+  }, [busy, canManage, finances.collectibles, finances.currency, finances.loading, finances.online, finances.updateCollectible]);
 
   if (finances.loading && finances.collectibles.length === 0) {
     return <LoadingState label="Loading collectibles…" />;
@@ -154,7 +194,9 @@ export function CollectiblesScreen() {
                       {item.source !== 'manual' ? ` · ${collectibleSourceLabel(item.source)}` : ''}
                     </Text>
                   </View>
-                  <Text style={styles.value}>{formatMoney(collectibleHoldingValue(item), finances.currency)}</Text>
+                  <Text style={styles.value}>
+                    {item.marketValue > 0 ? formatMoney(collectibleHoldingValue(item), finances.currency) : '—'}
+                  </Text>
                 </Pressable>
               ))}
             </View>

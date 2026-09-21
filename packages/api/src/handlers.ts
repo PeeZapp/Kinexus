@@ -1,6 +1,7 @@
 import { budgetCategoryOptions, isWatchlistMediaType, normalizeCountryCode, type BudgetCategoryOption, type FinanceBudgetLineKind } from '@kinexus/domain';
 
 import { extractRecipeFromText, extractRecipeFromUrlHint } from './ai/extract.js';
+import { estimateRecipeNutritionWithAi } from './ai/nutrition.js';
 import { classifyBudgetMerchantsWithAi, type BudgetClassifyMerchant } from './ai/classify-budget.js';
 import { createAiClient } from './ai/provider.js';
 import { scrapeLinkUrl } from './scrape/link.js';
@@ -10,12 +11,15 @@ import { scrapeRecipeUrl } from './scrape/index.js';
 import { lookupWatchlistTitle, resolveWatchlistUrl, searchWatchlistTitles } from './watchlist.js';
 import type { RecipeDraft } from './recipe-draft.js';
 
-export type AiTask = 'extract_recipe' | 'extract_recipe_from_url';
+export type AiTask = 'extract_recipe' | 'extract_recipe_from_url' | 'estimate_recipe_nutrition';
 
 export type AiRequestBody = {
   task?: string;
   content?: string;
   url?: string;
+  name?: string;
+  servings?: number;
+  ingredients?: { name?: string; amount?: string }[];
 };
 
 export type ScrapeRequestBody = {
@@ -63,11 +67,14 @@ export async function handleScrapeLink(body: ScrapeRequestBody) {
 
 export async function handleAi(body: AiRequestBody): Promise<{
   status: number;
-  body: { recipe: RecipeDraft; provider: string } | { error: string };
+  body:
+    | { recipe: RecipeDraft; provider: string }
+    | { nutrition: { calories?: number; protein?: number; carbs?: number; fat?: number }; provider: string }
+    | { error: string };
 }> {
   const task = body.task;
-  if (task !== 'extract_recipe' && task !== 'extract_recipe_from_url') {
-    return { status: 400, body: { error: 'task must be extract_recipe or extract_recipe_from_url' } };
+  if (task !== 'extract_recipe' && task !== 'extract_recipe_from_url' && task !== 'estimate_recipe_nutrition') {
+    return { status: 400, body: { error: 'task must be extract_recipe, extract_recipe_from_url, or estimate_recipe_nutrition' } };
   }
 
   try {
@@ -78,6 +85,21 @@ export async function handleAi(body: AiRequestBody): Promise<{
       if (content.length > 20_000) return { status: 400, body: { error: 'Recipe text is too long' } };
       const recipe = await extractRecipeFromText(client, content);
       return { status: 200, body: { recipe, provider: client.provider } };
+    }
+    if (task === 'estimate_recipe_nutrition') {
+      const ingredients = (body.ingredients ?? [])
+        .map((item) => ({
+          name: String(item?.name ?? '').trim(),
+          amount: String(item?.amount ?? '').trim() || undefined,
+        }))
+        .filter((item) => item.name);
+      if (ingredients.length === 0) return { status: 400, body: { error: 'Add at least one ingredient' } };
+      const nutrition = await estimateRecipeNutritionWithAi(client, {
+        name: body.name?.trim(),
+        servings: body.servings,
+        ingredients,
+      });
+      return { status: 200, body: { nutrition, provider: client.provider } };
     }
     const url = body.url?.trim() ?? '';
     if (!url) return { status: 400, body: { error: 'url is required' } };

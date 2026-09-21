@@ -74,4 +74,45 @@ describe('shoppingFromPlan', () => {
     });
     expect(items).toEqual([]);
   });
+
+  it('uses household overwrite ingredients instead of the original catalog recipe', () => {
+    const catalog = recipe({
+      id: 'cat-burger',
+      name: 'Chicken halloumi burger',
+      mealSlots: ['dinner'],
+      ingredients: [
+        { name: 'Chicken thigh', amount: '400g' },
+        { name: 'Halloumi', amount: '200g' },
+        { name: 'Burger bun', amount: '4' },
+      ],
+    });
+    const household = recipe({
+      id: 'hh-burger',
+      name: 'Chicken halloumi burger',
+      householdId: 'hh-1',
+      sourcedFromRecipeId: 'cat-burger',
+      replacesSource: true,
+      mealSlots: ['dinner'],
+      ingredients: [
+        { name: 'Chicken thigh', amount: '400g' },
+        { name: 'Halloumi', amount: '250g' },
+      ],
+    });
+    const items = shoppingFromPlan({
+      plan: {
+        activeSlots: ['dinner'],
+        slots: [
+          { day: 'monday', slotKey: 'dinner', recipeId: 'cat-burger' },
+          { day: 'tuesday', slotKey: 'dinner', recipeId: 'hh-burger' },
+        ],
+      },
+      recipes: [catalog, household],
+    });
+    expect(items.map((item) => item.name).sort()).toEqual(['Chicken thigh', 'Halloumi']);
+    expect(items.find((item) => item.name === 'Halloumi')?.amount).toBe('500g');
+    expect(items.find((item) => item.name === 'Burger bun')).toBeUndefined();
+    expect(items.find((item) => item.name === 'Chicken thigh')?.recipeSources.map((s) => s.recipeId)).toEqual([
+      'hh-burger',
+    ]);
+  });
 });

@@ -1,61 +1,20 @@
 import { normalizeRecipeDraft, type RecipeDraft } from '../recipe-draft.js';
+import { fetchPublicHtmlDirect, fetchPublicHtmlHardened, type HardenedFetchOptions } from './hardened-fetch.js';
+
+export { SsrfError, assertPublicHttpUrl, assertResolvedPublicHost, isPrivateHost, isPrivateIp } from './ssrf.js';
+export type { HostnameLookup } from './ssrf.js';
+export { scrapeTransportStatus } from './hardened-fetch.js';
 
 export type ScrapeResult =
   | { source: 'json-ld'; recipe: RecipeDraft }
   | { source: 'text'; content: string }
   | { source: 'blocked'; blocked: true };
 
-const FETCH_HEADERS = {
-  'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.9',
-};
+export type FetchPublicHtmlOptions = HardenedFetchOptions;
 
-export function assertPublicHttpUrl(raw: string): URL {
-  let parsed: URL;
-  try {
-    parsed = new URL(raw);
-  } catch {
-    throw new Error('A valid http/https URL is required');
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('A valid http/https URL is required');
-  }
-  if (isPrivateHost(parsed.hostname)) {
-    throw new Error('That URL is not allowed');
-  }
-  return parsed;
-}
-
-function isPrivateHost(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host === '::1') return true;
-  if (host === '0.0.0.0' || host === '255.255.255.255') return true;
-  if (/^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) return true;
-  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return true;
-  if (host.endsWith('.internal') || host === 'metadata.google.internal') return true;
-  return false;
-}
-
-export async function fetchPublicHtml(url: string): Promise<Response> {
-  let current = url;
-  for (let hop = 0; hop < 4; hop += 1) {
-    assertPublicHttpUrl(current);
-    const response = await fetch(current, {
-      headers: FETCH_HEADERS,
-      redirect: 'manual',
-      signal: AbortSignal.timeout(12_000),
-    });
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get('location');
-      if (!location) throw new Error(`Could not fetch that URL (HTTP ${response.status})`);
-      current = new URL(location, current).href;
-      continue;
-    }
-    return response;
-  }
-  throw new Error('Too many redirects');
+export async function fetchPublicHtml(url: string, options: FetchPublicHtmlOptions = {}): Promise<Response> {
+  if (options.fetch) return fetchPublicHtmlDirect(url, options);
+  return fetchPublicHtmlHardened(url, options);
 }
 
 export function decodeEntities(html: string): string {
@@ -66,10 +25,16 @@ export function decodeEntities(html: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&nbsp;/g, ' ')
-    .replace(/&#(\d+);/g, (_, code: string) => String.fromCharCode(Number(code)));
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, code: string) => fromCodePoint(Number(code)));
 }
 
-function stripHtml(html: string): string {
+function fromCodePoint(code: number): string {
+  if (!Number.isFinite(code) || code < 0 || code > 0x10ffff) return '';
+  return String.fromCodePoint(code);
+}
+
+export function stripHtml(html: string): string {
   let text = html
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')

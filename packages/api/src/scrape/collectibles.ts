@@ -3,6 +3,7 @@ import {
   collectibleHitFromBrickEconomyApi,
   collectibleHitsFromDiscogsSearch,
   collectibleHitsFromPriceChartingApi,
+  collectibleHitHasValue,
   convertSearchHit,
   isBlockedCatalogPage,
   isCollectibleKind,
@@ -104,7 +105,7 @@ async function priceChartingFromApi(query: string, kind: CollectibleKind, curren
 }
 
 async function enrichLegoHits(hits: CollectibleSearchHit[], currency: string): Promise<CollectibleSearchHit[]> {
-  const targets = hits.slice(0, 1);
+  const targets = hits.slice(0, 3);
   const detailed = await Promise.all(
     targets.map(async (item) => {
       const next = await lookupLego(item.catalogId, item.sourceUrl, currency, item);
@@ -114,50 +115,93 @@ async function enrichLegoHits(hits: CollectibleSearchHit[], currency: string): P
   return [...detailed, ...hits.slice(detailed.length)].map((item) => convertSearchHit(item, currency));
 }
 
+function takeHit(best: CollectibleSearchHit | null, extra: CollectibleSearchHit | null | undefined): CollectibleSearchHit | null {
+  if (!extra) return best;
+  if (!best) return extra;
+  return mergeCollectibleHits(best, extra);
+}
+
 async function lookupLego(
   catalogId: string,
   sourceUrl: string | null | undefined,
   currency: string,
   fallback?: CollectibleSearchHit,
 ): Promise<CollectibleSearchHit | null> {
+  let best = fallback ? convertSearchHit(fallback, currency) : null;
+
   const fromApi = await brickSetFromApi(catalogId, currency);
-  if (fromApi) return fromApi;
+  if (collectibleHitHasValue(fromApi)) return convertSearchHit(fromApi!, currency);
+  best = takeHit(best, fromApi ? convertSearchHit(fromApi, currency) : null);
+
   if (sourceUrl) {
     const html = await htmlFrom(sourceUrl);
     if (html) {
       const parsed =
-        sourceUrl.includes('brickset.com') ? parseBricksetSet(html, fallback) : parseBrickEconomySet(html, fallback);
+        sourceUrl.includes('brickset.com') ? parseBricksetSet(html, fallback ?? best ?? undefined) : parseBrickEconomySet(html, fallback ?? best ?? undefined);
       if (parsed) {
-        const base = convertSearchHit(parsed, currency);
-        const withMarket = await withBrickOwlValue(base, currency);
-        return withMarket;
+        let next = convertSearchHit(parsed, currency);
+        if (sourceUrl.includes('brickset.com') || !collectibleHitHasValue(next)) {
+          next = await withBrickOwlValue(next, currency);
+        }
+        best = takeHit(best, next);
+        if (collectibleHitHasValue(best) && sourceUrl.includes('brickset.com')) {
+          return convertSearchHit(best!, currency);
+        }
       }
-      if (fallback) return convertSearchHit(fallback, currency);
     }
   }
-  const searchHtml = await htmlFrom(`https://www.brickeconomy.com/search?query=${encodeURIComponent(catalogId)}`);
-  if (searchHtml) {
-    const parsedSearch = parseBrickEconomySearch(searchHtml);
-    const first = parsedSearchMatch(parsedSearch, catalogId);
-    if (first?.sourceUrl) {
-      const setHtml = await htmlFrom(first.sourceUrl);
-      if (setHtml) {
-        const parsed = parseBrickEconomySet(setHtml, first);
-        return parsed ? convertSearchHit(parsed, currency) : convertSearchHit(first, currency);
+
+  if (!collectibleHitHasValue(best)) {
+    const searchHtml = await htmlFrom(`https://www.brickeconomy.com/search?query=${encodeURIComponent(catalogId)}`);
+    if (searchHtml) {
+      const parsedSearch = parseBrickEconomySearch(searchHtml);
+      const first = parsedSearchMatch(parsedSearch, catalogId);
+      if (first?.sourceUrl) {
+        const setHtml = await htmlFrom(first.sourceUrl);
+        if (setHtml) {
+          const parsed = parseBrickEconomySet(setHtml, first);
+          best = takeHit(best, parsed ? convertSearchHit(parsed, currency) : convertSearchHit(first, currency));
+        } else {
+          best = takeHit(best, convertSearchHit(first, currency));
+        }
       }
-      return convertSearchHit(first, currency);
     }
   }
-  const bricksetHtml = await htmlFrom(`https://brickset.com/sets/${encodeURIComponent(catalogId)}`);
-  if (bricksetHtml) {
-    const parsed = parseBricksetSet(bricksetHtml, fallback);
-    if (parsed) {
-      const base = convertSearchHit(parsed, currency);
-      const withMarket = await withBrickOwlValue(base, currency);
-      return withMarket;
+
+  if (!collectibleHitHasValue(best) || !best?.sourceUrl?.includes('brickset.com')) {
+    const bricksetHtml = await htmlFrom(`https://brickset.com/sets/${encodeURIComponent(catalogId)}`);
+    if (bricksetHtml) {
+      const parsed = parseBricksetSet(bricksetHtml, fallback ?? best ?? undefined);
+      if (parsed) {
+        const withMarket = await withBrickOwlValue(convertSearchHit(parsed, currency), currency);
+        best = takeHit(best, withMarket);
+      }
     }
   }
-  return fallback ? convertSearchHit(fallback, currency) : null;
+
+  if (!collectibleHitHasValue(best)) {
+    best = takeHit(best, await lookupLegoFromPriceCharting(catalogId, currency, best ?? fallback));
+  }
+
+  return best;
+}
+
+async function lookupLegoFromPriceCharting(
+  catalogId: string,
+  currency: string,
+  fallback?: CollectibleSearchHit | null,
+): Promise<CollectibleSearchHit | null> {
+  const query = `lego ${catalogId.replace(/-\d+$/, '')}`;
+  const fromApi = await priceChartingFromApi(query, 'lego', currency);
+  const match = fromApi?.find((item) => item.name.includes(catalogId.replace(/-\d+$/, ''))) ?? fromApi?.[0];
+  if (collectibleHitHasValue(match)) return match ?? null;
+  const html = await htmlFrom(`https://www.pricecharting.com/search-products?type=prices&q=${encodeURIComponent(query)}`);
+  if (!html) return match ? convertSearchHit(match, currency) : null;
+  const parsed =
+    parsePriceChartingProduct(html, fallback ?? match ?? undefined) ??
+    parsePriceChartingSearch(html, 'lego')[0] ??
+    null;
+  return parsed ? convertSearchHit(parsed, currency) : match ? convertSearchHit(match, currency) : null;
 }
 
 async function withBrickOwlValue(hit: CollectibleSearchHit, currency: string): Promise<CollectibleSearchHit> {

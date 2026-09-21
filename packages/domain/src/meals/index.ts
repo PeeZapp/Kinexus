@@ -13,6 +13,43 @@ export type {
   RecipeCostLine,
   ShoppingRecipeSource,
 } from './types';
+export type {
+  CleanIngredient,
+  CleanMethodBlock,
+  CleanRecipe,
+  CreateRecipeImportRequest,
+  CreateRecipeImportResponse,
+  GetRecipeImportResponse,
+  RecipeAttribution,
+  RecipeExtractionMeta,
+  RecipeExtractionMethod,
+  RecipeImportErrorCode,
+  RecipeImportJob,
+  RecipeImportJobStatus,
+  RecipeImportPhase,
+  RecipeImportUserError,
+  RecipeQuantity,
+  RecipeSourceKind,
+} from './clean-recipe';
+export {
+  EXTRACTION_CONFIDENCE,
+  RECIPE_IMPORT_ERROR_BODY,
+  RECIPE_IMPORT_ERROR_TITLE,
+  RECIPE_IMPORT_PROGRESS_MESSAGES,
+  RECIPE_IMPORT_USER_ERROR_COPY,
+  RECIPE_NOT_FOUND_MESSAGE,
+  cleanIngredientsToRecipeIngredients,
+  cleanRecipeToHouseholdDraft,
+  formatScaledNumber,
+  householdRecipeToClean,
+  isCompleteCleanRecipe,
+  methodBlocksToStrings,
+  rotatingProgressMessage,
+  scaledQuantityLabel,
+  userErrorFromCode,
+} from './clean-recipe';
+export type { NormalizedRecipeUrl } from './recipe-url';
+export { RecipeUrlError, classifyRecipeHost, normalizeRecipeUrl, youtubeVideoId } from './recipe-url';
 export { DAYS, DAY_LABELS, MEAL_SLOTS, mealSlotRecordKey } from './types';
 export {
   addableMealSlotKeys,
@@ -74,6 +111,13 @@ export {
 export type { DietaryOption } from './dietary';
 
 export { recipePrintHtml } from './print-recipe';
+export { findReplacingRecipe, hideReplacedCatalogRecipes, recipeForHouseholdView } from './recipe-versions';
+export {
+  estimateRecipeNutrition,
+  nutritionCoverageLow,
+  nutritionKey,
+} from './recipe-nutrition';
+export type { RecipeNutritionEstimate } from './recipe-nutrition';
 
 export {
   DEFAULT_MARKET,

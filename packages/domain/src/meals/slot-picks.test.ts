@@ -60,4 +60,19 @@ describe('recipesForPicker', () => {
     expect(recipesForPicker(library, 'dinner', new Set(['oats'])).map((r) => r.id)).toEqual(['oats']);
     expect(recipesForPicker(library, 'dinner', new Set())).toEqual([]);
   });
+
+  it('uses the household overwrite when the allowlist still has the catalog id', () => {
+    const catalog = recipe({ id: 'cat-burger', name: 'Chicken halloumi burger', mealSlots: ['dinner'] });
+    const household = recipe({
+      id: 'hh-burger',
+      name: 'Chicken halloumi burger',
+      householdId: 'hh-1',
+      sourcedFromRecipeId: 'cat-burger',
+      replacesSource: true,
+      mealSlots: ['dinner'],
+    });
+    expect(
+      recipesForPicker([catalog, household], 'dinner', new Set(['cat-burger'])).map((r) => r.id),
+    ).toEqual(['hh-burger']);
+  });
 });

@@ -6,6 +6,7 @@ import {
   CORE_SLOTS,
   mondayWeekStart,
   pickRandomSwapRecipe,
+  recipeForHouseholdView,
   recipesForPicker,
   rememberSwapId,
   slotTarget,
@@ -26,7 +27,7 @@ import {
   linkedPersonForUser,
   personName,
 } from '@/src/features/meals/picker-access';
-import { recipeHref } from '@/src/features/meals/recipe-href';
+import { recipeEditHref, recipeHref } from '@/src/features/meals/recipe-href';
 import { useMealsSync } from '@/src/features/meals/use-meals-sync';
 import { todayDay } from '@/src/features/meals/week-labels';
 import { useExperienceMode } from '@/src/lib/experience-mode';
@@ -113,7 +114,7 @@ export function PlanScreen() {
     if (!sheetDay || !sheetSlot || !sheetCanEdit) return null;
     const key = `${sheetDay}_${sheetSlot}`;
     const current = meals.slotMap.get(key);
-    const currentRecipe = current?.recipeId ? meals.recipes.find((recipe) => recipe.id === current.recipeId) : null;
+    const currentRecipe = recipeForHouseholdView(meals.recipes, current?.recipeId) ?? null;
     const pool = recipesForPicker(meals.recipes, sheetSlot, sheetApprovedIds);
     const goals = meals.goals ?? FALLBACK_GOALS;
     const selected = meals.activeSlots.length > 0 ? meals.activeSlots : [...CORE_SLOTS];
@@ -128,6 +129,14 @@ export function PlanScreen() {
     rememberSwap(sheetDay, sheetSlot, pick.id);
     await meals.assignSlot(sheetDay, sheetSlot, pick);
     return pick;
+  }
+
+  function openRecipePage(href: Href) {
+    setSheetDay(null);
+    setSheetSlot(null);
+    setTimeout(() => {
+      router.push(href);
+    }, 0);
   }
 
   const sheet = (
@@ -170,13 +179,8 @@ export function PlanScreen() {
         setSheetSlot(null);
       }}
       onShuffle={() => void shuffle()}
-      onOpenRecipe={(id) => {
-        setSheetDay(null);
-        setSheetSlot(null);
-        setTimeout(() => {
-          router.push(recipeHref(id));
-        }, 0);
-      }}
+      onOpenRecipe={(id) => openRecipePage(recipeHref(id))}
+      onEditRecipe={(id) => openRecipePage(recipeEditHref(id))}
     />
   );
 

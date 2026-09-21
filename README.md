@@ -112,10 +112,25 @@ Set these in the project **Environment Variables** (Production + Preview). `EXPO
 | `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` | Runtime | server only |
 | `TMDB_API_KEY` | Runtime (API) | Lists → Watchlist search and where-to-watch |
 | `CORS_ORIGIN` | Runtime | `https://<prod-domain>,http://localhost:5300` |
+| `RESIDENTIAL_PROXY_URL` | Runtime (API) | Stashd home Pi proxy origin, no trailing slash |
+| `RESIDENTIAL_PROXY_KEY` | Runtime (API) | Same bearer key as the Pi `PROXY_KEY` |
+| `PLAYWRIGHT_ENABLED` | Runtime (API) | Playwright stealth backup. On locally; off on Vercel unless set to `1` |
 
 After the first URL exists, add it to Google + Supabase (next section) and tick item 11 in [CHECKLIST.md](./CHECKLIST.md).
 
 Smoke: `GET https://<prod-domain>/health` → `{"ok":true}`. Then Google sign-in → household → Meals.
+
+## Family testing (PWA)
+
+Native App Store / Play builds stay on EAS (next section). Until then, the Vercel site is an installable PWA so phones can use the mobile app chrome without a store build.
+
+**Before you share the link:** turn off Vercel Deployment Protection on Production (otherwise Google sign-in hits an SSO wall), and add the production origin to Google + Supabase as in the OAuth section below.
+
+**iPhone / iPad** — open the site in **Safari** (not Chrome), tap Share → **Add to Home Screen**, then open the Kinexus icon and sign in from there so the session lives in the installed app.
+
+**Android** — open the site in **Chrome**, then **Install app** / Add to Home screen (or the in-app Install banner). Sign in from the installed icon.
+
+Phones, tablets under 900px, and installed PWAs use the tab layout. Wide desktop browsers keep the sidebar. The service worker is production-only (it does not run during `pnpm web`) and is network-first so deploys are not stuck on a stale cache.
 
 ## EAS (development / preview)
 
@@ -305,6 +320,8 @@ Recipe import talks to `packages/api`. AI keys never go in `apps/kinexus/.env`.
 
 Then `pnpm web` as usual. Import Recipe → Fetch recipe uses `/scrape` then `/ai` when the page has no JSON-LD or blocks bots.
 
+Public HTML fetch (recipes, Stash product pages, collectibles catalogs) uses Impit, then the home Pi proxy (`RESIDENTIAL_PROXY_URL` / `RESIDENTIAL_PROXY_KEY`), then Playwright stealth as a local backup. Playwright stays off on Vercel unless `PLAYWRIGHT_ENABLED=1`.
+
 On Vercel, the same Hono app is mounted at `/api/*` and rewritten from `/health`, `/scrape`, `/ai`, `/prices/*`. Web can omit `EXPO_PUBLIC_API_URL` and call the same origin.
 
 Recipe cost estimates: `POST /prices/estimate` (signed-in) prices one recipe for the household's country. `GET /api/prices/refresh` is the Vercel Cron target (`0 6 * * *` UTC). The job only does work when estimates are from a previous month, so the first of the month starts a full refresh and leftover recipes continue on later days. Set `SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET` in Vercel. Apply `packages/db/supabase/migrations/20260907170000_recipe_cost_estimates.sql`.
@@ -322,6 +339,8 @@ Recipe cost estimates: `POST /prices/estimate` (signed-in) prices one recipe for
 | `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` | API env | DeepSeek OpenAI-compatible chat |
 | `TMDB_API_KEY` | API env | Lists → Watchlist catalog + streaming providers |
 | `CORS_ORIGIN` | API env | Comma-separated allowed web origins |
+| `RESIDENTIAL_PROXY_URL` / `RESIDENTIAL_PROXY_KEY` | API env | Home Pi scrape proxy (Cloudflare fallback) |
+| `PLAYWRIGHT_ENABLED` | API env | `1` to force Playwright on Vercel; `0` to disable locally |
 | `API_PORT` | `packages/api/.env` | Default `5301` (local only) |
 
 Generate Plan stays **local** (`generateMealPlan` in `packages/domain`). The API is for import scrape/extract and monthly recipe cost estimates — not food-log photo or barcode endpoints.

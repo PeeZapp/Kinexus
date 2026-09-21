@@ -1,4 +1,5 @@
 import { deduplicateIngredients } from './amounts';
+import { recipeForHouseholdView } from './recipe-versions';
 import type {
   DerivedShoppingItem,
   MealPlan,
@@ -154,7 +155,6 @@ export type ShoppingFromPlanInput = {
  */
 export function shoppingFromPlan(input: ShoppingFromPlanInput): DerivedShoppingItem[] {
   const { plan, recipes } = input;
-  const recipeById = new Map(recipes.map((r) => [r.id, r]));
   const baseRecipeMap = new Map(recipes.filter((r) => r.isComponent).map((r) => [r.id, r]));
   const activeSlotSet = new Set<MealSlotKey>(plan.activeSlots ?? ['breakfast', 'lunch', 'dinner']);
 
@@ -171,7 +171,7 @@ export function shoppingFromPlan(input: ShoppingFromPlanInput): DerivedShoppingI
     if (!activeSlotSet.has(slot.slotKey)) continue;
     if (slot.hidden) continue;
     if (!slot.recipeId) continue;
-    const recipe = recipeById.get(slot.recipeId);
+    const recipe = recipeForHouseholdView(recipes, slot.recipeId);
     if (!recipe?.ingredients) continue;
     for (const ing of recipe.ingredients) {
       raw.push({

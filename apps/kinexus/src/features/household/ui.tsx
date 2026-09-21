@@ -21,6 +21,7 @@ export function Field({
   value,
   onChangeText,
   placeholder,
+  multiline,
   ...rest
 }: TextInputProps & { label: string }) {
   return (
@@ -31,9 +32,12 @@ export function Field({
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={colors.textDim}
-        style={styles.input}
+        style={[styles.input, multiline && styles.inputMultiline]}
         autoCapitalize="none"
         autoCorrect={false}
+        multiline={multiline}
+        scrollEnabled={multiline ? false : undefined}
+        textAlignVertical={multiline ? 'top' : undefined}
         {...rest}
       />
     </View>
@@ -132,6 +136,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
     minHeight: 48,
+  },
+  inputMultiline: {
+    minHeight: 120,
+    paddingTop: 12,
   },
   btn: {
     minHeight: 48,

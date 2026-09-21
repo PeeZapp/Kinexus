@@ -6,6 +6,8 @@ import {
   isCollectibleKind,
   isCollectibleSource,
   isFinanceAccountKind,
+  normalizeAnchorMonth,
+  normalizeBudgetCadence,
   normalizeAsxSymbol,
   type FinanceAccount,
   type FinanceBudget,
@@ -66,6 +68,12 @@ export function lineFromRow(row: LineRow): FinanceBudgetLine {
     planned: Math.max(0, asNum(row.planned)),
     spent: Math.max(0, asNum(row.spent)),
     position: row.position,
+    cadence: normalizeBudgetCadence(row.cadence),
+    anchorMonth: normalizeAnchorMonth(row.anchor_month),
+    parentId: row.parent_id,
+    autoApply: Boolean(row.auto_apply),
+    autoAppliedMonth: row.auto_applied_month,
+    captureSurplus: Boolean(row.capture_surplus),
   };
 }
 
@@ -80,6 +88,7 @@ export function txnFromRow(row: TxnRow): FinanceBudgetTxn {
     merchantKey: row.merchant_key,
     amount: asNum(row.amount),
     ignored: row.ignored,
+    source: row.source === 'import' || row.source === 'auto' ? row.source : 'manual',
   };
 }
 

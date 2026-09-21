@@ -186,9 +186,16 @@ export function pickCollectibleValue(
   return used ?? neu ?? retail;
 }
 
-function asQuotedAmount(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value;
-  if (typeof value === 'string' && value.trim()) return parseQuotedPrice(value)?.amount ?? parseMoney(value);
+export function collectibleHitHasValue(hit: { valueNew?: unknown; valueUsed?: unknown; retailValue?: unknown } | null | undefined): boolean {
+  return hit != null && pickCollectibleValue(hit, 'new') != null;
+}
+
+export function asQuotedAmount(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return roundMoney(value);
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = parseQuotedPrice(value)?.amount ?? parseMoney(value);
+    return parsed != null && parsed > 0 ? parsed : null;
+  }
   return null;
 }
 

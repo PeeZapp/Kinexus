@@ -1,6 +1,10 @@
 export type { AiClient, AiProvider } from './ai/provider.js';
 export { createAiClient } from './ai/provider.js';
 export { scrapeRecipeUrl } from './scrape/index.js';
+export { SsrfError, assertPublicHttpUrl, fetchPublicHtml } from './scrape/index.js';
+export { extractJsonLdRecipe } from './recipes/extract-jsonld.js';
+export { extractMicrodataRecipe } from './recipes/extract-microdata.js';
+export { handleCreateRecipeImport, handleGetRecipeImport } from './recipes/handlers.js';
 export { scrapeProductUrl } from './scrape/product.js';
 export { scrapeLinkUrl } from './scrape/link.js';
 export { app } from './app.js';

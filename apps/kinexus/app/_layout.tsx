@@ -36,6 +36,10 @@ export default function RootLayout() {
                 <Stack.Screen name="(app)" />
                 <Stack.Screen name="auth/callback" />
                 <Stack.Screen name="invite/[token]" />
+                <Stack.Screen name="import" />
+                <Stack.Screen name="recipes" />
+                <Stack.Screen name="https/[...slug]" />
+                <Stack.Screen name="http/[...slug]" />
               </Stack>
             </ExperienceProvider>
           </HouseholdProvider>

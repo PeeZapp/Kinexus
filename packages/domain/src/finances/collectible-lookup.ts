@@ -1,4 +1,4 @@
-import { convertSearchHit, parseQuotedPrice } from './collectibles';
+import { asQuotedAmount, convertQuotedMoney, convertSearchHit, parseQuotedPrice } from './collectibles';
 import type { CollectibleKind, CollectibleSearchHit, CollectibleSource } from './types';
 
 function decodeEntities(html: string): string {
@@ -90,10 +90,16 @@ export function parseBrickEconomySet(html: string, fallback?: CollectibleSearchH
     firstMatch(html, /(?:property|name)=["']og:url["'][^>]+content=["']([^"']+\/set\/[^"']+)["']/i) ??
     firstMatch(html, /content=["']([^"']+\/set\/[^"']+)["'][^>]*(?:property|name)=["']og:url["']/i) ??
     firstMatch(html, /(\/set\/\d+(?:-\d+)?\/[a-z0-9-]+)/i);
-  const catalogId =
+  const catalogFromPage =
     firstMatch(html, /Set number<\/div><div class="col-xs-7">([^<]+)<\/div>/i) ??
-    firstMatch(path ?? '', /\/set\/(\d+(?:-\d+)?)/i) ??
-    fallback?.catalogId;
+    firstMatch(path ?? '', /\/set\/(\d+(?:-\d+)?)/i);
+  const onSetPage = Boolean(
+    catalogFromPage ||
+      firstMatch(html, /<h1 class="setheader">/i) ||
+      firstMatch(html, /id="ContentPlaceHolder1_PanelSetPricing"/i),
+  );
+  if (!onSetPage) return null;
+  const catalogId = catalogFromPage ?? fallback?.catalogId;
   if (!catalogId) return null;
   const heading = firstMatch(html, /<h1 class="setheader">([^<]+)<\/h1>/i) ?? fallback?.name ?? catalogId;
   const name = firstMatch(html, /Name<\/div><div class="col-xs-7">([^<]+)<\/div>/i);
@@ -164,16 +170,26 @@ export function parsePriceChartingProduct(html: string, fallback?: CollectibleSe
   const catalogId =
     firstMatch(html, /data-product(?:-id)?="(\d+)"/i) ??
     firstMatch(html, /product=(\d+)/i) ??
+    firstMatch(html, /product-id["']?\s*[:=]\s*["']?(\d+)/i) ??
     fallback?.catalogId;
   const name =
     firstMatch(html, /<h1[^>]*class="[^"]*product_name[^"]*"[^>]*>([^<]+)/i) ??
-    firstMatch(html, /og:title["'][^>]+content=["']([^"|]+)["']/i) ??
+    firstMatch(html, /(?:property|name)=["']og:title["'][^>]+content=["']([^"|]+)["']/i) ??
+    firstMatch(html, /content=["']([^"|]+)["'][^>]*(?:property|name)=["']og:title["']/i) ??
+    firstMatch(html, /<h1[^>]*>([^<]+)/i) ??
     fallback?.name;
   if (!catalogId || !name) return null;
-  const used = quoted(firstMatch(html, /id="used_price"[\s\S]*?class="(?:price )?js-price[^"]*">([^<]*)/i));
-  const neu = quoted(firstMatch(html, /id="new_price"[\s\S]*?class="(?:price )?js-price[^"]*">([^<]*)/i));
+  const used = quoted(
+    firstMatch(html, /id="used_price"[\s\S]*?class="[^"]*js-price[^"]*">\s*([^<]+)/i) ??
+      firstMatch(html, /id="used_price"[\s\S]*?class="(?:price )?js-price[^"]*">([^<]*)/i),
+  );
+  const neu = quoted(
+    firstMatch(html, /id="new_price"[\s\S]*?class="[^"]*js-price[^"]*">\s*([^<]+)/i) ??
+      firstMatch(html, /id="new_price"[\s\S]*?class="(?:price )?js-price[^"]*">([^<]*)/i),
+  );
   const href =
-    firstMatch(html, /og:url["'][^>]+content=["']([^"']+)["']/i) ??
+    firstMatch(html, /(?:property|name)=["']og:url["'][^>]+content=["']([^"']+)["']/i) ??
+    firstMatch(html, /content=["']([^"']+)["'][^>]*(?:property|name)=["']og:url["']/i) ??
     firstMatch(html, /canonical["'][^>]+href=["']([^"']+)["']/i);
   const image = firstMatch(html, /og:image["'][^>]+content=["']([^"']+)["']/i);
   const subtitle = firstMatch(html, /class="console[^"]*"[\s\S]*?<a[^>]*>\s*([^<]+)/i);
@@ -199,6 +215,15 @@ export function collectibleHitFromBrickEconomyApi(data: Record<string, unknown>,
   const quotedCurrency = String(data.currency ?? currency ?? 'USD').toUpperCase();
   const theme = [data.theme, data.subtheme].filter((part) => typeof part === 'string' && part.trim()).join(' / ') || null;
   const slug = `${catalogId}/${String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`.replace(/-+$/g, '');
+  const retailByCurrency: Record<string, unknown> = {
+    USD: data.retail_price_us,
+    GBP: data.retail_price_uk,
+    CAD: data.retail_price_ca,
+    EUR: data.retail_price_eu,
+    AUD: data.retail_price_au,
+  };
+  const localRetail = asQuotedAmount(retailByCurrency[quotedCurrency] ?? retailByCurrency[currency]);
+  const usRetail = asQuotedAmount(data.retail_price_us);
   const hitValue = hit({
     kind: 'lego',
     source: 'brickeconomy',
@@ -207,9 +232,9 @@ export function collectibleHitFromBrickEconomyApi(data: Record<string, unknown>,
     subtitle: theme,
     sourceUrl: `${BRICK_ORIGIN}/set/${slug}`,
     currency: quotedCurrency,
-    valueNew: typeof data.current_value_new === 'number' ? data.current_value_new : null,
-    valueUsed: typeof data.current_value_used === 'number' ? data.current_value_used : null,
-    retailValue: typeof data.retail_price_us === 'number' ? data.retail_price_us : null,
+    valueNew: asQuotedAmount(data.current_value_new),
+    valueUsed: asQuotedAmount(data.current_value_used),
+    retailValue: localRetail ?? (usRetail != null && quotedCurrency !== 'USD' ? convertQuotedMoney(usRetail, 'USD', quotedCurrency) : usRetail),
   });
   return convertSearchHit(hitValue, currency);
 }
@@ -572,7 +597,21 @@ function offerPrice(offers: unknown): { amount: number; currency: string; used: 
   return null;
 }
 
+function listingPrice(html: string, condition: RegExp): { amount: number; currency: string } | null {
+  let best: { amount: number; currency: string } | null = null;
+  for (const match of html.matchAll(/<tr[\s\S]*?<\/tr>/gi)) {
+    const row = match[0];
+    if (!condition.test(row)) continue;
+    const price = quoted(firstMatch(row, /<span class=['"]price['"]>([^<]+)/i));
+    if (!price) continue;
+    if (!best || price.amount < best.amount) best = price;
+  }
+  return best;
+}
+
 export function parseBrickOwlProduct(html: string, fallback?: CollectibleSearchHit): CollectibleSearchHit | null {
+  const valueNew = listingPrice(html, /New<br\s*\/?>\(Sealed\)/i);
+  const valueUsed = listingPrice(html, /Used<br\s*\/?>\(Complete\)/i);
   for (const node of jsonLdObjects(html)) {
     const types = Array.isArray(node['@type']) ? node['@type'] : [node['@type']];
     if (!types.some((type) => typeof type === 'string' && type.toLowerCase().includes('product'))) continue;
@@ -586,6 +625,13 @@ export function parseBrickOwlProduct(html: string, fallback?: CollectibleSearchH
     const offerUrl = node.offers && typeof node.offers === 'object' && !Array.isArray(node.offers) && typeof (node.offers as { url?: unknown }).url === 'string'
       ? (node.offers as { url: string }).url
       : null;
+    const usedOffer = offer?.used ? offer : null;
+    const newOffer = offer && !offer.used ? offer : null;
+    const currency =
+      valueNew?.currency ??
+      valueUsed?.currency ??
+      offer?.currency ??
+      fallback?.currency;
     return hit({
       kind: fallback?.kind ?? 'lego',
       source: fallback?.source ?? 'brickset',
@@ -594,25 +640,32 @@ export function parseBrickOwlProduct(html: string, fallback?: CollectibleSearchH
       subtitle: typeof node.category === 'string' ? node.category : fallback?.subtitle ?? null,
       imageUrl: image,
       sourceUrl: fallback?.sourceUrl ?? offerUrl ?? '',
-      currency: offer?.currency ?? fallback?.currency,
-      valueUsed: offer?.used ? offer.amount : fallback?.valueUsed ?? null,
-      valueNew: offer && !offer.used ? offer.amount : fallback?.valueNew ?? null,
+      currency,
+      valueUsed: valueUsed?.amount ?? usedOffer?.amount ?? fallback?.valueUsed ?? null,
+      valueNew: valueNew?.amount ?? newOffer?.amount ?? fallback?.valueNew ?? null,
       retailValue: fallback?.retailValue ?? null,
     });
   }
-  return null;
+  if (!fallback || (!valueNew && !valueUsed)) return null;
+  return hit({
+    ...fallback,
+    currency: valueNew?.currency ?? valueUsed?.currency ?? fallback.currency,
+    valueNew: valueNew?.amount ?? fallback.valueNew ?? null,
+    valueUsed: valueUsed?.amount ?? fallback.valueUsed ?? null,
+  });
 }
 
 export function mergeCollectibleHits(base: CollectibleSearchHit, extra: CollectibleSearchHit | null | undefined): CollectibleSearchHit {
   if (!extra) return base;
+  const converted = convertSearchHit(extra, base.currency);
   return {
     ...base,
     name: extra.name || base.name,
     subtitle: extra.subtitle ?? base.subtitle,
     imageUrl: extra.imageUrl ?? base.imageUrl,
-    valueNew: extra.valueNew ?? base.valueNew,
-    valueUsed: extra.valueUsed ?? base.valueUsed,
-    retailValue: extra.retailValue ?? base.retailValue,
-    currency: extra.valueNew != null || extra.valueUsed != null ? extra.currency : base.currency,
+    valueNew: converted.valueNew ?? base.valueNew,
+    valueUsed: converted.valueUsed ?? base.valueUsed,
+    retailValue: converted.retailValue ?? base.retailValue,
+    currency: base.currency,
   };
 }

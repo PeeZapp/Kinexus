@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import type { Href } from 'expo-router';
 import * as Linking from 'expo-linking';
 
+import { isSafeCookReturnPath, readCookReturnTo, clearCookReturnTo } from '@/src/features/cook/cook-storage';
 import { colors } from '@/src/features/shell/theme';
 import { createSessionFromUrl } from '@/src/lib/auth';
 
@@ -20,7 +22,9 @@ export default function AuthCallbackScreen() {
         if (href) {
           await createSessionFromUrl(href);
         }
-        if (!cancelled) router.replace('/');
+        const returnTo = await readCookReturnTo();
+        await clearCookReturnTo();
+        if (!cancelled) router.replace((isSafeCookReturnPath(returnTo) ? returnTo : '/') as Href);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Google sign-in failed');

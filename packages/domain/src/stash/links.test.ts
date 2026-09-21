@@ -34,6 +34,8 @@ describe('stash links', () => {
 
   it('infers type from host and path', () => {
     expect(inferLinkType('https://youtu.be/abc')).toBe('video');
+    expect(inferLinkType('https://www.instagram.com/reel/AbC')).toBe('video');
+    expect(inferLinkType('https://www.facebook.com/watch/?v=1')).toBe('video');
     expect(inferLinkType('https://www.amazon.com/dp/B00')).toBe('product');
     expect(inferLinkType('https://allrecipes.com/recipe/123')).toBe('recipe');
   });

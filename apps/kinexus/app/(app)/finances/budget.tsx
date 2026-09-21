@@ -1,5 +1,5 @@
-import { BudgetScreen } from '@/src/features/finances/budget/BudgetScreen';
+import { Redirect } from 'expo-router';
 
-export default function FinancesBudgetRoute() {
-  return <BudgetScreen />;
+export default function FinancesBudgetRedirect() {
+  return <Redirect href="/finances" />;
 }

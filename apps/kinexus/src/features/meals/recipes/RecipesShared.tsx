@@ -19,6 +19,12 @@ import {
 } from '@/src/features/meals/recipes/filters';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
+function recipeLibraryTag(recipe: Recipe) {
+  if (!recipe.householdId) return 'Catalog';
+  if (recipe.replacesSource) return 'Your version';
+  return 'Household';
+}
+
 export function RecipesChrome({
   desktop,
   query,
@@ -78,7 +84,7 @@ export function RecipesChrome({
       {showImport ? (
         <Btn
           label={online ? 'Import recipe' : 'Import (needs connection)'}
-          onPress={() => router.push('/meals/recipes/import' as Href)}
+          onPress={() => router.push('/import' as Href)}
           disabled={!online}
         />
       ) : null}
@@ -151,7 +157,7 @@ export function RecipeCard({
           {formatCostPerServe(recipe.cost) ? ` · ${formatCostPerServe(recipe.cost)}` : ''}
           {favourite ? ' · ♥' : ''}
         </Text>
-        {recipe.householdId ? <Text style={styles.tag}>Household</Text> : <Text style={styles.tag}>Catalog</Text>}
+        <Text style={styles.tag}>{recipeLibraryTag(recipe)}</Text>
         {recipe.excludedFromAuto ? <Text style={styles.tag}>Not for family</Text> : null}
         {showFlag && recipe.removed ? <Text style={styles.tag}>Removed</Text> : null}
       </View>
@@ -181,6 +187,7 @@ export function RecipeRow({
           {recipe.calories ?? '—'} kcal · {recipe.protein ?? '—'}g protein
           {formatCostPerServe(recipe.cost) ? ` · ${formatCostPerServe(recipe.cost)}` : ''}
           {favourite ? ' · ♥' : ''}
+          {` · ${recipeLibraryTag(recipe)}`}
           {recipe.excludedFromAuto ? ' · Not for family' : ''}
           {showFlag && recipe.removed ? ' · Removed' : ''}
         </Text>

@@ -4,19 +4,27 @@ import * as Clipboard from 'expo-clipboard';
 
 import {
   ASSET_KINDS,
+  BUDGET_CADENCES,
   COLLECTIBLE_KINDS,
   LIABILITY_KINDS,
+  MONTH_SHORT_NAMES,
   accountKindLabel,
+  calendarMonthNumber,
+  cadenceAmountLabel,
+  cadenceDueLabel,
+  cadenceLabel,
   collectibleCatalogHint,
   collectibleConditionLabel,
   collectibleKindLabel,
   collectibleSearchPlaceholder,
   collectibleSourceLabel,
+  eligibleParentLines,
   evalMoneyExpression,
   formatHolderId,
   formatMoney,
   holderIdKind,
   holderIdLabel,
+  linePathName,
   moneyExpressionHasOp,
   parseShareImport,
   pickCollectibleValue,
@@ -27,6 +35,7 @@ import {
   type FinanceAccount,
   type FinanceAccountKind,
   type FinanceBudgetLine,
+  type FinanceBudgetLineCadence,
   type FinanceBudgetLineKind,
   type FinanceCollectible,
   type FinanceShareHolding,
@@ -121,10 +130,71 @@ export function AccountSheet({
   );
 }
 
+export function BudgetCadenceFields({
+  cadence,
+  anchorMonth,
+  readOnly,
+  onChange,
+}: {
+  cadence: FinanceBudgetLineCadence;
+  anchorMonth: number;
+  readOnly?: boolean;
+  onChange: (cadence: FinanceBudgetLineCadence, anchorMonth: number) => void;
+}) {
+  return (
+    <>
+      <Text style={styles.label}>How often</Text>
+      <View style={styles.wrap}>
+        {BUDGET_CADENCES.map((item) => (
+          <Pill
+            key={item}
+            label={cadenceLabel(item)}
+            active={cadence === item}
+            onPress={
+              readOnly
+                ? undefined
+                : () =>
+                    onChange(
+                      item,
+                      item === 'monthly'
+                        ? anchorMonth
+                        : cadence === 'monthly'
+                          ? calendarMonthNumber()
+                          : anchorMonth,
+                    )
+            }
+          />
+        ))}
+      </View>
+      {cadence !== 'monthly' ? (
+        <>
+          <Text style={styles.label}>Lands in</Text>
+          <View style={styles.wrap}>
+            {MONTH_SHORT_NAMES.map((label, index) => (
+              <Pill
+                key={label}
+                label={label}
+                active={anchorMonth === index + 1}
+                onPress={readOnly ? undefined : () => onChange(cadence, index + 1)}
+              />
+            ))}
+          </View>
+          <Text style={styles.hint}>
+            Due {cadenceDueLabel(cadence, anchorMonth)} — the full amount sits in those months. Use “As monthly amounts”
+            on the budget to spread it across the year.
+          </Text>
+        </>
+      ) : null}
+    </>
+  );
+}
+
 export function BudgetLineSheet({
   visible,
   line,
+  lines,
   defaultKind,
+  forcedParentId,
   onClose,
   onSave,
   onDelete,
@@ -134,7 +204,9 @@ export function BudgetLineSheet({
 }: {
   visible: boolean;
   line: FinanceBudgetLine | null;
+  lines: readonly FinanceBudgetLine[];
   defaultKind: FinanceBudgetLineKind;
+  forcedParentId?: string | null;
   onClose: () => void;
   onSave: (draft: BudgetLineDraft) => Promise<void>;
   onDelete?: () => Promise<void>;
@@ -145,32 +217,156 @@ export function BudgetLineSheet({
   const [name, setName] = useState('');
   const [kind, setKind] = useState<FinanceBudgetLineKind>(defaultKind);
   const [planned, setPlanned] = useState('');
+  const [cadence, setCadence] = useState<FinanceBudgetLineCadence>('monthly');
+  const [anchorMonth, setAnchorMonth] = useState(calendarMonthNumber);
+  const [parentId, setParentId] = useState<string | null>(null);
+  const [autoApply, setAutoApply] = useState(false);
+  const [captureSurplus, setCaptureSurplus] = useState(false);
+  const hasChildren = Boolean(line && lines.some((item) => item.parentId === line.id));
+  const parentOptions = eligibleParentLines(lines, kind, line?.id);
+  const selectedParent = lines.find((item) => item.id === (forcedParentId ?? parentId)) ?? null;
+  const addingUnder = Boolean(forcedParentId || selectedParent);
 
   useEffect(() => {
     if (!visible) return;
     setName(line?.name ?? '');
     setKind(line?.kind ?? defaultKind);
     setPlanned(line ? String(line.planned) : '');
-  }, [defaultKind, line, visible]);
+    setCadence(line?.cadence ?? 'monthly');
+    setAnchorMonth(line?.anchorMonth ?? calendarMonthNumber());
+    setParentId(forcedParentId ?? line?.parentId ?? null);
+    setAutoApply(line?.autoApply ?? false);
+    setCaptureSurplus(line?.captureSurplus ?? false);
+  }, [defaultKind, forcedParentId, line, visible]);
 
   return (
-    <Sheet visible={visible} title={line ? 'Edit category' : 'Add category'} onClose={onClose}>
+    <Sheet
+      visible={visible}
+      title={
+        line
+          ? 'Edit category'
+          : addingUnder
+            ? `Add to ${selectedParent?.name ?? 'category'}`
+            : 'Add category'
+      }
+      onClose={onClose}>
       <View style={styles.stack}>
-        <Field label="Name" value={name} onChangeText={setName} placeholder="Groceries & food" autoCapitalize="words" editable={!readOnly} />
-        <Text style={styles.label}>Type</Text>
-        <View style={styles.wrap}>
-          <Pill label="Income" active={kind === 'income'} onPress={readOnly ? undefined : () => setKind('income')} />
-          <Pill label="Expense" active={kind === 'expense'} onPress={readOnly ? undefined : () => setKind('expense')} />
-        </View>
-        <Field label="Set amount each month" value={planned} onChangeText={setPlanned} placeholder="0" keyboardType="decimal-pad" editable={!readOnly} />
+        <Field
+          label={addingUnder ? 'Subcategory' : 'Name'}
+          value={name}
+          onChangeText={setName}
+          placeholder={addingUnder ? 'Netflix' : 'Groceries & food'}
+          autoCapitalize="words"
+          editable={!readOnly}
+        />
+        {forcedParentId || hasChildren ? null : (
+          <>
+            <Text style={styles.label}>Type</Text>
+            <View style={styles.wrap}>
+              <Pill label="Income" active={kind === 'income'} onPress={readOnly ? undefined : () => setKind('income')} />
+              <Pill label="Expense" active={kind === 'expense'} onPress={readOnly ? undefined : () => setKind('expense')} />
+            </View>
+          </>
+        )}
+        {forcedParentId || hasChildren ? null : (
+          <>
+            <Text style={styles.label}>Under</Text>
+            <View style={styles.wrap}>
+              <Pill label="Top level" active={!parentId} onPress={readOnly ? undefined : () => setParentId(null)} />
+              {parentOptions.map((item) => (
+                <Pill
+                  key={item.id}
+                  label={item.name}
+                  active={parentId === item.id}
+                  onPress={readOnly ? undefined : () => setParentId(item.id)}
+                />
+              ))}
+            </View>
+          </>
+        )}
+        <BudgetCadenceFields
+          cadence={cadence}
+          anchorMonth={anchorMonth}
+          readOnly={readOnly}
+          onChange={(nextCadence, nextAnchor) => {
+            setCadence(nextCadence);
+            setAnchorMonth(nextAnchor);
+          }}
+        />
+        {hasChildren ? (
+          <Text style={styles.hint}>The budget for this category is the sum of its subcategories.</Text>
+        ) : (
+          <Field
+            label={cadenceAmountLabel(cadence)}
+            value={planned}
+            onChangeText={setPlanned}
+            placeholder="0"
+            keyboardType="decimal-pad"
+            editable={!readOnly}
+          />
+        )}
+        {hasChildren || addingUnder || kind !== 'expense' ? null : (
+          <>
+            <Text style={styles.label}>Leftover after spending</Text>
+            <View style={styles.wrap}>
+              <Pill
+                label="Off"
+                active={!captureSurplus}
+                onPress={readOnly || kind !== 'expense' ? undefined : () => setCaptureSurplus(false)}
+              />
+              <Pill
+                label="Allocate here"
+                active={captureSurplus}
+                onPress={
+                  readOnly || kind !== 'expense'
+                    ? undefined
+                    : () => {
+                        setCaptureSurplus(true);
+                        setAutoApply(false);
+                        setParentId(null);
+                      }
+                }
+              />
+            </View>
+            <Text style={styles.hint}>
+              Puts whatever is left after actual spending into this category each month — use it for savings and
+              investments.
+            </Text>
+          </>
+        )}
+        {hasChildren ? (
+          <Text style={styles.hint}>Turn on direct debit on Netflix, Spotify, and the other subcategories.</Text>
+        ) : captureSurplus ? null : (
+          <>
+            <Text style={styles.label}>Direct debit</Text>
+            <View style={styles.wrap}>
+              <Pill label="Off" active={!autoApply} onPress={readOnly ? undefined : () => setAutoApply(false)} />
+              <Pill label="On" active={autoApply} onPress={readOnly ? undefined : () => setAutoApply(true)} />
+            </View>
+            <Text style={styles.hint}>
+              Adds the full amount at the start of each due month — for subscriptions, rent, and other automatic payments.
+            </Text>
+          </>
+        )}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {readOnly ? (
           <Text style={styles.hint}>Only household admins can change the budget.</Text>
         ) : (
           <>
             <Btn
-              label={line ? 'Save' : 'Add category'}
-              onPress={() => void onSave({ kind, name, planned })}
+              label={line ? 'Save' : addingUnder ? 'Add subcategory' : 'Add category'}
+              onPress={() =>
+                void onSave({
+                  kind: selectedParent?.kind ?? kind,
+                  name,
+                  planned: hasChildren ? String(line?.planned ?? 0) : planned,
+                  cadence,
+                  anchorMonth,
+                  parentId: forcedParentId ?? parentId,
+                  autoApply: hasChildren || captureSurplus ? false : autoApply,
+                  captureSurplus: hasChildren || addingUnder ? false : captureSurplus,
+                })
+              }
               busy={busy}
               disabled={!name.trim()}
             />
@@ -273,7 +469,7 @@ export function BudgetEntrySheet({
             ) : (
               matches.map((line) => (
                 <Pressable key={line.id} onPress={() => chooseLine(line)} style={styles.suggestRow}>
-                  <Text style={styles.hitName}>{line.name}</Text>
+                  <Text style={styles.hitName}>{linePathName(line, lines)}</Text>
                   <Text style={styles.hint}>{line.kind === 'income' ? 'Income' : 'Expense'}</Text>
                 </Pressable>
               ))
@@ -648,7 +844,7 @@ export function CollectibleSheet({
     setValuedAt(collectible?.valuedAt ?? null);
   }, [collectible, visible]);
 
-  function applyHit(hit: CollectibleSearchHit, nextCondition = condition) {
+  function applyHit(hit: CollectibleSearchHit, nextCondition = condition, lookupIfEmpty = true) {
     setName(hit.name);
     setKind(hit.kind);
     setCatalogId(hit.catalogId);
@@ -660,6 +856,27 @@ export function CollectibleSheet({
     setValuedAt(new Date().toISOString());
     setHits([]);
     setQuery('');
+    if (lookupIfEmpty && value == null && hit.catalogId) {
+      void enrichHit(hit, nextCondition);
+    }
+  }
+
+  async function enrichHit(hit: CollectibleSearchHit, nextCondition: CollectibleCondition) {
+    setSearchError(null);
+    setLookingUp(true);
+    try {
+      const detailed = await lookupCollectibleCatalog({
+        kind: hit.kind,
+        catalogId: hit.catalogId,
+        sourceUrl: hit.sourceUrl || null,
+        currency,
+      });
+      applyHit(detailed, nextCondition, false);
+    } catch (err) {
+      setSearchError(err instanceof Error ? err.message : 'Lookup failed');
+    } finally {
+      setLookingUp(false);
+    }
   }
 
   async function runSearch() {

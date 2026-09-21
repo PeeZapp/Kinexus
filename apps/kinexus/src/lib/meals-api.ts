@@ -76,6 +76,20 @@ export async function extractRecipeFromUrlHint(url: string): Promise<ImportedRec
   return data.recipe;
 }
 
+export async function estimateRecipeNutritionFromApi(input: {
+  name?: string;
+  servings?: number;
+  ingredients: { name: string; amount?: string }[];
+}): Promise<{ calories?: number; protein?: number; carbs?: number; fat?: number }> {
+  const data = await post<{ nutrition: { calories?: number; protein?: number; carbs?: number; fat?: number } }>('/ai', {
+    task: 'estimate_recipe_nutrition',
+    name: input.name,
+    servings: input.servings,
+    ingredients: input.ingredients,
+  });
+  return data.nutrition;
+}
+
 export async function refreshRecipePrices(householdId?: string): Promise<{
   processed: number;
   remaining: number;

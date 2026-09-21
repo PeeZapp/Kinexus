@@ -7,6 +7,7 @@ import { DesktopSidebar } from '@/src/features/shell/DesktopSidebar';
 import { MobileTabBar } from '@/src/features/shell/MobileTabBar';
 import { PhoneFrame } from '@/src/features/shell/PhoneFrame';
 import { PreviewToggle } from '@/src/features/shell/PreviewToggle';
+import { PwaInstallHint } from '@/src/features/shell/PwaInstallHint';
 import { titleFromPath } from '@/src/features/shell/modules';
 import { colors } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
@@ -67,6 +68,7 @@ function MobileShell({ children }: { children: ReactNode }) {
         </Pressable>
       </View>
       <View style={styles.mobileBody}>{children}</View>
+      <PwaInstallHint />
       <MobileTabBar />
     </View>
   );

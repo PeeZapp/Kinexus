@@ -4,10 +4,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 
-import { formatCostPerServe, formatCostSource, formatDishCost, formatMoney, MEAL_SLOTS } from '@kinexus/domain';
+import { formatCostPerServe, formatCostSource, formatDishCost, formatMoney, findReplacingRecipe, MEAL_SLOTS } from '@kinexus/domain';
 
 import { Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
-import { recipeParam } from '@/src/features/meals/recipe-href';
+import { recipeEditHref, recipeHref, recipeParam } from '@/src/features/meals/recipe-href';
 import { CatalogRemoveEditor } from '@/src/features/meals/recipes/CatalogRemoveEditor';
 import { printRecipe } from '@/src/features/meals/recipes/print-recipe';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
@@ -38,6 +38,7 @@ export function RecipeDetailScreen() {
     : null;
   const fav = recipe ? meals.favouriteIds.has(recipe.id) : false;
   const householdOwned = Boolean(recipe?.householdId && recipe.householdId === meals.householdId);
+  const householdVersion = recipe && !householdOwned ? findReplacingRecipe(meals.recipes, recipe.id) : undefined;
   const [notes, setNotes] = useState(recipe?.notes ?? '');
   const [error, setError] = useState<string | null>(null);
   const [printing, setPrinting] = useState(false);
@@ -81,6 +82,13 @@ export function RecipeDetailScreen() {
       <Text style={[styles.title, desktop && styles.titleDesktop]}>
         {recipe.name}
       </Text>
+      {householdOwned && recipe.replacesSource ? (
+        <Text style={styles.hiddenHint}>Your household version of this recipe.</Text>
+      ) : householdVersion ? (
+        <Pressable onPress={() => router.push(recipeHref(householdVersion.id))}>
+          <Text style={styles.back}>Open your household version →</Text>
+        </Pressable>
+      ) : null}
       <Text style={styles.meta}>
         {recipe.cuisine ?? 'Recipe'} · {recipe.cookTime ?? '—'} min · {recipe.servings ?? '—'} servings
         {formatCostPerServe(recipe.cost) ? ` · ${formatCostPerServe(recipe.cost)}` : ''}
@@ -113,6 +121,11 @@ export function RecipeDetailScreen() {
         )}
       </Card>
       <View style={styles.row}>
+        <Btn
+          label="Edit"
+          disabled={!meals.online}
+          onPress={() => router.push(recipeEditHref(recipe.id))}
+        />
         <Btn
           label={printing ? 'Preparing print…' : 'Print'}
           variant="secondary"

@@ -24,7 +24,14 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "name": "Kinexus",
+      "shortName": "Kinexus",
+      "description": "One suite for meals, lists, money, nutrition, and training.",
+      "lang": "en",
+      "themeColor": "#0B1016",
+      "backgroundColor": "#0B1016",
+      "display": "standalone"
     },
     "plugins": [
       "expo-router",

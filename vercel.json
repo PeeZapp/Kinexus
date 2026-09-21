@@ -5,6 +5,22 @@
   "buildCommand": "pnpm --filter @kinexus/app exec expo export --platform web",
   "outputDirectory": "apps/kinexus/dist",
   "cleanUrls": true,
+  "headers": [
+    {
+      "source": "/sw.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
+        { "key": "Service-Worker-Allowed", "value": "/" }
+      ]
+    },
+    {
+      "source": "/manifest.json",
+      "headers": [
+        { "key": "Content-Type", "value": "application/manifest+json; charset=utf-8" },
+        { "key": "Cache-Control", "value": "public, max-age=3600" }
+      ]
+    }
+  ],
   "rewrites": [
     { "source": "/health", "destination": "/api/health" },
     { "source": "/scrape", "destination": "/api/scrape" },
@@ -19,7 +35,12 @@
     { "source": "/watchlist/lookup", "destination": "/api/watchlist/lookup" },
     { "source": "/watchlist/resolve", "destination": "/api/watchlist/resolve" },
     { "source": "/invite/:token", "destination": "/index.html" },
-    { "source": "/meals/recipes/:id", "destination": "/index.html" }
+    { "source": "/import", "destination": "/index.html" },
+    { "source": "/meals/recipes/:id", "destination": "/index.html" },
+    { "source": "/recipes/:id", "destination": "/index.html" },
+    { "source": "/recipes", "destination": "/index.html" },
+    { "source": "/http/:path*", "destination": "/index.html" },
+    { "source": "/https/:path*", "destination": "/index.html" }
   ],
   "functions": {
     "api/[[...route]].ts": {

@@ -1,10 +1,33 @@
-import { Link, Stack } from 'expo-router';
+import type { Href } from 'expo-router';
+import { Link, Stack, usePathname, useRouter } from 'expo-router';
+import { useEffect } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { EmptyState } from '@/src/features/shell/states';
+import { recipeUrlFromPathname } from '@/src/features/cook/prefix-url';
+import { EmptyState, LoadingState } from '@/src/features/shell/states';
 import { colors, space } from '@/src/features/shell/theme';
 
 export default function NotFoundScreen() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const prefixUrl =
+    typeof window !== 'undefined'
+      ? recipeUrlFromPathname(window.location.pathname, window.location.search)
+      : recipeUrlFromPathname(pathname);
+
+  useEffect(() => {
+    if (!prefixUrl) return;
+    router.replace({ pathname: '/import', params: { url: prefixUrl } } as Href);
+  }, [prefixUrl, router]);
+
+  if (prefixUrl) {
+    return (
+      <View style={styles.container}>
+        <LoadingState label="Opening that recipe link…" />
+      </View>
+    );
+  }
+
   return (
     <>
       <Stack.Screen options={{ title: 'Not found', headerShown: false }} />

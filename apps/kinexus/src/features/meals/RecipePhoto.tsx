@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Image, StyleSheet, Text, View, type ImageStyle, type StyleProp, type ViewStyle } from 'react-native';
 
-import type { Recipe } from '@kinexus/domain';
+import { recipeForHouseholdView, type Recipe } from '@kinexus/domain';
 
 import { colors, radius } from '@/src/features/shell/theme';
 
 export function recipePhotoUrl(recipes: readonly Recipe[], recipeId?: string | null): string | undefined {
   if (!recipeId) return undefined;
-  return recipes.find((recipe) => recipe.id === recipeId)?.imageUrl;
+  return recipeForHouseholdView(recipes, recipeId)?.imageUrl;
 }
 
 export function RecipePhoto({

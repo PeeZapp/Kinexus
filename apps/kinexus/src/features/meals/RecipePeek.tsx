@@ -14,6 +14,8 @@ export function RecipePeek({
   onRandom,
   onSwap,
   onBack,
+  onEdit,
+  onOpen,
   belowActions,
 }: {
   recipe: Recipe;
@@ -23,13 +25,15 @@ export function RecipePeek({
   onRandom?: () => void;
   onSwap?: () => void;
   onBack?: () => void;
+  onEdit?: () => void;
+  onOpen?: () => void;
   belowActions?: ReactNode;
 }) {
   const slots = (recipe.mealSlots ?? [])
     .map((key) => MEAL_SLOTS.find((slot) => slot.key === key)?.label)
     .filter(Boolean)
     .join(' · ');
-  const hasActions = Boolean(onUse || onSwap || onRandom || onBack || belowActions);
+  const hasActions = Boolean(onEdit || onOpen || onUse || onSwap || onRandom || onBack || belowActions);
   return (
     <View style={styles.wrap}>
       <View style={styles.hero}>
@@ -55,9 +59,11 @@ export function RecipePeek({
       </Text>
       {hasActions ? (
         <View style={styles.actionBlock}>
-          {onUse || onSwap || onRandom || onBack ? (
+          {onEdit || onOpen || onUse || onSwap || onRandom || onBack ? (
             <View style={styles.actions}>
+              {onEdit ? <PeekBtn label="Edit" variant={onUse ? 'secondary' : 'primary'} onPress={onEdit} /> : null}
               {onUse ? <PeekBtn label={useLabel} variant="primary" onPress={onUse} /> : null}
+              {onOpen ? <PeekBtn label="Open recipe" onPress={onOpen} /> : null}
               {onSwap ? <PeekBtn label="Swap" onPress={onSwap} /> : null}
               {onRandom ? <PeekBtn label="Random" onPress={onRandom} /> : null}
               {onBack ? <PeekBtn label="Back" onPress={onBack} /> : null}

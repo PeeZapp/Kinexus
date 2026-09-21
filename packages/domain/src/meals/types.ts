@@ -98,6 +98,10 @@ export type Recipe = {
   isCommunity?: boolean;
   /** Approximate supermarket cost for the household's country. */
   cost?: RecipeCostEstimate;
+  /** Recipe this household copy was forked from (catalog or another household recipe). */
+  sourcedFromRecipeId?: string;
+  /** When true, this household copy replaces the source recipe in the household library. */
+  replacesSource?: boolean;
 };
 
 export type NutritionGoals = {

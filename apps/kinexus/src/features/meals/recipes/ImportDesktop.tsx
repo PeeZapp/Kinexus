@@ -23,7 +23,7 @@ export function ImportDesktop(props: ImportRecipeViewProps) {
             <ImportExtractCard {...props} />
           </View>
           <View style={{ flex: 1, gap: 12 }}>
-            <ImportFieldsCard {...props} />
+            <ImportFieldsCard desktop={props.desktop} form={props.form} setForm={props.setForm} />
           </View>
         </View>
       </ImportChrome>

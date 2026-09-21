@@ -7,6 +7,8 @@ import { recipeHref } from '@/src/features/meals/recipe-href';
 import { ImportDesktop } from '@/src/features/meals/recipes/ImportDesktop';
 import { ImportMobile } from '@/src/features/meals/recipes/ImportMobile';
 import type { ImportFormState } from '@/src/features/meals/recipes/ImportShared';
+import { applyNutrition, draftFromForm, EMPTY_RECIPE_FORM, ingredientRowsFrom, methodRowsFrom, patchRecipeForm } from '@/src/features/meals/recipes/recipe-form';
+import { resolveRecipeNutrition } from '@/src/features/meals/recipes/resolve-nutrition';
 import { useMealsSync } from '@/src/features/meals/use-meals-sync';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import {
@@ -16,22 +18,6 @@ import {
   type ImportSource,
   type ImportedRecipe,
 } from '@/src/lib/meals-api';
-
-const EMPTY: ImportFormState = {
-  url: '',
-  name: '',
-  emoji: '🍽️',
-  cuisine: '',
-  cookTime: '30',
-  servings: '4',
-  calories: '',
-  protein: '',
-  carbs: '',
-  fat: '',
-  ingredientsText: '',
-  methodText: '',
-  slots: ['dinner'],
-};
 
 const SLOT_KEYS = new Set<string>([
   'breakfast',
@@ -49,14 +35,14 @@ export function ImportRecipeScreen() {
   const meals = useMealsSync();
   const [tab, setTab] = useState<'url' | 'text'>('url');
   const [paste, setPaste] = useState('');
-  const [form, setFormState] = useState<ImportFormState>(EMPTY);
+  const [form, setFormState] = useState<ImportFormState>(EMPTY_RECIPE_FORM);
   const [phase, setPhase] = useState<'idle' | 'fetching' | 'extracting'>('idle');
   const [source, setSource] = useState<ImportSource | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   function setForm(patch: Partial<ImportFormState>) {
-    setFormState((current) => ({ ...current, ...patch }));
+    setFormState((current) => patchRecipeForm(current, patch));
   }
 
   function applyDraft(recipe: ImportedRecipe, nextSource: ImportSource, sourceUrl?: string) {
@@ -73,10 +59,10 @@ export function ImportRecipeScreen() {
       protein: recipe.protein != null ? String(recipe.protein) : '',
       carbs: recipe.carbs != null ? String(recipe.carbs) : '',
       fat: recipe.fat != null ? String(recipe.fat) : '',
-      ingredientsText: (recipe.ingredients ?? [])
-        .map((ing) => (ing.amount ? `${ing.amount} | ${ing.name}` : ing.name))
-        .join('\n'),
-      methodText: (recipe.method ?? []).join('\n'),
+      ingredients: ingredientRowsFrom(recipe.ingredients ?? []),
+      method: methodRowsFrom(recipe.method ?? []),
+      chefTip: recipe.chefTip ?? current.chefTip,
+      notes: current.notes,
       slots: slots.length ? slots : ['dinner'],
     }));
     setSource(nextSource);
@@ -131,24 +117,20 @@ export function ImportRecipeScreen() {
     setBusy(true);
     setError(null);
     try {
-      const draft: Omit<Recipe, 'id' | 'householdId'> = {
-        name: form.name.trim(),
-        emoji: form.emoji.trim() || '🍽️',
-        cuisine: form.cuisine.trim() || undefined,
-        cookTime: Number(form.cookTime) || undefined,
-        servings: Number(form.servings) || undefined,
-        calories: Number(form.calories) || undefined,
-        protein: Number(form.protein) || undefined,
-        carbs: Number(form.carbs) || undefined,
-        fat: Number(form.fat) || undefined,
-        ingredients: parseIngredients(form.ingredientsText),
-        method: form.methodText
-          .split('\n')
-          .map((line) => line.trim())
-          .filter(Boolean),
-        mealSlots: form.slots.length ? form.slots : ['dinner'],
-        sourceUrl: form.url.trim() || undefined,
-      };
+      const draft: Omit<Recipe, 'id' | 'householdId'> = draftFromForm(form);
+      const estimate = await resolveRecipeNutrition({
+        name: draft.name,
+        ingredients: draft.ingredients ?? [],
+        servings: draft.servings,
+        allowAi: true,
+      });
+      if (estimate) {
+        draft.calories = estimate.calories;
+        draft.protein = estimate.protein;
+        draft.carbs = estimate.carbs;
+        draft.fat = estimate.fat;
+        setFormState((current) => applyNutrition(current, estimate));
+      }
       const saved = await meals.saveHouseholdRecipe(draft);
       router.push(recipeHref(saved.id));
     } catch (err) {
@@ -178,16 +160,4 @@ export function ImportRecipeScreen() {
   };
 
   return mode === 'desktop' ? <ImportDesktop {...props} /> : <ImportMobile {...props} />;
-}
-
-function parseIngredients(text: string) {
-  return text
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [left, right] = line.split('|').map((part) => part.trim());
-      if (right) return { amount: left, name: right };
-      return { name: left ?? line };
-    });
 }

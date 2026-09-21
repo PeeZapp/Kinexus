@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Linking, StyleSheet, Text, View } from 'react-native';
 
 import {
@@ -497,6 +497,15 @@ export function ProductSheet({
   );
 }
 
+function readyToScrape(raw: string): boolean {
+  try {
+    const parsed = new URL(raw.trim());
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname.includes('.');
+  } catch {
+    return false;
+  }
+}
+
 export function AddLinkSheet({
   visible,
   collections,
@@ -521,67 +530,144 @@ export function AddLinkSheet({
   const [notes, setNotes] = useState('');
   const [collectionId, setCollectionId] = useState<string | null>(defaultCollectionId);
   const [draft, setDraft] = useState<Partial<LinkDraft>>({});
+  const [scrapedForUrl, setScrapedForUrl] = useState<string | null>(null);
   const [scrapeBusy, setScrapeBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const scrapeRef = useRef(onScrape);
+  const requestId = useRef(0);
+  scrapeRef.current = onScrape;
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      requestId.current += 1;
+      return;
+    }
+    requestId.current += 1;
     setUrl('');
     setTitle('');
     setNotes('');
     setCollectionId(defaultCollectionId);
     setDraft({});
+    setScrapedForUrl(null);
     setLocalError(null);
   }, [defaultCollectionId, visible]);
 
-  async function scrape() {
+  async function lookup(target: string): Promise<LinkDraft | null> {
+    const trimmed = target.trim();
+    if (!readyToScrape(trimmed)) return null;
+    const id = ++requestId.current;
     setLocalError(null);
     setScrapeBusy(true);
     try {
-      const next = await onScrape(url);
+      const next = await scrapeRef.current(trimmed);
+      if (id !== requestId.current) return next;
       setDraft(next);
-      setTitle(next.title || title);
+      setTitle((prev) => prev.trim() || next.title?.trim() || '');
+      setScrapedForUrl(trimmed);
+      if (!next.title && !next.imageUrl) {
+        setLocalError('No title or image on that page. You can still save the link.');
+      }
+      return next;
     } catch (err) {
+      if (id !== requestId.current) return null;
+      setScrapedForUrl(trimmed);
       setLocalError(err instanceof Error ? err.message : 'Could not look up that URL');
+      return null;
     } finally {
-      setScrapeBusy(false);
+      if (id === requestId.current) setScrapeBusy(false);
     }
   }
+
+  useEffect(() => {
+    if (!visible) return;
+    const trimmed = url.trim();
+    if (trimmed !== scrapedForUrl) setDraft({});
+    if (!readyToScrape(trimmed) || scrapedForUrl === trimmed) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (!cancelled) void lookup(trimmed);
+    }, 650);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [scrapedForUrl, url, visible]);
+
+  async function submit() {
+    const trimmed = url.trim();
+    let next = draft;
+    if (scrapedForUrl !== trimmed) {
+      const scraped = await lookup(trimmed);
+      if (scraped) next = scraped;
+    }
+    await onSave({
+      url: trimmed,
+      title: title || next.title,
+      description: next.description,
+      imageUrl: next.imageUrl,
+      siteName: next.siteName,
+      faviconUrl: next.faviconUrl,
+      linkType: next.linkType,
+      notes,
+      collectionId,
+    });
+  }
+
+  const preview = draft.imageUrl || draft.faviconUrl || draft.title || draft.siteName || draft.description;
 
   return (
     <Sheet visible={visible} title="Save a link" onClose={onClose}>
       <View style={styles.stack}>
-        <Field label="URL" value={url} onChangeText={setUrl} placeholder="https://" autoCapitalize="none" />
-        <Btn label={scrapeBusy ? 'Looking up…' : 'Look up URL'} variant="secondary" onPress={() => void scrape()} busy={scrapeBusy} disabled={!url.trim()} />
+        <Field
+          label="URL"
+          value={url}
+          onChangeText={setUrl}
+          placeholder="https://"
+          autoCapitalize="none"
+          keyboardType="url"
+        />
+        <Text style={styles.meta}>Paste a link — we’ll fill in the title and image.</Text>
+        <Btn
+          label={scrapeBusy ? 'Looking up…' : 'Look up URL'}
+          variant="secondary"
+          onPress={() => void lookup(url)}
+          busy={scrapeBusy}
+          disabled={!url.trim()}
+        />
+        {preview ? (
+          <View style={styles.preview}>
+            <StashPhoto uri={draft.imageUrl || draft.faviconUrl} fallback="🔗" size={72} />
+            <View style={styles.previewBody}>
+              {draft.siteName || draft.linkType ? (
+                <Text style={styles.meta} numberOfLines={1}>
+                  {draft.siteName || draft.linkType}
+                </Text>
+              ) : null}
+              {draft.description ? (
+                <Text style={styles.previewDesc} numberOfLines={3}>
+                  {draft.description}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
         <Field label="Title" value={title} onChangeText={setTitle} placeholder="Optional — we’ll fill this in" />
         <Field label="Notes" value={notes} onChangeText={setNotes} placeholder="Why you saved it" />
         {collections.length > 0 ? (
           <View style={styles.wrap}>
             <Pill label="No collection" active={!collectionId} onPress={() => setCollectionId(null)} />
             {collections.map((collection) => (
-              <Pill key={collection.id} label={collection.name} active={collectionId === collection.id} onPress={() => setCollectionId(collection.id)} />
+              <Pill
+                key={collection.id}
+                label={collection.name}
+                active={collectionId === collection.id}
+                onPress={() => setCollectionId(collection.id)}
+              />
             ))}
           </View>
         ) : null}
         {localError || error ? <Text style={styles.error}>{localError ?? error}</Text> : null}
-        <Btn
-          label="Save link"
-          onPress={() =>
-            void onSave({
-              url,
-              title: title || draft.title,
-              description: draft.description,
-              imageUrl: draft.imageUrl,
-              siteName: draft.siteName,
-              faviconUrl: draft.faviconUrl,
-              linkType: draft.linkType,
-              notes,
-              collectionId,
-            })
-          }
-          busy={busy}
-          disabled={!url.trim()}
-        />
+        <Btn label="Save link" onPress={() => void submit()} busy={busy || scrapeBusy} disabled={!url.trim()} />
       </View>
     </Sheet>
   );
@@ -707,5 +793,8 @@ const styles = StyleSheet.create({
   heroPrice: { color: colors.text, fontSize: 22, fontWeight: '800' },
   sale: { color: colors.accent, fontSize: 13, fontWeight: '700' },
   meta: { color: colors.textMuted, fontSize: 13 },
+  preview: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+  previewBody: { flex: 1, gap: 4, minWidth: 0 },
+  previewDesc: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
   label: { color: colors.textMuted, fontSize: 12, fontWeight: '700', letterSpacing: 0.4, textTransform: 'uppercase' },
 });

@@ -58,13 +58,16 @@ export function moduleFromPath(pathname: string): AppModule | undefined {
 export function titleFromPath(pathname: string): string {
   if (pathname === SETTINGS_PATH || pathname.startsWith(`${SETTINGS_PATH}/`)) return 'Settings';
   if (pathname.startsWith('/invite')) return 'Invite';
+  if (pathname.startsWith('/import')) return 'Import';
+  if (pathname === '/recipes' || pathname.startsWith('/recipes/')) return 'Cook';
   if (pathname.startsWith('/lists/wishlists')) return 'Wishlists';
   if (pathname.startsWith('/lists/watchlist')) return 'Watchlist';
   if (pathname.startsWith('/lists/saves')) return 'Saves';
   if (pathname.startsWith('/finances/assets')) return 'Assets';
   if (pathname.startsWith('/finances/shares')) return 'Shares';
   if (pathname.startsWith('/finances/collectibles')) return 'Collectibles';
-  if (pathname.startsWith('/finances/budget')) return 'Budget';
+  if (pathname.startsWith('/finances/dashboard')) return 'Dashboard';
+  if (pathname === '/finances' || pathname.startsWith('/finances/budget')) return 'Budget';
   if (pathname.startsWith('/meals/generate')) return 'Generate';
   if (pathname.startsWith('/meals/shopping')) return 'Shopping';
   if (pathname.startsWith('/meals/recipes')) return 'Recipes';

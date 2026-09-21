@@ -145,7 +145,7 @@ const RULES: Rule[] = [
     confidence: 0.86,
     reason: 'Eating out or fun',
   },
-  { kind: 'expense', name: 'Savings', pattern: /\b(term deposit|round.?up|savings goal|emergency fund)\b/, confidence: 0.84, reason: 'Savings' },
+  { kind: 'expense', name: 'Savings & Investments', pattern: /\b(term deposit|round.?up|savings goal|emergency fund|vanguard|etf|brokerage|shares?)\b/, confidence: 0.84, reason: 'Savings & Investments' },
 ];
 
 export function budgetCategoryOptions(existing: readonly BudgetCategoryOption[] = []): BudgetCategoryOption[] {

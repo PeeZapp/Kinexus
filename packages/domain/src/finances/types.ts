@@ -31,6 +31,9 @@ export type FinanceAccount = {
 
 export type FinanceBudgetLineKind = 'income' | 'expense';
 
+export const BUDGET_CADENCES = ['monthly', 'bimonthly', 'quarterly', 'half_yearly', 'yearly'] as const;
+export type FinanceBudgetLineCadence = (typeof BUDGET_CADENCES)[number];
+
 export type FinanceBudget = {
   id: string;
   householdId: string;
@@ -49,7 +52,16 @@ export type FinanceBudgetLine = {
   planned: number;
   spent: number;
   position: number;
+  cadence: FinanceBudgetLineCadence;
+  anchorMonth: number;
+  parentId: string | null;
+  autoApply: boolean;
+  autoAppliedMonth: string | null;
+  captureSurplus: boolean;
 };
+
+export const BUDGET_TXN_SOURCES = ['manual', 'import', 'auto'] as const;
+export type FinanceBudgetTxnSource = (typeof BUDGET_TXN_SOURCES)[number];
 
 export type FinanceBudgetTxn = {
   id: string;
@@ -61,6 +73,7 @@ export type FinanceBudgetTxn = {
   merchantKey: string;
   amount: number;
   ignored: boolean;
+  source?: FinanceBudgetTxnSource;
 };
 
 export type FinanceGroupKind = FinanceAccountKind | 'shares' | 'collectibles';

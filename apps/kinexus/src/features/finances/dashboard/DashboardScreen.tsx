@@ -126,7 +126,7 @@ export function DashboardScreen() {
         </Text>
         <MoneyBar progress={budget.expenseProgress} over={budget.expenseSpent > budget.expensePlanned && budget.expensePlanned > 0} />
         <View style={styles.actions}>
-          <Btn label="Open budget" variant="secondary" onPress={() => router.push('/finances/budget')} />
+          <Btn label="Open budget" variant="secondary" onPress={() => router.push('/finances')} />
           <Btn label="Manage assets" variant="secondary" onPress={() => router.push('/finances/assets')} />
           <Btn label="Shares" variant="secondary" onPress={() => router.push('/finances/shares')} />
           <Btn label="Collectibles" variant="secondary" onPress={() => router.push('/finances/collectibles')} />

@@ -64,6 +64,8 @@ export function recipeFromRow(row: RecipeRow): Recipe {
     imageFlagged: Boolean(row.image_flagged),
     removed: Boolean(row.removed),
     isCommunity: row.is_public && row.household_id === null,
+    sourcedFromRecipeId: row.sourced_from_recipe_id ?? undefined,
+    replacesSource: Boolean(row.replaces_source),
   };
 }
 
@@ -179,6 +181,32 @@ export function recipeToInsert(householdId: string, recipe: Omit<Recipe, 'id' | 
     is_component: Boolean(recipe.isComponent),
     excluded_from_auto: Boolean(recipe.excludedFromAuto),
     is_public: false,
+    source_url: recipe.sourceUrl ?? null,
+    image_url: recipe.imageUrl ?? null,
+    sourced_from_recipe_id: recipe.sourcedFromRecipeId ?? null,
+    replaces_source: Boolean(recipe.replacesSource),
+  };
+}
+
+export function recipeToUpdate(recipe: Omit<Recipe, 'id' | 'householdId'>): Database['public']['Tables']['recipes']['Update'] {
+  return {
+    name: recipe.name,
+    emoji: recipe.emoji ?? null,
+    cuisine: recipe.cuisine ?? null,
+    cook_time: recipe.cookTime ?? null,
+    servings: recipe.servings ?? null,
+    protein: recipe.protein ?? null,
+    calories: recipe.calories ?? null,
+    carbs: recipe.carbs ?? null,
+    fat: recipe.fat ?? null,
+    vegetarian: recipe.vegetarian ?? null,
+    ingredients: (recipe.ingredients ?? []) as unknown as Json,
+    method: (recipe.method ?? []) as unknown as Json,
+    chef_tip: recipe.chefTip ?? null,
+    notes: recipe.notes ?? null,
+    meal_slots: recipe.mealSlots ?? ['dinner'],
+    is_component: Boolean(recipe.isComponent),
+    excluded_from_auto: Boolean(recipe.excludedFromAuto),
     source_url: recipe.sourceUrl ?? null,
     image_url: recipe.imageUrl ?? null,
   };

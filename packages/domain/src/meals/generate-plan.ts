@@ -1,3 +1,4 @@
+import { hideReplacedCatalogRecipes } from './recipe-versions';
 import {
   DAYS,
   type Day,
@@ -84,7 +85,9 @@ function recipeMatchesSlot(recipe: Recipe, slot: MealSlotKey): boolean {
  * and catalog-removed recipes are never picked.
  */
 export function recipesForSlot(recipes: readonly Recipe[], slot: MealSlotKey): Recipe[] {
-  const eligible = recipes.filter((r) => !r.isComponent && !r.excludedFromAuto && !r.removed);
+  const eligible = hideReplacedCatalogRecipes(recipes).filter(
+    (r) => !r.isComponent && !r.excludedFromAuto && !r.removed,
+  );
   const matched = eligible.filter((r) => recipeMatchesSlot(r, slot));
   return matched.length > 0 ? matched : [...eligible];
 }

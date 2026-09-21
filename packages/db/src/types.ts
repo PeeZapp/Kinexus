@@ -237,6 +237,8 @@ export type Database = {
           image_url: string | null;
           image_flagged: boolean;
           removed: boolean;
+          sourced_from_recipe_id: string | null;
+          replaces_source: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -266,6 +268,8 @@ export type Database = {
           image_url?: string | null;
           image_flagged?: boolean;
           removed?: boolean;
+          sourced_from_recipe_id?: string | null;
+          replaces_source?: boolean;
         };
         Update: {
           name?: string;
@@ -289,6 +293,8 @@ export type Database = {
           image_url?: string | null;
           image_flagged?: boolean;
           removed?: boolean;
+          sourced_from_recipe_id?: string | null;
+          replaces_source?: boolean;
         };
         Relationships: [];
       };
@@ -368,6 +374,80 @@ export type Database = {
         };
         Update: {
           claimed_at?: string;
+        };
+        Relationships: [];
+      };
+      recipe_imports: {
+        Row: {
+          id: string;
+          input_url: string;
+          canonical_url: string;
+          source_kind: string | null;
+          status: string;
+          progress: number;
+          phase_label: string;
+          error_code: string | null;
+          error_message: string | null;
+          recipe: Json | null;
+          extraction_method: string | null;
+          provider: string | null;
+          confidence: number | null;
+          created_at: string;
+          updated_at: string;
+          expires_at: string;
+          last_accessed_at: string;
+        };
+        Insert: {
+          id?: string;
+          input_url: string;
+          canonical_url: string;
+          source_kind?: string | null;
+          status: string;
+          progress?: number;
+          phase_label?: string;
+          error_code?: string | null;
+          error_message?: string | null;
+          recipe?: Json | null;
+          extraction_method?: string | null;
+          provider?: string | null;
+          confidence?: number | null;
+          created_at?: string;
+          updated_at?: string;
+          expires_at: string;
+          last_accessed_at?: string;
+        };
+        Update: {
+          input_url?: string;
+          canonical_url?: string;
+          source_kind?: string | null;
+          status?: string;
+          progress?: number;
+          phase_label?: string;
+          error_code?: string | null;
+          error_message?: string | null;
+          recipe?: Json | null;
+          extraction_method?: string | null;
+          provider?: string | null;
+          confidence?: number | null;
+          updated_at?: string;
+          expires_at?: string;
+          last_accessed_at?: string;
+        };
+        Relationships: [];
+      };
+      recipe_import_rate: {
+        Row: {
+          bucket: string;
+          window_start: string;
+          count: number;
+        };
+        Insert: {
+          bucket: string;
+          window_start: string;
+          count?: number;
+        };
+        Update: {
+          count?: number;
         };
         Relationships: [];
       };
@@ -1027,6 +1107,12 @@ export type Database = {
           planned: number;
           spent: number;
           position: number;
+          cadence: 'monthly' | 'bimonthly' | 'quarterly' | 'half_yearly' | 'yearly';
+          anchor_month: number;
+          parent_id: string | null;
+          auto_apply: boolean;
+          auto_applied_month: string | null;
+          capture_surplus: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -1039,6 +1125,12 @@ export type Database = {
           planned?: number;
           spent?: number;
           position?: number;
+          cadence?: 'monthly' | 'bimonthly' | 'quarterly' | 'half_yearly' | 'yearly';
+          anchor_month?: number;
+          parent_id?: string | null;
+          auto_apply?: boolean;
+          auto_applied_month?: string | null;
+          capture_surplus?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -1048,6 +1140,12 @@ export type Database = {
           planned?: number;
           spent?: number;
           position?: number;
+          cadence?: 'monthly' | 'bimonthly' | 'quarterly' | 'half_yearly' | 'yearly';
+          anchor_month?: number;
+          parent_id?: string | null;
+          auto_apply?: boolean;
+          auto_applied_month?: string | null;
+          capture_surplus?: boolean;
         };
         Relationships: [];
       };
@@ -1062,6 +1160,7 @@ export type Database = {
           merchant_key: string;
           amount: number;
           ignored: boolean;
+          source: 'manual' | 'import' | 'auto';
           created_at: string;
           updated_at: string;
         };
@@ -1075,6 +1174,7 @@ export type Database = {
           merchant_key: string;
           amount: number;
           ignored?: boolean;
+          source?: 'manual' | 'import' | 'auto';
           created_at?: string;
           updated_at?: string;
         };
@@ -1085,6 +1185,7 @@ export type Database = {
           merchant_key?: string;
           amount?: number;
           ignored?: boolean;
+          source?: 'manual' | 'import' | 'auto';
         };
         Relationships: [];
       };

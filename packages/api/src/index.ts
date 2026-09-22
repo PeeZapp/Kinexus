@@ -7,5 +7,8 @@ export { extractMicrodataRecipe } from './recipes/extract-microdata.js';
 export { handleCreateRecipeImport, handleGetRecipeImport } from './recipes/handlers.js';
 export { scrapeProductUrl } from './scrape/product.js';
 export { scrapeLinkUrl } from './scrape/link.js';
+export { fetchReaderDocument } from './scrape/reader.js';
+export type { ArchiveViewProvider, ArchiveViewSource, ReaderDocument, ReaderSource } from './scrape/reader.js';
+export { fetchArchiveFrameHtml, isAllowedArchiveFrameHost } from './scrape/archive-frame.js';
 export { app } from './app.js';
 export type { RecipeDraft } from './recipe-draft.js';

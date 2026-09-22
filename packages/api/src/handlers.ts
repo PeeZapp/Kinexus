@@ -6,6 +6,8 @@ import { classifyBudgetMerchantsWithAi, type BudgetClassifyMerchant } from './ai
 import { createAiClient } from './ai/provider.js';
 import { scrapeLinkUrl } from './scrape/link.js';
 import { scrapeProductUrl } from './scrape/product.js';
+import { fetchReaderDocument } from './scrape/reader.js';
+import { fetchArchiveFrameHtml } from './scrape/archive-frame.js';
 import { lookupCollectible, parseCollectibleKind, searchCollectibles } from './scrape/collectibles.js';
 import { scrapeRecipeUrl } from './scrape/index.js';
 import { lookupWatchlistTitle, resolveWatchlistUrl, searchWatchlistTitles } from './watchlist.js';
@@ -62,6 +64,43 @@ export async function handleScrapeLink(body: ScrapeRequestBody) {
     return { status: 200 as const, body: result };
   } catch (err) {
     return scrapeError(err, 'You can still save the URL and fill in the details.');
+  }
+}
+
+export async function handleScrapeReader(body: ScrapeRequestBody) {
+  const url = body.url?.trim() ?? '';
+  if (!url) {
+    return { status: 400 as const, body: { error: 'A valid http/https URL is required' } };
+  }
+  try {
+    const document = await fetchReaderDocument(url);
+    return { status: 200 as const, body: { document } };
+  } catch (err) {
+    return scrapeError(err, 'Try another URL, or open the original page instead.');
+  }
+}
+
+export async function handleArchiveFrame(urlParam: string | null | undefined) {
+  const url = urlParam?.trim() ?? '';
+  if (!url) {
+    return { status: 400 as const, body: 'A valid archive URL is required', contentType: 'text/plain; charset=utf-8' as const };
+  }
+  try {
+    const { html } = await fetchArchiveFrameHtml(url);
+    return { status: 200 as const, body: html, contentType: 'text/html; charset=utf-8' as const };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Could not load archive page';
+    const status =
+      typeof (err as { status?: number }).status === 'number'
+        ? (err as { status: number }).status
+        : message.includes('not allowed') || message.includes('valid http')
+          ? 400
+          : 502;
+    return {
+      status: status as 400 | 401 | 422 | 502 | 504,
+      body: `<!DOCTYPE html><html><body style="font:14px system-ui;padding:24px;color:#333"><p>${message.replace(/[<>&]/g, '')}</p></body></html>`,
+      contentType: 'text/html; charset=utf-8' as const,
+    };
   }
 }
 

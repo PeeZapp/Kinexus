@@ -12,6 +12,8 @@ import {
   handleScrape,
   handleScrapeLink,
   handleScrapeProduct,
+  handleScrapeReader,
+  handleArchiveFrame,
   handleWatchlistLookup,
   handleWatchlistResolve,
   handleWatchlistSearch,
@@ -65,6 +67,28 @@ function registerMealsRoutes(router: Hono) {
     const body = await c.req.json().catch(() => ({}));
     const result = await handleScrapeLink(body as { url?: string });
     return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/scrape-reader', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleScrapeReader(body as { url?: string });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/archive-frame', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) {
+      return c.html(`<!DOCTYPE html><html><body style="font:14px system-ui;padding:24px">${authed.error}</body></html>`, authed.status);
+    }
+    const result = await handleArchiveFrame(c.req.query('url'));
+    return c.body(result.body, result.status as ContentfulStatusCode, {
+      'Content-Type': result.contentType,
+      'Cache-Control': 'private, no-store',
+      'Referrer-Policy': 'no-referrer',
+      'X-Content-Type-Options': 'nosniff',
+    });
   });
 
   router.post('/ai', async (c) => {

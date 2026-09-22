@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Linking, StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
 
 import {
   CHECKLIST_CATEGORIES,
@@ -748,6 +749,14 @@ export function LinkSheet({
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <Btn label="Save" onPress={() => void onSave({ title, notes })} busy={busy} />
           <Btn label="Open link" variant="secondary" onPress={() => openUrl(link.url)} />
+          <Btn
+            label="Read archived"
+            variant="secondary"
+            onPress={() => {
+              onClose();
+              router.push({ pathname: '/lists/reader', params: { url: link.url } });
+            }}
+          />
           <Btn label="Remove link" variant="danger" onPress={() => void onDelete()} />
         </View>
       ) : null}

@@ -24,6 +24,10 @@
   "rewrites": [
     { "source": "/health", "destination": "/api/health" },
     { "source": "/scrape", "destination": "/api/scrape" },
+    { "source": "/scrape-product", "destination": "/api/scrape-product" },
+    { "source": "/scrape-link", "destination": "/api/scrape-link" },
+    { "source": "/scrape-reader", "destination": "/api/scrape-reader" },
+    { "source": "/archive-frame", "destination": "/api/archive-frame" },
     { "source": "/ai", "destination": "/api/ai" },
     { "source": "/prices/estimate", "destination": "/api/prices/estimate" },
     { "source": "/prices/refresh", "destination": "/api/prices/refresh" },

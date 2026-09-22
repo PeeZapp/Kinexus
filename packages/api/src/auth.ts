@@ -4,7 +4,14 @@ export type AuthedUser = { id: string; email?: string };
 
 export async function userFromRequest(request: Request): Promise<{ user: AuthedUser } | { error: string; status: 401 | 500 }> {
   const header = request.headers.get('authorization') ?? '';
-  const token = header.replace(/^Bearer\s+/i, '').trim();
+  let token = header.replace(/^Bearer\s+/i, '').trim();
+  if (!token) {
+    try {
+      token = new URL(request.url).searchParams.get('access_token')?.trim() ?? '';
+    } catch {
+      token = '';
+    }
+  }
   if (!token) return { error: 'Sign in required', status: 401 };
 
   const url = process.env.SUPABASE_URL?.trim();

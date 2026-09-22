@@ -12,6 +12,7 @@ const BYPASS_PREFIXES = [
   '/api/',
   '/health',
   '/scrape',
+  '/archive-frame',
   '/ai',
   '/prices',
   '/quotes',

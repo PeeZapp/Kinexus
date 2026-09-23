@@ -84,7 +84,7 @@ export function ReaderScreen() {
       const result = await fetchStashReader(trimmed);
       const views = documentViews(result.document);
       setDocument(result.document);
-      const preferred = views.find((view) => view.id === 'archive_is') ?? views[0];
+      const preferred = views.find((view) => view.id === 'wayback') ?? views[0];
       setViewerId(preferred?.id ?? null);
       setViewMode(views.length > 0 ? 'page' : 'text');
     } catch (err) {
@@ -108,7 +108,7 @@ export function ReaderScreen() {
       desktop={desktop}
       kicker="Library"
       title="Reader"
-      subtitle="Open a public cached or archived copy — switch archive viewers if one is blank.">
+      subtitle="Open a public cached or archived copy — Wayback is preferred; switch viewers if one is blank.">
       <View style={styles.form}>
         <Field
           label="URL"

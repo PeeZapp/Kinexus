@@ -67,12 +67,13 @@ This domain is for use in illustrative examples in documents.
     expect(result.text).toContain('illustrative examples');
     expect(result.sourceUrl).toBe('https://r.jina.ai/https://example.com/');
     expect(result.views.map((view) => view.id)).toEqual([
-      'archive_is',
       'wayback',
+      'archive_is',
       'ghostarchive',
       'google_cache',
     ]);
-    expect(result.viewUrl).toBe('https://archive.ph/Ab12Cd');
+    expect(result.viewUrl).toBe('https://web.archive.org/web/20240101120000/https://example.com/');
+    expect(result.views.find((view) => view.id === 'archive_is')?.url).toBe('https://archive.ph/Ab12Cd');
     expect(result.views.find((view) => view.id === 'wayback')?.url).toBe(
       'https://web.archive.org/web/20240101120000/https://example.com/',
     );
@@ -112,8 +113,8 @@ This domain is for use in illustrative examples in documents.
     expect(result.title).toBe('Cached Example');
     expect(result.text).toContain('Archived paragraph');
     expect(result.sourceUrl).toContain('web.archive.org');
-    expect(result.viewUrl).toBe('https://archive.ph/Ab12Cd');
-    expect(result.views[0]?.id).toBe('archive_is');
+    expect(result.viewUrl).toBe('https://web.archive.org/web/20240101120000/https://example.com/');
+    expect(result.views[0]?.id).toBe('wayback');
   });
 
   it('falls back to archive.is when Jina and Wayback fail', async () => {
@@ -135,7 +136,44 @@ This domain is for use in illustrative examples in documents.
     expect(result.source).toBe('archive_is');
     expect(result.title).toBe('Mirror Copy');
     expect(result.text).toContain('Archive.is paragraph');
-    expect(result.viewUrl).toContain('archive.ph');
+    expect(result.views[0]?.id).toBe('wayback');
+    expect(result.viewUrl).toContain('web.archive.org');
+  });
+
+  it('rejects Jina bodies that are Cloudflare reCAPTCHA quota walls', async () => {
+    const fetch = mockArchiveToday(async (url) => {
+      if (url.startsWith('https://r.jina.ai/')) {
+        return textResponse(
+          'Verifying that you are not a robot...\nThis site is exceeding reCAPTCHA Enterprise free quota.\n',
+        );
+      }
+      if (url.startsWith('https://archive.org/wayback/available')) {
+        return jsonResponse({
+          archived_snapshots: {
+            closest: {
+              available: true,
+              url: 'https://web.archive.org/web/20240101120000/https://example.com/',
+              timestamp: '20240101120000',
+            },
+          },
+        });
+      }
+      if (url.includes('web.archive.org/web/') && url.includes('id_')) {
+        return htmlResponse(
+          `<html><head><title>Cached Example</title></head><body><article><p>${'Archived paragraph. '.repeat(12)}</p></article></body></html>`,
+        );
+      }
+      if (/\/newest\//i.test(url)) {
+        return htmlResponse(
+          `<html><head><link rel="canonical" href="https://archive.ph/Ab12Cd" /><title>Example</title></head><body>${'x'.repeat(200)}</body></html>`,
+        );
+      }
+      return null;
+    });
+
+    const result = await fetchReaderDocument('https://example.com/', { fetch, lookup });
+    expect(result.source).toBe('wayback');
+    expect(result.text).toContain('Archived paragraph');
   });
 
   it('rejects private targets before contacting archive services', async () => {

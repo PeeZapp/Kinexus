@@ -1,6 +1,7 @@
 import { canonicalizeUrl } from '@kinexus/domain';
 
 import { resolveArchiveTodaySnapshot } from './archive-today.js';
+import { isBotProtectedPage, isCloudflareCaptchaFailure } from './bot-page.js';
 import { assertPublicHttpUrl, fetchPublicHtml, stripHtml, type FetchPublicHtmlOptions } from './index.js';
 import { assertResolvedPublicHost, defaultHostnameLookup } from './ssrf.js';
 
@@ -98,9 +99,10 @@ function buildViewSources(
   const wayback = resolved.wayback?.trim() || `https://web.archive.org/web/latest/${href}`;
   // Prefer a concrete snapshot id. Fall back to /newest/ — the frame proxy resolves it at view time.
   const archiveIs = resolved.archiveIs?.trim() || `https://archive.ph/newest/${href}`;
+  // Prefer Wayback first — archive.is often serves Cloudflare/reCAPTCHA walls in the iframe.
   return [
-    { id: 'archive_is', label: 'archive.is', url: archiveIs },
     { id: 'wayback', label: 'Wayback', url: wayback },
+    { id: 'archive_is', label: 'archive.is', url: archiveIs },
     {
       id: 'ghostarchive',
       label: 'Ghost Archive',
@@ -112,6 +114,10 @@ function buildViewSources(
       url: `https://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(href)}`,
     },
   ];
+}
+
+function looksLikeChallengeText(body: string): boolean {
+  return isCloudflareCaptchaFailure(body) || isBotProtectedPage(body);
 }
 
 function withViews(
@@ -143,11 +149,13 @@ async function fetchJina(
   if (!response.ok) return null;
   const body = await response.text();
   if (!body.trim() || body.length < 20) return null;
-  if (/failed to fetch|blocked|captcha|just a moment/i.test(body.slice(0, 500)) && body.length < 400) {
+  if (looksLikeChallengeText(body)) return null;
+  if (/failed to fetch|blocked|captcha|just a moment|exceeding\s+recaptcha/i.test(body.slice(0, 800))) {
     return null;
   }
   const { title, text } = parseJinaDocument(body, target.href);
   if (text.length < 40) return null;
+  if (looksLikeChallengeText(text)) return null;
   return {
     url: target.href,
     canonicalUrl: canonicalizeUrl(target.href) || target.href,
@@ -207,6 +215,7 @@ async function fetchWayback(
     });
     if (!response.ok) return null;
     const html = await response.text();
+    if (looksLikeChallengeText(html)) return null;
     const text = truncate(stripHtml(html));
     if (text.length < 80) return null;
     return {
@@ -230,6 +239,7 @@ async function fetchWayback(
   });
   if (!response.ok) return null;
   const html = await response.text();
+  if (looksLikeChallengeText(html)) return null;
   const text = truncate(stripHtml(html));
   if (text.length < 80) return null;
   return {
@@ -262,6 +272,7 @@ async function fetchArchiveIs(
   });
   if (!response.ok) return null;
   const html = await response.text();
+  if (looksLikeChallengeText(html)) return null;
   const text = truncate(stripHtml(html));
   if (text.length < 80) return null;
   return {
@@ -335,7 +346,7 @@ export async function fetchReaderDocument(
   try {
     const jina = await fetchJina(target, options);
     if (jina) {
-      const views = await resolveViewUrls(target, options, {}, 'archive_is');
+      const views = await resolveViewUrls(target, options, {}, 'wayback');
       return withViews(jina, views);
     }
     errors.push('Jina Reader returned no usable content');
@@ -347,7 +358,7 @@ export async function fetchReaderDocument(
     const wayback = await fetchWayback(target, options);
     if (wayback) {
       knownWayback = wayback.browseUrl;
-      const views = await resolveViewUrls(target, options, { wayback: knownWayback }, 'archive_is');
+      const views = await resolveViewUrls(target, options, { wayback: knownWayback }, 'wayback');
       return withViews(wayback.document, views);
     }
     errors.push('Wayback Machine has no usable snapshot');
@@ -366,7 +377,7 @@ export async function fetchReaderDocument(
           wayback: knownWayback,
           archiveIs: knownArchiveIs,
         },
-        'archive_is',
+        'wayback',
       );
       return withViews(archiveIs.document, views);
     }

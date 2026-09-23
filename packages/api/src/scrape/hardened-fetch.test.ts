@@ -9,6 +9,9 @@ describe('bot page detection', () => {
     expect(isBotProtectedPage('<title>Just a moment...</title>', 403)).toBe(true);
     expect(isBotProtectedPage('<html>ok</html>', 403)).toBe(true);
     expect(isBotProtectedPage('<html>real catalog</html>'.repeat(40), 200)).toBe(false);
+    expect(
+      isBotProtectedPage('Verifying that you are not a robot. This site is exceeding reCAPTCHA Enterprise free quota.'),
+    ).toBe(true);
     expect(isStillBotBlocked('<title>Just a moment...</title>')).toBe(true);
     expect(recoveredHtmlLooksUsable('<title>Just a moment...</title>')).toBe(false);
     expect(recoveredHtmlLooksUsable(`<html><h1>75192 Millennium Falcon</h1>${'x'.repeat(2000)}</html>`)).toBe(true);

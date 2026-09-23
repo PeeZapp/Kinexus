@@ -1,7 +1,17 @@
 /** Challenge / WAF HTML — used to decide whether to escalate to the home proxy or Playwright. */
 
+/** Cloudflare Managed Challenge / shared reCAPTCHA Enterprise quota exhaustion. */
+export function isCloudflareCaptchaFailure(html: string): boolean {
+  return (
+    /exceeding\s+recaptcha\s+enterprise\s+free\s+quota/i.test(html) ||
+    /this\s+site\s+is\s+exceeding\s+recaptcha/i.test(html) ||
+    (/verifying\s+that\s+you\s+are\s+not\s+a\s+robot/i.test(html) && /recaptcha/i.test(html))
+  );
+}
+
 export function isBotProtectedPage(html: string, httpStatus?: number): boolean {
   if (httpStatus === 401 || httpStatus === 403 || httpStatus === 503) return true;
+  if (isCloudflareCaptchaFailure(html)) return true;
   const h = html.toLowerCase();
   const sansRecaptcha = h.replace(/recaptcha/gi, '');
   const captchaWall =
@@ -24,6 +34,7 @@ export function isBotProtectedPage(html: string, httpStatus?: number): boolean {
 
 export function isStillBotBlocked(html: string): boolean {
   return (
+    isCloudflareCaptchaFailure(html) ||
     html.includes('<title>Just a moment...</title>') ||
     html.includes('cf-browser-verification') ||
     html.includes('cf_chl_') ||

@@ -5,6 +5,7 @@ import {
   resolveArchiveTodayFrameTarget,
   resolveArchiveTodaySnapshot,
 } from './archive-today.js';
+import { isBotProtectedPage } from './bot-page.js';
 import { assertResolvedPublicHost, defaultHostnameLookup, type HostnameLookup } from './ssrf.js';
 
 const MAX_HTML_CHARS = 2_500_000;
@@ -101,6 +102,8 @@ export async function fetchArchiveFrameHtml(
       const result = await fetchOnceHtml(candidate, options, escalate);
       lastStatus = result.status;
       if (!result.ok || !result.html.trim()) continue;
+      // Don't iframe Cloudflare/reCAPTCHA walls — try the next mirror or fail cleanly.
+      if (isBotProtectedPage(result.html, result.status)) continue;
 
       // If we still landed on a /newest/ results page, try to peel out the snapshot once more.
       if (/\/newest\//i.test(candidate) || /\/newest\//i.test(result.url)) {
@@ -110,7 +113,7 @@ export async function fetchArchiveFrameHtml(
         ).catch(() => null);
         if (peeled && peeled !== candidate) {
           const again = await fetchOnceHtml(peeled, options, true);
-          if (again.ok && again.html.trim()) {
+          if (again.ok && again.html.trim() && !isBotProtectedPage(again.html, again.status)) {
             return { html: prepareArchiveFrameHtml(again.html, again.url), finalUrl: again.url };
           }
         }
@@ -122,7 +125,11 @@ export async function fetchArchiveFrameHtml(
     }
   }
 
-  const error = new Error(`Archive page returned HTTP ${lastStatus || 404}`);
-  (error as { status?: number }).status = lastStatus >= 400 && lastStatus < 600 ? lastStatus : 404;
+  const error = new Error(
+    lastStatus
+      ? `Archive page returned HTTP ${lastStatus}`
+      : 'Archive viewer is blocked by a captcha wall — try Wayback or Text mode',
+  );
+  (error as { status?: number }).status = lastStatus >= 400 && lastStatus < 600 ? lastStatus : 422;
   throw error;
 }

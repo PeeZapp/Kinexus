@@ -47,7 +47,7 @@
     { "source": "/https/:path*", "destination": "/index.html" }
   ],
   "functions": {
-    "api/[[...route]].js": {
+    "api/[...path].js": {
       "maxDuration": 60
     }
   },

@@ -22,22 +22,23 @@
     }
   ],
   "rewrites": [
-    { "source": "/health", "destination": "/api/health" },
-    { "source": "/scrape", "destination": "/api/scrape" },
-    { "source": "/scrape-product", "destination": "/api/scrape-product" },
-    { "source": "/scrape-link", "destination": "/api/scrape-link" },
-    { "source": "/scrape-reader", "destination": "/api/scrape-reader" },
-    { "source": "/archive-frame", "destination": "/api/archive-frame" },
-    { "source": "/ai", "destination": "/api/ai" },
-    { "source": "/prices/estimate", "destination": "/api/prices/estimate" },
-    { "source": "/prices/refresh", "destination": "/api/prices/refresh" },
-    { "source": "/quotes", "destination": "/api/quotes" },
-    { "source": "/collectibles/search", "destination": "/api/collectibles/search" },
-    { "source": "/collectibles/lookup", "destination": "/api/collectibles/lookup" },
-    { "source": "/budget/classify", "destination": "/api/budget/classify" },
-    { "source": "/watchlist/search", "destination": "/api/watchlist/search" },
-    { "source": "/watchlist/lookup", "destination": "/api/watchlist/lookup" },
-    { "source": "/watchlist/resolve", "destination": "/api/watchlist/resolve" },
+    { "source": "/health", "destination": "/api?__path=/health" },
+    { "source": "/scrape", "destination": "/api?__path=/scrape" },
+    { "source": "/scrape-product", "destination": "/api?__path=/scrape-product" },
+    { "source": "/scrape-link", "destination": "/api?__path=/scrape-link" },
+    { "source": "/scrape-reader", "destination": "/api?__path=/scrape-reader" },
+    { "source": "/archive-frame", "destination": "/api?__path=/archive-frame" },
+    { "source": "/ai", "destination": "/api?__path=/ai" },
+    { "source": "/prices/estimate", "destination": "/api?__path=/prices/estimate" },
+    { "source": "/prices/refresh", "destination": "/api?__path=/prices/refresh" },
+    { "source": "/quotes", "destination": "/api?__path=/quotes" },
+    { "source": "/collectibles/search", "destination": "/api?__path=/collectibles/search" },
+    { "source": "/collectibles/lookup", "destination": "/api?__path=/collectibles/lookup" },
+    { "source": "/budget/classify", "destination": "/api?__path=/budget/classify" },
+    { "source": "/watchlist/search", "destination": "/api?__path=/watchlist/search" },
+    { "source": "/watchlist/lookup", "destination": "/api?__path=/watchlist/lookup" },
+    { "source": "/watchlist/resolve", "destination": "/api?__path=/watchlist/resolve" },
+    { "source": "/api/(.*)", "destination": "/api?__path=/api/$1" },
     { "source": "/invite/:token", "destination": "/index.html" },
     { "source": "/import", "destination": "/index.html" },
     { "source": "/meals/recipes/:id", "destination": "/index.html" },
@@ -47,7 +48,7 @@
     { "source": "/https/:path*", "destination": "/index.html" }
   ],
   "functions": {
-    "api/[...path].js": {
+    "api/index.js": {
       "maxDuration": 60
     }
   },

@@ -83,7 +83,7 @@ Output: `apps/kinexus/dist`.
 
 **One Vercel project** at the repository root. You do not need a second project for the API.
 
-`vercel.json` installs the workspace, runs `pnpm api:build` (esbuild bundle so `@kinexus/domain` is inlined for Node), exports Expo web to `apps/kinexus/dist`, and serves the Hono API as a serverless function (`api/[...path].js` → `/api/*`). Rewrites map `/health`, `/scrape`, `/quotes`, `/collectibles/*`, and so on onto that function, so the website and API share one domain.
+`vercel.json` installs the workspace, runs `pnpm api:build` (esbuild bundle so `@kinexus/domain` is inlined for Node), exports Expo web to `apps/kinexus/dist`, and serves the Hono API from `api/index.js`. Nested `/api/...` paths are rewritten onto that entry (Vercel non-Next functions only support one dynamic segment).
 
 ```bash
 npx vercel login

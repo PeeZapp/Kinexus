@@ -67,13 +67,12 @@ This domain is for use in illustrative examples in documents.
     expect(result.text).toContain('illustrative examples');
     expect(result.sourceUrl).toBe('https://r.jina.ai/https://example.com/');
     expect(result.views.map((view) => view.id)).toEqual([
-      'wayback',
       'archive_is',
+      'wayback',
       'ghostarchive',
       'google_cache',
     ]);
-    expect(result.viewUrl).toBe('https://web.archive.org/web/20240101120000/https://example.com/');
-    expect(result.views.find((view) => view.id === 'archive_is')?.url).toBe('https://archive.ph/Ab12Cd');
+    expect(result.viewUrl).toBe('https://archive.ph/Ab12Cd');
     expect(result.views.find((view) => view.id === 'wayback')?.url).toBe(
       'https://web.archive.org/web/20240101120000/https://example.com/',
     );
@@ -113,8 +112,8 @@ This domain is for use in illustrative examples in documents.
     expect(result.title).toBe('Cached Example');
     expect(result.text).toContain('Archived paragraph');
     expect(result.sourceUrl).toContain('web.archive.org');
-    expect(result.viewUrl).toBe('https://web.archive.org/web/20240101120000/https://example.com/');
-    expect(result.views[0]?.id).toBe('wayback');
+    expect(result.viewUrl).toBe('https://archive.ph/Ab12Cd');
+    expect(result.views[0]?.id).toBe('archive_is');
   });
 
   it('falls back to archive.is when Jina and Wayback fail', async () => {
@@ -136,8 +135,8 @@ This domain is for use in illustrative examples in documents.
     expect(result.source).toBe('archive_is');
     expect(result.title).toBe('Mirror Copy');
     expect(result.text).toContain('Archive.is paragraph');
-    expect(result.views[0]?.id).toBe('wayback');
-    expect(result.viewUrl).toContain('web.archive.org');
+    expect(result.views[0]?.id).toBe('archive_is');
+    expect(result.viewUrl).toContain('archive.ph');
   });
 
   it('rejects Jina bodies that are Cloudflare reCAPTCHA quota walls', async () => {

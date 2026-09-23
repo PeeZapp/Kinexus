@@ -99,10 +99,10 @@ function buildViewSources(
   const wayback = resolved.wayback?.trim() || `https://web.archive.org/web/latest/${href}`;
   // Prefer a concrete snapshot id. Fall back to /newest/ — the frame proxy resolves it at view time.
   const archiveIs = resolved.archiveIs?.trim() || `https://archive.ph/newest/${href}`;
-  // Prefer Wayback first — archive.is often serves Cloudflare/reCAPTCHA walls in the iframe.
+  // archive.is first — usually the cleanest browseable snapshot when the iframe/proxy can load it.
   return [
-    { id: 'wayback', label: 'Wayback', url: wayback },
     { id: 'archive_is', label: 'archive.is', url: archiveIs },
+    { id: 'wayback', label: 'Wayback', url: wayback },
     {
       id: 'ghostarchive',
       label: 'Ghost Archive',
@@ -346,7 +346,7 @@ export async function fetchReaderDocument(
   try {
     const jina = await fetchJina(target, options);
     if (jina) {
-      const views = await resolveViewUrls(target, options, {}, 'wayback');
+      const views = await resolveViewUrls(target, options, {}, 'archive_is');
       return withViews(jina, views);
     }
     errors.push('Jina Reader returned no usable content');
@@ -358,7 +358,7 @@ export async function fetchReaderDocument(
     const wayback = await fetchWayback(target, options);
     if (wayback) {
       knownWayback = wayback.browseUrl;
-      const views = await resolveViewUrls(target, options, { wayback: knownWayback }, 'wayback');
+      const views = await resolveViewUrls(target, options, { wayback: knownWayback }, 'archive_is');
       return withViews(wayback.document, views);
     }
     errors.push('Wayback Machine has no usable snapshot');
@@ -377,7 +377,7 @@ export async function fetchReaderDocument(
           wayback: knownWayback,
           archiveIs: knownArchiveIs,
         },
-        'wayback',
+        'archive_is',
       );
       return withViews(archiveIs.document, views);
     }

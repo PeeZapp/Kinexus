@@ -9,6 +9,7 @@
     "android": "pnpm --filter @kinexus/app android",
     "ios": "pnpm --filter @kinexus/app ios",
     "api": "pnpm --filter @kinexus/api dev",
+    "api:build": "node scripts/build-api.mjs",
     "web:export": "pnpm --filter @kinexus/app web:export",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter @kinexus/domain test && pnpm --filter @kinexus/api test",
@@ -16,6 +17,10 @@
     "db:link": "pnpm --filter @kinexus/db db:link"
   },
   "devDependencies": {
-    "concurrently": "^10.0.5"
+    "concurrently": "^10.0.5",
+    "esbuild": "^0.25.12"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
   }
 }

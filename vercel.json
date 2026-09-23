@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "installCommand": "pnpm install",
-  "buildCommand": "pnpm --filter @kinexus/app exec expo export --platform web",
+  "buildCommand": "pnpm api:build && pnpm --filter @kinexus/app exec expo export --platform web",
   "outputDirectory": "apps/kinexus/dist",
   "cleanUrls": true,
   "headers": [
@@ -47,7 +47,7 @@
     { "source": "/https/:path*", "destination": "/index.html" }
   ],
   "functions": {
-    "api/[[...route]].ts": {
+    "api/[[...route]].js": {
       "maxDuration": 60
     }
   },

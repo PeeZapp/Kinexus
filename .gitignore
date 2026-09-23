@@ -3,6 +3,7 @@ node_modules/
 .pnpm-store/
 dist/
 build/
+api/_handler.mjs
 .expo/
 .expo-shared/
 web-build/

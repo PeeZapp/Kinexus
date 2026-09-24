@@ -71,6 +71,31 @@ export async function scrapeStashLink(url: string): Promise<LinkScrapeResponse> 
   return post<LinkScrapeResponse>('/scrape-link', { url });
 }
 
+export type SharedWishlistResponse = {
+  name: string;
+  currency: string;
+  products: Array<{
+    id: string;
+    title: string;
+    currentPrice: number | null;
+    originalPrice: number | null;
+    isOnSale: boolean;
+    imageUrl: string | null;
+    sourceUrl: string;
+    storeName: string | null;
+  }>;
+};
+
+export async function fetchSharedWishlist(token: string): Promise<SharedWishlistResponse> {
+  if (!isStashApiConfigured()) {
+    throw new Error('Stash API is not configured. Set EXPO_PUBLIC_API_URL and run the API server.');
+  }
+  const res = await fetch(`${configuredUrl()}/stash/shared/${encodeURIComponent(token.trim())}`);
+  const payload = (await res.json().catch(() => ({}))) as SharedWishlistResponse & { error?: string };
+  if (!res.ok) throw new Error(payload.error ?? `Request failed (${res.status})`);
+  return payload;
+}
+
 export async function fetchStashReader(url: string): Promise<ReaderResponse> {
   return post<ReaderResponse>('/scrape-reader', { url });
 }

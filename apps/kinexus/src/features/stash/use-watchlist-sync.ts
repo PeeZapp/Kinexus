@@ -75,6 +75,7 @@ function providersPatch(title: WatchlistResolvedTitle) {
     imdb_id: title.imdbId,
     source_url: title.sourceUrl,
     tmdb_watch_url: title.tmdbWatchUrl,
+    trailer_url: title.trailerUrl,
     providers: serializeWatchlistProviders(title.providers),
     providers_country: title.providersCountry,
     providers_fetched_at: new Date().toISOString(),
@@ -214,6 +215,7 @@ export function useWatchlistSync() {
         ...hit,
         sourceUrl: opts?.sourceUrl ?? null,
         tmdbWatchUrl: null,
+        trailerUrl: null,
         providers: [],
         providersCountry: country,
       }));
@@ -262,7 +264,7 @@ export function useWatchlistSync() {
   const refreshTitle = useCallback(
     async (title: WatchlistTitle, force = false) => {
       if (!householdId || !supabase) throw new Error('Not ready');
-      if (!force && !providersAreStale(title, country)) return title;
+      if (!force && !providersAreStale(title, country) && title.trailerUrl) return title;
       const resolved = await lookupWatchlistCatalog({
         tmdbId: title.tmdbId,
         mediaType: title.mediaType,

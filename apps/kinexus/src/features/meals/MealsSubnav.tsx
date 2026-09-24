@@ -19,7 +19,16 @@ const TABS = [
     managersOnly: true,
   },
   { href: '/meals/shopping' as Href, label: 'Shopping', match: (p: string) => p.startsWith('/meals/shopping') },
-  { href: '/meals/recipes' as Href, label: 'Recipes', match: (p: string) => p.startsWith('/meals/recipes') },
+  {
+    href: '/meals/recipes' as Href,
+    label: 'Recipes',
+    match: (p: string) => p.startsWith('/meals/recipes') && !p.startsWith('/meals/recipes/import'),
+  },
+  {
+    href: '/meals/recipes/import' as Href,
+    label: 'Import',
+    match: (p: string) => p.startsWith('/meals/recipes/import'),
+  },
 ];
 
 export function MealsSubnav() {

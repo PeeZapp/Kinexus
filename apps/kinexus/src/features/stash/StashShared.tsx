@@ -1,9 +1,17 @@
 import { type ReactNode, useEffect, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View, type ImageStyle, type ViewStyle } from 'react-native';
 
-import { formatMoney, type SavedLink, type StashListNode, type StashProduct } from '@kinexus/domain';
+import {
+  formatMoney,
+  listThemeSoft,
+  normalizeListEmoji,
+  normalizeListTheme,
+  type SavedLink,
+  type StashListNode,
+  type StashProduct,
+} from '@kinexus/domain';
 
-import { Btn, Field } from '@/src/features/household/ui';
+import { Btn, Field, Pill } from '@/src/features/household/ui';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
 export function StashPhoto({
@@ -19,7 +27,10 @@ export function StashPhoto({
   useEffect(() => {
     setFailed(false);
   }, [uri]);
-  const box: ViewStyle = size === 'fill' ? { width: '100%', height: '100%' } : { width: size, height: size };
+  const box: ViewStyle =
+    size === 'fill'
+      ? { width: '100%', height: '100%', borderRadius: 0 }
+      : { width: size, height: size };
   const img: ImageStyle = { width: '100%', height: '100%' };
   return (
     <View style={[styles.photo, box]}>
@@ -36,20 +47,17 @@ export function StashChrome({
   desktop,
   kicker,
   title,
-  subtitle,
   children,
 }: {
   desktop: boolean;
   kicker: string;
   title: string;
-  subtitle?: string;
   children: ReactNode;
 }) {
   return (
     <ScrollView style={styles.root} contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}>
       <Text style={styles.kicker}>{kicker}</Text>
       <Text style={[styles.title, desktop && styles.titleDesktop]}>{title}</Text>
-      {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       {children}
     </ScrollView>
   );
@@ -82,6 +90,81 @@ export function ProductCard({
             <Text style={styles.priceWas}>{formatMoney(product.originalPrice, currency)}</Text>
           ) : null}
         </View>
+      </View>
+    </Pressable>
+  );
+}
+
+export type WishlistListCardModel = {
+  id: string;
+  name: string;
+  emoji: string;
+  theme: string;
+  coverUrl: string | null;
+  itemCount: number;
+  totalCost: number;
+  hasSale: boolean;
+  subListCount: number;
+  shareLabel: string;
+};
+
+export function WishlistListCard({
+  list,
+  currency,
+  wide,
+  onPress,
+  onSettings,
+}: {
+  list: WishlistListCardModel;
+  currency: string;
+  wide?: boolean;
+  onPress: () => void;
+  onSettings?: () => void;
+}) {
+  const stats: string[] = [];
+  if (list.subListCount > 0) {
+    stats.push(`${list.subListCount} sub-list${list.subListCount === 1 ? '' : 's'}`);
+  }
+  stats.push(`${list.itemCount} item${list.itemCount === 1 ? '' : 's'}`);
+  if (list.itemCount > 0 && list.totalCost > 0) {
+    stats.push(formatMoney(list.totalCost, currency));
+  }
+  const theme = normalizeListTheme(list.theme);
+  const emoji = normalizeListEmoji(list.emoji);
+
+  return (
+    <Pressable onPress={onPress} style={[styles.listCard, wide && styles.listCardWide, { borderColor: theme }]}>
+      <View style={[styles.listCover, !list.coverUrl && { backgroundColor: listThemeSoft(theme, 0.22) }]}>
+        {list.coverUrl ? (
+          <StashPhoto uri={list.coverUrl} fallback={emoji} size="fill" />
+        ) : (
+          <View style={styles.listCoverEmojiWrap}>
+            <Text style={styles.listCoverEmoji}>{emoji}</Text>
+          </View>
+        )}
+        {list.hasSale ? (
+          <View style={styles.listBadgeSale}>
+            <Text style={styles.listBadgeSaleText}>Items on sale</Text>
+          </View>
+        ) : null}
+        {list.shareLabel && list.shareLabel !== 'Family' ? (
+          <View style={styles.listBadgeShare}>
+            <Text style={styles.listBadgeShareText}>{list.shareLabel}</Text>
+          </View>
+        ) : null}
+      </View>
+      <View style={styles.listCardBody}>
+        <Text style={styles.listCardTitle} numberOfLines={2}>
+          {list.name}
+        </Text>
+        <Text style={styles.listCardStats} numberOfLines={2}>
+          {stats.join(' · ')}
+        </Text>
+        {onSettings ? (
+          <View style={styles.listCardActions}>
+            <Pill label="Settings" onPress={onSettings} />
+          </View>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -199,7 +282,6 @@ const styles = StyleSheet.create({
   },
   title: { color: colors.text, fontSize: 28, fontWeight: '800' },
   titleDesktop: { fontSize: 36 },
-  subtitle: { color: colors.textMuted, fontSize: 15, lineHeight: 22 },
   photo: {
     overflow: 'hidden',
     backgroundColor: colors.bgHover,
@@ -230,6 +312,58 @@ const styles = StyleSheet.create({
   price: { color: colors.text, fontSize: 15, fontWeight: '800' },
   priceSale: { color: colors.accent },
   priceWas: { color: colors.textDim, fontSize: 13, textDecorationLine: 'line-through' },
+  listCard: {
+    backgroundColor: colors.bgCard,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    minWidth: 0,
+  },
+  listCardWide: {
+    width: 300,
+  },
+  listCover: {
+    width: '100%',
+    aspectRatio: 4 / 3,
+    backgroundColor: colors.bgHover,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  listCoverEmojiWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listCoverEmoji: {
+    fontSize: 48,
+  },
+  listBadgeSale: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    backgroundColor: colors.danger,
+    borderRadius: radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  listBadgeSaleText: { color: colors.text, fontSize: 11, fontWeight: '800' },
+  listBadgeShare: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: colors.bgElevated,
+    borderRadius: radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  listBadgeShareText: { color: colors.text, fontSize: 11, fontWeight: '700' },
+  listCardBody: { padding: space.md, gap: 6 },
+  listCardTitle: { color: colors.text, fontSize: 18, fontWeight: '800' },
+  listCardStats: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
+  listCardActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
   listRow: {
     flexDirection: 'row',
     alignItems: 'center',

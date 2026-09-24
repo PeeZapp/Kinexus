@@ -7,8 +7,11 @@ import {
   canonicalizeUrl,
   inferLinkType,
   isSale,
+  normalizeListEmoji,
   normalizeListShare,
+  normalizeListTheme,
   parseMoney,
+  roundMoney,
   type SavedLink,
   type SavedLinkCollection,
   type SavedLinkStatus,
@@ -31,6 +34,7 @@ import {
   listProductFromRow,
   productFromRow,
 } from '@/src/features/stash/mappers';
+import { buildWishlistShareUrl } from '@/src/features/stash/share-url';
 import { scrapeStashLink, scrapeStashProduct } from '@/src/features/stash/stash-api';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
@@ -140,6 +144,11 @@ export type ListShareDraft = {
   personIds: string[];
 };
 
+export type ListIdentityDraft = {
+  emoji: string;
+  theme: string;
+};
+
 export type ChecklistItemDraft = {
   title: string;
   notes?: string | null;
@@ -164,6 +173,17 @@ export type ProductDraft = {
   isOwned?: boolean;
   listId?: string | null;
   priceSource?: 'manual' | 'scraped';
+};
+
+export type PriceRefreshResult = {
+  productId: string;
+  title: string;
+  updated: boolean;
+  priceDropped: boolean;
+  onSale: boolean;
+  oldPrice: number | null;
+  newPrice: number | null;
+  savings: number | null;
 };
 
 export type LinkDraft = {
@@ -303,7 +323,11 @@ export function useStashSync() {
   );
 
   const createList = useCallback(
-    async (name: string, share: ListShareDraft, opts: { kind: StashListKind; parentListId?: string | null }) => {
+    async (
+      name: string,
+      share: ListShareDraft,
+      opts: { kind: StashListKind; parentListId?: string | null; emoji?: string; theme?: string },
+    ) => {
       if (!householdId || !supabase) throw new Error('Not ready');
       const trimmed = name.trim();
       if (!trimmed) throw new Error('Give the list a name');
@@ -320,6 +344,8 @@ export function useStashSync() {
         kind: opts.kind,
         visibility: next.visibility,
         parent_list_id: opts.parentListId ?? null,
+        emoji: normalizeListEmoji(opts.emoji),
+        theme: normalizeListTheme(opts.theme),
       });
       throwIfError(error);
       if (next.personIds.length > 0) await replaceListPeople(id, next.personIds);
@@ -331,7 +357,7 @@ export function useStashSync() {
   );
 
   const renameList = useCallback(
-    async (id: string, name: string, share?: ListShareDraft) => {
+    async (id: string, name: string, share?: ListShareDraft, identity?: ListIdentityDraft) => {
       if (!householdId || !supabase) throw new Error('Not ready');
       const trimmed = name.trim();
       if (!trimmed) throw new Error('Give the list a name');
@@ -343,6 +369,10 @@ export function useStashSync() {
         }
         patch.visibility = next.visibility;
         await replaceListPeople(id, next.personIds);
+      }
+      if (identity) {
+        patch.emoji = normalizeListEmoji(identity.emoji);
+        patch.theme = normalizeListTheme(identity.theme);
       }
       const { error } = await supabase.from('stash_lists').update(patch).eq('id', id);
       throwIfError(error);
@@ -362,6 +392,26 @@ export function useStashSync() {
       await queryClient.invalidateQueries({ queryKey: itemsKey(householdId) });
     },
     [householdId, queryClient],
+  );
+
+  const enableListShare = useCallback(
+    async (id: string): Promise<string> => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      const list = lists.find((item) => item.id === id);
+      if (!list) throw new Error('List not found');
+      let token = list.shareToken;
+      if (!list.isShared || !token) {
+        token = token ?? Crypto.randomUUID();
+        const { error } = await supabase
+          .from('stash_lists')
+          .update({ is_shared: true, share_token: token })
+          .eq('id', id);
+        throwIfError(error);
+        await queryClient.invalidateQueries({ queryKey: listsKey(householdId) });
+      }
+      return buildWishlistShareUrl(token);
+    },
+    [householdId, lists, queryClient],
   );
 
   const createItem = useCallback(
@@ -423,6 +473,25 @@ export function useStashSync() {
     },
     [householdId, queryClient],
   );
+
+  const reorderItems = useCallback(
+    async (patches: { id: string; position: number }[]) => {
+      if (!householdId || !supabase || patches.length === 0) return;
+      for (const patch of patches) {
+        const { error } = await supabase.from('stash_list_items').update({ position: patch.position }).eq('id', patch.id);
+        throwIfError(error);
+      }
+      await queryClient.invalidateQueries({ queryKey: itemsKey(householdId) });
+    },
+    [householdId, queryClient],
+  );
+
+  const ensureDailyList = useCallback(async () => {
+    if (!householdId || !supabase) throw new Error('Not ready');
+    const existing = lists.find((list) => list.kind === 'checklist' && list.name.trim().toLowerCase() === 'daily');
+    if (existing) return existing.id;
+    return createList('Daily', { visibility: 'household', personIds: [] }, { kind: 'checklist' });
+  }, [createList, householdId, lists]);
 
   const addProductToList = useCallback(
     async (productId: string, listId: string) => {
@@ -542,20 +611,41 @@ export function useStashSync() {
   }, []);
 
   const refreshProductFromUrl = useCallback(
-    async (id: string) => {
+    async (id: string): Promise<PriceRefreshResult> => {
       const product = products.find((item) => item.id === id);
       if (!product?.sourceUrl) throw new Error('This item has no URL to refresh');
       const scraped = await scrapeProduct(product.sourceUrl);
+      const oldPrice = product.currentPrice;
+      const newPrice = scraped.currentPrice ?? null;
+      const originalPrice = scraped.originalPrice ?? product.originalPrice ?? null;
+      const priceDropped = newPrice != null && oldPrice != null && newPrice < oldPrice;
+      const nowOnSale = isSale(newPrice, originalPrice);
+      const becameOnSale = nowOnSale && !product.isOnSale;
+      const savings = priceDropped && newPrice != null && oldPrice != null ? roundMoney(oldPrice - newPrice) : null;
+
       await updateProduct(id, {
         title: scraped.title || product.title,
         currentPrice: scraped.currentPrice != null ? String(scraped.currentPrice) : undefined,
-        originalPrice: scraped.originalPrice != null ? String(scraped.originalPrice) : undefined,
+        originalPrice: scraped.originalPrice != null ? String(scraped.originalPrice) : originalPrice != null ? String(originalPrice) : undefined,
         imageUrl: scraped.imageUrl ?? product.imageUrl ?? undefined,
         storeName: scraped.storeName ?? product.storeName ?? undefined,
         description: scraped.description ?? product.description ?? undefined,
         sku: scraped.sku ?? product.sku ?? undefined,
         priceSource: 'scraped',
       });
+
+      const priceChanged = newPrice != null && oldPrice != null && newPrice !== oldPrice;
+      const priceFound = newPrice != null && oldPrice == null;
+      return {
+        productId: id,
+        title: scraped.title || product.title,
+        updated: priceChanged || priceFound || becameOnSale || Boolean(scraped.imageUrl && !product.imageUrl),
+        priceDropped,
+        onSale: nowOnSale && (priceDropped || becameOnSale),
+        oldPrice,
+        newPrice,
+        savings,
+      };
     },
     [products, scrapeProduct, updateProduct],
   );
@@ -736,9 +826,12 @@ export function useStashSync() {
     createList,
     renameList,
     deleteList,
+    enableListShare,
     createItem,
     updateItem,
     deleteItem,
+    reorderItems,
+    ensureDailyList,
     createProduct,
     updateProduct,
     deleteProduct,

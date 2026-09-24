@@ -228,6 +228,7 @@ export function filterWatchlistEntries(
     listId?: string | null;
     status?: WatchlistItemStatus | null;
     mediaType?: WatchlistMediaType | null;
+    providerId?: number | null;
     search?: string;
   },
 ): WatchlistEntry[] {
@@ -236,6 +237,12 @@ export function filterWatchlistEntries(
     if (opts.listId && entry.list.id !== opts.listId) return false;
     if (opts.status && entry.item.status !== opts.status) return false;
     if (opts.mediaType && entry.title.mediaType !== opts.mediaType) return false;
+    if (
+      opts.providerId != null &&
+      !entry.title.providers.some((provider) => provider.providerId === opts.providerId)
+    ) {
+      return false;
+    }
     if (!q) return true;
     const hay = [entry.title.title, entry.title.overview, entry.list.name, entry.item.notes]
       .filter(Boolean)
@@ -243,6 +250,36 @@ export function filterWatchlistEntries(
       .toLowerCase();
     return hay.includes(q);
   });
+}
+
+export type WatchlistProviderOption = {
+  providerId: number;
+  providerName: string;
+  logoPath: string | null;
+};
+
+/** Unique streaming services available across entries (subscription / ads / free). */
+export function watchlistProviderOptions(entries: readonly WatchlistEntry[]): WatchlistProviderOption[] {
+  const map = new Map<number, WatchlistProviderOption & { displayPriority: number }>();
+  for (const entry of entries) {
+    for (const provider of entry.title.providers) {
+      if (provider.offerType !== 'flatrate' && provider.offerType !== 'ads' && provider.offerType !== 'free') {
+        continue;
+      }
+      const existing = map.get(provider.providerId);
+      if (!existing || provider.displayPriority < existing.displayPriority) {
+        map.set(provider.providerId, {
+          providerId: provider.providerId,
+          providerName: provider.providerName,
+          logoPath: provider.logoPath,
+          displayPriority: provider.displayPriority,
+        });
+      }
+    }
+  }
+  return [...map.values()]
+    .sort((a, b) => a.displayPriority - b.displayPriority || a.providerName.localeCompare(b.providerName))
+    .map(({ providerId, providerName, logoPath }) => ({ providerId, providerName, logoPath }));
 }
 
 export function providersAreStale(
@@ -338,4 +375,40 @@ export function serializeWatchlistProviders(providers: readonly WatchlistProvide
     logo_path: provider.logoPath,
     display_priority: provider.displayPriority,
   }));
+}
+
+export type WatchlistVideoCandidate = {
+  key?: string | null;
+  site?: string | null;
+  type?: string | null;
+  official?: boolean | null;
+  name?: string | null;
+  iso_639_1?: string | null;
+};
+
+/** Prefer an official English YouTube trailer; fall back to teaser/clip. */
+export function pickYoutubeTrailerUrl(videos: readonly WatchlistVideoCandidate[]): string | null {
+  const youtube = videos.filter(
+    (video) =>
+      (video.site ?? '').toLowerCase() === 'youtube' &&
+      typeof video.key === 'string' &&
+      /^[\w-]{6,}$/.test(video.key.trim()),
+  );
+  if (youtube.length === 0) return null;
+
+  const score = (video: WatchlistVideoCandidate): number => {
+    const type = (video.type ?? '').toLowerCase();
+    let value = 0;
+    if (type === 'trailer') value += 100;
+    else if (type === 'teaser') value += 60;
+    else if (type === 'clip') value += 30;
+    if (video.official) value += 20;
+    if ((video.iso_639_1 ?? '').toLowerCase() === 'en') value += 10;
+    if (/official/i.test(video.name ?? '')) value += 5;
+    return value;
+  };
+
+  const best = youtube.slice().sort((a, b) => score(b) - score(a))[0];
+  if (!best?.key) return null;
+  return `https://www.youtube.com/watch?v=${best.key.trim()}`;
 }

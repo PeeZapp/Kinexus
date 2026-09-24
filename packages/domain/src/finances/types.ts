@@ -76,7 +76,7 @@ export type FinanceBudgetTxn = {
   source?: FinanceBudgetTxnSource;
 };
 
-export type FinanceGroupKind = FinanceAccountKind | 'shares' | 'collectibles';
+export type FinanceGroupKind = FinanceAccountKind | 'shares' | 'crypto' | 'collectibles';
 
 export type FinanceKindGroup = {
   kind: FinanceGroupKind;
@@ -117,6 +117,26 @@ export type FinanceShareHolding = {
 };
 
 export type FinanceShareQuote = {
+  symbol: string;
+  price: number;
+  currency: string;
+  name: string | null;
+};
+
+export type FinanceCryptoHolding = {
+  id: string;
+  householdId: string;
+  symbol: string;
+  name: string | null;
+  units: number;
+  costPerUnit: number | null;
+  lastPrice: number | null;
+  pricedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FinanceCryptoQuote = {
   symbol: string;
   price: number;
   currency: string;

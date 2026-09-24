@@ -175,14 +175,7 @@ export function BudgetScreen() {
       <FinancesChrome
         desktop={desktop}
         kicker={budgetReady ? monthLabel(monthStart) : 'Household'}
-        title="Budget"
-        subtitle={
-          budgetReady
-            ? spreadPeriodical
-              ? 'Periodical bills are shown as monthly amounts in their categories.'
-              : 'Monthly costs apply every month. Every-second-month, quarterly, and yearly bills only show when they are due — open Periodical expenses for the rest.'
-            : 'Set the household budget once. Mark bills that only come due some months, or upload transactions to fill the rest.'
-        }>
+        title="Budget">
         <ErrorText message={finances.error ? actionErrorMessage(finances.error) : actionError} />
         {!budgetReady ? (
           <EmptyState

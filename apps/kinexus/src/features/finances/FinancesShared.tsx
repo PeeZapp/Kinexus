@@ -7,20 +7,17 @@ export function FinancesChrome({
   desktop,
   kicker,
   title,
-  subtitle,
   children,
 }: {
   desktop: boolean;
   kicker: string;
   title: string;
-  subtitle?: string;
   children: ReactNode;
 }) {
   return (
     <ScrollView style={styles.root} contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}>
       <Text style={styles.kicker}>{kicker}</Text>
       <Text style={[styles.title, desktop && styles.titleDesktop]}>{title}</Text>
-      {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       {children}
     </ScrollView>
   );
@@ -68,7 +65,6 @@ const styles = StyleSheet.create({
   },
   title: { color: colors.text, fontSize: 28, fontWeight: '800' },
   titleDesktop: { fontSize: 36 },
-  subtitle: { color: colors.textMuted, fontSize: 15, lineHeight: 22 },
   barTrack: {
     height: 8,
     borderRadius: 4,

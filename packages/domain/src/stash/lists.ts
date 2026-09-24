@@ -1,6 +1,43 @@
 import type { HouseholdRole } from '../household/types';
 import type { StashList, StashListKind, StashListNode, StashListProduct, StashListVisibility, StashProduct } from './types';
 
+/** Huddle-style list emoji presets. */
+export const STASH_LIST_EMOJIS = ['📋', '🛒', '🏠', '🎁', '🎉', '🧒', '🔨', '✅', '📌', '📚', '🚗', '💡', '🏋️', '🎯'] as const;
+
+/** Accent theme colors for list cards (readable on dark UI). */
+export const STASH_LIST_THEMES = [
+  { id: 'teal', color: '#3ECFBF' },
+  { id: 'blue', color: '#3B82F6' },
+  { id: 'amber', color: '#F59E0B' },
+  { id: 'rose', color: '#F07178' },
+  { id: 'violet', color: '#8B5CF6' },
+  { id: 'green', color: '#34D399' },
+  { id: 'pink', color: '#EC4899' },
+  { id: 'sky', color: '#38BDF8' },
+] as const;
+
+export const DEFAULT_STASH_LIST_EMOJI = '📋';
+export const DEFAULT_STASH_LIST_THEME = STASH_LIST_THEMES[0]!.color;
+
+export function normalizeListEmoji(value: string | null | undefined): string {
+  const trimmed = value?.trim();
+  return trimmed || DEFAULT_STASH_LIST_EMOJI;
+}
+
+export function normalizeListTheme(value: string | null | undefined): string {
+  const trimmed = value?.trim();
+  if (trimmed && /^#[0-9A-Fa-f]{6}$/.test(trimmed)) return trimmed;
+  return DEFAULT_STASH_LIST_THEME;
+}
+
+export function listThemeSoft(color: string, alpha = 0.18): string {
+  const hex = normalizeListTheme(color).replace('#', '');
+  const r = Number.parseInt(hex.slice(0, 2), 16);
+  const g = Number.parseInt(hex.slice(2, 4), 16);
+  const b = Number.parseInt(hex.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 export function listsOfKind(lists: readonly StashList[], kind: StashListKind): StashList[] {
   return lists.filter((list) => list.kind === kind);
 }

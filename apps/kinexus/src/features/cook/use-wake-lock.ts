@@ -6,9 +6,32 @@ type WakeLockSentinelLike = {
   release: () => Promise<void>;
 };
 
+const KEEP_AWAKE_TAG = 'kinexus-cook';
+
 export function useWakeLock(active: boolean): void {
   useEffect(() => {
-    if (!active || Platform.OS !== 'web' || typeof navigator === 'undefined') return;
+    if (!active) return;
+
+    if (Platform.OS !== 'web') {
+      let cancelled = false;
+      void (async () => {
+        try {
+          const keepAwake = await import('expo-keep-awake');
+          if (cancelled) return;
+          await keepAwake.activateKeepAwakeAsync(KEEP_AWAKE_TAG);
+        } catch {
+          // Keep-awake is optional on native builds that omit the module.
+        }
+      })();
+      return () => {
+        cancelled = true;
+        void import('expo-keep-awake')
+          .then((keepAwake) => keepAwake.deactivateKeepAwake(KEEP_AWAKE_TAG))
+          .catch(() => undefined);
+      };
+    }
+
+    if (typeof navigator === 'undefined') return;
     const nav = navigator as Navigator & {
       wakeLock?: { request: (type: 'screen') => Promise<WakeLockSentinelLike> };
     };

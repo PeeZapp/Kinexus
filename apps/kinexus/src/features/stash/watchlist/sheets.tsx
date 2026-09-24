@@ -333,6 +333,9 @@ export function TitleSheet({
         <Text style={styles.label}>Where to watch in {country}</Text>
         <ProviderChips providers={entry.title.providers} />
         <View style={styles.wrap}>
+          {entry.title.trailerUrl ? (
+            <Btn label="Watch trailer" onPress={() => openExternal(entry.title.trailerUrl)} />
+          ) : null}
           {entry.title.tmdbWatchUrl ? (
             <Btn label="Open where to watch" variant="secondary" onPress={() => openExternal(entry.title.tmdbWatchUrl)} />
           ) : null}

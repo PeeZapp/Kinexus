@@ -66,8 +66,7 @@ export function AssetsScreen() {
       <FinancesChrome
         desktop={desktop}
         kicker="Family"
-        title="Assets"
-        subtitle="Bank, property, super, cars, and the debts against them. Values are what you enter — there is no bank feed yet.">
+        title="Assets">
         <ErrorText message={finances.error ? actionErrorMessage(finances.error) : actionError} />
         {canManage ? <Btn label="Add account" onPress={openNew} disabled={!finances.online} /> : null}
         {finances.accounts.length === 0 ? (

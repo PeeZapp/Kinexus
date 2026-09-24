@@ -8,11 +8,13 @@ import {
   groupWatchlistProviders,
   parseStoredProviders,
   parseWatchlistUrl,
+  pickYoutubeTrailerUrl,
   slugToQuery,
   streamingSummary,
   tmdbImageUrl,
   watchlistEntries,
   watchlistListError,
+  watchlistProviderOptions,
   yearFromDate,
 } from './watchlist';
 
@@ -39,6 +41,7 @@ function title(partial: Partial<WatchlistTitle> & Pick<WatchlistTitle, 'id' | 't
     imdbId: null,
     sourceUrl: null,
     tmdbWatchUrl: null,
+    trailerUrl: null,
     providers: [],
     providersCountry: 'AU',
     providersFetchedAt: null,
@@ -122,8 +125,35 @@ describe('watchlist visibility', () => {
 describe('watchlist entries', () => {
   it('joins and filters titles', () => {
     const family = list({ id: 'fam', name: 'Family' });
-    const matrix = title({ id: 't1', title: 'The Matrix', tmdbId: 603 });
-    const bear = title({ id: 't2', title: 'The Bear', mediaType: 'tv', tmdbId: 136315 });
+    const matrix = title({
+      id: 't1',
+      title: 'The Matrix',
+      tmdbId: 603,
+      providers: [
+        {
+          offerType: 'flatrate',
+          providerId: 8,
+          providerName: 'Netflix',
+          logoPath: null,
+          displayPriority: 0,
+        },
+      ],
+    });
+    const bear = title({
+      id: 't2',
+      title: 'The Bear',
+      mediaType: 'tv',
+      tmdbId: 136315,
+      providers: [
+        {
+          offerType: 'flatrate',
+          providerId: 9,
+          providerName: 'Prime Video',
+          logoPath: null,
+          displayPriority: 1,
+        },
+      ],
+    });
     const rows = watchlistEntries(
       [family],
       [matrix, bear],
@@ -135,6 +165,8 @@ describe('watchlist entries', () => {
     expect(rows).toHaveLength(2);
     expect(filterWatchlistEntries(rows, { mediaType: 'tv' }).map((row) => row.title.title)).toEqual(['The Bear']);
     expect(filterWatchlistEntries(rows, { search: 'matrix' })).toHaveLength(1);
+    expect(filterWatchlistEntries(rows, { providerId: 8 }).map((row) => row.title.title)).toEqual(['The Matrix']);
+    expect(watchlistProviderOptions(rows).map((row) => row.providerName)).toEqual(['Netflix', 'Prime Video']);
   });
 
   it('groups providers and summarises streaming', () => {
@@ -146,5 +178,17 @@ describe('watchlist entries', () => {
     const groups = groupWatchlistProviders(providers);
     expect(groups[0]?.label).toBe('Stream');
     expect(streamingSummary(providers)).toBe('Netflix · Disney Plus');
+  });
+
+  it('picks the best YouTube trailer', () => {
+    expect(
+      pickYoutubeTrailerUrl([
+        { site: 'Vimeo', key: '111', type: 'Trailer', official: true },
+        { site: 'YouTube', key: 'teaser1', type: 'Teaser', official: true, iso_639_1: 'en' },
+        { site: 'YouTube', key: 'dQw4w9WgXcQ', type: 'Trailer', official: true, iso_639_1: 'en', name: 'Official Trailer' },
+        { site: 'YouTube', key: 'clip1', type: 'Clip', official: false },
+      ]),
+    ).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    expect(pickYoutubeTrailerUrl([])).toBeNull();
   });
 });

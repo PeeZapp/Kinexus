@@ -9,11 +9,13 @@ import {
   normalizeAnchorMonth,
   normalizeBudgetCadence,
   normalizeAsxSymbol,
+  normalizeCryptoSymbol,
   type FinanceAccount,
   type FinanceBudget,
   type FinanceBudgetLine,
   type FinanceBudgetTxn,
   type FinanceCollectible,
+  type FinanceCryptoHolding,
   type FinanceShareHolding,
   type FinanceSharePortfolio,
 } from '@kinexus/domain';
@@ -24,6 +26,7 @@ type LineRow = Database['public']['Tables']['finance_budget_lines']['Row'];
 type TxnRow = Database['public']['Tables']['finance_budget_txns']['Row'];
 type PortfolioRow = Database['public']['Tables']['finance_share_portfolios']['Row'];
 type HoldingRow = Database['public']['Tables']['finance_share_holdings']['Row'];
+type CryptoHoldingRow = Database['public']['Tables']['finance_crypto_holdings']['Row'];
 type CollectibleRow = Database['public']['Tables']['finance_collectibles']['Row'];
 
 function asNum(value: unknown): number {
@@ -121,6 +124,21 @@ export function holdingFromRow(row: HoldingRow): FinanceShareHolding {
     householdId: row.household_id,
     portfolioId: row.portfolio_id,
     symbol: normalizeAsxSymbol(row.symbol),
+    name: row.name,
+    units: Math.max(0, asNum(row.units)),
+    costPerUnit: asNullableNum(row.cost_per_unit),
+    lastPrice: asNullableNum(row.last_price),
+    pricedAt: row.priced_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function cryptoHoldingFromRow(row: CryptoHoldingRow): FinanceCryptoHolding {
+  return {
+    id: row.id,
+    householdId: row.household_id,
+    symbol: normalizeCryptoSymbol(row.symbol),
     name: row.name,
     units: Math.max(0, asNum(row.units)),
     costPerUnit: asNullableNum(row.cost_per_unit),

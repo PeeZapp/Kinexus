@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
 
 import { approvedRecipeIdsForLibraryFilter } from '@kinexus/domain';
@@ -15,6 +15,10 @@ import {
   type RecipeSort,
   type SortDir,
 } from '@/src/features/meals/recipes/filters';
+import {
+  getRecipesListUiState,
+  setRecipesListUiState,
+} from '@/src/features/meals/recipes/recipes-list-state';
 import { isRestrictedPicker, linkedPersonForUser } from '@/src/features/meals/picker-access';
 import { recipeHref } from '@/src/features/meals/recipe-href';
 import { useMealsSync } from '@/src/features/meals/use-meals-sync';
@@ -35,11 +39,12 @@ export function RecipesScreen() {
   const meals = useMealsSync();
   const { user } = useAuth();
   const { people, role } = useHousehold();
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<RecipeFilter>('all');
-  const [showNotForFamily, setShowNotForFamily] = useState(false);
-  const [sort, setSort] = useState<RecipeSort>('alpha');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const saved = getRecipesListUiState();
+  const [query, setQuery] = useState(saved.query);
+  const [filter, setFilter] = useState<RecipeFilter>(saved.filter);
+  const [showNotForFamily, setShowNotForFamily] = useState(saved.showNotForFamily);
+  const [sort, setSort] = useState<RecipeSort>(saved.sort);
+  const [sortDir, setSortDir] = useState<SortDir>(saved.sortDir);
   const userId = user && !user.isDevBypass ? user.id : null;
   const restricted = isRestrictedPicker({ role, people, userId });
   const linked = linkedPersonForUser(people, userId);
@@ -47,6 +52,10 @@ export function RecipesScreen() {
     restricted && linked
       ? approvedRecipeIdsForLibraryFilter(meals.slotApprovals, linked.id, allowlistKey(filter))
       : null;
+
+  useEffect(() => {
+    setRecipesListUiState({ query, filter, showNotForFamily, sort, sortDir });
+  }, [query, filter, showNotForFamily, sort, sortDir]);
 
   const recipes = useMemo(() => {
     const q = query.trim().toLowerCase();

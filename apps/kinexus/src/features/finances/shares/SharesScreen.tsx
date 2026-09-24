@@ -65,8 +65,7 @@ export function SharesScreen() {
       <FinancesChrome
         desktop={desktop}
         kicker="ASX"
-        title="Shares"
-        subtitle="Track listed holdings by ASX code. Import a CommSec CSV or CHESS statement, then refresh prices. A HIN is stored on the portfolio — it cannot pull holdings on its own.">
+        title="Shares">
         <ErrorText message={finances.error ? actionErrorMessage(finances.error) : actionError} />
         <View style={styles.summary}>
           <Text style={styles.summaryLabel}>Portfolio value</Text>

@@ -107,8 +107,7 @@ export function ReaderScreen() {
     <StashChrome
       desktop={desktop}
       kicker="Library"
-      title="Reader"
-      subtitle="Open a public cached or archived copy — switch archive viewers if one is blank.">
+      title="Reader">
       <View style={styles.form}>
         <Field
           label="URL"

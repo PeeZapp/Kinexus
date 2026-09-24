@@ -31,6 +31,10 @@ export type {
 } from './types';
 
 export {
+  DEFAULT_STASH_LIST_EMOJI,
+  DEFAULT_STASH_LIST_THEME,
+  STASH_LIST_EMOJIS,
+  STASH_LIST_THEMES,
   canManageLists,
   canViewList,
   childLists,
@@ -38,11 +42,14 @@ export {
   formatListLabel,
   isTopLevelList,
   listIdsForProduct,
+  listThemeSoft,
   listsOfKind,
   listShareLabel,
   listTotals,
   listTree,
+  normalizeListEmoji,
   normalizeListShare,
+  normalizeListTheme,
   productsForList,
   wouldCreateListCycle,
 } from './lists';
@@ -56,13 +63,17 @@ export {
   dueDatePresets,
   dueTone,
   filterChecklistItems,
+  formatDayHeading,
   formatDueLabel,
   isChecklistPriority,
   isChecklistRecurrence,
   isIsoDate,
   itemsForList,
+  checklistItemsForDay,
+  movedChecklistDayPositions,
   nextDueOn,
   nextWeekendIso,
+  overdueChecklistItems,
   priorityLabel,
   recurrenceLabel,
   sortChecklistItems,
@@ -70,7 +81,7 @@ export {
   todayChecklistItems,
   todayIso,
 } from './items';
-export type { DueTone } from './items';
+export type { ChecklistItemPosition, DueTone } from './items';
 
 export {
   SAVED_LINK_STATUSES,
@@ -103,6 +114,7 @@ export {
   offerTypeLabel,
   parseStoredProviders,
   parseWatchlistUrl,
+  pickYoutubeTrailerUrl,
   providersAreStale,
   serializeWatchlistProviders,
   slugToQuery,
@@ -111,7 +123,8 @@ export {
   tmdbImageUrl,
   watchlistEntries,
   watchlistListError,
+  watchlistProviderOptions,
   watchlistVisibilityLabel,
   yearFromDate,
 } from './watchlist';
-export type { WatchlistProviderGroup } from './watchlist';
+export type { WatchlistProviderGroup, WatchlistProviderOption } from './watchlist';

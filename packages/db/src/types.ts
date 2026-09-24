@@ -687,6 +687,10 @@ export type Database = {
           kind: 'checklist' | 'wishlist';
           visibility: 'household' | 'private' | 'people';
           parent_list_id: string | null;
+          share_token: string | null;
+          is_shared: boolean;
+          emoji: string | null;
+          theme: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -698,6 +702,10 @@ export type Database = {
           kind?: 'checklist' | 'wishlist';
           visibility?: 'household' | 'private' | 'people';
           parent_list_id?: string | null;
+          share_token?: string | null;
+          is_shared?: boolean;
+          emoji?: string | null;
+          theme?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -706,6 +714,10 @@ export type Database = {
           kind?: 'checklist' | 'wishlist';
           visibility?: 'household' | 'private' | 'people';
           parent_list_id?: string | null;
+          share_token?: string | null;
+          is_shared?: boolean;
+          emoji?: string | null;
+          theme?: string | null;
         };
         Relationships: [];
       };
@@ -939,6 +951,7 @@ export type Database = {
           imdb_id: string | null;
           source_url: string | null;
           tmdb_watch_url: string | null;
+          trailer_url: string | null;
           providers: Json;
           providers_country: string | null;
           providers_fetched_at: string | null;
@@ -959,6 +972,7 @@ export type Database = {
           imdb_id?: string | null;
           source_url?: string | null;
           tmdb_watch_url?: string | null;
+          trailer_url?: string | null;
           providers?: Json;
           providers_country?: string | null;
           providers_fetched_at?: string | null;
@@ -974,6 +988,7 @@ export type Database = {
           imdb_id?: string | null;
           source_url?: string | null;
           tmdb_watch_url?: string | null;
+          trailer_url?: string | null;
           providers?: Json;
           providers_country?: string | null;
           providers_fetched_at?: string | null;
@@ -1244,6 +1259,43 @@ export type Database = {
           id?: string;
           household_id: string;
           portfolio_id: string;
+          symbol: string;
+          name?: string | null;
+          units?: number;
+          cost_per_unit?: number | null;
+          last_price?: number | null;
+          priced_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          symbol?: string;
+          name?: string | null;
+          units?: number;
+          cost_per_unit?: number | null;
+          last_price?: number | null;
+          priced_at?: string | null;
+        };
+        Relationships: [];
+      };
+      finance_crypto_holdings: {
+        Row: {
+          id: string;
+          household_id: string;
+          created_by: string | null;
+          symbol: string;
+          name: string | null;
+          units: number;
+          cost_per_unit: number | null;
+          last_price: number | null;
+          priced_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          household_id: string;
+          created_by?: string | null;
           symbol: string;
           name?: string | null;
           units?: number;

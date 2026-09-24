@@ -6,6 +6,7 @@ import type { Href } from 'expo-router';
 
 import { formatCostPerServe, formatCostSource, formatDishCost, formatMoney, findReplacingRecipe, MEAL_SLOTS } from '@kinexus/domain';
 
+import { useWakeLock } from '@/src/features/cook/use-wake-lock';
 import { Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
 import { recipeEditHref, recipeHref, recipeParam } from '@/src/features/meals/recipe-href';
 import { CatalogRemoveEditor } from '@/src/features/meals/recipes/CatalogRemoveEditor';
@@ -42,10 +43,21 @@ export function RecipeDetailScreen() {
   const [notes, setNotes] = useState(recipe?.notes ?? '');
   const [error, setError] = useState<string | null>(null);
   const [printing, setPrinting] = useState(false);
+  const [cookMode, setCookMode] = useState(false);
+
+  useWakeLock(cookMode);
 
   useEffect(() => {
     setNotes(recipe?.notes ?? '');
   }, [recipe?.id, recipe?.notes]);
+
+  function goToLibrary() {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.push('/meals/recipes' as Href);
+  }
 
   if (!recipe && (meals.isLoading || detailQuery.isLoading)) {
     return (
@@ -59,14 +71,14 @@ export function RecipeDetailScreen() {
     return (
       <View style={[styles.root, desktop && styles.rootDesktop]}>
         <Text style={styles.title}>Recipe not found</Text>
-        <Btn label="Back to library" variant="secondary" onPress={() => router.push('/meals/recipes' as Href)} />
+        <Btn label="Back to library" variant="secondary" onPress={goToLibrary} />
       </View>
     );
   }
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}>
-      <Pressable onPress={() => router.push('/meals/recipes' as Href)}>
+      <Pressable onPress={goToLibrary}>
         <Text style={styles.back}>← Library</Text>
       </Pressable>
       <View style={[styles.hero, desktop && styles.heroDesktop]}>
@@ -122,6 +134,11 @@ export function RecipeDetailScreen() {
       </Card>
       <View style={styles.row}>
         <Btn
+          label={cookMode ? 'Cook mode on' : 'Cook mode'}
+          variant={cookMode ? 'secondary' : 'primary'}
+          onPress={() => setCookMode((on) => !on)}
+        />
+        <Btn
           label="Edit"
           disabled={!meals.online}
           onPress={() => router.push(recipeEditHref(recipe.id))}
@@ -159,11 +176,14 @@ export function RecipeDetailScreen() {
             variant="danger"
             disabled={!meals.online}
             onPress={() => {
-              void meals.deleteHouseholdRecipe(recipe.id).then(() => router.push('/meals/recipes' as Href));
+              void meals.deleteHouseholdRecipe(recipe.id).then(() => goToLibrary());
             }}
           />
         ) : null}
       </View>
+      {cookMode ? (
+        <Text style={styles.hiddenHint}>Screen stays awake while Cook mode is on.</Text>
+      ) : null}
       <Text style={styles.hiddenHint}>
         {recipe.excludedFromAuto
           ? 'Hidden from plans and recommendations for this household.'
@@ -189,7 +209,7 @@ export function RecipeDetailScreen() {
                 );
                 return (
                   <View key={`${ing.name}-${idx}`} style={styles.ingRow}>
-                    <Text style={[styles.body, wrapText, styles.ingName]}>
+                    <Text style={[styles.body, cookMode && styles.cookBody, wrapText, styles.ingName]}>
                       {ing.amount ? `${ing.amount} ` : ''}
                       {ing.name}
                     </Text>
@@ -210,8 +230,8 @@ export function RecipeDetailScreen() {
             ) : (
               (recipe.method ?? []).map((step, idx) => (
                 <View key={idx} style={styles.step}>
-                  <Text style={styles.stepNum}>{idx + 1}.</Text>
-                  <Text style={[styles.stepText, wrapText]}>{step}</Text>
+                  <Text style={[styles.stepNum, cookMode && styles.cookStepNum]}>{idx + 1}.</Text>
+                  <Text style={[styles.stepText, cookMode && styles.cookStepText, wrapText]}>{step}</Text>
                 </View>
               ))
             )}
@@ -326,6 +346,22 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     flexShrink: 1,
+  },
+  cookBody: {
+    color: colors.text,
+    fontSize: 17,
+    lineHeight: 26,
+  },
+  cookStepNum: {
+    color: colors.text,
+    fontSize: 17,
+    lineHeight: 26,
+    minWidth: 28,
+  },
+  cookStepText: {
+    color: colors.text,
+    fontSize: 17,
+    lineHeight: 26,
   },
   cols: { flexDirection: 'row', gap: 16, alignItems: 'flex-start', width: '100%', minWidth: 0 },
   col: { flex: 1, minWidth: 0, maxWidth: '100%' },

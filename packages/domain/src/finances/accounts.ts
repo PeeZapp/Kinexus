@@ -129,17 +129,41 @@ export function withListedShares(summary: FinanceNetWorth, listedShares: number)
   };
 }
 
+export function withCrypto(summary: FinanceNetWorth, cryptoValue: number): FinanceNetWorth {
+  const extra = roundMoney(Math.max(0, cryptoValue));
+  const groups = summary.groups.filter((group) => group.kind !== 'crypto');
+  if (extra > 0) {
+    insertAssetGroup(groups, {
+      kind: 'crypto',
+      class: 'asset',
+      label: 'Crypto',
+      total: extra,
+      accounts: [],
+    }, 'shares');
+  }
+  const assets = roundMoney(summary.assets + extra);
+  return {
+    assets,
+    liabilities: summary.liabilities,
+    netWorth: roundMoney(assets - summary.liabilities),
+    groups,
+  };
+}
+
 export function withCollectibles(summary: FinanceNetWorth, collectiblesValue: number): FinanceNetWorth {
   const extra = roundMoney(Math.max(0, collectiblesValue));
   const groups = summary.groups.filter((group) => group.kind !== 'collectibles');
   if (extra > 0) {
+    const afterKind: FinanceGroupKind = groups.some((group) => group.kind === 'crypto')
+      ? 'crypto'
+      : 'shares';
     insertAssetGroup(groups, {
       kind: 'collectibles',
       class: 'asset',
       label: 'Collectibles',
       total: extra,
       accounts: [],
-    }, 'shares');
+    }, afterKind);
   }
   const assets = roundMoney(summary.assets + extra);
   return {

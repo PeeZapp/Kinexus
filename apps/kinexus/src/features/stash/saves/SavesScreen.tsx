@@ -83,6 +83,7 @@ export function SavesScreen() {
       <AddListSheet
         visible={addCollection}
         title="New collection"
+        showIdentity={false}
         busy={busy}
         error={actionError}
         onClose={() => setAddCollection(false)}

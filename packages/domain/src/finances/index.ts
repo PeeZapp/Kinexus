@@ -16,6 +16,8 @@ export type {
   CollectibleSearchHit,
   CollectibleSource,
   FinanceCollectible,
+  FinanceCryptoHolding,
+  FinanceCryptoQuote,
   FinanceGroupKind,
   FinanceHolderKind,
   FinanceKindGroup,
@@ -41,6 +43,7 @@ export {
   netWorth,
   signedAccountValue,
   withCollectibles,
+  withCrypto,
   withListedShares,
 } from './accounts';
 
@@ -180,6 +183,15 @@ export {
   portfolioTotals,
   yahooAsxSymbol,
 } from './shares';
+export {
+  applyCryptoQuotes,
+  cryptoHoldingCost,
+  cryptoHoldingMarketValue,
+  cryptoPortfolioTotals,
+  isCryptoSymbol,
+  normalizeCryptoSymbol,
+  yahooCryptoSymbol,
+} from './crypto';
 export { parseShareImport } from './share-import';
 export type { ImportedShareHolding, ShareImportResult } from './share-import';
 export {

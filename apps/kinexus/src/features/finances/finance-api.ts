@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 
-import type { AiMerchantGuess, CollectibleKind, CollectibleSearchHit, FinanceShareQuote } from '@kinexus/domain';
+import type { AiMerchantGuess, CollectibleKind, CollectibleSearchHit, FinanceCryptoQuote, FinanceShareQuote } from '@kinexus/domain';
 
 import { supabase } from '@/src/lib/supabase';
 
@@ -41,6 +41,13 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 
 export async function fetchShareQuotes(symbols: string[]): Promise<{ quotes: FinanceShareQuote[]; missing: string[] }> {
   return post('/quotes', { symbols });
+}
+
+export async function fetchCryptoQuotes(
+  symbols: string[],
+  currency: string,
+): Promise<{ quotes: FinanceCryptoQuote[]; missing: string[] }> {
+  return post('/quotes/crypto', { symbols, currency });
 }
 
 export async function searchCollectibleCatalog(

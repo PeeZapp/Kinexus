@@ -20,15 +20,21 @@ import {
   type AiRequestBody,
 } from './handlers.js';
 import { cronAuthorized, handleEstimateRecipeCost, handleRefreshRecipeCosts } from './prices.js';
-import { handleShareQuotes } from './quotes.js';
+import { handleShareQuotes, handleCryptoQuotes } from './quotes.js';
 import {
   handleCreateRecipeImport,
   handleGetRecipeImport,
   handleRecipeImportWork,
 } from './recipes/handlers.js';
+import { handleGetSharedWishlist } from './shared-wishlist.js';
 
 function registerMealsRoutes(router: Hono) {
   router.get('/health', (c) => c.json({ ok: true }));
+
+  router.get('/stash/shared/:token', async (c) => {
+    const result = await handleGetSharedWishlist(c.req.param('token'));
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
 
   router.post('/recipes/import', async (c) => {
     const body = await c.req.json().catch(() => ({}));
@@ -134,6 +140,14 @@ function registerMealsRoutes(router: Hono) {
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
     const result = await handleShareQuotes(body as { symbols?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/quotes/crypto', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleCryptoQuotes(body as { symbols?: unknown; currency?: unknown });
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 

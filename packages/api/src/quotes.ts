@@ -1,4 +1,13 @@
-import { asFiniteMoney, normalizeAsxSymbol, yahooAsxSymbol, type FinanceShareQuote } from '@kinexus/domain';
+import {
+  asFiniteMoney,
+  convertQuotedMoney,
+  normalizeAsxSymbol,
+  normalizeCryptoSymbol,
+  yahooAsxSymbol,
+  yahooCryptoSymbol,
+  type FinanceCryptoQuote,
+  type FinanceShareQuote,
+} from '@kinexus/domain';
 
 const MAX_SYMBOLS = 30;
 
@@ -18,9 +27,24 @@ type YahooChart = {
   };
 };
 
+async function fetchYahooRaw(ticker: string): Promise<YahooChart | null> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`;
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Kinexus/1.0 (household portfolio quotes)',
+      Accept: 'application/json',
+    },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as YahooChart | null;
+}
+
+function chartMeta(raw: YahooChart | null) {
+  return raw?.chart?.result?.[0]?.meta ?? null;
+}
+
 export function parseYahooChart(symbol: string, raw: unknown): FinanceShareQuote | null {
-  const rec = raw as YahooChart;
-  const meta = rec.chart?.result?.[0]?.meta;
+  const meta = chartMeta(raw as YahooChart);
   if (!meta) return null;
   const price = asFiniteMoney(meta.regularMarketPrice ?? meta.previousClose);
   if (price == null) return null;
@@ -33,18 +57,43 @@ export function parseYahooChart(symbol: string, raw: unknown): FinanceShareQuote
   };
 }
 
+export function parseYahooCryptoChart(
+  symbol: string,
+  raw: unknown,
+  preferredCurrency: string,
+): FinanceCryptoQuote | null {
+  const meta = chartMeta(raw as YahooChart);
+  if (!meta) return null;
+  const price = asFiniteMoney(meta.regularMarketPrice ?? meta.previousClose);
+  if (price == null) return null;
+  const quotedCurrency =
+    typeof meta.currency === 'string' && meta.currency ? meta.currency.toUpperCase() : preferredCurrency;
+  const local = convertQuotedMoney(price, quotedCurrency, preferredCurrency);
+  const name = meta.shortName || meta.longName || null;
+  return {
+    symbol: normalizeCryptoSymbol(symbol),
+    price: local,
+    currency: preferredCurrency,
+    name,
+  };
+}
+
 async function fetchYahooChart(symbol: string): Promise<FinanceShareQuote | null> {
-  const ticker = yahooAsxSymbol(symbol);
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`;
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'Kinexus/1.0 (household portfolio quotes)',
-      Accept: 'application/json',
-    },
-  });
-  if (!res.ok) return null;
-  const body = (await res.json().catch(() => null)) as unknown;
+  const body = await fetchYahooRaw(yahooAsxSymbol(symbol));
   return parseYahooChart(symbol, body);
+}
+
+async function fetchYahooCrypto(
+  symbol: string,
+  currency: string,
+): Promise<FinanceCryptoQuote | null> {
+  const preferred = (currency || 'AUD').toUpperCase();
+  const primary = await fetchYahooRaw(yahooCryptoSymbol(symbol, preferred));
+  const fromPrimary = parseYahooCryptoChart(symbol, primary, preferred);
+  if (fromPrimary) return fromPrimary;
+  if (preferred === 'USD') return null;
+  const fallback = await fetchYahooRaw(yahooCryptoSymbol(symbol, 'USD'));
+  return parseYahooCryptoChart(symbol, fallback, preferred);
 }
 
 export async function handleShareQuotes(body: { symbols?: unknown }) {
@@ -62,6 +111,38 @@ export async function handleShareQuotes(body: { symbols?: unknown }) {
   for (const symbol of symbols) {
     try {
       const quote = await fetchYahooChart(symbol);
+      if (quote) quotes.push(quote);
+      else missing.push(symbol);
+    } catch {
+      missing.push(symbol);
+    }
+  }
+
+  return {
+    status: 200 as const,
+    body: { quotes, missing },
+  };
+}
+
+export async function handleCryptoQuotes(body: { symbols?: unknown; currency?: unknown }) {
+  const raw = Array.isArray(body.symbols) ? body.symbols : [];
+  const symbols = [
+    ...new Set(raw.map((item) => (typeof item === 'string' ? normalizeCryptoSymbol(item) : '')).filter(Boolean)),
+  ];
+  const currency =
+    typeof body.currency === 'string' && body.currency.trim() ? body.currency.trim().toUpperCase() : 'AUD';
+  if (symbols.length === 0) {
+    return { status: 400 as const, body: { error: 'Pass crypto codes such as BTC or ETH' } };
+  }
+  if (symbols.length > MAX_SYMBOLS) {
+    return { status: 400 as const, body: { error: `Ask for at most ${MAX_SYMBOLS} codes at a time` } };
+  }
+
+  const quotes: FinanceCryptoQuote[] = [];
+  const missing: string[] = [];
+  for (const symbol of symbols) {
+    try {
+      const quote = await fetchYahooCrypto(symbol, currency);
       if (quote) quotes.push(quote);
       else missing.push(symbol);
     } catch {

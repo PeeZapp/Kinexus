@@ -38,6 +38,7 @@ import {
   type FinanceBudgetLineCadence,
   type FinanceBudgetLineKind,
   type FinanceCollectible,
+  type FinanceCryptoHolding,
   type FinanceShareHolding,
   type FinanceSharePortfolio,
   type ShareImportResult,
@@ -45,7 +46,7 @@ import {
 
 import { Btn, Field, Pill } from '@/src/features/household/ui';
 import { Sheet } from '@/src/features/meals/meals-kit';
-import type { AccountDraft, BudgetEntryDraft, BudgetLineDraft, CollectibleDraft, HoldingDraft, PortfolioDraft } from '@/src/features/finances/use-finances-sync';
+import type { AccountDraft, BudgetEntryDraft, BudgetLineDraft, CollectibleDraft, CryptoHoldingDraft, HoldingDraft, PortfolioDraft } from '@/src/features/finances/use-finances-sync';
 import { lookupCollectibleCatalog, searchCollectibleCatalog } from '@/src/features/finances/finance-api';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
@@ -634,6 +635,93 @@ export function HoldingSheet({
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {readOnly ? (
           <Text style={styles.hint}>Only household admins can change holdings.</Text>
+        ) : (
+          <>
+            <Btn
+              label={holding ? 'Save' : 'Add holding'}
+              onPress={() => void onSave({ symbol, units, costPerUnit, name })}
+              busy={busy}
+              disabled={!symbol.trim()}
+            />
+            {holding && onDelete ? (
+              <Btn label="Remove" variant="danger" onPress={() => void onDelete()} disabled={busy} />
+            ) : null}
+          </>
+        )}
+      </View>
+    </Sheet>
+  );
+}
+
+export function CryptoHoldingSheet({
+  visible,
+  holding,
+  onClose,
+  onSave,
+  onDelete,
+  busy,
+  error,
+  readOnly,
+}: {
+  visible: boolean;
+  holding: FinanceCryptoHolding | null;
+  onClose: () => void;
+  onSave: (draft: CryptoHoldingDraft) => Promise<void>;
+  onDelete?: () => Promise<void>;
+  busy?: boolean;
+  error?: string | null;
+  readOnly?: boolean;
+}) {
+  const [symbol, setSymbol] = useState('');
+  const [units, setUnits] = useState('');
+  const [costPerUnit, setCostPerUnit] = useState('');
+  const [name, setName] = useState('');
+
+  useEffect(() => {
+    if (!visible) return;
+    setSymbol(holding?.symbol ?? '');
+    setUnits(holding ? String(holding.units) : '');
+    setCostPerUnit(holding?.costPerUnit != null ? String(holding.costPerUnit) : '');
+    setName(holding?.name ?? '');
+  }, [holding, visible]);
+
+  return (
+    <Sheet visible={visible} title={holding ? 'Edit crypto' : 'Add crypto'} onClose={onClose}>
+      <View style={styles.stack}>
+        <Field
+          label="Symbol"
+          value={symbol}
+          onChangeText={setSymbol}
+          placeholder="BTC"
+          autoCapitalize="characters"
+          editable={!readOnly}
+        />
+        <Field
+          label="Name"
+          value={name}
+          onChangeText={setName}
+          placeholder="Filled from the quote when you refresh"
+          editable={!readOnly}
+        />
+        <Field
+          label="Amount"
+          value={units}
+          onChangeText={setUnits}
+          placeholder="0.5"
+          keyboardType="decimal-pad"
+          editable={!readOnly}
+        />
+        <Field
+          label="Average cost"
+          value={costPerUnit}
+          onChangeText={setCostPerUnit}
+          placeholder="Optional"
+          keyboardType="decimal-pad"
+          editable={!readOnly}
+        />
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {readOnly ? (
+          <Text style={styles.hint}>Only household admins can change crypto holdings.</Text>
         ) : (
           <>
             <Btn

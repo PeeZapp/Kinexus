@@ -3,6 +3,7 @@ import {
   isWatchlistOfferType,
   normalizeCountryCode,
   parseWatchlistUrl,
+  pickYoutubeTrailerUrl,
   watchlistListError,
   yearFromDate,
   type WatchlistMediaType,
@@ -152,6 +153,16 @@ export async function searchWatchlistTitles(query: string, country: string): Pro
 type TmdbTitlePayload = TmdbSearchItem & {
   external_ids?: { imdb_id?: string | null };
   'watch/providers'?: { results?: Record<string, TmdbWatchProviders> };
+  videos?: {
+    results?: {
+      key?: string | null;
+      site?: string | null;
+      type?: string | null;
+      official?: boolean | null;
+      name?: string | null;
+      iso_639_1?: string | null;
+    }[];
+  };
 };
 
 export async function lookupWatchlistTitle(input: {
@@ -166,7 +177,7 @@ export async function lookupWatchlistTitle(input: {
   const country = normalizeCountryCode(input.country);
   const path = input.mediaType === 'tv' ? `/tv/${input.tmdbId}` : `/movie/${input.tmdbId}`;
   const payload = await tmdbGet<TmdbTitlePayload>(path, {
-    append_to_response: 'external_ids,watch/providers',
+    append_to_response: 'external_ids,watch/providers,videos',
     language: 'en-US',
   });
   const hit = hitFromTmdb(payload, input.mediaType, payload.external_ids?.imdb_id ?? null);
@@ -176,6 +187,7 @@ export async function lookupWatchlistTitle(input: {
     ...hit,
     sourceUrl: input.sourceUrl ?? null,
     tmdbWatchUrl: region?.link ?? null,
+    trailerUrl: pickYoutubeTrailerUrl(payload.videos?.results ?? []),
     providers: providersFromRegion(region),
     providersCountry: country,
   };

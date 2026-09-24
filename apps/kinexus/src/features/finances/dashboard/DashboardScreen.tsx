@@ -7,12 +7,14 @@ import {
   budgetTotals,
   canManageFinances,
   collectiblesTotal,
+  cryptoPortfolioTotals,
   formatMoney,
   linesForMonth,
   monthStartIso,
   netWorth,
   portfolioTotals,
   withCollectibles,
+  withCrypto,
   withListedShares,
 } from '@kinexus/domain';
 
@@ -34,10 +36,13 @@ export function DashboardScreen() {
   const summary = useMemo(
     () =>
       withCollectibles(
-        withListedShares(netWorth(finances.accounts), portfolioTotals(finances.holdings).marketValue),
+        withCrypto(
+          withListedShares(netWorth(finances.accounts), portfolioTotals(finances.holdings).marketValue),
+          cryptoPortfolioTotals(finances.cryptoHoldings).marketValue,
+        ),
         collectiblesTotal(finances.collectibles),
       ),
-    [finances.accounts, finances.collectibles, finances.holdings],
+    [finances.accounts, finances.collectibles, finances.cryptoHoldings, finances.holdings],
   );
   const monthLines = useMemo(
     () => linesForMonth(finances.lines, finances.txns, monthStartIso()),
@@ -54,8 +59,7 @@ export function DashboardScreen() {
     <FinancesChrome
       desktop={desktop}
       kicker={activeHousehold?.name ?? 'Family'}
-      title="Dashboard"
-      subtitle="What the household owns, what it owes, listed shares, and the monthly budget.">
+      title="Dashboard">
       <ErrorText message={finances.error ? actionErrorMessage(finances.error) : null} />
       <View style={styles.hero}>
         <Text style={styles.heroLabel}>Family net worth</Text>
@@ -91,6 +95,7 @@ export function DashboardScreen() {
           }>
           {canManage ? <Btn label="Add an account" onPress={() => router.push('/finances/assets')} /> : null}
           {canManage ? <Btn label="Add shares" variant="secondary" onPress={() => router.push('/finances/shares')} /> : null}
+          {canManage ? <Btn label="Add crypto" variant="secondary" onPress={() => router.push('/finances/crypto')} /> : null}
         </EmptyState>
       ) : (
         <View style={styles.card}>
@@ -102,7 +107,9 @@ export function DashboardScreen() {
                 <Text style={styles.groupMeta}>
                   {group.kind === 'shares'
                     ? `${finances.holdings.length} holding${finances.holdings.length === 1 ? '' : 's'}`
-                    : `${group.accounts.length} · ${group.class === 'liability' ? 'owed' : 'owned'}`}
+                    : group.kind === 'crypto'
+                      ? `${finances.cryptoHoldings.length} holding${finances.cryptoHoldings.length === 1 ? '' : 's'}`
+                      : `${group.accounts.length} · ${group.class === 'liability' ? 'owed' : 'owned'}`}
                 </Text>
               </View>
               <View style={styles.groupValue}>
@@ -129,6 +136,7 @@ export function DashboardScreen() {
           <Btn label="Open budget" variant="secondary" onPress={() => router.push('/finances')} />
           <Btn label="Manage assets" variant="secondary" onPress={() => router.push('/finances/assets')} />
           <Btn label="Shares" variant="secondary" onPress={() => router.push('/finances/shares')} />
+          <Btn label="Crypto" variant="secondary" onPress={() => router.push('/finances/crypto')} />
           <Btn label="Collectibles" variant="secondary" onPress={() => router.push('/finances/collectibles')} />
         </View>
       </View>

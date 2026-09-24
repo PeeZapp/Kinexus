@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import { Linking, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
 import {
   CHECKLIST_CATEGORIES,
   CHECKLIST_PRIORITIES,
   CHECKLIST_RECURRENCES,
+  STASH_LIST_EMOJIS,
+  STASH_LIST_THEMES,
   dueDatePresets,
   formatListLabel,
   formatMoney,
   isIsoDate,
   linkTypeLabel,
+  normalizeListEmoji,
+  normalizeListTheme,
   SAVED_LINK_STATUSES,
   SAVED_LINK_TYPES,
   todayIso,
@@ -28,8 +32,8 @@ import {
 import { Btn, Field, Pill } from '@/src/features/household/ui';
 import { Sheet } from '@/src/features/meals/meals-kit';
 import { StashPhoto } from '@/src/features/stash/StashShared';
-import type { ChecklistItemDraft, LinkDraft, ListShareDraft, ProductDraft } from '@/src/features/stash/use-stash-sync';
-import { colors, space } from '@/src/features/shell/theme';
+import type { ChecklistItemDraft, LinkDraft, ListIdentityDraft, ListShareDraft, ProductDraft } from '@/src/features/stash/use-stash-sync';
+import { colors, radius, space } from '@/src/features/shell/theme';
 
 function openUrl(url: string) {
   if (!url) return;
@@ -86,12 +90,59 @@ function SharePicker({
   );
 }
 
+function ListIdentityPicker({
+  identity,
+  onChange,
+}: {
+  identity: ListIdentityDraft;
+  onChange: (identity: ListIdentityDraft) => void;
+}) {
+  return (
+    <View style={styles.stackInner}>
+      <Text style={styles.label}>Emoji</Text>
+      <View style={styles.wrap}>
+        {STASH_LIST_EMOJIS.map((emoji) => {
+          const active = identity.emoji === emoji;
+          return (
+            <Pressable
+              key={emoji}
+              onPress={() => onChange({ ...identity, emoji })}
+              style={[styles.emojiChip, active && styles.emojiChipOn]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}>
+              <Text style={styles.emojiChipText}>{emoji}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <Text style={styles.label}>Theme</Text>
+      <View style={styles.wrap}>
+        {STASH_LIST_THEMES.map((theme) => {
+          const active = identity.theme === theme.color;
+          return (
+            <Pressable
+              key={theme.id}
+              onPress={() => onChange({ ...identity, theme: theme.color })}
+              style={[styles.themeChip, { backgroundColor: theme.color }, active && styles.themeChipOn]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={theme.id}
+            />
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 export function AddListSheet({
   visible,
   title,
   people = [],
   showShare = false,
+  showIdentity = true,
   defaultShare,
+  defaultIdentity,
   placeholder = 'Birthday ideas',
   onClose,
   onSave,
@@ -102,29 +153,40 @@ export function AddListSheet({
   title: string;
   people?: HouseholdPerson[];
   showShare?: boolean;
+  showIdentity?: boolean;
   defaultShare?: ListShareDraft;
+  defaultIdentity?: ListIdentityDraft;
   placeholder?: string;
   onClose: () => void;
-  onSave: (name: string, share: ListShareDraft) => Promise<void>;
+  onSave: (name: string, share: ListShareDraft, identity: ListIdentityDraft) => Promise<void>;
   busy?: boolean;
   error?: string | null;
 }) {
   const [name, setName] = useState('');
   const [share, setShare] = useState<ListShareDraft>(defaultShare ?? { visibility: 'household', personIds: [] });
+  const [identity, setIdentity] = useState<ListIdentityDraft>({
+    emoji: normalizeListEmoji(defaultIdentity?.emoji),
+    theme: normalizeListTheme(defaultIdentity?.theme),
+  });
   useEffect(() => {
     if (!visible) return;
     setName('');
     setShare(defaultShare ?? { visibility: 'household', personIds: [] });
+    setIdentity({
+      emoji: normalizeListEmoji(defaultIdentity?.emoji),
+      theme: normalizeListTheme(defaultIdentity?.theme),
+    });
   }, [visible]);
   return (
     <Sheet visible={visible} title={title} onClose={onClose}>
       <View style={styles.stack}>
         <Field label="Name" value={name} onChangeText={setName} placeholder={placeholder} autoCapitalize="words" />
+        {showIdentity ? <ListIdentityPicker identity={identity} onChange={setIdentity} /> : null}
         {showShare ? <SharePicker share={share} onChange={setShare} people={people} /> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Btn
           label="Create list"
-          onPress={() => void onSave(name, share)}
+          onPress={() => void onSave(name, share, identity)}
           busy={busy}
           disabled={!name.trim() || (showShare && share.visibility === 'people' && share.personIds.length === 0)}
         />
@@ -139,6 +201,8 @@ export function ListSettingsSheet({
   onNameChange,
   share,
   onShareChange,
+  identity,
+  onIdentityChange,
   people,
   onClose,
   onSave,
@@ -151,6 +215,8 @@ export function ListSettingsSheet({
   onNameChange: (v: string) => void;
   share: ListShareDraft;
   onShareChange: (share: ListShareDraft) => void;
+  identity: ListIdentityDraft;
+  onIdentityChange: (identity: ListIdentityDraft) => void;
   people: HouseholdPerson[];
   onClose: () => void;
   onSave: () => Promise<void>;
@@ -162,6 +228,7 @@ export function ListSettingsSheet({
     <Sheet visible={visible} title="List settings" onClose={onClose}>
       <View style={styles.stack}>
         <Field label="Name" value={name} onChangeText={onNameChange} />
+        <ListIdentityPicker identity={identity} onChange={onIdentityChange} />
         <SharePicker share={share} onChange={onShareChange} people={people} />
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Btn
@@ -308,6 +375,26 @@ export function ChecklistItemSheet({
         </View>
         {localError || error ? <Text style={styles.error}>{localError ?? error}</Text> : null}
         <Btn label={item ? 'Save item' : 'Add item'} onPress={() => void save()} busy={busy} disabled={!title.trim()} />
+        {item && dueOn !== today ? (
+          <Btn
+            label="Add to today"
+            variant="secondary"
+            onPress={() => {
+              chooseDue(today);
+              void onSave({
+                title,
+                notes,
+                category,
+                priority,
+                dueOn: today,
+                recurrence,
+                assignedPersonId,
+              });
+            }}
+            busy={busy}
+            disabled={!title.trim() || busy}
+          />
+        ) : null}
         {item && onDelete ? <Btn label="Delete item" variant="danger" onPress={() => void onDelete()} /> : null}
       </View>
     </Sheet>
@@ -806,4 +893,29 @@ const styles = StyleSheet.create({
   previewBody: { flex: 1, gap: 4, minWidth: 0 },
   previewDesc: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
   label: { color: colors.textMuted, fontSize: 12, fontWeight: '700', letterSpacing: 0.4, textTransform: 'uppercase' },
+  emojiChip: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgHover,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emojiChipOn: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accentSoft,
+  },
+  emojiChipText: { fontSize: 22 },
+  themeChip: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  themeChipOn: {
+    borderColor: colors.text,
+  },
 });

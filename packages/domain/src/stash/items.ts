@@ -199,6 +199,53 @@ export function todayChecklistItems(items: readonly StashListItem[], today: stri
   );
 }
 
+/** Unchecked items due on a specific calendar day (not overdue carry-over). */
+export function checklistItemsForDay(items: readonly StashListItem[], day: string): StashListItem[] {
+  return sortChecklistItems(
+    items.filter((item) => item.dueOn === day),
+    day,
+  );
+}
+
+/** Unchecked items whose due date is before today. */
+export function overdueChecklistItems(items: readonly StashListItem[], today: string = todayIso()): StashListItem[] {
+  return sortChecklistItems(
+    items.filter((item) => !item.isChecked && Boolean(item.dueOn) && item.dueOn! < today),
+    today,
+  );
+}
+
+export function formatDayHeading(day: string, today: string = todayIso()): string {
+  if (!isIsoDate(day)) return day;
+  const [y, m, d] = day.split('-').map(Number);
+  const dt = new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+  const pretty = `${WEEKDAYS[dt.getDay()]} ${d} ${MONTHS[(m ?? 1) - 1]}`;
+  if (day === today) return `Today · ${pretty}`;
+  if (day === addDaysIso(today, 1)) return `Tomorrow · ${pretty}`;
+  if (day === addDaysIso(today, -1)) return `Yesterday · ${pretty}`;
+  if (y === Number(today.slice(0, 4))) return pretty;
+  return `${pretty} ${y}`;
+}
+
+export type ChecklistItemPosition = { id: string; position: number };
+
+/** Reorder active day items; returns position patches for persistence. */
+export function movedChecklistDayPositions(
+  dayItems: readonly StashListItem[],
+  id: string,
+  direction: -1 | 1,
+): ChecklistItemPosition[] {
+  const active = dayItems.filter((item) => !item.isChecked);
+  const from = active.findIndex((item) => item.id === id);
+  const to = from + direction;
+  if (from < 0 || to < 0 || to >= active.length) return [];
+  const next = active.slice();
+  const swap = next[from]!;
+  next[from] = next[to]!;
+  next[to] = swap;
+  return next.flatMap((item, position) => (item.position === position ? [] : [{ id: item.id, position }]));
+}
+
 export function filterChecklistItems(
   items: readonly StashListItem[],
   opts: { search?: string; category?: string | null; assignedPersonId?: string | null } = {},

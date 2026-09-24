@@ -1,17 +1,14 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import {
-  categoryLabel,
-  dueTone,
-  formatDueLabel,
-  priorityLabel,
-  recurrenceLabel,
-  type StashListItem,
-  type StashListNode,
-} from '@kinexus/domain';
+import { categoryLabel, type StashListItem } from '@kinexus/domain';
 
 import { Btn, Field, Pill } from '@/src/features/household/ui';
-import { ListTree, PrimaryActions, SearchField, StashChrome } from '@/src/features/stash/StashShared';
+import {
+  ChecklistItemRow,
+  ChecklistListCard,
+  type ChecklistListCardModel,
+} from '@/src/features/stash/checklists/ChecklistShared';
+import { PrimaryActions, SearchField, StashChrome } from '@/src/features/stash/StashShared';
 import { EmptyState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
@@ -19,30 +16,46 @@ export type ChecklistsLayoutProps = {
   desktop: boolean;
   kicker: string;
   title: string;
-  subtitle: string;
   query: string;
   setQuery: (v: string) => void;
-  tree: StashListNode[];
+  listCards: ChecklistListCardModel[];
+  subListCards: ChecklistListCardModel[];
   selectedListId: string | null;
-  onSelectList: (id: string) => void;
-  view: 'list' | 'today';
-  onSelectToday: () => void;
-  todayCount: number;
+  onOpenList: (id: string) => void;
+  onBack: () => void;
   today: string;
+  day: string;
+  dayHeading: string;
+  onPrevDay: () => void;
+  onNextDay: () => void;
+  onGoToday: () => void;
+  dayActive: StashListItem[];
+  dayChecked: StashListItem[];
+  overdueCount: number;
+  onMigrateOverdue?: () => void;
+  onClearDayChecked?: () => void;
+  dayQuickAdd: string;
+  setDayQuickAdd: (v: string) => void;
+  onDayQuickAdd: () => void;
+  onMoveDayItem: (item: StashListItem, direction: -1 | 1) => void;
+  onPushTomorrow: (item: StashListItem) => void;
+  onPushToday: (item: StashListItem) => void;
   onRenameList?: (id: string) => void;
-  counts: Map<string, number>;
-  shareLabels: Map<string, string>;
+  canManageList: (id: string) => boolean;
   peopleNames: Map<string, string>;
   listNames: Map<string, string>;
   selectedListName: string;
   selectedShareLabel: string;
+  parentListName: string | null;
   active: StashListItem[];
   checked: StashListItem[];
-  empty: string;
+  emptyLists: string;
+  emptyItems: string;
+  emptyDay: string;
   quickAdd: string;
   setQuickAdd: (v: string) => void;
   onQuickAdd: () => void;
-  showQuickAdd: boolean;
+  onClearListChecked?: () => void;
   categoryFilter: string | null;
   setCategoryFilter: (id: string | null) => void;
   categoriesInUse: string[];
@@ -53,63 +66,120 @@ export type ChecklistsLayoutProps = {
   online: boolean;
 };
 
-function ChecklistItemRow({
-  item,
-  today,
-  peopleNames,
-  listNames,
-  showListName,
-  onToggle,
-  onOpen,
+function TodayPanel({
+  compact,
+  props,
 }: {
-  item: StashListItem;
-  today: string;
-  peopleNames: Map<string, string>;
-  listNames: Map<string, string>;
-  showListName: boolean;
-  onToggle: () => void;
-  onOpen: () => void;
+  compact?: boolean;
+  props: ChecklistsLayoutProps;
 }) {
-  const tone = dueTone(item.dueOn, today);
-  const bits = [
-    formatDueLabel(item.dueOn, today) || null,
-    item.assignedPersonId ? peopleNames.get(item.assignedPersonId) ?? null : null,
-    item.recurrence !== 'none' ? recurrenceLabel(item.recurrence) : null,
-    item.category ? categoryLabel(item.category) : null,
-    item.priority > 0 ? priorityLabel(item.priority) : null,
-    showListName ? listNames.get(item.listId) ?? null : null,
-  ].filter(Boolean);
-  const metaStyle =
-    !item.isChecked && (tone === 'overdue' || item.priority >= 4)
-      ? styles.itemUrgent
-      : !item.isChecked && tone === 'today'
-        ? styles.itemToday
-        : styles.itemMeta;
+  const isToday = props.day === props.today;
   return (
-    <Pressable onPress={onOpen} style={[styles.itemRow, item.isChecked && styles.itemRowDone]}>
-      <Pressable
-        onPress={onToggle}
-        style={[styles.check, item.isChecked && styles.checkOn, item.priority >= 3 && !item.isChecked && styles.checkHigh]}
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: item.isChecked }}>
-        <Text style={styles.checkMark}>{item.isChecked ? '✓' : ''}</Text>
-      </Pressable>
-      <View style={styles.itemBody}>
-        <Text style={[styles.itemTitle, item.isChecked && styles.itemTitleDone]} numberOfLines={2}>
-          {item.title}
+    <View style={[styles.todayPanel, compact && styles.todayPanelCompact]}>
+      <View style={styles.todayHead}>
+        <Text style={styles.todayKicker}>Daily</Text>
+        <View style={styles.dayNav}>
+          <Pressable onPress={props.onPrevDay} hitSlop={8} style={styles.dayNavBtn}>
+            <Text style={styles.dayNavLabel}>‹</Text>
+          </Pressable>
+          <View style={styles.dayNavCenter}>
+            <Text style={styles.todayTitle} numberOfLines={1}>
+              {props.dayHeading}
+            </Text>
+            {!isToday ? (
+              <Pressable onPress={props.onGoToday}>
+                <Text style={styles.jumpToday}>Jump to today</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          <Pressable onPress={props.onNextDay} hitSlop={8} style={styles.dayNavBtn}>
+            <Text style={styles.dayNavLabel}>›</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.todayMeta}>
+          {props.dayActive.length} open
+          {props.dayChecked.length > 0 ? ` · ${props.dayChecked.length} done` : ''}
         </Text>
-        {bits.length > 0 ? (
-          <Text style={metaStyle} numberOfLines={1}>
-            {bits.join(' · ')}
-          </Text>
-        ) : null}
-        {item.notes && !item.isChecked ? (
-          <Text style={styles.itemNotes} numberOfLines={1}>
-            {item.notes}
-          </Text>
-        ) : null}
       </View>
-    </Pressable>
+
+      {isToday && props.overdueCount > 0 && props.onMigrateOverdue ? (
+        <View style={styles.migrateBanner}>
+          <Text style={styles.migrateText}>
+            {props.overdueCount} incomplete task{props.overdueCount === 1 ? '' : 's'} from earlier days.
+          </Text>
+          <Pressable onPress={props.onMigrateOverdue} disabled={!props.online}>
+            <Text style={styles.migrateAction}>Move to today</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      <View style={styles.dayAddRow}>
+        <Field
+          label="Add to this day"
+          value={props.dayQuickAdd}
+          onChangeText={props.setDayQuickAdd}
+          placeholder="Quick task…"
+          autoCapitalize="sentences"
+          onSubmitEditing={props.onDayQuickAdd}
+          returnKeyType="done"
+          editable={props.online}
+        />
+        <Btn
+          label="Add"
+          onPress={props.onDayQuickAdd}
+          disabled={!props.dayQuickAdd.trim() || !props.online}
+        />
+      </View>
+
+      {props.dayActive.length === 0 && props.dayChecked.length === 0 ? (
+        <Text style={styles.todayEmpty}>{props.emptyDay}</Text>
+      ) : (
+        <ScrollView
+          style={compact ? styles.todayScrollCompact : styles.todayScroll}
+          contentContainerStyle={styles.todayStack}
+          nestedScrollEnabled>
+          {props.dayActive.map((item, index) => (
+            <ChecklistItemRow
+              key={item.id}
+              item={item}
+              today={props.today}
+              peopleNames={props.peopleNames}
+              listNames={props.listNames}
+              showListName
+              onToggle={() => props.onToggleItem(item)}
+              onOpen={() => props.onOpenItem(item)}
+              onMoveUp={index > 0 ? () => props.onMoveDayItem(item, -1) : undefined}
+              onMoveDown={index < props.dayActive.length - 1 ? () => props.onMoveDayItem(item, 1) : undefined}
+              onPushTomorrow={() => props.onPushTomorrow(item)}
+            />
+          ))}
+          {props.dayChecked.length > 0 ? (
+            <>
+              <View style={styles.doneHead}>
+                <Text style={styles.doneLabel}>Done · {props.dayChecked.length}</Text>
+                {props.onClearDayChecked ? (
+                  <Pressable onPress={props.onClearDayChecked} disabled={!props.online} hitSlop={6}>
+                    <Text style={styles.clearChecked}>Clear</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              {props.dayChecked.map((item) => (
+                <ChecklistItemRow
+                  key={item.id}
+                  item={item}
+                  today={props.today}
+                  peopleNames={props.peopleNames}
+                  listNames={props.listNames}
+                  showListName
+                  onToggle={() => props.onToggleItem(item)}
+                  onOpen={() => props.onOpenItem(item)}
+                />
+              ))}
+            </>
+          ) : null}
+        </ScrollView>
+      )}
+    </View>
   );
 }
 
@@ -129,8 +199,8 @@ function ItemSections(props: ChecklistsLayoutProps) {
           ))}
         </View>
       ) : null}
-      {props.showQuickAdd ? (
-        <>
+      {props.onAddItem ? (
+        <View style={styles.quickRow}>
           <Field
             label="Quick add"
             value={props.quickAdd}
@@ -139,17 +209,17 @@ function ItemSections(props: ChecklistsLayoutProps) {
             autoCapitalize="sentences"
             onSubmitEditing={props.onQuickAdd}
             returnKeyType="done"
-            editable={Boolean(props.selectedListId) && props.online}
+            editable={props.online}
           />
           <Btn
             label="Add"
             onPress={props.onQuickAdd}
-            disabled={!props.quickAdd.trim() || !props.selectedListId || !props.online}
+            disabled={!props.quickAdd.trim() || !props.online}
           />
-        </>
+        </View>
       ) : null}
       {props.active.length === 0 && props.checked.length === 0 ? (
-        <EmptyState title={props.view === 'today' ? 'All clear' : 'Nothing on this list'} body={props.empty} />
+        <EmptyState title="Nothing on this list" body={props.emptyItems} />
       ) : (
         <>
           {props.active.map((item) => (
@@ -159,14 +229,22 @@ function ItemSections(props: ChecklistsLayoutProps) {
               today={props.today}
               peopleNames={props.peopleNames}
               listNames={props.listNames}
-              showListName={props.view === 'today'}
+              showListName={false}
               onToggle={() => props.onToggleItem(item)}
               onOpen={() => props.onOpenItem(item)}
+              onPushToday={item.dueOn !== props.today ? () => props.onPushToday(item) : undefined}
             />
           ))}
           {props.checked.length > 0 ? (
             <>
-              <Text style={styles.doneLabel}>Checked off · {props.checked.length}</Text>
+              <View style={styles.doneHead}>
+                <Text style={styles.doneLabel}>Checked off · {props.checked.length}</Text>
+                {props.onClearListChecked ? (
+                  <Pressable onPress={props.onClearListChecked} disabled={!props.online} hitSlop={6}>
+                    <Text style={styles.clearChecked}>Clear</Text>
+                  </Pressable>
+                ) : null}
+              </View>
               {props.checked.map((item) => (
                 <ChecklistItemRow
                   key={item.id}
@@ -174,7 +252,7 @@ function ItemSections(props: ChecklistsLayoutProps) {
                   today={props.today}
                   peopleNames={props.peopleNames}
                   listNames={props.listNames}
-                  showListName={props.view === 'today'}
+                  showListName={false}
                   onToggle={() => props.onToggleItem(item)}
                   onOpen={() => props.onOpenItem(item)}
                 />
@@ -187,66 +265,94 @@ function ItemSections(props: ChecklistsLayoutProps) {
   );
 }
 
-function ListPane(props: ChecklistsLayoutProps) {
+function ListCardsGrid({
+  cards,
+  wide,
+  props,
+}: {
+  cards: ChecklistListCardModel[];
+  wide?: boolean;
+  props: ChecklistsLayoutProps;
+}) {
+  if (cards.length === 0) {
+    return <EmptyState title="No lists yet" body={props.emptyLists} />;
+  }
   return (
-    <>
-      <Pressable
-        onPress={props.onSelectToday}
-        style={[styles.all, props.view === 'today' && styles.allActive]}>
-        <Text style={[styles.allLabel, props.view === 'today' && styles.allLabelActive]}>Today</Text>
-        <Text style={styles.listCount}>{props.todayCount}</Text>
-      </Pressable>
-      {props.tree.length === 0 ? (
-        <Text style={styles.meta}>Create a list to get started.</Text>
-      ) : (
-        <ListTree
-          nodes={props.tree}
-          selectedId={props.view === 'list' ? props.selectedListId : null}
-          counts={props.counts}
-          shareLabels={props.shareLabels}
-          onSelect={props.onSelectList}
+    <View style={wide ? styles.listGrid : styles.listStack}>
+      {cards.map((list) => (
+        <ChecklistListCard
+          key={list.id}
+          list={list}
+          wide={wide}
+          onPress={() => props.onOpenList(list.id)}
+          onSettings={
+            props.onRenameList && props.canManageList(list.id)
+              ? () => props.onRenameList?.(list.id)
+              : undefined
+          }
         />
-      )}
-      {props.view === 'list' && props.selectedListId && props.onRenameList ? (
-        <View style={styles.sideActions}>
-          <Pill label="Settings" onPress={() => props.onRenameList?.(props.selectedListId!)} />
+      ))}
+    </View>
+  );
+}
+
+function ListDetail(props: ChecklistsLayoutProps) {
+  return (
+    <View style={styles.detail}>
+      <Pressable onPress={props.onBack} accessibilityRole="button" accessibilityLabel="Back to lists">
+        <Text style={styles.back}>← {props.parentListName ? props.parentListName : 'Lists'}</Text>
+      </Pressable>
+      <View style={styles.titleRow}>
+        <Text style={styles.listTitle} numberOfLines={1}>
+          {props.selectedListName}
+        </Text>
+        <Text style={styles.meta}>
+          {props.active.length} open · {props.selectedShareLabel}
+        </Text>
+      </View>
+      <PrimaryActions
+        addLabel="Add item"
+        onAdd={props.onAddItem ?? (() => undefined)}
+        extraLabel={props.onRenameList ? 'Settings' : undefined}
+        onExtra={
+          props.onRenameList && props.selectedListId
+            ? () => props.onRenameList?.(props.selectedListId!)
+            : undefined
+        }
+        disabled={!props.online || !props.onAddItem}
+      />
+      <SearchField value={props.query} onChange={props.setQuery} placeholder="Search this list" />
+      {props.subListCards.length > 0 ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Sub-lists</Text>
+          <ListCardsGrid cards={props.subListCards} wide={props.desktop} props={props} />
         </View>
       ) : null}
-    </>
+      <ItemSections {...props} />
+    </View>
   );
 }
 
 export function ChecklistsDesktop(props: ChecklistsLayoutProps) {
-  const showMain = props.view === 'today' || Boolean(props.selectedListId);
   return (
-    <StashChrome desktop kicker={props.kicker} title={props.title} subtitle={props.subtitle}>
-      <PrimaryActions
-        addLabel={props.onAddItem ? 'Add item' : 'New list'}
-        onAdd={props.onAddItem ?? props.onAddList ?? (() => undefined)}
-        extraLabel={props.onAddItem && props.onAddList ? 'New list' : undefined}
-        onExtra={props.onAddList}
-        disabled={!props.online || !(props.onAddItem || props.onAddList)}
-      />
+    <StashChrome desktop kicker={props.kicker} title={props.title}>
+      {!props.selectedListId ? (
+        <PrimaryActions
+          addLabel="New list"
+          onAdd={props.onAddList ?? (() => undefined)}
+          disabled={!props.online || !props.onAddList}
+        />
+      ) : null}
       <View style={styles.cols}>
-        <View style={styles.sidebar}>
-          <Text style={styles.sideTitle}>Lists</Text>
-          <ListPane {...props} />
-        </View>
+        <TodayPanel props={props} />
         <View style={styles.main}>
-          {showMain ? (
-            <>
-              <SearchField
-                value={props.query}
-                onChange={props.setQuery}
-                placeholder={props.view === 'today' ? 'Search today' : 'Search this list'}
-              />
-              <Text style={styles.meta}>
-                {props.selectedListName} · {props.selectedShareLabel} · {props.active.length} open
-              </Text>
-              <ItemSections {...props} />
-            </>
+          {props.selectedListId ? (
+            <ListDetail {...props} />
           ) : (
-            <EmptyState title="No lists yet" body={props.empty} />
+            <>
+              <Text style={styles.sectionTitle}>Your lists</Text>
+              <ListCardsGrid cards={props.listCards} wide props={props} />
+            </>
           )}
         </View>
       </View>
@@ -255,110 +361,107 @@ export function ChecklistsDesktop(props: ChecklistsLayoutProps) {
 }
 
 export function ChecklistsMobile(props: ChecklistsLayoutProps) {
-  const showMain = props.view === 'today' || Boolean(props.selectedListId);
+  if (props.selectedListId) {
+    return (
+      <ScrollView style={styles.mobileShell} contentContainerStyle={styles.mobileShellContent}>
+        <ListDetail {...props} />
+      </ScrollView>
+    );
+  }
+
   return (
-    <StashChrome desktop={false} kicker={props.kicker} title={props.title} subtitle={props.subtitle}>
+    <StashChrome desktop={false} kicker={props.kicker} title={props.title}>
       <PrimaryActions
-        addLabel={props.onAddItem ? 'Add item' : 'New list'}
-        onAdd={props.onAddItem ?? props.onAddList ?? (() => undefined)}
-        extraLabel={props.onAddItem && props.onAddList ? 'New list' : undefined}
-        onExtra={props.onAddList}
-        disabled={!props.online || !(props.onAddItem || props.onAddList)}
+        addLabel="New list"
+        onAdd={props.onAddList ?? (() => undefined)}
+        disabled={!props.online || !props.onAddList}
       />
-      <View style={styles.lists}>
-        <ListPane {...props} />
-      </View>
-      {showMain ? (
-        <>
-          <SearchField
-            value={props.query}
-            onChange={props.setQuery}
-            placeholder={props.view === 'today' ? 'Search today' : 'Search this list'}
-          />
-          <Text style={styles.meta}>
-            {props.selectedListName} · {props.selectedShareLabel}
-          </Text>
-          <ItemSections {...props} />
-        </>
-      ) : (
-        <EmptyState title="No lists yet" body={props.empty} />
-      )}
+      <TodayPanel compact props={props} />
+      <Text style={styles.sectionTitle}>Your lists</Text>
+      <ListCardsGrid cards={props.listCards} props={props} />
     </StashChrome>
   );
 }
 
 const styles = StyleSheet.create({
   cols: { flexDirection: 'row', gap: 24, alignItems: 'flex-start' },
-  sidebar: {
-    width: 280,
-    gap: 8,
-    backgroundColor: colors.bgCard,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    padding: space.md,
-  },
-  main: { flex: 1, gap: 12, minWidth: 0 },
-  lists: {
-    gap: 8,
-    backgroundColor: colors.bgCard,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    padding: space.md,
-  },
-  sideTitle: { color: colors.textMuted, fontSize: 12, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase' },
-  sideActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
-  all: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bgHover,
-    gap: 8,
-  },
-  allActive: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
-  allLabel: { color: colors.textMuted, fontWeight: '700' },
-  allLabelActive: { color: colors.accent },
-  listCount: { color: colors.textDim, fontSize: 12, fontWeight: '700' },
-  meta: { color: colors.textMuted, fontSize: 13 },
-  stack: { gap: 10 },
-  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  doneLabel: { color: colors.textDim, fontSize: 12, fontWeight: '800', letterSpacing: 0.6, textTransform: 'uppercase', marginTop: 8 },
-  itemRow: {
-    flexDirection: 'row',
+  main: { flex: 1, gap: 14, minWidth: 0 },
+  todayPanel: {
+    width: 320,
     gap: 12,
-    alignItems: 'flex-start',
     backgroundColor: colors.bgCard,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.lg,
-    padding: space.sm,
+    padding: space.md,
   },
-  itemRowDone: { opacity: 0.72 },
-  check: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    borderWidth: 2,
+  todayPanelCompact: { width: '100%' },
+  todayHead: { gap: 4 },
+  todayKicker: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  dayNav: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dayNavBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.sm,
+    borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.bgHover,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 2,
   },
-  checkOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
-  checkHigh: { borderColor: colors.warning },
-  checkMark: { color: colors.accent, fontSize: 16, fontWeight: '800' },
-  itemBody: { flex: 1, minWidth: 0, gap: 2 },
-  itemTitle: { color: colors.text, fontSize: 16, fontWeight: '700' },
-  itemTitleDone: { color: colors.textMuted, textDecorationLine: 'line-through' },
-  itemMeta: { color: colors.textDim, fontSize: 12, fontWeight: '700' },
-  itemToday: { color: colors.warning, fontSize: 12, fontWeight: '700' },
-  itemUrgent: { color: colors.danger, fontSize: 12, fontWeight: '700' },
-  itemNotes: { color: colors.textMuted, fontSize: 13 },
+  dayNavLabel: { color: colors.text, fontSize: 18, fontWeight: '700', lineHeight: 20 },
+  dayNavCenter: { flex: 1, minWidth: 0, gap: 2 },
+  jumpToday: { color: colors.accent, fontSize: 12, fontWeight: '700' },
+  todayTitle: { color: colors.text, fontSize: 18, fontWeight: '800' },
+  todayMeta: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+  todayEmpty: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
+  migrateBanner: {
+    gap: 8,
+    padding: space.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.warning,
+    backgroundColor: colors.warningBg,
+  },
+  migrateText: { color: colors.text, fontSize: 13, lineHeight: 18, fontWeight: '600' },
+  migrateAction: { color: colors.warning, fontSize: 13, fontWeight: '800' },
+  dayAddRow: { gap: 8 },
+  todayScroll: { maxHeight: 480 },
+  todayScrollCompact: { maxHeight: 220 },
+  todayStack: { gap: 8, paddingBottom: 4 },
+  detail: { gap: 12 },
+  back: { color: colors.accent, fontSize: 13, fontWeight: '700' },
+  titleRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' },
+  listTitle: { color: colors.text, fontSize: 22, fontWeight: '800', flexShrink: 1 },
+  meta: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+  section: { gap: 10 },
+  sectionTitle: { color: colors.text, fontSize: 17, fontWeight: '800' },
+  listGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md },
+  listStack: { gap: space.md },
+  stack: { gap: 10 },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  quickRow: { gap: 8 },
+  doneHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 4,
+  },
+  doneLabel: {
+    color: colors.textDim,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  clearChecked: { color: colors.accent, fontSize: 12, fontWeight: '800' },
+  mobileShell: { flex: 1, backgroundColor: colors.bg },
+  mobileShellContent: { padding: space.md, gap: 14, paddingBottom: 48 },
 });

@@ -1,4 +1,7 @@
 import { type ReactNode } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import type { Href } from 'expo-router';
 import { MEAL_SLOTS } from '@kinexus/domain';
 
 import { Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
@@ -7,7 +10,6 @@ import { IngredientEditor, MethodEditor } from '@/src/features/meals/recipes/rec
 import type { RecipeFormState } from '@/src/features/meals/recipes/recipe-form';
 import type { ImportSource } from '@/src/lib/meals-api';
 import { colors, space } from '@/src/features/shell/theme';
-import { StyleSheet, Text, View } from 'react-native';
 
 export type { RecipeFormState };
 export type ImportFormState = RecipeFormState;
@@ -206,8 +208,21 @@ export function ImportChrome({
   busy: boolean;
   onSave: () => void;
 }) {
+  const router = useRouter();
+
+  function goBack() {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.push('/meals/recipes' as Href);
+  }
+
   return (
     <>
+      <Pressable onPress={goBack} accessibilityRole="button" accessibilityLabel="Back">
+        <Text style={styles.back}>← Back</Text>
+      </Pressable>
       <Text style={styles.kicker}>Household library</Text>
       <Text style={[styles.title, desktop && styles.titleDesktop]}>Import recipe</Text>
       <Text style={styles.lede}>
@@ -229,6 +244,7 @@ export const importStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
+  back: { color: colors.accent, fontWeight: '700' },
   kicker: { color: colors.accent, fontSize: 12, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' },
   title: { color: colors.text, fontSize: 28, fontWeight: '700' },
   titleDesktop: { fontSize: 40 },

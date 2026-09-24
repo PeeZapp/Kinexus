@@ -1,5 +1,5 @@
-import { type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { type ReactNode, useEffect, useRef } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 
@@ -17,6 +17,10 @@ import {
   type RecipeSort,
   type SortDir,
 } from '@/src/features/meals/recipes/filters';
+import {
+  getRecipesListScrollY,
+  setRecipesListScrollY,
+} from '@/src/features/meals/recipes/recipes-list-state';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
 function recipeLibraryTag(recipe: Recipe) {
@@ -69,8 +73,37 @@ export function RecipesChrome({
   children: ReactNode;
 }) {
   const router = useRouter();
+  const scrollRef = useRef<ScrollView>(null);
+  const restoredRef = useRef(false);
+  const pendingY = useRef(getRecipesListScrollY());
+
+  useEffect(() => {
+    restoredRef.current = false;
+    pendingY.current = getRecipesListScrollY();
+  }, []);
+
+  function restoreScroll(_width?: number, height?: number) {
+    const y = pendingY.current;
+    if (restoredRef.current || y <= 0) return;
+    if (typeof height === 'number' && height > 0 && height < y) return;
+    restoredRef.current = true;
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y, animated: false });
+    });
+  }
+
+  function onScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
+    setRecipesListScrollY(e.nativeEvent.contentOffset.y);
+  }
+
   return (
-    <ScrollView style={styles.root} contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}>
+    <ScrollView
+      ref={scrollRef}
+      style={styles.root}
+      contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}
+      scrollEventThrottle={16}
+      onScroll={onScroll}
+      onContentSizeChange={restoreScroll}>
       <Text style={styles.kicker}>Library</Text>
       <Text style={[styles.title, desktop && styles.titleDesktop]}>Recipes</Text>
       <Text style={styles.count}>
@@ -84,7 +117,7 @@ export function RecipesChrome({
       {showImport ? (
         <Btn
           label={online ? 'Import recipe' : 'Import (needs connection)'}
-          onPress={() => router.push('/import' as Href)}
+          onPress={() => router.push('/meals/recipes/import' as Href)}
           disabled={!online}
         />
       ) : null}

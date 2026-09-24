@@ -4,9 +4,13 @@ import { View } from 'react-native';
 import {
   canManageWatchlist,
   filterWatchlistEntries,
+  tmdbImageUrl,
   watchlistEntries,
+  watchlistProviderOptions,
+  watchlistVisibilityLabel,
   type WatchlistEntry,
   type WatchlistItemStatus,
+  type WatchlistList,
   type WatchlistMediaType,
   type WatchlistVisibility,
 } from '@kinexus/domain';
@@ -15,10 +19,26 @@ import { ErrorText } from '@/src/features/household/ui';
 import { LoadingState } from '@/src/features/shell/states';
 import { WatchlistDesktop } from '@/src/features/stash/watchlist/WatchlistDesktop';
 import { WatchlistMobile } from '@/src/features/stash/watchlist/WatchlistMobile';
+import type { WatchlistListCardModel } from '@/src/features/stash/watchlist/WatchlistShared';
 import { AddTitleSheet, AddWatchlistSheet, TitleSheet, WatchlistSettingsSheet } from '@/src/features/stash/watchlist/sheets';
 import { useWatchlistSync, watchlistActionError } from '@/src/features/stash/use-watchlist-sync';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useHousehold } from '@/src/lib/household';
+
+function toListCard(
+  list: WatchlistList,
+  entries: readonly WatchlistEntry[],
+): WatchlistListCardModel {
+  const listEntries = entries.filter((entry) => entry.list.id === list.id);
+  const cover = listEntries.find((entry) => entry.title.posterPath)?.title.posterPath ?? null;
+  return {
+    id: list.id,
+    name: list.name,
+    coverUrl: tmdbImageUrl(cover, 'w342'),
+    itemCount: listEntries.length,
+    shareLabel: watchlistVisibilityLabel(list.visibility),
+  };
+}
 
 export function WatchlistScreen() {
   const { mode } = useExperienceMode();
@@ -28,6 +48,7 @@ export function WatchlistScreen() {
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [status, setStatus] = useState<WatchlistItemStatus | null>(null);
   const [mediaType, setMediaType] = useState<WatchlistMediaType | null>(null);
+  const [providerId, setProviderId] = useState<number | null>(null);
   const [addList, setAddList] = useState(false);
   const [addTitle, setAddTitle] = useState(false);
   const [openItemId, setOpenItemId] = useState<string | null>(null);
@@ -41,29 +62,68 @@ export function WatchlistScreen() {
     () => watchlistEntries(watchlist.lists, watchlist.titles, watchlist.items),
     [watchlist.items, watchlist.lists, watchlist.titles],
   );
-  const visible = useMemo(
+
+  const listCards = useMemo(
+    () =>
+      watchlist.lists
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((list) => toListCard(list, entries)),
+    [entries, watchlist.lists],
+  );
+
+  const providerScope = useMemo(
     () =>
       filterWatchlistEntries(entries, {
         listId: selectedListId,
         status,
         mediaType,
-        search: query,
       }),
-    [entries, mediaType, query, selectedListId, status],
+    [entries, mediaType, selectedListId, status],
   );
-  const counts = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const list of watchlist.lists) {
-      map.set(list.id, entries.filter((entry) => entry.list.id === list.id).length);
-    }
-    return map;
-  }, [entries, watchlist.lists]);
+  const providerOptions = useMemo(() => watchlistProviderOptions(providerScope), [providerScope]);
+  const visible = useMemo(() => {
+    if (!selectedListId) return [];
+    return filterWatchlistEntries(entries, {
+      listId: selectedListId,
+      status,
+      mediaType,
+      providerId,
+      search: query,
+    });
+  }, [entries, mediaType, providerId, query, selectedListId, status]);
 
   const selectedList = watchlist.lists.find((list) => list.id === selectedListId) ?? null;
   const openEntry: WatchlistEntry | null = entries.find((entry) => entry.item.id === openItemId) ?? null;
-  const canSettings = selectedList
-    ? canManageWatchlist(selectedList, { userId: watchlist.userId, role })
-    : false;
+
+  function canSettings(listId: string) {
+    const list = watchlist.lists.find((item) => item.id === listId);
+    if (!list) return false;
+    return canManageWatchlist(list, { userId: watchlist.userId, role });
+  }
+
+  function openList(id: string) {
+    setSelectedListId(id);
+    setQuery('');
+    setStatus(null);
+    setMediaType(null);
+    setProviderId(null);
+  }
+
+  function goBack() {
+    setSelectedListId(null);
+    setQuery('');
+    setStatus(null);
+    setMediaType(null);
+    setProviderId(null);
+  }
+
+  function openSettings(id: string) {
+    const list = watchlist.lists.find((item) => item.id === id);
+    setRenameId(id);
+    setRenameValue(list?.name ?? '');
+    setRenameVisibility(list?.visibility ?? 'household');
+  }
 
   async function run(fn: () => Promise<unknown>): Promise<boolean> {
     setActionError(null);
@@ -83,28 +143,23 @@ export function WatchlistScreen() {
     desktop: mode === 'desktop',
     query,
     setQuery,
-    lists: watchlist.lists,
+    listCards,
     selectedListId,
-    onSelectList: (id: string | null) => setSelectedListId(id),
-    onSettings: canSettings
-      ? (id: string) => {
-          const list = watchlist.lists.find((item) => item.id === id);
-          setRenameId(id);
-          setRenameValue(list?.name ?? '');
-          setRenameVisibility(list?.visibility ?? 'household');
-        }
-      : undefined,
-    counts,
+    selectedListName: selectedList?.name ?? 'Watchlist',
+    onBack: goBack,
+    onOpenList: openList,
+    onSettings: openSettings,
+    canManageList: canSettings,
     entries: visible,
     status,
     setStatus,
     mediaType,
     setMediaType,
-    selectedListName: selectedList?.name ?? 'All titles',
-    empty:
-      watchlist.lists.length === 0
-        ? 'Create a household or personal list, then search for a movie or paste an IMDb link.'
-        : 'Search TMDB or paste a title URL to add something.',
+    providerId,
+    setProviderId,
+    providerOptions,
+    emptyLists: 'Create a household or personal list, then search for a movie or paste an IMDb link.',
+    emptyItems: 'Search TMDB or paste a title URL to add something.',
     onAddList: () => setAddList(true),
     onAddTitle: () => setAddTitle(true),
     onOpen: (entry: WatchlistEntry) => {

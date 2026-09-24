@@ -66,11 +66,13 @@ export function titleFromPath(pathname: string): string {
   if (pathname.startsWith('/lists/reader')) return 'Reader';
   if (pathname.startsWith('/finances/assets')) return 'Assets';
   if (pathname.startsWith('/finances/shares')) return 'Shares';
+  if (pathname.startsWith('/finances/crypto')) return 'Crypto';
   if (pathname.startsWith('/finances/collectibles')) return 'Collectibles';
   if (pathname.startsWith('/finances/dashboard')) return 'Dashboard';
   if (pathname === '/finances' || pathname.startsWith('/finances/budget')) return 'Budget';
   if (pathname.startsWith('/meals/generate')) return 'Generate';
   if (pathname.startsWith('/meals/shopping')) return 'Shopping';
+  if (pathname.startsWith('/meals/recipes/import')) return 'Import';
   if (pathname.startsWith('/meals/recipes')) return 'Recipes';
   return moduleFromPath(pathname)?.label ?? 'Kinexus';
 }

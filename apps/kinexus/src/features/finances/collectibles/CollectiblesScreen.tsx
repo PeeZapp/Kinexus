@@ -138,8 +138,7 @@ export function CollectiblesScreen() {
       <FinancesChrome
         desktop={desktop}
         kicker="Family"
-        title="Collectibles"
-        subtitle="Look up LEGO, minifigs, cards, games, comics, Funko, coins, and vinyl. Sneakers and watches often need a manual value. Totals roll into family net worth.">
+        title="Collectibles">
         <ErrorText message={finances.error ? actionErrorMessage(finances.error) : actionError} />
         <View style={styles.summary}>
           <Text style={styles.summaryLabel}>Collection value</Text>

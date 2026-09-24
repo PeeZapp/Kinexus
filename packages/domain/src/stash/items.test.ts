@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   completeChecklistItem,
+  checklistItemsForDay,
   filterChecklistItems,
+  formatDayHeading,
   formatDueLabel,
+  movedChecklistDayPositions,
   nextDueOn,
+  overdueChecklistItems,
   sortChecklistItems,
   splitCheckedItems,
   todayChecklistItems,
@@ -83,5 +87,22 @@ describe('checklist items', () => {
       item({ id: 'done', title: 'Done', dueOn: today, isChecked: true }),
     ];
     expect(todayChecklistItems(items, today).map((row) => row.id)).toEqual(['over', 'now']);
+    expect(checklistItemsForDay(items, today).map((row) => row.id)).toEqual(['now', 'done']);
+    expect(overdueChecklistItems(items, today).map((row) => row.id)).toEqual(['over']);
+    expect(formatDayHeading(today, today)).toBe('Today · Mon 7 Sep');
+    expect(formatDayHeading('2026-09-08', today)).toBe('Tomorrow · Tue 8 Sep');
+  });
+
+  it('reorders day items by position', () => {
+    const day = [
+      item({ id: 'a', title: 'A', dueOn: '2026-09-07', position: 0 }),
+      item({ id: 'b', title: 'B', dueOn: '2026-09-07', position: 1 }),
+      item({ id: 'c', title: 'C', dueOn: '2026-09-07', position: 2 }),
+    ];
+    expect(movedChecklistDayPositions(day, 'b', -1)).toEqual([
+      { id: 'b', position: 0 },
+      { id: 'a', position: 1 },
+    ]);
+    expect(movedChecklistDayPositions(day, 'a', -1)).toEqual([]);
   });
 });

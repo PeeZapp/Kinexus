@@ -1,80 +1,85 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import {
-  WATCHLIST_ITEM_STATUSES,
-  itemStatusLabel,
-  watchlistVisibilityLabel,
-} from '@kinexus/domain';
-
-import { Pill } from '@/src/features/household/ui';
 import { EmptyState } from '@/src/features/shell/states';
-import { colors, radius, space } from '@/src/features/shell/theme';
-import { PrimaryActions, SearchField, StashChrome } from '@/src/features/stash/StashShared';
+import { colors, space } from '@/src/features/shell/theme';
+import { PrimaryActions, StashChrome } from '@/src/features/stash/StashShared';
 import type { WatchlistLayoutProps } from '@/src/features/stash/watchlist/WatchlistDesktop';
-import { WatchlistAttribution, WatchlistCard } from '@/src/features/stash/watchlist/WatchlistShared';
+import {
+  WatchlistAttribution,
+  WatchlistCard,
+  WatchlistDetailToolbar,
+  WatchlistListCard,
+} from '@/src/features/stash/watchlist/WatchlistShared';
 
 export function WatchlistMobile(props: WatchlistLayoutProps) {
+  if (!props.selectedListId) {
+    return (
+      <StashChrome
+        desktop={false}
+        kicker="Lists"
+        title="Watchlist">
+        <PrimaryActions
+          addLabel="New list"
+          onAdd={props.onAddList}
+          extraLabel="Add title"
+          onExtra={props.onAddTitle}
+          disabled={!props.online}
+        />
+        {props.listCards.length === 0 ? (
+          <EmptyState title="No watchlists yet" body={props.emptyLists} />
+        ) : (
+          <View style={styles.listStack}>
+            {props.listCards.map((list) => (
+              <WatchlistListCard
+                key={list.id}
+                list={list}
+                onPress={() => props.onOpenList(list.id)}
+                onSettings={
+                  props.onSettings && props.canManageList(list.id)
+                    ? () => props.onSettings?.(list.id)
+                    : undefined
+                }
+              />
+            ))}
+          </View>
+        )}
+      </StashChrome>
+    );
+  }
+
+  const canSettings = Boolean(props.onSettings && props.canManageList(props.selectedListId));
+
   return (
-    <StashChrome
-      desktop={false}
-      kicker="Lists"
-      title="Watchlist"
-      subtitle={`Movies and series to watch in ${props.country}. Household or personal lists.`}>
-      <PrimaryActions
-        addLabel="Add title"
-        onAdd={props.onAddTitle}
-        extraLabel="New list"
-        onExtra={props.onAddList}
-        disabled={!props.online}
+    <ScrollView style={styles.shell} contentContainerStyle={styles.shellContent}>
+      <Pressable onPress={props.onBack} accessibilityRole="button" accessibilityLabel="Back to watchlists">
+        <Text style={styles.back}>← Watchlists</Text>
+      </Pressable>
+      <View style={styles.titleRow}>
+        <Text style={styles.listTitle} numberOfLines={1}>
+          {props.selectedListName}
+        </Text>
+        <Text style={styles.meta}>
+          {props.entries.length} · {props.country}
+        </Text>
+      </View>
+
+      <WatchlistDetailToolbar
+        query={props.query}
+        setQuery={props.setQuery}
+        status={props.status}
+        setStatus={props.setStatus}
+        mediaType={props.mediaType}
+        setMediaType={props.setMediaType}
+        providerId={props.providerId}
+        setProviderId={props.setProviderId}
+        providerOptions={props.providerOptions}
+        onAddTitle={props.onAddTitle}
+        onSettings={canSettings ? () => props.onSettings?.(props.selectedListId!) : undefined}
+        online={props.online}
       />
-      <SearchField value={props.query} onChange={props.setQuery} placeholder="Search titles" />
-      <View style={styles.lists}>
-        <Pressable
-          onPress={() => props.onSelectList(null)}
-          style={[styles.all, !props.selectedListId && styles.allActive]}>
-          <Text style={[styles.allLabel, !props.selectedListId && styles.allLabelActive]}>All titles</Text>
-        </Pressable>
-        {props.lists.map((list) => (
-          <Pressable
-            key={list.id}
-            onPress={() => props.onSelectList(list.id)}
-            style={[styles.all, props.selectedListId === list.id && styles.allActive]}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text
-                style={[styles.allLabel, props.selectedListId === list.id && styles.allLabelActive]}
-                numberOfLines={1}>
-                {list.name}
-              </Text>
-              <Text style={styles.share}>{watchlistVisibilityLabel(list.visibility)}</Text>
-            </View>
-            <Text style={styles.count}>{props.counts.get(list.id) ?? 0}</Text>
-          </Pressable>
-        ))}
-        {props.selectedListId && props.onSettings ? (
-          <Pill label="Settings" onPress={() => props.onSettings?.(props.selectedListId!)} />
-        ) : null}
-      </View>
-      <View style={styles.wrap}>
-        <Pill label="Any status" active={!props.status} onPress={() => props.setStatus(null)} />
-        {WATCHLIST_ITEM_STATUSES.map((item) => (
-          <Pill
-            key={item}
-            label={itemStatusLabel(item)}
-            active={props.status === item}
-            onPress={() => props.setStatus(item)}
-          />
-        ))}
-      </View>
-      <View style={styles.wrap}>
-        <Pill label="All" active={!props.mediaType} onPress={() => props.setMediaType(null)} />
-        <Pill label="Movies" active={props.mediaType === 'movie'} onPress={() => props.setMediaType('movie')} />
-        <Pill label="Series" active={props.mediaType === 'tv'} onPress={() => props.setMediaType('tv')} />
-      </View>
-      <Text style={styles.meta}>
-        {props.selectedListName} · {props.entries.length}
-      </Text>
+
       {props.entries.length === 0 ? (
-        <EmptyState title="Nothing here yet" body={props.empty} />
+        <EmptyState title="Nothing here yet" body={props.emptyItems} />
       ) : (
         <View style={styles.stack}>
           {props.entries.map((entry) => (
@@ -83,36 +88,17 @@ export function WatchlistMobile(props: WatchlistLayoutProps) {
         </View>
       )}
       <WatchlistAttribution country={props.country} />
-    </StashChrome>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  lists: {
-    gap: 8,
-    backgroundColor: colors.bgCard,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    padding: space.md,
-  },
-  all: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bgHover,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  allActive: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
-  allLabel: { color: colors.textMuted, fontWeight: '700' },
-  allLabelActive: { color: colors.accent },
-  share: { color: colors.textDim, fontSize: 11, fontWeight: '600', marginTop: 2 },
-  count: { color: colors.textDim, fontSize: 12, fontWeight: '700' },
-  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  meta: { color: colors.textMuted, fontSize: 13 },
-  stack: { gap: 10 },
+  shell: { flex: 1, backgroundColor: colors.bg },
+  shellContent: { padding: space.md, gap: 14, paddingBottom: 48 },
+  back: { color: colors.accent, fontSize: 13, fontWeight: '700' },
+  titleRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' },
+  listTitle: { color: colors.text, fontSize: 20, fontWeight: '800', flexShrink: 1 },
+  meta: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+  listStack: { gap: space.md },
+  stack: { gap: 8 },
 });

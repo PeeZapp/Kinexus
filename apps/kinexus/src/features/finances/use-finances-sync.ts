@@ -7,11 +7,13 @@ import {
   formatHolderId,
   holderIdKind,
   isAsxSymbol,
+  isCryptoSymbol,
   evalMoneyExpression,
   merchantKey,
   nextLinePosition,
   normalizeAnchorMonth,
   normalizeAsxSymbol,
+  normalizeCryptoSymbol,
   normalizeBudgetCadence,
   parseMoney,
   canManageFinances,
@@ -39,8 +41,8 @@ import {
   type ShareImportResult,
 } from '@kinexus/domain';
 
-import { accountFromRow, budgetFromRow, collectibleFromRow, holdingFromRow, lineFromRow, portfolioFromRow, txnFromRow } from '@/src/features/finances/mappers';
-import { fetchShareQuotes } from '@/src/features/finances/finance-api';
+import { accountFromRow, budgetFromRow, collectibleFromRow, cryptoHoldingFromRow, holdingFromRow, lineFromRow, portfolioFromRow, txnFromRow } from '@/src/features/finances/mappers';
+import { fetchCryptoQuotes, fetchShareQuotes } from '@/src/features/finances/finance-api';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 import { useOnline } from '@/src/lib/online';
@@ -64,6 +66,9 @@ function portfoliosKey(householdId: string) {
 }
 function holdingsKey(householdId: string) {
   return ['finances', 'holdings', householdId] as const;
+}
+function cryptoHoldingsKey(householdId: string) {
+  return ['finances', 'crypto-holdings', householdId] as const;
 }
 function collectiblesKey(householdId: string) {
   return ['finances', 'collectibles', householdId] as const;
@@ -182,6 +187,13 @@ export type HoldingDraft = {
   name?: string;
 };
 
+export type CryptoHoldingDraft = {
+  symbol: string;
+  units?: string;
+  costPerUnit?: string;
+  name?: string;
+};
+
 export type CollectibleDraft = {
   name: string;
   kind: CollectibleKind;
@@ -228,6 +240,17 @@ async function fetchHoldings(householdId: string) {
     .order('symbol');
   if (error) throw error;
   return (data ?? []).map(holdingFromRow);
+}
+
+async function fetchCryptoHoldings(householdId: string) {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('finance_crypto_holdings')
+    .select('*')
+    .eq('household_id', householdId)
+    .order('symbol');
+  if (error) throw error;
+  return (data ?? []).map(cryptoHoldingFromRow);
 }
 
 async function fetchCollectibles(householdId: string) {
@@ -309,6 +332,12 @@ export function useFinancesSync() {
     queryFn: () => fetchHoldings(householdId!),
   });
 
+  const cryptoHoldingsQuery = useQuery({
+    queryKey: householdId ? cryptoHoldingsKey(householdId) : ['finances', 'crypto-holdings', 'none'],
+    enabled: ready,
+    queryFn: () => fetchCryptoHoldings(householdId!),
+  });
+
   const collectiblesQuery = useQuery({
     queryKey: householdId ? collectiblesKey(householdId) : ['finances', 'collectibles', 'none'],
     enabled: ready,
@@ -325,6 +354,7 @@ export function useFinancesSync() {
       void queryClient.invalidateQueries({ queryKey: ['finances', 'txns', householdId] });
       void queryClient.invalidateQueries({ queryKey: portfoliosKey(householdId) });
       void queryClient.invalidateQueries({ queryKey: holdingsKey(householdId) });
+      void queryClient.invalidateQueries({ queryKey: cryptoHoldingsKey(householdId) });
       void queryClient.invalidateQueries({ queryKey: collectiblesKey(householdId) });
     };
     return retainPostgresChannel(client, `finances-sync:${householdId}`, (channel) =>
@@ -335,6 +365,7 @@ export function useFinancesSync() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_budget_txns', filter: `household_id=eq.${householdId}` }, invalidate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_share_portfolios', filter: `household_id=eq.${householdId}` }, invalidate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_share_holdings', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_crypto_holdings', filter: `household_id=eq.${householdId}` }, invalidate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_collectibles', filter: `household_id=eq.${householdId}` }, invalidate),
     );
   }, [householdId, online, queryClient]);
@@ -1085,6 +1116,88 @@ export function useFinancesSync() {
     [holdingsQuery.data, householdId, queryClient],
   );
 
+  const createCryptoHolding = useCallback(
+    async (draft: CryptoHoldingDraft) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      const symbol = normalizeCryptoSymbol(draft.symbol);
+      if (!isCryptoSymbol(symbol)) throw new Error('Use a crypto code like BTC or ETH');
+      const units = parseMoney(draft.units) ?? 0;
+      if (units < 0) throw new Error('Units cannot be negative');
+      const { error } = await supabase.from('finance_crypto_holdings').insert({
+        id: Crypto.randomUUID(),
+        household_id: householdId,
+        created_by: userId,
+        symbol,
+        name: draft.name?.trim() || null,
+        units,
+        cost_per_unit: parseMoney(draft.costPerUnit),
+      });
+      throwIfError(error);
+      await queryClient.invalidateQueries({ queryKey: cryptoHoldingsKey(householdId) });
+    },
+    [householdId, queryClient, userId],
+  );
+
+  const updateCryptoHolding = useCallback(
+    async (id: string, draft: CryptoHoldingDraft) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      const symbol = normalizeCryptoSymbol(draft.symbol);
+      if (!isCryptoSymbol(symbol)) throw new Error('Use a crypto code like BTC or ETH');
+      const units = parseMoney(draft.units) ?? 0;
+      if (units < 0) throw new Error('Units cannot be negative');
+      const { error } = await supabase
+        .from('finance_crypto_holdings')
+        .update({
+          symbol,
+          name: draft.name?.trim() || null,
+          units,
+          cost_per_unit: parseMoney(draft.costPerUnit),
+        })
+        .eq('id', id);
+      throwIfError(error);
+      await queryClient.invalidateQueries({ queryKey: cryptoHoldingsKey(householdId) });
+    },
+    [householdId, queryClient],
+  );
+
+  const deleteCryptoHolding = useCallback(
+    async (id: string) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      const { error } = await supabase.from('finance_crypto_holdings').delete().eq('id', id);
+      throwIfError(error);
+      await queryClient.invalidateQueries({ queryKey: cryptoHoldingsKey(householdId) });
+    },
+    [householdId, queryClient],
+  );
+
+  const refreshCryptoQuotes = useCallback(
+    async (symbols?: string[]) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      const holdings = cryptoHoldingsQuery.data ?? [];
+      const wanted = [
+        ...new Set((symbols ?? holdings.map((item) => item.symbol)).map(normalizeCryptoSymbol).filter(Boolean)),
+      ];
+      if (wanted.length === 0) return { updated: 0, missing: [] as string[] };
+      const { quotes, missing } = await fetchCryptoQuotes(wanted, currency);
+      const pricedAt = new Date().toISOString();
+      for (const quote of quotes) {
+        const { error } = await supabase
+          .from('finance_crypto_holdings')
+          .update({
+            last_price: quote.price,
+            priced_at: pricedAt,
+            ...(quote.name ? { name: quote.name } : {}),
+          })
+          .eq('household_id', householdId)
+          .eq('symbol', quote.symbol);
+        throwIfError(error);
+      }
+      await queryClient.invalidateQueries({ queryKey: cryptoHoldingsKey(householdId) });
+      return { updated: quotes.length, missing };
+    },
+    [cryptoHoldingsQuery.data, currency, householdId, queryClient],
+  );
+
   const importHoldings = useCallback(
     async (portfolioId: string | null, parsed: ShareImportResult) => {
       if (!householdId || !supabase) throw new Error('Not ready');
@@ -1377,6 +1490,7 @@ export function useFinancesSync() {
     txns: txnsQuery.data ?? [],
     portfolios: portfoliosQuery.data ?? [],
     holdings: holdingsQuery.data ?? [],
+    cryptoHoldings: cryptoHoldingsQuery.data ?? [],
     collectibles: collectiblesQuery.data ?? [],
     loading:
       accountsQuery.isLoading ||
@@ -1385,6 +1499,7 @@ export function useFinancesSync() {
       (Boolean(budgetQuery.data) && txnsQuery.isLoading) ||
       portfoliosQuery.isLoading ||
       holdingsQuery.isLoading ||
+      cryptoHoldingsQuery.isLoading ||
       collectiblesQuery.isLoading,
     error:
       accountsQuery.error ??
@@ -1393,6 +1508,7 @@ export function useFinancesSync() {
       txnsQuery.error ??
       portfoliosQuery.error ??
       holdingsQuery.error ??
+      cryptoHoldingsQuery.error ??
       collectiblesQuery.error,
     createAccount,
     updateAccount,
@@ -1416,6 +1532,10 @@ export function useFinancesSync() {
     deleteHolding,
     importHoldings,
     refreshQuotes,
+    createCryptoHolding,
+    updateCryptoHolding,
+    deleteCryptoHolding,
+    refreshCryptoQuotes,
     createCollectible,
     updateCollectible,
     deleteCollectible,

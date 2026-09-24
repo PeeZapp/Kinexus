@@ -28,8 +28,7 @@ export function SavesDesktop(props: SavesLayoutProps) {
     <StashChrome
       desktop
       kicker="Library"
-      title="Saves"
-      subtitle="Recipes, videos, articles, and other URLs the household wants to keep.">
+      title="Saves">
       <PrimaryActions
         addLabel="Save a link"
         onAdd={props.onAddLink}

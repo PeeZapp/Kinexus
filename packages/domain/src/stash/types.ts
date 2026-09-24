@@ -32,6 +32,10 @@ export type StashList = {
   visibility: StashListVisibility;
   personIds: string[];
   parentListId: string | null;
+  shareToken: string | null;
+  isShared: boolean;
+  emoji: string | null;
+  theme: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -162,6 +166,7 @@ export type WatchlistTitle = {
   imdbId: string | null;
   sourceUrl: string | null;
   tmdbWatchUrl: string | null;
+  trailerUrl: string | null;
   providers: WatchlistProvider[];
   providersCountry: string | null;
   providersFetchedAt: string | null;
@@ -200,6 +205,7 @@ export type WatchlistSearchHit = {
 export type WatchlistResolvedTitle = WatchlistSearchHit & {
   sourceUrl: string | null;
   tmdbWatchUrl: string | null;
+  trailerUrl: string | null;
   providers: WatchlistProvider[];
   providersCountry: string;
 };

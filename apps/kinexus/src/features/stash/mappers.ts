@@ -69,6 +69,10 @@ export function listFromRow(row: ListRow, personIds: string[] = []): StashList {
     visibility: VISIBILITIES.has(row.visibility) ? row.visibility : 'household',
     personIds,
     parentListId: row.parent_list_id,
+    shareToken: row.share_token,
+    isShared: Boolean(row.is_shared),
+    emoji: row.emoji,
+    theme: row.theme,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

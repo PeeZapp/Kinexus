@@ -39,6 +39,7 @@ export function watchlistTitleFromRow(row: TitleRow): WatchlistTitle {
     imdbId: row.imdb_id,
     sourceUrl: row.source_url,
     tmdbWatchUrl: row.tmdb_watch_url,
+    trailerUrl: row.trailer_url,
     providers: parseStoredProviders(row.providers),
     providersCountry: row.providers_country,
     providersFetchedAt: row.providers_fetched_at,

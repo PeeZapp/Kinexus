@@ -115,6 +115,7 @@ Set these in the project **Environment Variables** (Production + Preview). `EXPO
 | `RESIDENTIAL_PROXY_URL` | Runtime (API) | Stashd home Pi proxy origin, no trailing slash |
 | `RESIDENTIAL_PROXY_KEY` | Runtime (API) | Same bearer key as the Pi `PROXY_KEY` |
 | `PLAYWRIGHT_ENABLED` | Runtime (API) | Playwright stealth backup. On locally; off on Vercel unless set to `1` |
+| `STASH_RENDER_SCRAPE_URL` | Runtime (API) | Stashd Render origin for the daily wishlist price pass. No trailing slash |
 
 After the first URL exists, add it to Google + Supabase (next section) and tick item 11 in [CHECKLIST.md](./CHECKLIST.md).
 
@@ -321,6 +322,8 @@ Recipe import talks to `packages/api`. AI keys never go in `apps/kinexus/.env`.
 Then `pnpm web` as usual. Import Recipe → Fetch recipe uses `/scrape` then `/ai` when the page has no JSON-LD or blocks bots.
 
 Public HTML fetch (recipes, Stash product pages, collectibles catalogs) uses Impit, then the home Pi proxy (`RESIDENTIAL_PROXY_URL` / `RESIDENTIAL_PROXY_KEY`), then Playwright stealth as a local backup. Playwright stays off on Vercel unless `PLAYWRIGHT_ENABLED=1`.
+
+Wishlist adds use that same fetch. A page that returns a price is saved complete. A page that is blocked or has no price is saved with the name (from the page, or from the link) and marked pending. `GET /api/stash/enrich` runs once a day (`0 19 * * *` UTC, about 3am AWST) and asks the Stashd Render service (`STASH_RENDER_SCRAPE_URL`) to fill those pending rows, up to 25 a night. Each item is tried once per run. After 7 misses it stays on the list with a note that the price has to be entered by hand. Apply `packages/db/supabase/migrations/20260925140000_stash_product_detail_queue.sql` before using this. Set `STASH_RENDER_SCRAPE_URL` and `CRON_SECRET` on Vercel.
 
 On Vercel, the same Hono app is mounted at `/api/*` and rewritten from `/health`, `/scrape`, `/ai`, `/prices/*`. Web can omit `EXPO_PUBLIC_API_URL` and call the same origin.
 

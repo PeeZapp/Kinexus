@@ -8,9 +8,11 @@ import {
   collectibleKindLabel,
   collectibleSourceLabel,
   collectiblesTotal,
+  collectiblesCost,
   formatMoney,
   groupCollectibles,
   pickCollectibleValue,
+  roundMoney,
   type FinanceCollectible,
 } from '@kinexus/domain';
 
@@ -35,6 +37,8 @@ export function CollectiblesScreen() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const total = useMemo(() => collectiblesTotal(finances.collectibles), [finances.collectibles]);
+  const cost = useMemo(() => collectiblesCost(finances.collectibles), [finances.collectibles]);
+  const gain = roundMoney(total - cost);
   const groups = useMemo(() => groupCollectibles(finances.collectibles), [finances.collectibles]);
   const pricedIds = useRef(new Set<string>());
 
@@ -143,7 +147,11 @@ export function CollectiblesScreen() {
         <View style={styles.summary}>
           <Text style={styles.summaryLabel}>Collection value</Text>
           <Text style={styles.summaryValue}>{formatMoney(total, finances.currency)}</Text>
-          <Text style={styles.meta}>{finances.collectibles.length} items</Text>
+          <Text style={styles.meta}>
+            Cost {formatMoney(cost, finances.currency)}
+            {cost > 0 ? ` · ${gain >= 0 ? '+' : ''}${formatMoney(gain, finances.currency)}` : ''}
+            {` · ${finances.collectibles.length} items`}
+          </Text>
         </View>
         {canManage ? (
           <View style={styles.actions}>

@@ -2,23 +2,22 @@ import type { AiClient } from './provider.js';
 import { normalizeRecipeDraft, parseJsonObject, type RecipeDraft } from '../recipe-draft.js';
 
 export const RECIPE_JSON_SCHEMA = `Return ONLY a valid JSON object with these fields:
-- name (string)
+- name (string — the dish. If there is no title, name it from the ingredients, e.g. "Spicy peanut noodles". Never "Unknown", "Unknown Recipe", or "Imported recipe")
 - emoji (1 relevant food emoji)
-- cuisine (string, e.g. "Italian", "Thai")
-- cookTime (number, total minutes)
-- servings (number)
-- calories (number per serving)
-- protein (number grams per serving)
-- carbs (number grams per serving)
-- fat (number grams per serving)
+- cuisine (string, e.g. "Italian", "Thai" — omit if the source does not say)
+- cookTime (number, total minutes — omit if not stated. Never 0)
+- servings (number — omit if not stated. Never 0)
+- calories, protein, carbs, fat (numbers per serving — omit unless the source states them. Never 0 as a placeholder)
 - vegetarian (boolean)
 - ingredients (array of { name: string, amount: string, category: string })
   categories: "meat","seafood","dairy","vegetables","fruit","grains","condiments","herbs","other"
-- method (array of clear step strings)
-- chefTip (string, a useful tip)
+  Include amount only when the source states one.
+- method (array of clear step strings taken from the source)
+- chefTip (string, a useful tip — omit if there is none)
 - mealSlots (array from: "breakfast","morning_snack","lunch","afternoon_snack","dinner","night_snack","dessert")
 - imageUrl (string, only if an image URL is present in the source)
 
+Spoken captions and comments are the recipe when the post text is only a teaser. Ignore other videos.
 Return ONLY the JSON. No markdown, no explanation.`;
 
 export async function extractRecipeFromText(client: AiClient, content: string): Promise<RecipeDraft> {

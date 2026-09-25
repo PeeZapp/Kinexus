@@ -11,6 +11,7 @@ import {
   dueDatePresets,
   formatListLabel,
   formatMoney,
+  detailNote,
   isIsoDate,
   linkTypeLabel,
   normalizeListEmoji,
@@ -429,6 +430,7 @@ export function AddProductSheet({
   const [listId, setListId] = useState<string | null>(defaultListId);
   const [scrapeBusy, setScrapeBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [priceDeferred, setPriceDeferred] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -440,6 +442,7 @@ export function AddProductSheet({
     setNotes('');
     setListId(defaultListId);
     setLocalError(null);
+    setPriceDeferred(false);
   }, [defaultListId, visible]);
 
   async function scrape() {
@@ -452,6 +455,7 @@ export function AddProductSheet({
       if (draft.storeName) setStore(draft.storeName);
       if (draft.imageUrl) setImageUrl(draft.imageUrl);
       if (draft.notes) setNotes(draft.notes);
+      setPriceDeferred(!String(draft.currentPrice ?? '').trim());
     } catch (err) {
       setLocalError(err instanceof Error ? err.message : 'Could not look up that URL');
     } finally {
@@ -465,7 +469,16 @@ export function AddProductSheet({
         <Field label="Product URL" value={url} onChangeText={setUrl} placeholder="https://" autoCapitalize="none" />
         <Btn label={scrapeBusy ? 'Looking up…' : 'Look up URL'} onPress={() => void scrape()} busy={scrapeBusy} disabled={!url.trim()} variant="secondary" />
         <Field label="Name" value={title} onChangeText={setTitle} placeholder="What is it?" autoCapitalize="words" />
-        <Field label="Price" value={price} onChangeText={setPrice} placeholder="49.00" keyboardType="decimal-pad" />
+        <Field
+          label="Price"
+          value={price}
+          onChangeText={(next) => {
+            setPrice(next);
+            if (next.trim()) setPriceDeferred(false);
+          }}
+          placeholder="49.00"
+          keyboardType="decimal-pad"
+        />
         <Field label="Store" value={store} onChangeText={setStore} placeholder="Store name" />
         <Field label="Image URL" value={imageUrl} onChangeText={setImageUrl} placeholder="Optional" autoCapitalize="none" />
         <Field label="Notes" value={notes} onChangeText={setNotes} placeholder="Size, colour, who it’s for" />
@@ -477,6 +490,7 @@ export function AddProductSheet({
             ))}
           </View>
         ) : null}
+        {priceDeferred && !price.trim() ? <Text style={styles.note}>{detailNote('pending', 0)}</Text> : null}
         {localError || error ? <Text style={styles.error}>{localError ?? error}</Text> : null}
         <Btn
           label="Save item"
@@ -545,7 +559,11 @@ export function ProductSheet({
       {product ? (
         <View style={styles.stack}>
           <StashPhoto uri={product.imageUrl} size={180} />
-          <Text style={styles.heroPrice}>{formatMoney(product.currentPrice, currency)}</Text>
+          {product.detailStatus === 'pending' ? (
+            <Text style={styles.note}>{detailNote(product.detailStatus, product.detailAttempts)}</Text>
+          ) : (
+            <Text style={styles.heroPrice}>{formatMoney(product.currentPrice, currency)}</Text>
+          )}
           {product.isOnSale ? <Text style={styles.sale}>Was {formatMoney(product.originalPrice, currency)}</Text> : null}
           <Field label="Name" value={title} onChangeText={setTitle} />
           <Field label="Price" value={price} onChangeText={setPrice} keyboardType="decimal-pad" />
@@ -886,6 +904,7 @@ const styles = StyleSheet.create({
   stackInner: { gap: 8 },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   error: { color: colors.danger, fontSize: 13, lineHeight: 18 },
+  note: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
   heroPrice: { color: colors.text, fontSize: 22, fontWeight: '800' },
   sale: { color: colors.accent, fontSize: 13, fontWeight: '700' },
   meta: { color: colors.textMuted, fontSize: 13 },

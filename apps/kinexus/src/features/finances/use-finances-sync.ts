@@ -8,6 +8,11 @@ import {
   holderIdKind,
   isAsxSymbol,
   isCryptoSymbol,
+  isMetalKind,
+  isMetalUnit,
+  parseMetalPremium,
+  parseMetalQuantity,
+  parseMetalWeight,
   evalMoneyExpression,
   merchantKey,
   nextLinePosition,
@@ -38,11 +43,13 @@ import {
   type CollectibleCondition,
   type CollectibleKind,
   type CollectibleSource,
+  type MetalKind,
+  type MetalUnit,
   type ShareImportResult,
 } from '@kinexus/domain';
 
-import { accountFromRow, budgetFromRow, collectibleFromRow, cryptoHoldingFromRow, holdingFromRow, lineFromRow, portfolioFromRow, txnFromRow } from '@/src/features/finances/mappers';
-import { fetchCryptoQuotes, fetchShareQuotes } from '@/src/features/finances/finance-api';
+import { accountFromRow, budgetFromRow, collectibleFromRow, cryptoHoldingFromRow, holdingFromRow, lineFromRow, metalHoldingFromRow, portfolioFromRow, txnFromRow } from '@/src/features/finances/mappers';
+import { fetchCryptoQuotes, fetchMetalQuotes, fetchShareQuotes } from '@/src/features/finances/finance-api';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 import { useOnline } from '@/src/lib/online';
@@ -69,6 +76,9 @@ function holdingsKey(householdId: string) {
 }
 function cryptoHoldingsKey(householdId: string) {
   return ['finances', 'crypto-holdings', householdId] as const;
+}
+function metalHoldingsKey(householdId: string) {
+  return ['finances', 'metal-holdings', householdId] as const;
 }
 function collectiblesKey(householdId: string) {
   return ['finances', 'collectibles', householdId] as const;
@@ -194,6 +204,16 @@ export type CryptoHoldingDraft = {
   name?: string;
 };
 
+export type MetalHoldingDraft = {
+  metal: MetalKind;
+  weight?: string;
+  quantity?: string;
+  unit: MetalUnit;
+  costPerUnit?: string;
+  premiumPercent?: string;
+  name?: string;
+};
+
 export type CollectibleDraft = {
   name: string;
   kind: CollectibleKind;
@@ -251,6 +271,17 @@ async function fetchCryptoHoldings(householdId: string) {
     .order('symbol');
   if (error) throw error;
   return (data ?? []).map(cryptoHoldingFromRow);
+}
+
+async function fetchMetalHoldings(householdId: string) {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('finance_metal_holdings')
+    .select('*')
+    .eq('household_id', householdId)
+    .order('metal');
+  if (error) throw error;
+  return (data ?? []).map(metalHoldingFromRow);
 }
 
 async function fetchCollectibles(householdId: string) {
@@ -338,6 +369,12 @@ export function useFinancesSync() {
     queryFn: () => fetchCryptoHoldings(householdId!),
   });
 
+  const metalHoldingsQuery = useQuery({
+    queryKey: householdId ? metalHoldingsKey(householdId) : ['finances', 'metal-holdings', 'none'],
+    enabled: ready,
+    queryFn: () => fetchMetalHoldings(householdId!),
+  });
+
   const collectiblesQuery = useQuery({
     queryKey: householdId ? collectiblesKey(householdId) : ['finances', 'collectibles', 'none'],
     enabled: ready,
@@ -355,6 +392,7 @@ export function useFinancesSync() {
       void queryClient.invalidateQueries({ queryKey: portfoliosKey(householdId) });
       void queryClient.invalidateQueries({ queryKey: holdingsKey(householdId) });
       void queryClient.invalidateQueries({ queryKey: cryptoHoldingsKey(householdId) });
+      void queryClient.invalidateQueries({ queryKey: metalHoldingsKey(householdId) });
       void queryClient.invalidateQueries({ queryKey: collectiblesKey(householdId) });
     };
     return retainPostgresChannel(client, `finances-sync:${householdId}`, (channel) =>
@@ -366,6 +404,7 @@ export function useFinancesSync() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_share_portfolios', filter: `household_id=eq.${householdId}` }, invalidate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_share_holdings', filter: `household_id=eq.${householdId}` }, invalidate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_crypto_holdings', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_metal_holdings', filter: `household_id=eq.${householdId}` }, invalidate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_collectibles', filter: `household_id=eq.${householdId}` }, invalidate),
     );
   }, [householdId, online, queryClient]);
@@ -1198,6 +1237,99 @@ export function useFinancesSync() {
     [cryptoHoldingsQuery.data, currency, householdId, queryClient],
   );
 
+  const createMetalHolding = useCallback(
+    async (draft: MetalHoldingDraft) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      if (!isMetalKind(draft.metal)) throw new Error('Choose gold, silver, platinum, or palladium');
+      if (!isMetalUnit(draft.unit)) throw new Error('Choose troy ounces, grams, or kilograms');
+      const weight = parseMetalWeight(draft.weight);
+      if (weight == null || weight <= 0) throw new Error('Enter a weight greater than zero');
+      const quantity = parseMetalQuantity(draft.quantity);
+      if (quantity == null) throw new Error('Enter how many you have, at least 1');
+      const premiumPercent = parseMetalPremium(draft.premiumPercent);
+      if (premiumPercent == null) throw new Error('Premium cannot be below -100%');
+      const { error } = await supabase.from('finance_metal_holdings').insert({
+        id: Crypto.randomUUID(),
+        household_id: householdId,
+        created_by: userId,
+        metal: draft.metal,
+        name: draft.name?.trim() || null,
+        weight,
+        unit: draft.unit,
+        quantity,
+        cost_per_unit: parseMoney(draft.costPerUnit),
+        premium_percent: premiumPercent,
+      });
+      throwIfError(error);
+      await queryClient.invalidateQueries({ queryKey: metalHoldingsKey(householdId) });
+    },
+    [householdId, queryClient, userId],
+  );
+
+  const updateMetalHolding = useCallback(
+    async (id: string, draft: MetalHoldingDraft) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      if (!isMetalKind(draft.metal)) throw new Error('Choose gold, silver, platinum, or palladium');
+      if (!isMetalUnit(draft.unit)) throw new Error('Choose troy ounces, grams, or kilograms');
+      const weight = parseMetalWeight(draft.weight);
+      if (weight == null || weight <= 0) throw new Error('Enter a weight greater than zero');
+      const quantity = parseMetalQuantity(draft.quantity);
+      if (quantity == null) throw new Error('Enter how many you have, at least 1');
+      const premiumPercent = parseMetalPremium(draft.premiumPercent);
+      if (premiumPercent == null) throw new Error('Premium cannot be below -100%');
+      const { error } = await supabase
+        .from('finance_metal_holdings')
+        .update({
+          metal: draft.metal,
+          name: draft.name?.trim() || null,
+          weight,
+          unit: draft.unit,
+          quantity,
+          cost_per_unit: parseMoney(draft.costPerUnit),
+          premium_percent: premiumPercent,
+        })
+        .eq('id', id);
+      throwIfError(error);
+      await queryClient.invalidateQueries({ queryKey: metalHoldingsKey(householdId) });
+    },
+    [householdId, queryClient],
+  );
+
+  const deleteMetalHolding = useCallback(
+    async (id: string) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      const { error } = await supabase.from('finance_metal_holdings').delete().eq('id', id);
+      throwIfError(error);
+      await queryClient.invalidateQueries({ queryKey: metalHoldingsKey(householdId) });
+    },
+    [householdId, queryClient],
+  );
+
+  const refreshMetalQuotes = useCallback(
+    async (metals?: MetalKind[]) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      const holdings = metalHoldingsQuery.data ?? [];
+      const wanted = [...new Set((metals ?? holdings.map((item) => item.metal)).filter(isMetalKind))];
+      if (wanted.length === 0) return { updated: 0, missing: [] as string[] };
+      const { quotes, missing } = await fetchMetalQuotes(wanted, currency);
+      const pricedAt = new Date().toISOString();
+      for (const quote of quotes) {
+        const { error } = await supabase
+          .from('finance_metal_holdings')
+          .update({
+            last_price: quote.price,
+            priced_at: pricedAt,
+          })
+          .eq('household_id', householdId)
+          .eq('metal', quote.metal);
+        throwIfError(error);
+      }
+      await queryClient.invalidateQueries({ queryKey: metalHoldingsKey(householdId) });
+      return { updated: quotes.length, missing };
+    },
+    [currency, householdId, metalHoldingsQuery.data, queryClient],
+  );
+
   const importHoldings = useCallback(
     async (portfolioId: string | null, parsed: ShareImportResult) => {
       if (!householdId || !supabase) throw new Error('Not ready');
@@ -1491,6 +1623,7 @@ export function useFinancesSync() {
     portfolios: portfoliosQuery.data ?? [],
     holdings: holdingsQuery.data ?? [],
     cryptoHoldings: cryptoHoldingsQuery.data ?? [],
+    metalHoldings: metalHoldingsQuery.data ?? [],
     collectibles: collectiblesQuery.data ?? [],
     loading:
       accountsQuery.isLoading ||
@@ -1500,6 +1633,7 @@ export function useFinancesSync() {
       portfoliosQuery.isLoading ||
       holdingsQuery.isLoading ||
       cryptoHoldingsQuery.isLoading ||
+      metalHoldingsQuery.isLoading ||
       collectiblesQuery.isLoading,
     error:
       accountsQuery.error ??
@@ -1509,6 +1643,7 @@ export function useFinancesSync() {
       portfoliosQuery.error ??
       holdingsQuery.error ??
       cryptoHoldingsQuery.error ??
+      metalHoldingsQuery.error ??
       collectiblesQuery.error,
     createAccount,
     updateAccount,
@@ -1536,6 +1671,10 @@ export function useFinancesSync() {
     updateCryptoHolding,
     deleteCryptoHolding,
     refreshCryptoQuotes,
+    createMetalHolding,
+    updateMetalHolding,
+    deleteMetalHolding,
+    refreshMetalQuotes,
     createCollectible,
     updateCollectible,
     deleteCollectible,

@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View, type ImageStyle, type ViewStyle } from 'react-native';
 
 import {
+  detailNote,
   formatMoney,
   listThemeSoft,
   normalizeListEmoji,
@@ -85,8 +86,12 @@ export function ProductCard({
           {product.storeName || 'Saved item'}
         </Text>
         <View style={styles.priceRow}>
-          <Text style={[styles.price, product.isOnSale && styles.priceSale]}>{formatMoney(product.currentPrice, currency)}</Text>
-          {product.isOnSale && product.originalPrice != null ? (
+          {product.detailStatus === 'pending' ? (
+            <Text style={styles.pendingNote}>{detailNote(product.detailStatus, product.detailAttempts)}</Text>
+          ) : (
+            <Text style={[styles.price, product.isOnSale && styles.priceSale]}>{formatMoney(product.currentPrice, currency)}</Text>
+          )}
+          {product.detailStatus !== 'pending' && product.isOnSale && product.originalPrice != null ? (
             <Text style={styles.priceWas}>{formatMoney(product.originalPrice, currency)}</Text>
           ) : null}
         </View>
@@ -312,6 +317,7 @@ const styles = StyleSheet.create({
   price: { color: colors.text, fontSize: 15, fontWeight: '800' },
   priceSale: { color: colors.accent },
   priceWas: { color: colors.textDim, fontSize: 13, textDecorationLine: 'line-through' },
+  pendingNote: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
   listCard: {
     backgroundColor: colors.bgCard,
     borderWidth: 1,

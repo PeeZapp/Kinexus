@@ -1,5 +1,9 @@
 import { decodeEntities, fetchPublicHtml, type FetchPublicHtmlOptions } from '../../scrape/index.js';
-import { parseFacebookCrawlerHtml } from './facebook-comments.js';
+import {
+  facebookCaptionFileToText,
+  facebookCaptionTrackUrl,
+  parseFacebookCrawlerHtml,
+} from './facebook-comments.js';
 import { fetchOgTags, type VideoMetadata } from './shared.js';
 
 const CRAWLER_UA = 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)';
@@ -47,11 +51,15 @@ export async function fetchFacebookMetadata(
     description,
     authorName,
     thumbnailUrl: page.image,
-    captions: caption,
+    captions: crawler.transcript ?? caption,
     extraText: crawler.extraText,
     linkedUrls: crawler.linkedUrls,
     siteName: page.siteName ?? 'Facebook',
-    hasCaptions: Boolean((crawler.extraText ?? caption).length > 40 || crawler.linkedUrls.length),
+    hasCaptions: Boolean(
+      (crawler.transcript && crawler.transcript.length > 40) ||
+        (crawler.extraText ?? caption).length > 40 ||
+        crawler.linkedUrls.length,
+    ),
   };
 }
 
@@ -59,7 +67,7 @@ async function fetchFacebookCrawlerExtract(
   canonicalUrl: string,
   title: string,
   options: FetchPublicHtmlOptions,
-): Promise<{ extraText?: string; linkedUrls: string[] }> {
+): Promise<{ extraText?: string; linkedUrls: string[]; transcript?: string }> {
   try {
     const response = await fetchPublicHtml(toWwwFacebookUrl(canonicalUrl), {
       ...options,
@@ -73,9 +81,32 @@ async function fetchFacebookCrawlerExtract(
     if (!response.ok) return { linkedUrls: [] };
     const html = (await response.text()).slice(0, 1_500_000);
     const parsed = parseFacebookCrawlerHtml(html, title);
-    return { extraText: parsed.extraText, linkedUrls: parsed.linkedUrls };
+    const transcript = await fetchFacebookCaptionTrack(facebookCaptionTrackUrl(html), options);
+    return { extraText: parsed.extraText, linkedUrls: parsed.linkedUrls, transcript };
   } catch {
     return { linkedUrls: [] };
+  }
+}
+
+async function fetchFacebookCaptionTrack(
+  trackUrl: string | undefined,
+  options: FetchPublicHtmlOptions,
+): Promise<string | undefined> {
+  if (!trackUrl) return undefined;
+  try {
+    const response = await fetchPublicHtml(trackUrl, {
+      ...options,
+      timeoutMs: Math.min(options.timeoutMs ?? 8_000, 8_000),
+      headers: {
+        ...options.headers,
+        'User-Agent': CRAWLER_UA,
+        Accept: 'text/plain,text/vtt,application/x-subrip,*/*;q=0.8',
+      },
+    });
+    if (!response.ok) return undefined;
+    return facebookCaptionFileToText((await response.text()).slice(0, 500_000));
+  } catch {
+    return undefined;
   }
 }
 

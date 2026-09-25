@@ -44,6 +44,8 @@ function product(partial: Partial<StashProduct> & Pick<StashProduct, 'id' | 'tit
     description: null,
     sku: null,
     priceSource: 'manual',
+    detailStatus: 'ready',
+    detailAttempts: 0,
     isOwned: false,
     notes: null,
     createdAt: '2026-01-01',

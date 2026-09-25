@@ -1,5 +1,7 @@
 export type StashPriceSource = 'manual' | 'scraped';
 
+export type StashDetailStatus = 'ready' | 'pending';
+
 export type StashListVisibility = 'household' | 'private' | 'people';
 
 export type StashProduct = {
@@ -15,6 +17,8 @@ export type StashProduct = {
   description: string | null;
   sku: string | null;
   priceSource: StashPriceSource | null;
+  detailStatus: StashDetailStatus;
+  detailAttempts: number;
   isOwned: boolean;
   notes: string | null;
   createdAt: string;

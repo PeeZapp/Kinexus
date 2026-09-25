@@ -14,6 +14,7 @@ export type {
   StashListProduct,
   StashListRecurrence,
   StashListVisibility,
+  StashDetailStatus,
   StashPriceSource,
   StashProduct,
   WatchlistEntry,
@@ -95,6 +96,15 @@ export {
 export type { SavedLinkSort } from './links';
 
 export { formatMoney, isSale, parseMoney, evalMoneyExpression, moneyExpressionHasOp, roundMoney } from './money';
+
+export {
+  STASH_DETAIL_ATTEMPT_LIMIT,
+  STASH_DETAIL_GAVE_UP_NOTE,
+  STASH_DETAIL_PENDING_NOTE,
+  detailNote,
+  detailStatusForSave,
+  titleFromSourceUrl,
+} from './detail';
 
 export {
   WATCHLIST_ITEM_STATUSES,

@@ -137,8 +137,8 @@ function mapJsonLdToRecipe(ld: Record<string, unknown>): RecipeDraft {
   });
 }
 
-export async function scrapeRecipeUrl(url: string): Promise<ScrapeResult> {
-  const response = await fetchPublicHtml(url);
+export async function scrapeRecipeUrl(url: string, options: FetchPublicHtmlOptions = {}): Promise<ScrapeResult> {
+  const response = await fetchPublicHtml(url, options);
 
   if ([401, 402, 403, 429].includes(response.status)) {
     return { blocked: true, source: 'blocked' };

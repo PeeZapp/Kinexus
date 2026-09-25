@@ -18,6 +18,8 @@ import {
   collectibleKindLabel,
   collectibleSearchPlaceholder,
   collectibleSourceLabel,
+  convertMetalCostPerUnit,
+  convertMetalWeight,
   eligibleParentLines,
   evalMoneyExpression,
   formatHolderId,
@@ -25,7 +27,14 @@ import {
   holderIdKind,
   holderIdLabel,
   linePathName,
+  METAL_KINDS,
+  METAL_UNITS,
+  metalKindLabel,
+  metalUnitLabel,
+  metalUnitLongLabel,
   moneyExpressionHasOp,
+  parseMetalWeight,
+  parseMoney,
   parseShareImport,
   pickCollectibleValue,
   sourceForKind,
@@ -39,6 +48,9 @@ import {
   type FinanceBudgetLineKind,
   type FinanceCollectible,
   type FinanceCryptoHolding,
+  type FinanceMetalHolding,
+  type MetalKind,
+  type MetalUnit,
   type FinanceShareHolding,
   type FinanceSharePortfolio,
   type ShareImportResult,
@@ -46,7 +58,7 @@ import {
 
 import { Btn, Field, Pill } from '@/src/features/household/ui';
 import { Sheet } from '@/src/features/meals/meals-kit';
-import type { AccountDraft, BudgetEntryDraft, BudgetLineDraft, CollectibleDraft, CryptoHoldingDraft, HoldingDraft, PortfolioDraft } from '@/src/features/finances/use-finances-sync';
+import type { AccountDraft, BudgetEntryDraft, BudgetLineDraft, CollectibleDraft, CryptoHoldingDraft, HoldingDraft, MetalHoldingDraft, PortfolioDraft } from '@/src/features/finances/use-finances-sync';
 import { lookupCollectibleCatalog, searchCollectibleCatalog } from '@/src/features/finances/finance-api';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
@@ -729,6 +741,141 @@ export function CryptoHoldingSheet({
               onPress={() => void onSave({ symbol, units, costPerUnit, name })}
               busy={busy}
               disabled={!symbol.trim()}
+            />
+            {holding && onDelete ? (
+              <Btn label="Remove" variant="danger" onPress={() => void onDelete()} disabled={busy} />
+            ) : null}
+          </>
+        )}
+      </View>
+    </Sheet>
+  );
+}
+
+export function MetalHoldingSheet({
+  visible,
+  holding,
+  onClose,
+  onSave,
+  onDelete,
+  busy,
+  error,
+  readOnly,
+}: {
+  visible: boolean;
+  holding: FinanceMetalHolding | null;
+  onClose: () => void;
+  onSave: (draft: MetalHoldingDraft) => Promise<void>;
+  onDelete?: () => Promise<void>;
+  busy?: boolean;
+  error?: string | null;
+  readOnly?: boolean;
+}) {
+  const [metal, setMetal] = useState<MetalKind>('gold');
+  const [unit, setUnit] = useState<MetalUnit>('oz');
+  const [weight, setWeight] = useState('');
+  const [quantity, setQuantity] = useState('1');
+  const [costPerUnit, setCostPerUnit] = useState('');
+  const [premiumPercent, setPremiumPercent] = useState('');
+  const [name, setName] = useState('');
+
+  useEffect(() => {
+    if (!visible) return;
+    setMetal(holding?.metal ?? 'gold');
+    setUnit(holding?.unit ?? 'oz');
+    setWeight(holding ? String(holding.weight) : '');
+    setQuantity(holding ? String(holding.quantity) : '1');
+    setCostPerUnit(holding?.costPerUnit != null ? String(holding.costPerUnit) : '');
+    setPremiumPercent(holding?.premiumPercent ? String(holding.premiumPercent) : '');
+    setName(holding?.name ?? '');
+  }, [holding, visible]);
+
+  function chooseUnit(next: MetalUnit) {
+    if (readOnly || next === unit) return;
+    const parsedWeight = parseMetalWeight(weight);
+    const parsedCost = parseMoney(costPerUnit);
+    if (parsedWeight != null) setWeight(String(convertMetalWeight(parsedWeight, unit, next)));
+    if (parsedCost != null) setCostPerUnit(String(convertMetalCostPerUnit(parsedCost, unit, next)));
+    setUnit(next);
+  }
+
+  return (
+    <Sheet visible={visible} title={holding ? 'Edit metal' : 'Add metal'} onClose={onClose}>
+      <View style={styles.stack}>
+        <Text style={styles.label}>Metal</Text>
+        <View style={styles.wrap}>
+          {METAL_KINDS.map((item) => (
+            <Pill
+              key={item}
+              label={metalKindLabel(item)}
+              active={metal === item}
+              onPress={readOnly ? undefined : () => setMetal(item)}
+            />
+          ))}
+        </View>
+        <Field
+          label="Label"
+          value={name}
+          onChangeText={setName}
+          placeholder="1oz proof silver coin"
+          editable={!readOnly}
+        />
+        <Text style={styles.label}>Weight unit</Text>
+        <View style={styles.wrap}>
+          {METAL_UNITS.map((item) => (
+            <Pill
+              key={item}
+              label={metalUnitLabel(item)}
+              active={unit === item}
+              onPress={() => chooseUnit(item)}
+            />
+          ))}
+        </View>
+        <Field
+          label="Weight each"
+          value={weight}
+          onChangeText={setWeight}
+          placeholder="1"
+          keyboardType="decimal-pad"
+          editable={!readOnly}
+        />
+        <Field
+          label="Quantity"
+          value={quantity}
+          onChangeText={setQuantity}
+          placeholder="1"
+          keyboardType="number-pad"
+          editable={!readOnly}
+        />
+        <Field
+          label={`Average cost per ${metalUnitLongLabel(unit)}`}
+          value={costPerUnit}
+          onChangeText={setCostPerUnit}
+          placeholder="Optional"
+          keyboardType="decimal-pad"
+          editable={!readOnly}
+        />
+        <Field
+          label="Premium over spot %"
+          value={premiumPercent}
+          onChangeText={setPremiumPercent}
+          placeholder="0"
+          keyboardType="decimal-pad"
+          editable={!readOnly}
+        />
+        <Text style={styles.hint}>
+          Spot is the latest troy-ounce quote in your currency. Weight is for one piece, and quantity is how many you have. Leave premium blank to value at spot, or enter 10 for coins worth 10% more.
+        </Text>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {readOnly ? (
+          <Text style={styles.hint}>Only household admins can change metal holdings.</Text>
+        ) : (
+          <>
+            <Btn
+              label={holding ? 'Save' : 'Add holding'}
+              onPress={() => void onSave({ metal, weight, quantity, unit, costPerUnit, premiumPercent, name })}
+              busy={busy}
+              disabled={!weight.trim()}
             />
             {holding && onDelete ? (
               <Btn label="Remove" variant="danger" onPress={() => void onDelete()} disabled={busy} />

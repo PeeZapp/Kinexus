@@ -53,7 +53,9 @@ export type FacebookCrawlerExtract = {
 };
 
 export function parseFacebookCrawlerHtml(html: string, title?: string): FacebookCrawlerExtract {
-  const comments = uniqueStrings(extractGraphqlTexts(html).filter((text) => text.length >= 20 && text.length <= 8_000));
+  const comments = uniqueStrings(
+    extractGraphqlTexts(html).filter((text) => text.length >= 20 && text.length <= 8_000),
+  );
   const ranked = comments
     .map((text) => ({ text, score: scoreComment(text, title), urls: urlsFromText(text) }))
     .sort((a, b) => b.score - a.score);
@@ -80,13 +82,72 @@ export function parseFacebookCrawlerHtml(html: string, title?: string): Facebook
   };
 }
 
+/** Spoken/auto caption track for the main video. Related-video tracks are ignored. */
+export function facebookCaptionTrackUrl(html: string): string | undefined {
+  for (const chunk of sourceChunks(html)) {
+    if (isRelatedRecirc(chunk)) continue;
+    const match = chunk.match(/"captions_url"\s*:\s*"((?:\\.|[^"\\])+)"/);
+    const url = match?.[1] ? facebookCaptionFileUrl(decodeGraphqlString(match[1])) : undefined;
+    if (url) return url;
+  }
+  return undefined;
+}
+
+export function facebookCaptionFileToText(body: string): string | undefined {
+  const head = body.slice(0, 240);
+  if (/<!doctype|<html|<title>\s*error\s*<\/title>/i.test(head)) return undefined;
+  const lines = body.replace(/^\uFEFF/, '').replace(/\r/g, '').split('\n');
+  const parts: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed === 'WEBVTT' || /^\d+$/.test(trimmed)) continue;
+    if (/^\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}\s+-->/.test(trimmed)) continue;
+    if (/^(NOTE|STYLE|REGION)\b/.test(trimmed)) continue;
+    parts.push(trimmed);
+  }
+  const text = parts.join(' ').replace(/\s+/g, ' ').trim();
+  return text.length >= 20 ? text.slice(0, 20_000) : undefined;
+}
+
+function facebookCaptionFileUrl(raw: string): string | undefined {
+  try {
+    const url = new URL(raw.trim());
+    if (url.protocol !== 'https:') return undefined;
+    const host = url.hostname.toLowerCase();
+    if (host !== 'fbcdn.net' && !host.endsWith('.fbcdn.net')) return undefined;
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
 function extractGraphqlTexts(html: string): string[] {
   const texts: string[] = [];
-  for (const match of html.matchAll(/"text"\s*:\s*"((?:\\.|[^"\\]){12,8000})"/g)) {
-    const decoded = decodeGraphqlString(match[1] ?? '').trim();
-    if (decoded) texts.push(decoded);
+  for (const chunk of sourceChunks(html)) {
+    if (isRelatedRecirc(chunk)) continue;
+    for (const match of chunk.matchAll(/"text"\s*:\s*"((?:\\.|[^"\\]){12,8000})"/g)) {
+      if (isOtherVideoTitle(chunk, match.index ?? 0)) continue;
+      const decoded = decodeGraphqlString(match[1] ?? '').trim();
+      if (decoded) texts.push(decoded);
+    }
   }
   return texts;
+}
+
+function sourceChunks(html: string): string[] {
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((match) => match[1] ?? '');
+  return scripts.length ? scripts : [html];
+}
+
+/** Logged-out reel pages embed other posts' full captions under this section. */
+function isRelatedRecirc(chunk: string): boolean {
+  return chunk.includes('video_home_www_related_videos_section');
+}
+
+/** Other reels on the page publish their captions as savable_title / savable_description. */
+function isOtherVideoTitle(chunk: string, index: number): boolean {
+  const before = chunk.slice(Math.max(0, index - 48), index);
+  return /"savable_(?:title|description)"\s*:\s*\{\s*$/.test(before);
 }
 
 function decodeGraphqlString(raw: string): string {

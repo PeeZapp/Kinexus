@@ -98,6 +98,10 @@ export function netWorth(accounts: readonly FinanceAccount[]): FinanceNetWorth {
   };
 }
 
+function assetAnchor(groups: readonly FinanceKindGroup[], kinds: readonly FinanceGroupKind[]): FinanceGroupKind {
+  return kinds.find((kind) => groups.some((group) => group.kind === kind)) ?? kinds[kinds.length - 1] ?? 'shares';
+}
+
 function insertAssetGroup(groups: FinanceKindGroup[], group: FinanceKindGroup, afterKind: FinanceGroupKind) {
   const existing = groups.findIndex((item) => item.kind === group.kind);
   if (existing >= 0) groups.splice(existing, 1);
@@ -150,13 +154,32 @@ export function withCrypto(summary: FinanceNetWorth, cryptoValue: number): Finan
   };
 }
 
+export function withMetals(summary: FinanceNetWorth, metalsValue: number): FinanceNetWorth {
+  const extra = roundMoney(Math.max(0, metalsValue));
+  const groups = summary.groups.filter((group) => group.kind !== 'metals');
+  if (extra > 0) {
+    insertAssetGroup(groups, {
+      kind: 'metals',
+      class: 'asset',
+      label: 'Metals',
+      total: extra,
+      accounts: [],
+    }, assetAnchor(groups, ['crypto', 'shares']));
+  }
+  const assets = roundMoney(summary.assets + extra);
+  return {
+    assets,
+    liabilities: summary.liabilities,
+    netWorth: roundMoney(assets - summary.liabilities),
+    groups,
+  };
+}
+
 export function withCollectibles(summary: FinanceNetWorth, collectiblesValue: number): FinanceNetWorth {
   const extra = roundMoney(Math.max(0, collectiblesValue));
   const groups = summary.groups.filter((group) => group.kind !== 'collectibles');
   if (extra > 0) {
-    const afterKind: FinanceGroupKind = groups.some((group) => group.kind === 'crypto')
-      ? 'crypto'
-      : 'shares';
+    const afterKind = assetAnchor(groups, ['metals', 'crypto', 'shares']);
     insertAssetGroup(groups, {
       kind: 'collectibles',
       class: 'asset',

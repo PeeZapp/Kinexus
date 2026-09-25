@@ -76,7 +76,7 @@ export type FinanceBudgetTxn = {
   source?: FinanceBudgetTxnSource;
 };
 
-export type FinanceGroupKind = FinanceAccountKind | 'shares' | 'crypto' | 'collectibles';
+export type FinanceGroupKind = FinanceAccountKind | 'shares' | 'crypto' | 'metals' | 'collectibles';
 
 export type FinanceKindGroup = {
   kind: FinanceGroupKind;
@@ -138,6 +138,39 @@ export type FinanceCryptoHolding = {
 
 export type FinanceCryptoQuote = {
   symbol: string;
+  price: number;
+  currency: string;
+  name: string | null;
+};
+
+export const METAL_KINDS = ['gold', 'silver', 'platinum', 'palladium'] as const;
+export const METAL_UNITS = ['oz', 'g', 'kg'] as const;
+export type MetalKind = (typeof METAL_KINDS)[number];
+export type MetalUnit = (typeof METAL_UNITS)[number];
+
+export type FinanceMetalHolding = {
+  id: string;
+  householdId: string;
+  createdBy: string | null;
+  metal: MetalKind;
+  name: string | null;
+  weight: number;
+  unit: MetalUnit;
+  /** How many of this piece you hold. Weight is for one of them. */
+  quantity: number;
+  costPerUnit: number | null;
+  /** Percent above spot. 10 values coins at 10% over the spot quote. */
+  premiumPercent: number;
+  /** Household-currency spot per troy ounce. */
+  lastPrice: number | null;
+  pricedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FinanceMetalQuote = {
+  metal: MetalKind;
+  /** Household-currency spot per troy ounce. */
   price: number;
   currency: string;
   name: string | null;

@@ -10,12 +10,15 @@ import {
   cryptoPortfolioTotals,
   formatMoney,
   linesForMonth,
+  metalPortfolioTotals,
   monthStartIso,
   netWorth,
   portfolioTotals,
   withCollectibles,
   withCrypto,
   withListedShares,
+  withMetals,
+  type FinanceKindGroup,
 } from '@kinexus/domain';
 
 import { Btn, ErrorText } from '@/src/features/household/ui';
@@ -25,6 +28,17 @@ import { EmptyState, LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useHousehold } from '@/src/lib/household';
+
+function groupDetail(
+  group: FinanceKindGroup,
+  counts: { shares: number; crypto: number; metals: number; collectibles: number },
+): string {
+  if (group.kind === 'shares') return `${counts.shares} holding${counts.shares === 1 ? '' : 's'}`;
+  if (group.kind === 'crypto') return `${counts.crypto} holding${counts.crypto === 1 ? '' : 's'}`;
+  if (group.kind === 'metals') return `${counts.metals} holding${counts.metals === 1 ? '' : 's'}`;
+  if (group.kind === 'collectibles') return `${counts.collectibles} item${counts.collectibles === 1 ? '' : 's'}`;
+  return `${group.accounts.length} · ${group.class === 'liability' ? 'owed' : 'owned'}`;
+}
 
 export function DashboardScreen() {
   const router = useRouter();
@@ -36,13 +50,16 @@ export function DashboardScreen() {
   const summary = useMemo(
     () =>
       withCollectibles(
-        withCrypto(
-          withListedShares(netWorth(finances.accounts), portfolioTotals(finances.holdings).marketValue),
-          cryptoPortfolioTotals(finances.cryptoHoldings).marketValue,
+        withMetals(
+          withCrypto(
+            withListedShares(netWorth(finances.accounts), portfolioTotals(finances.holdings).marketValue),
+            cryptoPortfolioTotals(finances.cryptoHoldings).marketValue,
+          ),
+          metalPortfolioTotals(finances.metalHoldings).marketValue,
         ),
         collectiblesTotal(finances.collectibles),
       ),
-    [finances.accounts, finances.collectibles, finances.cryptoHoldings, finances.holdings],
+    [finances.accounts, finances.collectibles, finances.cryptoHoldings, finances.holdings, finances.metalHoldings],
   );
   const monthLines = useMemo(
     () => linesForMonth(finances.lines, finances.txns, monthStartIso()),
@@ -96,6 +113,7 @@ export function DashboardScreen() {
           {canManage ? <Btn label="Add an account" onPress={() => router.push('/finances/assets')} /> : null}
           {canManage ? <Btn label="Add shares" variant="secondary" onPress={() => router.push('/finances/shares')} /> : null}
           {canManage ? <Btn label="Add crypto" variant="secondary" onPress={() => router.push('/finances/crypto')} /> : null}
+          {canManage ? <Btn label="Add metals" variant="secondary" onPress={() => router.push('/finances/metals')} /> : null}
         </EmptyState>
       ) : (
         <View style={styles.card}>
@@ -105,11 +123,12 @@ export function DashboardScreen() {
               <View style={styles.groupCopy}>
                 <Text style={styles.groupLabel}>{group.label}</Text>
                 <Text style={styles.groupMeta}>
-                  {group.kind === 'shares'
-                    ? `${finances.holdings.length} holding${finances.holdings.length === 1 ? '' : 's'}`
-                    : group.kind === 'crypto'
-                      ? `${finances.cryptoHoldings.length} holding${finances.cryptoHoldings.length === 1 ? '' : 's'}`
-                      : `${group.accounts.length} · ${group.class === 'liability' ? 'owed' : 'owned'}`}
+                  {groupDetail(group, {
+                    shares: finances.holdings.length,
+                    crypto: finances.cryptoHoldings.length,
+                    metals: finances.metalHoldings.length,
+                    collectibles: finances.collectibles.length,
+                  })}
                 </Text>
               </View>
               <View style={styles.groupValue}>
@@ -137,6 +156,7 @@ export function DashboardScreen() {
           <Btn label="Manage assets" variant="secondary" onPress={() => router.push('/finances/assets')} />
           <Btn label="Shares" variant="secondary" onPress={() => router.push('/finances/shares')} />
           <Btn label="Crypto" variant="secondary" onPress={() => router.push('/finances/crypto')} />
+          <Btn label="Metals" variant="secondary" onPress={() => router.push('/finances/metals')} />
           <Btn label="Collectibles" variant="secondary" onPress={() => router.push('/finances/collectibles')} />
         </View>
       </View>

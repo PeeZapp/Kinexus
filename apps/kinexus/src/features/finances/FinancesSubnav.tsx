@@ -8,6 +8,7 @@ const TABS = [
   { href: '/finances/assets' as Href, label: 'Assets', match: (p: string) => p.startsWith('/finances/assets') },
   { href: '/finances/shares' as Href, label: 'Shares', match: (p: string) => p.startsWith('/finances/shares') },
   { href: '/finances/crypto' as Href, label: 'Crypto', match: (p: string) => p.startsWith('/finances/crypto') },
+  { href: '/finances/metals' as Href, label: 'Metals', match: (p: string) => p.startsWith('/finances/metals') },
   {
     href: '/finances/collectibles' as Href,
     label: 'Collectibles',

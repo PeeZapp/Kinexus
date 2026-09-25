@@ -18,6 +18,10 @@ export type {
   FinanceCollectible,
   FinanceCryptoHolding,
   FinanceCryptoQuote,
+  FinanceMetalHolding,
+  FinanceMetalQuote,
+  MetalKind,
+  MetalUnit,
   FinanceGroupKind,
   FinanceHolderKind,
   FinanceKindGroup,
@@ -29,7 +33,7 @@ export type {
   FinanceShareQuote,
 } from './types';
 
-export { ASSET_KINDS, LIABILITY_KINDS, BUDGET_CADENCES, BUDGET_TXN_SOURCES } from './types';
+export { ASSET_KINDS, LIABILITY_KINDS, BUDGET_CADENCES, BUDGET_TXN_SOURCES, METAL_KINDS, METAL_UNITS } from './types';
 
 export {
   accountClass,
@@ -45,6 +49,7 @@ export {
   withCollectibles,
   withCrypto,
   withListedShares,
+  withMetals,
 } from './accounts';
 
 export {
@@ -56,9 +61,11 @@ export {
 export {
   collectibleConditionLabel,
   collectibleHoldingValue,
+  collectibleHoldingCost,
   collectibleKindLabel,
   collectibleSourceLabel,
   collectiblesTotal,
+  collectiblesCost,
   convertQuotedMoney,
   convertSearchHit,
   groupCollectibles,
@@ -194,6 +201,30 @@ export {
 } from './crypto';
 export { parseShareImport } from './share-import';
 export type { ImportedShareHolding, ShareImportResult } from './share-import';
+export type { MetalValueBasis } from './metals';
+export {
+  applyMetalQuotes,
+  convertMetalCostPerUnit,
+  convertMetalWeight,
+  isMetalKind,
+  isMetalUnit,
+  metalHoldingCost,
+  metalHoldingMarketValue,
+  metalHoldingQuantity,
+  metalHoldingSizeLabel,
+  metalKindLabel,
+  metalPortfolioTotals,
+  metalPremiumLabel,
+  metalPremiumMultiplier,
+  metalSpotPerUnit,
+  parseMetalPremium,
+  parseMetalQuantity,
+  metalUnitLabel,
+  metalUnitLongLabel,
+  parseMetalWeight,
+  weightToTroyOunces,
+  yahooMetalTicker,
+} from './metals';
 export {
   merchantKey,
   parseBankStatement,

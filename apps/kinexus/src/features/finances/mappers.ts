@@ -6,6 +6,8 @@ import {
   isCollectibleKind,
   isCollectibleSource,
   isFinanceAccountKind,
+  isMetalKind,
+  isMetalUnit,
   normalizeAnchorMonth,
   normalizeBudgetCadence,
   normalizeAsxSymbol,
@@ -16,6 +18,7 @@ import {
   type FinanceBudgetTxn,
   type FinanceCollectible,
   type FinanceCryptoHolding,
+  type FinanceMetalHolding,
   type FinanceShareHolding,
   type FinanceSharePortfolio,
 } from '@kinexus/domain';
@@ -27,6 +30,7 @@ type TxnRow = Database['public']['Tables']['finance_budget_txns']['Row'];
 type PortfolioRow = Database['public']['Tables']['finance_share_portfolios']['Row'];
 type HoldingRow = Database['public']['Tables']['finance_share_holdings']['Row'];
 type CryptoHoldingRow = Database['public']['Tables']['finance_crypto_holdings']['Row'];
+type MetalHoldingRow = Database['public']['Tables']['finance_metal_holdings']['Row'];
 type CollectibleRow = Database['public']['Tables']['finance_collectibles']['Row'];
 
 function asNum(value: unknown): number {
@@ -142,6 +146,25 @@ export function cryptoHoldingFromRow(row: CryptoHoldingRow): FinanceCryptoHoldin
     name: row.name,
     units: Math.max(0, asNum(row.units)),
     costPerUnit: asNullableNum(row.cost_per_unit),
+    lastPrice: asNullableNum(row.last_price),
+    pricedAt: row.priced_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function metalHoldingFromRow(row: MetalHoldingRow): FinanceMetalHolding {
+  return {
+    id: row.id,
+    householdId: row.household_id,
+    createdBy: row.created_by,
+    metal: isMetalKind(row.metal) ? row.metal : 'gold',
+    name: row.name,
+    weight: Math.max(0, asNum(row.weight)),
+    unit: isMetalUnit(row.unit) ? row.unit : 'oz',
+    quantity: Math.max(1, Math.floor(asNum(row.quantity) || 1)),
+    costPerUnit: asNullableNum(row.cost_per_unit),
+    premiumPercent: asNum(row.premium_percent),
     lastPrice: asNullableNum(row.last_price),
     pricedAt: row.priced_at,
     createdAt: row.created_at,

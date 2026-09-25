@@ -9,7 +9,7 @@ import { scrapeProductUrl } from './scrape/product.js';
 import { fetchReaderDocument } from './scrape/reader.js';
 import { fetchArchiveFrameHtml } from './scrape/archive-frame.js';
 import { lookupCollectible, parseCollectibleKind, searchCollectibles } from './scrape/collectibles.js';
-import { scrapeRecipeUrl } from './scrape/index.js';
+import { scrapeRecipeSource } from './scrape/recipe-source.js';
 import { lookupWatchlistTitle, resolveWatchlistUrl, searchWatchlistTitles } from './watchlist.js';
 import type { RecipeDraft } from './recipe-draft.js';
 
@@ -34,7 +34,7 @@ export async function handleScrape(body: ScrapeRequestBody) {
     return { status: 400 as const, body: { error: 'A valid http/https URL is required' } };
   }
   try {
-    const result = await scrapeRecipeUrl(url);
+    const result = await scrapeRecipeSource(url);
     return { status: 200 as const, body: result };
   } catch (err) {
     return scrapeError(err, 'Try pasting the recipe text instead.');

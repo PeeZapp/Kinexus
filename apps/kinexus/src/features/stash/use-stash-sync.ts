@@ -10,8 +10,10 @@ import {
   normalizeListEmoji,
   normalizeListShare,
   normalizeListTheme,
+  detailStatusForSave,
   parseMoney,
   roundMoney,
+  titleFromSourceUrl,
   type SavedLink,
   type SavedLinkCollection,
   type SavedLinkStatus,
@@ -173,6 +175,7 @@ export type ProductDraft = {
   isOwned?: boolean;
   listId?: string | null;
   priceSource?: 'manual' | 'scraped';
+  detailStatus?: 'ready' | 'pending';
 };
 
 export type PriceRefreshResult = {
@@ -528,11 +531,13 @@ export function useStashSync() {
       if (!title) throw new Error('Give the item a name');
       const currentPrice = parseMoney(draft.currentPrice);
       const originalPrice = parseMoney(draft.originalPrice);
+      const sourceUrl = draft.sourceUrl?.trim() ?? '';
+      const detailStatus = draft.detailStatus ?? detailStatusForSave(sourceUrl, currentPrice);
       const row: Database['public']['Tables']['stash_products']['Insert'] = {
         household_id: householdId,
         created_by: userId,
         title,
-        source_url: draft.sourceUrl?.trim() ?? '',
+        source_url: sourceUrl,
         current_price: currentPrice,
         original_price: originalPrice,
         is_on_sale: isSale(currentPrice, originalPrice),
@@ -542,7 +547,9 @@ export function useStashSync() {
         sku: draft.sku?.trim() || null,
         notes: draft.notes?.trim() || null,
         is_owned: Boolean(draft.isOwned),
-        price_source: draft.priceSource ?? (draft.sourceUrl?.trim() ? 'scraped' : 'manual'),
+        price_source: draft.priceSource ?? (sourceUrl ? 'scraped' : 'manual'),
+        detail_status: detailStatus,
+        detail_attempts: 0,
       };
       const { data, error } = await supabase.from('stash_products').insert(row).select('*').single();
       if (error) throw error;
@@ -586,6 +593,16 @@ export function useStashSync() {
       if (draft.notes !== undefined) patch.notes = draft.notes.trim() || null;
       if (draft.isOwned !== undefined) patch.is_owned = draft.isOwned;
       if (draft.priceSource !== undefined) patch.price_source = draft.priceSource;
+      if (draft.detailStatus !== undefined) {
+        patch.detail_status = draft.detailStatus;
+        if (draft.detailStatus === 'ready') patch.detail_attempts = 0;
+      } else if (currentPrice !== undefined) {
+        const product = products.find((item) => item.id === id);
+        const sourceUrl = draft.sourceUrl !== undefined ? draft.sourceUrl.trim() : product?.sourceUrl ?? '';
+        const nextStatus = detailStatusForSave(sourceUrl, currentPrice);
+        patch.detail_status = nextStatus;
+        if (nextStatus === 'ready') patch.detail_attempts = 0;
+      }
       const { error } = await supabase.from('stash_products').update(patch).eq('id', id);
       if (error) throw error;
       await queryClient.invalidateQueries({ queryKey: productsKey(householdId) });
@@ -605,9 +622,26 @@ export function useStashSync() {
   );
 
   const scrapeProduct = useCallback(async (url: string) => {
-    const result = await scrapeStashProduct(url.trim());
-    if (result.source === 'blocked') throw new Error('That site blocked the lookup. Fill the details in yourself.');
-    return result.product;
+    const trimmed = url.trim();
+    const fallback = {
+      title: titleFromSourceUrl(trimmed),
+      description: null,
+      imageUrl: null,
+      storeName: null,
+      currentPrice: null,
+      originalPrice: null,
+      sku: null,
+    };
+    try {
+      const result = await scrapeStashProduct(trimmed);
+      if (result.source === 'blocked') return fallback;
+      return {
+        ...result.product,
+        title: result.product.title || fallback.title,
+      };
+    } catch {
+      return fallback;
+    }
   }, []);
 
   const refreshProductFromUrl = useCallback(
@@ -631,7 +665,8 @@ export function useStashSync() {
         storeName: scraped.storeName ?? product.storeName ?? undefined,
         description: scraped.description ?? product.description ?? undefined,
         sku: scraped.sku ?? product.sku ?? undefined,
-        priceSource: 'scraped',
+        priceSource: scraped.currentPrice != null ? 'scraped' : product.priceSource ?? undefined,
+        detailStatus: scraped.currentPrice != null || product.currentPrice != null ? 'ready' : 'pending',
       });
 
       const priceChanged = newPrice != null && oldPrice != null && newPrice !== oldPrice;

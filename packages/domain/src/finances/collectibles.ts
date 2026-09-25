@@ -208,8 +208,18 @@ export function collectibleHoldingValue(item: Pick<FinanceCollectible, 'marketVa
   return roundMoney(collectibleUnitValue(item) * qty);
 }
 
+export function collectibleHoldingCost(item: Pick<FinanceCollectible, 'purchasedValue' | 'quantity'>): number {
+  if (item.purchasedValue == null) return 0;
+  const qty = Number.isFinite(item.quantity) && item.quantity > 0 ? Math.floor(item.quantity) : 1;
+  return roundMoney(Math.max(0, item.purchasedValue) * qty);
+}
+
 export function collectiblesTotal(items: readonly FinanceCollectible[]): number {
   return roundMoney(items.reduce((sum, item) => sum + collectibleHoldingValue(item), 0));
+}
+
+export function collectiblesCost(items: readonly FinanceCollectible[]): number {
+  return roundMoney(items.reduce((sum, item) => sum + collectibleHoldingCost(item), 0));
 }
 
 export function groupCollectibles(items: readonly FinanceCollectible[]): CollectibleKindGroup[] {

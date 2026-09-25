@@ -31,6 +31,7 @@
     { "source": "/ai", "destination": "/api?__path=/ai" },
     { "source": "/prices/estimate", "destination": "/api?__path=/prices/estimate" },
     { "source": "/prices/refresh", "destination": "/api?__path=/prices/refresh" },
+    { "source": "/stash/enrich", "destination": "/api?__path=/stash/enrich" },
     { "source": "/quotes", "destination": "/api?__path=/quotes" },
     { "source": "/collectibles/search", "destination": "/api?__path=/collectibles/search" },
     { "source": "/collectibles/lookup", "destination": "/api?__path=/collectibles/lookup" },
@@ -56,6 +57,10 @@
     {
       "path": "/api/prices/refresh",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/stash/enrich",
+      "schedule": "0 19 * * *"
     }
   ]
 }

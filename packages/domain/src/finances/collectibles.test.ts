@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   collectibleHoldingValue,
+  collectiblesCost,
   collectiblesTotal,
   convertQuotedMoney,
   looksLikeLegoSetNumber,
@@ -62,6 +63,11 @@ describe('collectibles', () => {
     ];
     expect(collectibleHoldingValue(items[1]!)).toBe(690.4);
     expect(collectiblesTotal(items)).toBe(1790.4);
+    const priced = [
+      item({ id: 'a', name: 'Falcon', kind: 'lego', marketValue: 1100, quantity: 1, purchasedValue: 800 }),
+      item({ id: 'b', name: 'Charizard', kind: 'trading_card', marketValue: 345.2, quantity: 2, purchasedValue: 200 }),
+    ];
+    expect(collectiblesCost(priced)).toBe(1200);
   });
 
   it('parses BrickEconomy search rows and set pricing', () => {

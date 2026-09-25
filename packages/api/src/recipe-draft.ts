@@ -84,15 +84,15 @@ export function normalizeRecipeDraft(raw: Record<string, unknown>): RecipeDraft 
     .filter((slot) => SLOT_KEYS.has(slot));
 
   return {
-    name: asString(raw.name) ?? 'Imported recipe',
+    name: presentLabel(asString(raw.name), /^(unknown(\s+recipe)?|n\/a|none)$/i) ?? 'Imported recipe',
     emoji: asString(raw.emoji) ?? '🍽️',
-    cuisine: asString(raw.cuisine),
-    cookTime: asNumber(raw.cookTime ?? raw.cook_time),
-    servings: asNumber(raw.servings),
-    calories: asNumber(raw.calories),
-    protein: asNumber(raw.protein),
-    carbs: asNumber(raw.carbs),
-    fat: asNumber(raw.fat),
+    cuisine: presentLabel(asString(raw.cuisine), /^unknown$/i),
+    cookTime: positiveNumber(asNumber(raw.cookTime ?? raw.cook_time)),
+    servings: positiveNumber(asNumber(raw.servings)),
+    calories: positiveNumber(asNumber(raw.calories)),
+    protein: positiveNumber(asNumber(raw.protein)),
+    carbs: positiveNumber(asNumber(raw.carbs)),
+    fat: positiveNumber(asNumber(raw.fat)),
     vegetarian: asBool(raw.vegetarian),
     ingredients,
     method,
@@ -100,6 +100,15 @@ export function normalizeRecipeDraft(raw: Record<string, unknown>): RecipeDraft 
     mealSlots: mealSlots.length ? mealSlots : ['dinner'],
     imageUrl: asString(raw.imageUrl ?? raw.image_url),
   };
+}
+
+function presentLabel(value: string | undefined, placeholder: RegExp): string | undefined {
+  if (!value || placeholder.test(value.trim())) return undefined;
+  return value;
+}
+
+function positiveNumber(value: number | undefined): number | undefined {
+  return value != null && value > 0 ? value : undefined;
 }
 
 export function parseJsonObject(text: string): Record<string, unknown> {

@@ -11,6 +11,7 @@ import {
   withCollectibles,
   withCrypto,
   withListedShares,
+  withMetals,
 } from './accounts';
 import type { FinanceAccount } from './types';
 
@@ -61,8 +62,14 @@ describe('finance accounts', () => {
     const withCoins = withCrypto(withShares, 5_000);
     expect(withCoins.assets).toBe(837_000);
     expect(withCoins.groups.some((group) => group.kind === 'crypto')).toBe(true);
-    const withToys = withCollectibles(withCoins, 1_790.4);
-    expect(withToys.assets).toBe(838_790.4);
+    const withBullion = withMetals(withCoins, 8_000);
+    expect(withBullion.assets).toBe(845_000);
+    expect(withBullion.groups.some((group) => group.kind === 'metals')).toBe(true);
+    const withToys = withCollectibles(withBullion, 1_790.4);
+    expect(withToys.assets).toBe(846_790.4);
     expect(withToys.groups.some((group) => group.kind === 'collectibles')).toBe(true);
+    const kinds = withToys.groups.map((group) => group.kind);
+    expect(kinds.indexOf('metals')).toBeGreaterThan(kinds.indexOf('crypto'));
+    expect(kinds.indexOf('collectibles')).toBeGreaterThan(kinds.indexOf('metals'));
   });
 });

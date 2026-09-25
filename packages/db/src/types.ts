@@ -638,6 +638,9 @@ export type Database = {
           description: string | null;
           sku: string | null;
           price_source: 'manual' | 'scraped' | null;
+          detail_status: 'ready' | 'pending';
+          detail_attempts: number;
+          detail_checked_on: string | null;
           is_owned: boolean;
           notes: string | null;
           created_at: string;
@@ -657,6 +660,9 @@ export type Database = {
           description?: string | null;
           sku?: string | null;
           price_source?: 'manual' | 'scraped' | null;
+          detail_status?: 'ready' | 'pending';
+          detail_attempts?: number;
+          detail_checked_on?: string | null;
           is_owned?: boolean;
           notes?: string | null;
           created_at?: string;
@@ -673,6 +679,9 @@ export type Database = {
           description?: string | null;
           sku?: string | null;
           price_source?: 'manual' | 'scraped' | null;
+          detail_status?: 'ready' | 'pending';
+          detail_attempts?: number;
+          detail_checked_on?: string | null;
           is_owned?: boolean;
           notes?: string | null;
         };
@@ -1310,6 +1319,52 @@ export type Database = {
           name?: string | null;
           units?: number;
           cost_per_unit?: number | null;
+          last_price?: number | null;
+          priced_at?: string | null;
+        };
+        Relationships: [];
+      };
+      finance_metal_holdings: {
+        Row: {
+          id: string;
+          household_id: string;
+          created_by: string | null;
+          metal: 'gold' | 'silver' | 'platinum' | 'palladium';
+          name: string | null;
+          weight: number;
+          unit: 'oz' | 'g' | 'kg';
+          quantity: number;
+          cost_per_unit: number | null;
+          premium_percent: number;
+          last_price: number | null;
+          priced_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          household_id: string;
+          created_by?: string | null;
+          metal: 'gold' | 'silver' | 'platinum' | 'palladium';
+          name?: string | null;
+          weight?: number;
+          unit?: 'oz' | 'g' | 'kg';
+          quantity?: number;
+          cost_per_unit?: number | null;
+          premium_percent?: number;
+          last_price?: number | null;
+          priced_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          metal?: 'gold' | 'silver' | 'platinum' | 'palladium';
+          name?: string | null;
+          weight?: number;
+          unit?: 'oz' | 'g' | 'kg';
+          quantity?: number;
+          cost_per_unit?: number | null;
+          premium_percent?: number;
           last_price?: number | null;
           priced_at?: string | null;
         };

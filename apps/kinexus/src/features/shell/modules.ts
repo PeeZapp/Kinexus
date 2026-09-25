@@ -67,6 +67,7 @@ export function titleFromPath(pathname: string): string {
   if (pathname.startsWith('/finances/assets')) return 'Assets';
   if (pathname.startsWith('/finances/shares')) return 'Shares';
   if (pathname.startsWith('/finances/crypto')) return 'Crypto';
+  if (pathname.startsWith('/finances/metals')) return 'Metals';
   if (pathname.startsWith('/finances/collectibles')) return 'Collectibles';
   if (pathname.startsWith('/finances/dashboard')) return 'Dashboard';
   if (pathname === '/finances' || pathname.startsWith('/finances/budget')) return 'Budget';

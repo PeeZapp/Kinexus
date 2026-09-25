@@ -1,12 +1,17 @@
 import {
   asFiniteMoney,
   convertQuotedMoney,
+  isMetalKind,
+  metalKindLabel,
   normalizeAsxSymbol,
   normalizeCryptoSymbol,
   yahooAsxSymbol,
   yahooCryptoSymbol,
+  yahooMetalTicker,
   type FinanceCryptoQuote,
+  type FinanceMetalQuote,
   type FinanceShareQuote,
+  type MetalKind,
 } from '@kinexus/domain';
 
 const MAX_SYMBOLS = 30;
@@ -83,6 +88,31 @@ async function fetchYahooChart(symbol: string): Promise<FinanceShareQuote | null
   return parseYahooChart(symbol, body);
 }
 
+export function parseYahooMetalChart(
+  metal: MetalKind,
+  raw: unknown,
+  preferredCurrency: string,
+): FinanceMetalQuote | null {
+  const meta = chartMeta(raw as YahooChart);
+  if (!meta) return null;
+  const price = asFiniteMoney(meta.regularMarketPrice ?? meta.previousClose);
+  if (price == null) return null;
+  const quotedCurrency =
+    typeof meta.currency === 'string' && meta.currency ? meta.currency.toUpperCase() : 'USD';
+  return {
+    metal,
+    price: convertQuotedMoney(price, quotedCurrency, preferredCurrency),
+    currency: preferredCurrency,
+    name: metalKindLabel(metal),
+  };
+}
+
+async function fetchYahooMetal(metal: MetalKind, currency: string): Promise<FinanceMetalQuote | null> {
+  const preferred = (currency || 'AUD').toUpperCase();
+  const body = await fetchYahooRaw(yahooMetalTicker(metal));
+  return parseYahooMetalChart(metal, body, preferred);
+}
+
 async function fetchYahooCrypto(
   symbol: string,
   currency: string,
@@ -147,6 +177,38 @@ export async function handleCryptoQuotes(body: { symbols?: unknown; currency?: u
       else missing.push(symbol);
     } catch {
       missing.push(symbol);
+    }
+  }
+
+  return {
+    status: 200 as const,
+    body: { quotes, missing },
+  };
+}
+
+export async function handleMetalQuotes(body: { metals?: unknown; currency?: unknown }) {
+  const raw = Array.isArray(body.metals) ? body.metals : [];
+  const metals = [
+    ...new Set(raw.map((item) => (typeof item === 'string' ? item.trim().toLowerCase() : '')).filter(isMetalKind)),
+  ];
+  const currency =
+    typeof body.currency === 'string' && body.currency.trim() ? body.currency.trim().toUpperCase() : 'AUD';
+  if (metals.length === 0) {
+    return { status: 400 as const, body: { error: 'Pass metals such as gold or silver' } };
+  }
+  if (metals.length > MAX_SYMBOLS) {
+    return { status: 400 as const, body: { error: `Ask for at most ${MAX_SYMBOLS} metals at a time` } };
+  }
+
+  const quotes: FinanceMetalQuote[] = [];
+  const missing: string[] = [];
+  for (const metal of metals) {
+    try {
+      const quote = await fetchYahooMetal(metal, currency);
+      if (quote) quotes.push(quote);
+      else missing.push(metal);
+    } catch {
+      missing.push(metal);
     }
   }
 

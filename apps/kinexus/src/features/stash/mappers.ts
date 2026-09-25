@@ -8,6 +8,7 @@ import {
   type SavedLinkPriority,
   type SavedLinkStatus,
   type SavedLinkType,
+  type StashDetailStatus,
   type StashList,
   type StashListItem,
   type StashListKind,
@@ -25,6 +26,7 @@ type CollectionRow = Database['public']['Tables']['stash_link_collections']['Row
 type LinkRow = Database['public']['Tables']['stash_links']['Row'];
 
 const PRICE_SOURCES = new Set<StashPriceSource>(['manual', 'scraped']);
+const DETAIL_STATUSES = new Set<StashDetailStatus>(['ready', 'pending']);
 const VISIBILITIES = new Set<StashListVisibility>(['household', 'private', 'people']);
 const LIST_KINDS = new Set<StashListKind>(['checklist', 'wishlist']);
 const LINK_TYPES = new Set<SavedLinkType>(['recipe', 'video', 'article', 'tool', 'place', 'product', 'other']);
@@ -52,6 +54,8 @@ export function productFromRow(row: ProductRow): StashProduct {
     description: row.description,
     sku: row.sku,
     priceSource: row.price_source && PRICE_SOURCES.has(row.price_source) ? row.price_source : null,
+    detailStatus: DETAIL_STATUSES.has(row.detail_status) ? row.detail_status : 'ready',
+    detailAttempts: row.detail_attempts ?? 0,
     isOwned: row.is_owned,
     notes: row.notes,
     createdAt: row.created_at,

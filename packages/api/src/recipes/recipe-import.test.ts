@@ -6,10 +6,15 @@ import { RECIPE_NOT_FOUND_MESSAGE, normalizeRecipeUrl } from '@kinexus/domain';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { assertPublicHttpUrl, fetchPublicHtml, SsrfError } from '../scrape/index.js';
+import { scrapeRecipeSource } from '../scrape/recipe-source.js';
 import { extractJsonLdRecipe } from './extract-jsonld.js';
 import { extractMicrodataRecipe } from './extract-microdata.js';
 import { fetchVideoMetadata, videoMetadataToText, videoTextIsUsable } from './extract-video.js';
-import { parseFacebookCrawlerHtml } from './adapters/facebook-comments.js';
+import {
+  facebookCaptionFileToText,
+  facebookCaptionTrackUrl,
+  parseFacebookCrawlerHtml,
+} from './adapters/facebook-comments.js';
 import { handleCreateRecipeImport } from './handlers.js';
 import { processRecipeImport } from './pipeline.js';
 import { resetRecipeImportRateLimit } from './rate-limit.js';
@@ -115,6 +120,68 @@ describe('facebook adapter fixtures', () => {
     expect(meta?.extraText).not.toMatch(/Lemon Basil Tuna/i);
     expect(videoTextIsUsable(meta!, videoMetadataToText(meta!))).toBe(true);
   });
+
+  it('reads auto-generated captions and ignores recipes from related videos', async () => {
+    const track = 'https://scontent-syd2-1.xx.fbcdn.net/v/t39/captions.srt?oh=1';
+    const mobile = `<!DOCTYPE html>
+      <title>Spicy peanut noodles | Hayden Quinn | Facebook</title>
+      <meta property="og:description" content="How good is peanut butter! And these quick and easy spicy noodles are just the spot for it!!" />
+      <link rel="alternate" type="application/json+oembed" title="How good is peanut butter! Spicy noodles | Hayden Quinn | Facebook" />`;
+    const crawler = `<!DOCTYPE html>
+      <script type="application/json">{"captions_url":"https:\\/\\/scontent-syd2-1.xx.fbcdn.net\\/v\\/t39\\/captions.srt?oh=1","message":{"text":"How good is peanut butter spicy noodles"}}</script>
+      <script type="application/json">{"play_count":87040,"savable_title":{"text":"Pumpkin Lasagne RECIPE 1/2 medium Kent Pumpkin 1 brown onion 6 tbs butter 1/2 cup plain flour 4 cups milk Preheat and bake until browned."}}</script>`;
+    const srt = `1
+00:00:00,000 --> 00:00:03,000
+Add peanut butter chili oil
+garlic soy sauce rice vinegar
+
+2
+00:00:03,000 --> 00:00:06,000
+mix in cooked noodles and top with an egg yolk`;
+    const meta = await fetchVideoMetadata('facebook', 'https://www.facebook.com/share/r/19kyDovGs3', {
+      lookup: publicLookup,
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.startsWith(track)) return new Response(srt, { status: 200, headers: { 'content-type': 'text/srt' } });
+        if (url.startsWith('https://www.facebook.com')) return htmlResponse(crawler);
+        return htmlResponse(mobile);
+      },
+    });
+    expect(meta?.captions).toContain('peanut butter chili oil');
+    expect(meta?.captions).toContain('egg yolk');
+    expect(meta?.extraText ?? '').not.toMatch(/Pumpkin Lasagne/i);
+    expect(videoMetadataToText(meta!)).toContain('Captions:');
+    expect(videoTextIsUsable(meta!, videoMetadataToText(meta!))).toBe(true);
+  });
+
+  it('feeds Facebook speech captions into household /scrape instead of the page chrome', async () => {
+    const track = 'https://scontent-syd2-1.xx.fbcdn.net/v/t39/captions.srt?oh=1';
+    const result = await scrapeRecipeSource('https://www.facebook.com/share/r/19kyDovGs3/', {
+      lookup: publicLookup,
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.startsWith(track)) {
+          return new Response(
+            '1\n00:00:00,000 --> 00:00:04,000\nAdd peanut butter chili oil garlic soy sauce and noodles then top with an egg yolk',
+            { status: 200, headers: { 'content-type': 'text/srt' } },
+          );
+        }
+        if (url.startsWith('https://www.facebook.com')) {
+          return htmlResponse(
+            `<script type="application/json">{"captions_url":"https:\\/\\/scontent-syd2-1.xx.fbcdn.net\\/v\\/t39\\/captions.srt?oh=1"}</script>`,
+          );
+        }
+        return htmlResponse(
+          `<!DOCTYPE html><meta property="og:description" content="How good is peanut butter! And these quick and easy spicy noodles are just the spot for it!!" />`,
+        );
+      },
+    });
+    expect(result.source).toBe('text');
+    if (result.source === 'text') {
+      expect(result.content).toContain('peanut butter chili oil');
+      expect(result.content).not.toMatch(/Unknown Recipe/i);
+    }
+  });
 });
 
 describe('facebook crawler comments', () => {
@@ -126,6 +193,27 @@ describe('facebook crawler comments', () => {
     expect(parsed.linkedUrls).toEqual(['https://food.example/pots-de-creme']);
     expect(parsed.extraText).toContain('printable recipe');
     expect(parsed.extraText).not.toMatch(/Lemon Basil Tuna/i);
+  });
+
+  it('drops other videos from the related-reels section and reads the caption file', () => {
+    const html = `${facebookCrawlerHtml}
+      <script type="application/json">{"play_count":1,"savable_title":{"text":"Simple Pork Rissoles 500g pork mince 1 egg 1 tbs fennel seeds Preheat and bake."}}</script>`;
+    const parsed = parseFacebookCrawlerHtml(html, 'Chocolate Orange Pots de Crème');
+    expect(parsed.linkedUrls).toEqual(['https://food.example/pots-de-creme']);
+    expect(parsed.extraText ?? '').not.toMatch(/Pork Rissoles/i);
+    expect(
+      facebookCaptionTrackUrl(
+        `<script>{"video_home_www_related_videos_section":true,"captions_url":"https:\\/\\/scontent.xx.fbcdn.net\\/other.srt"}</script>
+         <script>{"captions_url":"https:\\/\\/evil.example\\/caption.srt"}</script>
+         <script>{"captions_url":"https:\\/\\/scontent-syd2-1.xx.fbcdn.net\\/v\\/captions.srt?oh=1"}</script>`,
+      ),
+    ).toBe('https://scontent-syd2-1.xx.fbcdn.net/v/captions.srt?oh=1');
+    expect(
+      facebookCaptionFileToText(`WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+Add peanut butter chili oil and soy sauce`),
+    ).toBe('Add peanut butter chili oil and soy sauce');
   });
 });
 

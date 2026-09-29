@@ -1,6 +1,6 @@
 import { budgetCategoryOptions, isWatchlistMediaType, normalizeCountryCode, type BudgetCategoryOption, type FinanceBudgetLineKind } from '@kinexus/domain';
 
-import { extractRecipeFromText, extractRecipeFromUrlHint } from './ai/extract.js';
+import { extractRecipeFromText, extractRecipeFromUrlHint, generateRecipeFromName } from './ai/extract.js';
 import { estimateRecipeNutritionWithAi } from './ai/nutrition.js';
 import { classifyBudgetMerchantsWithAi, type BudgetClassifyMerchant } from './ai/classify-budget.js';
 import { createAiClient } from './ai/provider.js';
@@ -13,7 +13,7 @@ import { scrapeRecipeSource } from './scrape/recipe-source.js';
 import { lookupWatchlistTitle, resolveWatchlistUrl, searchWatchlistTitles } from './watchlist.js';
 import type { RecipeDraft } from './recipe-draft.js';
 
-export type AiTask = 'extract_recipe' | 'extract_recipe_from_url' | 'estimate_recipe_nutrition';
+export type AiTask = 'extract_recipe' | 'extract_recipe_from_url' | 'generate_recipe_from_name' | 'estimate_recipe_nutrition';
 
 export type AiRequestBody = {
   task?: string;
@@ -112,8 +112,13 @@ export async function handleAi(body: AiRequestBody): Promise<{
     | { error: string };
 }> {
   const task = body.task;
-  if (task !== 'extract_recipe' && task !== 'extract_recipe_from_url' && task !== 'estimate_recipe_nutrition') {
-    return { status: 400, body: { error: 'task must be extract_recipe, extract_recipe_from_url, or estimate_recipe_nutrition' } };
+  if (
+    task !== 'extract_recipe' &&
+    task !== 'extract_recipe_from_url' &&
+    task !== 'generate_recipe_from_name' &&
+    task !== 'estimate_recipe_nutrition'
+  ) {
+    return { status: 400, body: { error: 'task must be extract_recipe, extract_recipe_from_url, generate_recipe_from_name, or estimate_recipe_nutrition' } };
   }
 
   try {
@@ -123,6 +128,13 @@ export async function handleAi(body: AiRequestBody): Promise<{
       if (content.length < 20) return { status: 400, body: { error: 'Paste more of the recipe text' } };
       if (content.length > 20_000) return { status: 400, body: { error: 'Recipe text is too long' } };
       const recipe = await extractRecipeFromText(client, content);
+      return { status: 200, body: { recipe, provider: client.provider } };
+    }
+    if (task === 'generate_recipe_from_name') {
+      const name = body.name?.trim() ?? '';
+      if (name.length < 2) return { status: 400, body: { error: 'Enter the dish name' } };
+      if (name.length > 80) return { status: 400, body: { error: 'That dish name is too long' } };
+      const recipe = await generateRecipeFromName(client, name);
       return { status: 200, body: { recipe, provider: client.provider } };
     }
     if (task === 'estimate_recipe_nutrition') {
@@ -142,12 +154,39 @@ export async function handleAi(body: AiRequestBody): Promise<{
     }
     const url = body.url?.trim() ?? '';
     if (!url) return { status: 400, body: { error: 'url is required' } };
+    if (isSocialVideoUrl(url)) {
+      return {
+        status: 422,
+        body: { error: 'That video doesn’t include a recipe we can read. Paste the recipe text instead.' },
+      };
+    }
     const recipe = await extractRecipeFromUrlHint(client, url);
     return { status: 200, body: { recipe, provider: client.provider } };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'AI request failed';
     if (message.includes('is not set')) return { status: 503, body: { error: 'AI provider is not configured' } };
     return { status: 500, body: { error: message.slice(0, 300) } };
+  }
+}
+
+function isSocialVideoUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./i, '').toLowerCase();
+    return (
+      host === 'youtu.be' ||
+      host === 'tiktok.com' ||
+      host.endsWith('.tiktok.com') ||
+      host === 'youtube.com' ||
+      host.endsWith('.youtube.com') ||
+      host === 'instagram.com' ||
+      host.endsWith('.instagram.com') ||
+      host === 'facebook.com' ||
+      host.endsWith('.facebook.com') ||
+      host === 'fb.watch' ||
+      host === 'fb.com'
+    );
+  } catch {
+    return false;
   }
 }
 

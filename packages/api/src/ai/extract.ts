@@ -28,6 +28,19 @@ export async function extractRecipeFromText(client: AiClient, content: string): 
   return normalizeRecipeDraft(parseJsonObject(text));
 }
 
+export async function generateRecipeFromName(client: AiClient, name: string): Promise<RecipeDraft> {
+  const text = await client.complete({
+    json: true,
+    prompt: `Write a practical home-cook recipe for this dish: ${name}
+
+The user could not import an original recipe and asked for one created from the dish name.
+Use common quantities and clear steps. Do not claim this came from a specific website, creator, or video.
+
+${RECIPE_JSON_SCHEMA}`,
+  });
+  return normalizeRecipeDraft(parseJsonObject(text));
+}
+
 export async function extractRecipeFromUrlHint(client: AiClient, url: string): Promise<RecipeDraft> {
   const text = await client.complete({
     json: true,

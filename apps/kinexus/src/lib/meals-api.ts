@@ -23,9 +23,20 @@ export type ImportedRecipe = {
 export type ScrapeResponse =
   | { source: 'json-ld'; recipe: ImportedRecipe }
   | { source: 'text'; content: string }
-  | { source: 'blocked'; blocked: true };
+  | { source: 'blocked'; blocked: true }
+  | { source: 'not-found'; url: string; recipeUrl: string; dishName?: string };
 
-export type ImportSource = 'json-ld' | 'text-scraped' | 'blocked-ai' | 'text-paste';
+export type ImportSource = 'json-ld' | 'text-scraped' | 'blocked-ai' | 'text-paste' | 'generated-name';
+
+export type MissingRecipe = {
+  url: string;
+  recipeUrl: string;
+  dishName: string;
+};
+
+export type ImportResult =
+  | { recipe: ImportedRecipe; source: ImportSource }
+  | { source: 'not-found'; missing: MissingRecipe };
 
 function configuredUrl(): string {
   return process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
@@ -71,11 +82,6 @@ export async function extractRecipeFromText(content: string): Promise<ImportedRe
   return data.recipe;
 }
 
-export async function extractRecipeFromUrlHint(url: string): Promise<ImportedRecipe> {
-  const data = await post<{ recipe: ImportedRecipe }>('/ai', { task: 'extract_recipe_from_url', url });
-  return data.recipe;
-}
-
 export async function estimateRecipeNutritionFromApi(input: {
   name?: string;
   servings?: number;
@@ -99,13 +105,27 @@ export async function refreshRecipePrices(householdId?: string): Promise<{
   return post('/prices/refresh', { householdId });
 }
 
-export async function importRecipeFromUrl(url: string): Promise<{ recipe: ImportedRecipe; source: ImportSource }> {
+export async function generateRecipeFromName(name: string): Promise<ImportedRecipe> {
+  const data = await post<{ recipe: ImportedRecipe }>('/ai', { task: 'generate_recipe_from_name', name });
+  return data.recipe;
+}
+
+export async function importRecipeFromUrl(url: string): Promise<ImportResult> {
   const scraped = await scrapeRecipe(url);
   if (scraped.source === 'json-ld') return { recipe: scraped.recipe, source: 'json-ld' };
   if (scraped.source === 'text') {
     const recipe = await extractRecipeFromText(scraped.content);
     return { recipe, source: 'text-scraped' };
   }
-  const recipe = await extractRecipeFromUrlHint(url);
-  return { recipe, source: 'blocked-ai' };
+  if (scraped.source === 'not-found') {
+    return {
+      source: 'not-found',
+      missing: {
+        url: scraped.url,
+        recipeUrl: scraped.recipeUrl || scraped.url,
+        dishName: scraped.dishName ?? '',
+      },
+    };
+  }
+  return { source: 'not-found', missing: { url, recipeUrl: url, dishName: '' } };
 }

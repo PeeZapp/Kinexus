@@ -121,6 +121,7 @@ export function CookRouteScreen() {
           errorCode={job.errorCode}
           hint={retryError ?? job.errorMessage}
           onRetry={() => void retry()}
+          sourceUrl={job.canonicalUrl || job.inputUrl}
         />
       </CookChrome>
     );
@@ -129,7 +130,7 @@ export function CookRouteScreen() {
   if (job?.status === 'succeeded' && !jobRecipe) {
     return (
       <CookChrome title="Cook" showInstall={false}>
-        <CookError errorCode="extraction_failed" hint={job.errorMessage} onRetry={() => void retry()} />
+        <CookError errorCode="extraction_failed" hint={job.errorMessage} sourceUrl={job.canonicalUrl || job.inputUrl} onRetry={() => void retry()} />
       </CookChrome>
     );
   }

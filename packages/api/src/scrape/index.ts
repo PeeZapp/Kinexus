@@ -8,7 +8,8 @@ export { scrapeTransportStatus } from './hardened-fetch.js';
 export type ScrapeResult =
   | { source: 'json-ld'; recipe: RecipeDraft }
   | { source: 'text'; content: string }
-  | { source: 'blocked'; blocked: true };
+  | { source: 'blocked'; blocked: true }
+  | { source: 'not-found'; url: string; recipeUrl: string; dishName?: string };
 
 export type FetchPublicHtmlOptions = HardenedFetchOptions;
 

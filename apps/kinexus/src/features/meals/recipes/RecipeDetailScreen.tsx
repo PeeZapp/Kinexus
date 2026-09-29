@@ -16,6 +16,7 @@ import { fetchRecipeById, useMealsSync } from '@/src/features/meals/use-meals-sy
 import { LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
+import { isLinkOnlyRecipe, openRecipeLink } from '@/src/features/meals/recipes/link-recipe';
 
 export function RecipeDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string | string[] }>();
@@ -94,6 +95,16 @@ export function RecipeDetailScreen() {
       <Text style={[styles.title, desktop && styles.titleDesktop]}>
         {recipe.name}
       </Text>
+      {isLinkOnlyRecipe(recipe) && recipe.sourceUrl ? (
+        <Card>
+          <Text style={styles.heading}>Full recipe not found</Text>
+          <BodyText>It can be viewed at this link.</BodyText>
+          <Pressable onPress={() => openRecipeLink(recipe.sourceUrl)}>
+            <Text style={styles.back}>{recipe.sourceUrl}</Text>
+          </Pressable>
+          <Btn label="Open recipe link" onPress={() => openRecipeLink(recipe.sourceUrl)} />
+        </Card>
+      ) : null}
       {householdOwned && recipe.replacesSource ? (
         <Text style={styles.hiddenHint}>Your household version of this recipe.</Text>
       ) : householdVersion ? (

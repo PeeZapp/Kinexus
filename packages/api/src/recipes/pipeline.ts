@@ -9,6 +9,7 @@ import { fetchPublicHtml, stripHtml, type FetchPublicHtmlOptions } from '../scra
 import { RecipeImportFailure, failureFromUnknown, notARecipeFailure } from './errors.js';
 import { extractJsonLdRecipe } from './extract-jsonld.js';
 import { extractMicrodataRecipe } from './extract-microdata.js';
+import { extractProvechoRecipe } from './extract-provecho.js';
 import { fetchVideoMetadata, videoMetadataToText, videoTextIsUsable } from './extract-video.js';
 import { logRecipeImport } from './log.js';
 import type { ExtractedRecipeCore } from './parse.js';
@@ -139,7 +140,8 @@ async function runVideoImport(
   }
 
   if (!videoTextIsUsable(meta, text)) {
-    if (!meta.description && !meta.captions && !meta.extraText) {
+    const sawVideo = Boolean(meta.description || meta.captions || meta.extraText || (meta.title && meta.title.length >= 12));
+    if (!sawVideo) {
       throw new RecipeImportFailure(
         'video_no_transcript',
         'That link isn’t supported yet. Paste the recipe text, or try a recipe page or a public YouTube, TikTok, Instagram, or Facebook video.',
@@ -193,6 +195,10 @@ async function extractRecipeFromHtml(
   runtime: RecipeImportRuntime,
   allowLlm: boolean,
 ): Promise<HtmlExtract> {
+  const provecho = extractProvechoRecipe(html);
+  if (provecho && isCompleteCleanRecipe(provecho)) {
+    return { ok: true, core: provecho, method: 'json-ld' };
+  }
   const jsonLd = extractJsonLdRecipe(html);
   if (jsonLd && isCompleteCleanRecipe(jsonLd)) {
     return { ok: true, core: jsonLd, method: 'json-ld' };

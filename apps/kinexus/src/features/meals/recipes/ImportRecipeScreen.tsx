@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { type MealSlotKey, type Recipe } from '@kinexus/domain';
 
@@ -7,16 +7,19 @@ import { recipeHref } from '@/src/features/meals/recipe-href';
 import { ImportDesktop } from '@/src/features/meals/recipes/ImportDesktop';
 import { ImportMobile } from '@/src/features/meals/recipes/ImportMobile';
 import type { ImportFormState } from '@/src/features/meals/recipes/ImportShared';
+import { LINK_ONLY_NOTE } from '@/src/features/meals/recipes/link-recipe';
 import { applyNutrition, draftFromForm, EMPTY_RECIPE_FORM, ingredientRowsFrom, methodRowsFrom, patchRecipeForm } from '@/src/features/meals/recipes/recipe-form';
 import { resolveRecipeNutrition } from '@/src/features/meals/recipes/resolve-nutrition';
 import { useMealsSync } from '@/src/features/meals/use-meals-sync';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import {
   extractRecipeFromText,
+  generateRecipeFromName,
   importRecipeFromUrl,
   isMealsApiConfigured,
   type ImportSource,
   type ImportedRecipe,
+  type MissingRecipe,
 } from '@/src/lib/meals-api';
 
 const SLOT_KEYS = new Set<string>([
@@ -33,11 +36,14 @@ export function ImportRecipeScreen() {
   const router = useRouter();
   const { mode } = useExperienceMode();
   const meals = useMealsSync();
+  const params = useLocalSearchParams<{ url?: string | string[]; fallback?: string | string[] }>();
+  const openedFallback = useRef(false);
   const [tab, setTab] = useState<'url' | 'text'>('url');
   const [paste, setPaste] = useState('');
   const [form, setFormState] = useState<ImportFormState>(EMPTY_RECIPE_FORM);
   const [phase, setPhase] = useState<'idle' | 'fetching' | 'extracting'>('idle');
   const [source, setSource] = useState<ImportSource | null>(null);
+  const [missing, setMissing] = useState<MissingRecipe | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -66,6 +72,7 @@ export function ImportRecipeScreen() {
       slots: slots.length ? slots : ['dinner'],
     }));
     setSource(nextSource);
+    setMissing(null);
   }
 
   async function onExtract() {
@@ -96,6 +103,12 @@ export function ImportRecipeScreen() {
       }
       setPhase('fetching');
       const result = await importRecipeFromUrl(url);
+      if (result.source === 'not-found') {
+        setSource(null);
+        setMissing(result.missing);
+        setForm({ url: result.missing.recipeUrl, name: result.missing.dishName });
+        return;
+      }
       if (result.source !== 'json-ld') setPhase('extracting');
       applyDraft(result.recipe, result.source, url);
     } catch (err) {
@@ -104,6 +117,62 @@ export function ImportRecipeScreen() {
       setPhase('idle');
     }
   }
+
+  async function onGenerateFromName() {
+    const name = missing?.dishName.trim() ?? '';
+    if (name.length < 2) {
+      setError('Enter the dish name.');
+      return;
+    }
+    setError(null);
+    setPhase('extracting');
+    try {
+      const recipe = await generateRecipeFromName(name);
+      applyDraft(recipe, 'generated-name', missing?.recipeUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not generate that recipe');
+    } finally {
+      setPhase('idle');
+    }
+  }
+
+  async function onSaveLink() {
+    if (!missing) return;
+    if (!meals.online) {
+      setError(meals.importBlockedReason);
+      return;
+    }
+    const name = missing.dishName.trim() || 'Linked recipe';
+    setBusy(true);
+    setError(null);
+    try {
+      const saved = await meals.saveHouseholdRecipe({
+        name,
+        emoji: '🔗',
+        ingredients: [],
+        method: [],
+        mealSlots: ['dinner'],
+        notes: LINK_ONLY_NOTE,
+        sourceUrl: missing.recipeUrl,
+        excludedFromAuto: true,
+      });
+      router.push(recipeHref(saved.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save that link');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (openedFallback.current) return;
+    const fallback = Array.isArray(params.fallback) ? params.fallback[0] : params.fallback;
+    const url = Array.isArray(params.url) ? params.url[0] : params.url;
+    if (fallback !== '1' || !url) return;
+    openedFallback.current = true;
+    setForm({ url });
+    setMissing({ url, recipeUrl: url, dishName: '' });
+  }, [params.fallback, params.url]);
 
   async function onSave() {
     if (!meals.online) {
@@ -118,6 +187,11 @@ export function ImportRecipeScreen() {
     setError(null);
     try {
       const draft: Omit<Recipe, 'id' | 'householdId'> = draftFromForm(form);
+      if ((draft.ingredients ?? []).length === 0) {
+        const saved = await meals.saveHouseholdRecipe(draft);
+        router.push(recipeHref(saved.id));
+        return;
+      }
       const estimate = await resolveRecipeNutrition({
         name: draft.name,
         ingredients: draft.ingredients ?? [],
@@ -152,6 +226,10 @@ export function ImportRecipeScreen() {
     setForm,
     phase,
     source,
+    missing,
+    onDishName: (dishName) => setMissing((current) => (current ? { ...current, dishName } : current)),
+    onGenerateFromName: () => void onGenerateFromName(),
+    onSaveLink: () => void onSaveLink(),
     error,
     blockedReason: meals.importBlockedReason,
     busy,

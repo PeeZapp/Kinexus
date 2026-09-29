@@ -35,9 +35,21 @@ export function videoMetadataToText(meta: VideoMetadata): string {
     .join('\n\n');
 }
 
-/** Enough public text to try LLM structuring. Title-only is not enough (do not invent). */
-export function videoTextIsUsable(meta: VideoMetadata, text: string): boolean {
-  if (meta.linkedUrls?.length) return true;
-  const body = [meta.description, meta.captions, meta.extraText].filter(Boolean).join('\n');
-  return body.trim().length >= MIN_TEXT || text.trim().length >= MIN_TEXT + 20;
+/** Enough public text to try LLM structuring. A dish name or "recipe in bio" is not a recipe. */
+export function videoTextIsUsable(meta: VideoMetadata, _text: string): boolean {
+  return uniqueVideoBody(meta).length >= MIN_TEXT;
+}
+
+function uniqueVideoBody(meta: VideoMetadata): string {
+  const parts = [meta.description, meta.captions, meta.extraText, meta.title]
+    .map((part) => part?.replace(/\s+/g, ' ').trim())
+    .filter((part): part is string => Boolean(part));
+  const unique: string[] = [];
+  for (const part of parts) {
+    if (unique.some((existing) => existing === part || existing.includes(part))) continue;
+    const covered = unique.findIndex((existing) => part.includes(existing));
+    if (covered >= 0) unique.splice(covered, 1);
+    unique.push(part);
+  }
+  return unique.join('\n');
 }

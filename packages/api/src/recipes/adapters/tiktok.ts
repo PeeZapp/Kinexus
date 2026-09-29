@@ -1,4 +1,10 @@
 import type { FetchPublicHtmlOptions } from '../../scrape/index.js';
+import {
+  extractOutboundRecipeUrls,
+  findCrosspostedRecipeUrl,
+  findProvechoRecipeUrl,
+  isRecipeTeaser,
+} from './recipe-links.js';
 import { extractJsonObject, fetchOembedJson, fetchOgTags, type VideoMetadata } from './shared.js';
 
 export async function fetchTiktokMetadata(
@@ -17,21 +23,12 @@ export async function fetchTiktokMetadata(
       },
     }));
 
-  if (oembed?.title && oembed.title.trim().length >= 40) {
-    const title = oembed.title.replace(/\s+/g, ' ').trim();
-    return {
-      title,
-      description: title,
-      authorName: oembed.author_name,
-      thumbnailUrl: oembed.thumbnail_url,
-      captions: title,
-      siteName: 'TikTok',
-      hasCaptions: true,
-    };
-  }
-
-  const page = await fetchOgTags(canonicalUrl, options);
-  const embedded = page?.html && !isChallengeHtml(page.html) ? parseTiktokEmbedded(page.html) : null;
+  const page =
+    oembed?.title && oembed.title.trim().length >= 40 && !isRecipeTeaser(oembed.title)
+      ? null
+      : await fetchOgTags(canonicalUrl, options);
+  const videoId = canonicalUrl.match(/\/video\/(\d+)/)?.[1] ?? '';
+  const embedded = page?.html && !isChallengeHtml(page.html) ? parseTiktokEmbedded(page.html, videoId) : null;
   const description =
     embedded?.description ||
     (page && !isChallengeHtml(page.html) ? page.description : undefined) ||
@@ -45,22 +42,37 @@ export async function fetchTiktokMetadata(
     .replace(/\s+/g, ' ')
     .trim();
   if (!description && !oembed && !embedded) return null;
+  const linkedUrls = await recipeLinks(canonicalUrl, description, options);
   return {
     title,
     description,
     authorName: oembed?.author_name ?? embedded?.authorName,
     thumbnailUrl: oembed?.thumbnail_url || page?.image || embedded?.thumbnailUrl,
     captions: description,
+    linkedUrls: linkedUrls.length ? linkedUrls : undefined,
     siteName: 'TikTok',
-    hasCaptions: Boolean(description && description.length > 40),
+    hasCaptions: Boolean(description && description.length > 40 && !isRecipeTeaser(description)),
   };
+}
+
+async function recipeLinks(
+  canonicalUrl: string,
+  description: string | undefined,
+  options: FetchPublicHtmlOptions,
+): Promise<string[]> {
+  const direct = extractOutboundRecipeUrls(description);
+  if (direct.length || !isRecipeTeaser(description)) return direct;
+  const provecho = await findProvechoRecipeUrl(canonicalUrl, description ?? '', options);
+  if (provecho) return [provecho];
+  const crosspost = await findCrosspostedRecipeUrl(description ?? '', options);
+  return crosspost ? [crosspost] : [];
 }
 
 export function isChallengeHtml(html: string): boolean {
   return /wafchallengeid|slardarClient|slardar_us_waf/i.test(html) && html.length < 12_000;
 }
 
-function parseTiktokEmbedded(html: string): {
+function parseTiktokEmbedded(html: string, videoId: string): {
   title?: string;
   description?: string;
   authorName?: string;
@@ -77,7 +89,7 @@ function parseTiktokEmbedded(html: string): {
   const itemModule = asRecord(sigi?.ItemModule);
   const fromSigi = itemModule ? asRecord(itemModule[firstKey(itemModule)]) : null;
 
-  const rec = asRecord(fromUniversal) ?? fromSigi;
+  const rec = matchingItem(fromUniversal, itemModule, videoId) ?? (videoId ? null : fromSigi);
   if (!rec) return null;
   const desc = asString(rec.desc);
   const author = asRecord(rec.author);
@@ -88,6 +100,17 @@ function parseTiktokEmbedded(html: string): {
     authorName: asString(author?.nickname) ?? asString(author?.uniqueId),
     thumbnailUrl: asString(video?.cover) ?? asString(video?.originCover),
   };
+}
+
+function matchingItem(
+  universal: unknown,
+  itemModule: Record<string, unknown> | null,
+  videoId: string,
+): Record<string, unknown> | null {
+  const universalRec = asRecord(universal);
+  if (universalRec && (!videoId || String(universalRec.id ?? '') === videoId)) return universalRec;
+  if (videoId && itemModule?.[videoId]) return asRecord(itemModule[videoId]);
+  return null;
 }
 
 function parseScriptId(html: string, id: string): Record<string, unknown> | null {

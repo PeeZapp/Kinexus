@@ -8,7 +8,8 @@ import { Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
 import { Chip } from '@/src/features/meals/meals-kit';
 import { IngredientEditor, MethodEditor } from '@/src/features/meals/recipes/recipe-editors';
 import type { RecipeFormState } from '@/src/features/meals/recipes/recipe-form';
-import type { ImportSource } from '@/src/lib/meals-api';
+import type { ImportSource, MissingRecipe } from '@/src/lib/meals-api';
+import { openRecipeLink } from '@/src/features/meals/recipes/link-recipe';
 import { colors, space } from '@/src/features/shell/theme';
 
 export type { RecipeFormState };
@@ -26,6 +27,10 @@ export type ImportRecipeViewProps = {
   setForm: (patch: Partial<ImportFormState>) => void;
   phase: 'idle' | 'fetching' | 'extracting';
   source: ImportSource | null;
+  missing: MissingRecipe | null;
+  onDishName: (name: string) => void;
+  onGenerateFromName: () => void;
+  onSaveLink: () => void;
   error: string | null;
   blockedReason: string | null;
   busy: boolean;
@@ -49,6 +54,10 @@ const SOURCE_COPY: Record<ImportSource, { title: string; body: string }> = {
   'text-paste': {
     title: 'Extracted from your text',
     body: 'AI structured what you pasted. Edit anything that looks off.',
+  },
+  'generated-name': {
+    title: 'Generated from the dish name',
+    body: 'This is a new home recipe for the name you entered, not the original page.',
   },
 };
 
@@ -79,7 +88,7 @@ export function ImportExtractCard(props: ImportRecipeViewProps) {
       )}
       <Text style={styles.hint}>
         {props.tab === 'url'
-          ? 'We try structured data first, then AI. If the site blocks us, AI reconstructs from the URL.'
+          ? 'We read the page when we can. If the full recipe isn’t there, you can name the dish or save the link.'
           : 'Paste anything — a site, a message, notes. AI will structure it into the form.'}
       </Text>
       {!props.apiReady ? (
@@ -109,7 +118,38 @@ export function ImportExtractCard(props: ImportRecipeViewProps) {
           <Text style={styles.hint}>{SOURCE_COPY[props.source].body}</Text>
         </View>
       ) : null}
+      {props.missing ? <MissingRecipeCard {...props} /> : null}
     </Card>
+  );
+}
+
+function MissingRecipeCard(props: ImportRecipeViewProps) {
+  const missing = props.missing;
+  if (!missing) return null;
+  const loading = props.phase !== 'idle';
+  return (
+    <View style={styles.missing}>
+      <Text style={styles.sourceTitle}>Unable to find the recipe</Text>
+      <Text style={styles.hint}>We couldn’t read a full recipe from that link.</Text>
+      <Text style={styles.hint}>Full recipe not found, but it can be viewed at this link.</Text>
+      <Pressable onPress={() => openRecipeLink(missing.recipeUrl)}>
+        <Text style={styles.link}>{missing.recipeUrl}</Text>
+      </Pressable>
+      <Btn label="Open link" variant="secondary" onPress={() => openRecipeLink(missing.recipeUrl)} />
+      <Btn label="Save link to my recipes" variant="secondary" disabled={!props.online || props.busy || loading} busy={props.busy} onPress={props.onSaveLink} />
+      <Field
+        label="Or name the dish"
+        value={missing.dishName}
+        onChangeText={props.onDishName}
+        placeholder="Steak alfredo"
+      />
+      <Btn
+        label={loading ? 'Generating recipe…' : 'Generate recipe from this name'}
+        disabled={!props.online || !props.apiReady || loading || missing.dishName.trim().length < 2}
+        busy={loading}
+        onPress={props.onGenerateFromName}
+      />
+    </View>
   );
 }
 
@@ -255,4 +295,6 @@ const styles = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   cols: { flexDirection: 'row', gap: 16, alignItems: 'flex-start' },
   stack: { gap: 12 },
+  missing: { gap: 8, marginTop: 4 },
+  link: { color: colors.accent, fontSize: 13, lineHeight: 18 },
 });

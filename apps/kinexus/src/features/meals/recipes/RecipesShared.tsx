@@ -17,6 +17,7 @@ import {
   type RecipeSort,
   type SortDir,
 } from '@/src/features/meals/recipes/filters';
+import { isLinkOnlyRecipe } from '@/src/features/meals/recipes/link-recipe';
 import {
   getRecipesListScrollY,
   setRecipesListScrollY,
@@ -24,6 +25,7 @@ import {
 import { colors, radius, space } from '@/src/features/shell/theme';
 
 function recipeLibraryTag(recipe: Recipe) {
+  if (isLinkOnlyRecipe(recipe)) return 'Link only';
   if (!recipe.householdId) return 'Catalog';
   if (recipe.replacesSource) return 'Your version';
   return 'Household';
@@ -186,8 +188,10 @@ export function RecipeCard({
           {recipe.name}
         </Text>
         <Text style={styles.meta}>
-          {recipe.calories ?? '—'} kcal · {recipe.protein ?? '—'}g
-          {formatCostPerServe(recipe.cost) ? ` · ${formatCostPerServe(recipe.cost)}` : ''}
+          {isLinkOnlyRecipe(recipe)
+            ? 'Full recipe not found'
+            : `${recipe.calories ?? '—'} kcal · ${recipe.protein ?? '—'}g`}
+          {!isLinkOnlyRecipe(recipe) && formatCostPerServe(recipe.cost) ? ` · ${formatCostPerServe(recipe.cost)}` : ''}
           {favourite ? ' · ♥' : ''}
         </Text>
         <Text style={styles.tag}>{recipeLibraryTag(recipe)}</Text>
@@ -217,8 +221,10 @@ export function RecipeRow({
           {recipe.name}
         </Text>
         <Text style={styles.meta}>
-          {recipe.calories ?? '—'} kcal · {recipe.protein ?? '—'}g protein
-          {formatCostPerServe(recipe.cost) ? ` · ${formatCostPerServe(recipe.cost)}` : ''}
+          {isLinkOnlyRecipe(recipe)
+            ? 'Full recipe not found'
+            : `${recipe.calories ?? '—'} kcal · ${recipe.protein ?? '—'}g protein`}
+          {!isLinkOnlyRecipe(recipe) && formatCostPerServe(recipe.cost) ? ` · ${formatCostPerServe(recipe.cost)}` : ''}
           {favourite ? ' · ♥' : ''}
           {` · ${recipeLibraryTag(recipe)}`}
           {recipe.excludedFromAuto ? ' · Not for family' : ''}

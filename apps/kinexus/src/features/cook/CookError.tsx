@@ -10,6 +10,7 @@ import {
   type RecipeImportUserError,
 } from '@kinexus/domain';
 
+import { openSourceUrl } from '@/src/features/cook/open-source';
 import { Btn } from '@/src/features/household/ui';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
@@ -22,17 +23,22 @@ const TONE: Record<RecipeImportUserError, { border: string; bg: string; kicker: 
 export function CookError({
   errorCode,
   hint,
+  sourceUrl,
   onRetry,
 }: {
   errorCode?: RecipeImportErrorCode | string | null;
   hint?: string | null;
+  sourceUrl?: string | null;
   onRetry: () => void;
 }) {
   const router = useRouter();
   const bucket = userErrorFromCode(errorCode);
   const tone = TONE[bucket];
-  const title = RECIPE_IMPORT_ERROR_TITLE[bucket];
-  const body = RECIPE_IMPORT_ERROR_BODY[bucket];
+  const missing = bucket === 'not_a_recipe' || errorCode === 'video_no_transcript';
+  const title = missing ? 'Unable to find the recipe' : RECIPE_IMPORT_ERROR_TITLE[bucket];
+  const body = missing
+    ? 'We couldn’t read a full recipe from that link.'
+    : RECIPE_IMPORT_ERROR_BODY[bucket];
 
   return (
     <View style={styles.root}>
@@ -42,11 +48,28 @@ export function CookError({
         {hint && hint !== body && hint !== title ? <Text style={styles.hint}>{hint}</Text> : null}
       </View>
       <Btn label="Try again" onPress={onRetry} />
-      <Btn
-        label="Paste recipe text instead"
-        variant="secondary"
-        onPress={() => router.push('/meals/recipes/import' as Href)}
-      />
+      {missing && sourceUrl ? (
+        <>
+          <Text style={styles.hint}>Full recipe not found, but it can be viewed at this link.</Text>
+          <Btn label="Open link" variant="secondary" onPress={() => openSourceUrl(sourceUrl)} />
+          <Btn
+            label="Name the dish or save the link"
+            variant="secondary"
+            onPress={() =>
+              router.push({
+                pathname: '/meals/recipes/import',
+                params: { url: sourceUrl, fallback: '1' },
+              } as Href)
+            }
+          />
+        </>
+      ) : (
+        <Btn
+          label="Paste recipe text instead"
+          variant="secondary"
+          onPress={() => router.push('/meals/recipes/import' as Href)}
+        />
+      )}
       <Btn label="Different link" variant="ghost" onPress={() => router.replace('/import' as Href)} />
     </View>
   );

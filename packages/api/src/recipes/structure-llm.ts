@@ -111,13 +111,50 @@ async function tryClient(client: AiClient, content: string, kind: 'web' | 'video
       return { ok: false, reason: 'not_a_recipe', provider: client.provider };
     }
     const core = coreFromLlm(parsed);
-    if (!core || !isCompleteCleanRecipe(core)) {
+    if (!core || !isCompleteCleanRecipe(core) || (kind === 'video' && !recipeIsGrounded(content, core))) {
       return { ok: false, reason: 'not_a_recipe', provider: client.provider };
     }
     return { ok: true, core, provider: client.provider };
   } catch {
     return { ok: false, reason: 'extraction_failed', provider: client.provider };
   }
+}
+
+const GROUNDING_STOPWORDS = new Set([
+  'with',
+  'and',
+  'the',
+  'for',
+  'from',
+  'recipe',
+  'recipes',
+  'video',
+  'bio',
+  'link',
+  'this',
+  'that',
+  'your',
+  'into',
+  'onto',
+  'over',
+]);
+
+/** A video extraction must be about the captioned dish, and its ingredients must appear in the source. */
+export function recipeIsGrounded(source: string, core: { title: string; ingredients: { name: string }[] }): boolean {
+  const haystack = source.toLowerCase();
+  const titleWords = significantWords(core.title);
+  if (titleWords.length > 0 && !titleWords.some((word) => haystack.includes(word))) return false;
+  const names = core.ingredients.map((line) => line.name.trim()).filter(Boolean);
+  if (!names.length) return false;
+  const grounded = names.filter((name) => significantWords(name).some((word) => haystack.includes(word)));
+  return grounded.length >= Math.min(2, names.length) && grounded.length * 2 >= names.length;
+}
+
+function significantWords(value: string): string[] {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length >= 4 && !GROUNDING_STOPWORDS.has(word));
 }
 
 function coreFromLlm(raw: Record<string, unknown>): ExtractedRecipeCore | null {

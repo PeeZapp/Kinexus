@@ -118,7 +118,7 @@ describe('facebook adapter fixtures', () => {
     expect(meta?.linkedUrls).toEqual(['https://food.example/pots-de-creme']);
     expect(meta?.extraText).toContain('food.example/pots-de-creme');
     expect(meta?.extraText).not.toMatch(/Lemon Basil Tuna/i);
-    expect(videoTextIsUsable(meta!, videoMetadataToText(meta!))).toBe(true);
+    expect(videoTextIsUsable(meta!, videoMetadataToText(meta!))).toBe(false);
   });
 
   it('reads auto-generated captions and ignores recipes from related videos', async () => {

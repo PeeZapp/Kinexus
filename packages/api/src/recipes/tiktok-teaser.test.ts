@@ -206,6 +206,21 @@ describe('tiktok recipe targeting', () => {
     expect(result.recipeUrl).toContain('7657597245906373901');
     expect(dishNameFromCaption('Steak Alfredo:) recipe in bio!')).toBe('Steak Alfredo');
   });
+
+  it('still extracts a caption that already contains the recipe', async () => {
+    const caption =
+      'Garlic noodles! 200g noodles, 3 tbsp butter, 4 garlic cloves. Boil the noodles. Melt the butter, toast the garlic, and toss.';
+    const result = await scrapeRecipeSource('https://www.tiktok.com/@cook/video/7123456789012345678', {
+      lookup: publicLookup,
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.includes('oembed')) return json({ title: caption, author_name: 'home.cook' });
+        return html('<html></html>');
+      },
+    });
+    expect(result.source).toBe('text');
+    if (result.source === 'text') expect(result.content).toContain('200g noodles');
+  });
 });
 
 describe('provecho page decode', () => {

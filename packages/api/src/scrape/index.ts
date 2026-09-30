@@ -140,24 +140,37 @@ function mapJsonLdToRecipe(ld: Record<string, unknown>): RecipeDraft {
 
 export async function scrapeRecipeUrl(url: string, options: FetchPublicHtmlOptions = {}): Promise<ScrapeResult> {
   const response = await fetchPublicHtml(url, options);
+  const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
+  const html = (await response.text()).slice(0, 2_000_000);
+  const looksLikeHtml = contentType.includes('text/html') || contentType.includes('xml') || /^\s*</.test(html);
 
-  if ([401, 402, 403, 429].includes(response.status)) {
-    return { blocked: true, source: 'blocked' };
-  }
   if (!response.ok) {
+    if (looksLikeHtml) {
+      const fromPage = recipeFromHtml(html);
+      if (fromPage) return fromPage;
+    }
+    if ([401, 402, 403, 429].includes(response.status)) {
+      return { blocked: true, source: 'blocked' };
+    }
     throw Object.assign(new Error(`Could not fetch that URL (HTTP ${response.status})`), { status: 422 });
   }
 
-  const contentType = response.headers.get('content-type') ?? '';
-  if (!contentType.includes('text/html')) {
+  if (!looksLikeHtml) {
     throw Object.assign(new Error('URL does not appear to be a webpage'), { status: 422 });
   }
 
-  const html = (await response.text()).slice(0, 2_000_000);
+  return recipeFromHtml(html) ?? { content: pageText(html), source: 'text' };
+}
+
+function recipeFromHtml(html: string): ScrapeResult | null {
   const jsonLd = extractJsonLdRecipe(html);
   if (jsonLd) return { recipe: mapJsonLdToRecipe(jsonLd), source: 'json-ld' };
+  const text = pageText(html);
+  if (text.trim().length < 80) return null;
+  return { content: text, source: 'text' };
+}
 
+function pageText(html: string): string {
   const text = stripHtml(html);
-  const trimmed = text.length > 6000 ? `${text.slice(0, 6000)}\n[content truncated]` : text;
-  return { content: trimmed, source: 'text' };
+  return text.length > 6000 ? `${text.slice(0, 6000)}\n[content truncated]` : text;
 }

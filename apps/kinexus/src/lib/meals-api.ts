@@ -105,6 +105,11 @@ export async function refreshRecipePrices(householdId?: string): Promise<{
   return post('/prices/refresh', { householdId });
 }
 
+export async function extractRecipeFromUrlHint(url: string): Promise<ImportedRecipe> {
+  const data = await post<{ recipe: ImportedRecipe }>('/ai', { task: 'extract_recipe_from_url', url });
+  return data.recipe;
+}
+
 export async function generateRecipeFromName(name: string): Promise<ImportedRecipe> {
   const data = await post<{ recipe: ImportedRecipe }>('/ai', { task: 'generate_recipe_from_name', name });
   return data.recipe;
@@ -127,5 +132,30 @@ export async function importRecipeFromUrl(url: string): Promise<ImportResult> {
       },
     };
   }
-  return { source: 'not-found', missing: { url, recipeUrl: url, dishName: '' } };
+  if (isSocialVideoUrl(url)) {
+    return { source: 'not-found', missing: { url, recipeUrl: url, dishName: '' } };
+  }
+  const recipe = await extractRecipeFromUrlHint(url);
+  return { recipe, source: 'blocked-ai' };
+}
+
+function isSocialVideoUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./i, '').toLowerCase();
+    return (
+      host === 'youtu.be' ||
+      host === 'tiktok.com' ||
+      host.endsWith('.tiktok.com') ||
+      host === 'youtube.com' ||
+      host.endsWith('.youtube.com') ||
+      host === 'instagram.com' ||
+      host.endsWith('.instagram.com') ||
+      host === 'facebook.com' ||
+      host.endsWith('.facebook.com') ||
+      host === 'fb.watch' ||
+      host === 'fb.com'
+    );
+  } catch {
+    return false;
+  }
 }

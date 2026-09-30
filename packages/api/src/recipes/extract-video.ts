@@ -6,6 +6,7 @@ import { fetchInstagramMetadata } from './adapters/instagram.js';
 import { fetchTiktokMetadata } from './adapters/tiktok.js';
 import { fetchYoutubeMetadata } from './adapters/youtube.js';
 import type { VideoMetadata } from './adapters/shared.js';
+import { isRecipeTeaser } from './adapters/recipe-links.js';
 
 export type { VideoMetadata } from './adapters/shared.js';
 
@@ -35,9 +36,16 @@ export function videoMetadataToText(meta: VideoMetadata): string {
     .join('\n\n');
 }
 
-/** Enough public text to try LLM structuring. A dish name or "recipe in bio" is not a recipe. */
+/** Enough public text to try LLM structuring. A dish-name teaser is not a recipe. */
 export function videoTextIsUsable(meta: VideoMetadata, _text: string): boolean {
-  return uniqueVideoBody(meta).length >= MIN_TEXT;
+  const body = uniqueVideoBody(meta);
+  const teaser = isRecipeTeaser(meta.description) || isRecipeTeaser(meta.captions) || isRecipeTeaser(meta.title);
+  if (teaser && !hasRecipeAmounts(body)) return false;
+  return body.length >= MIN_TEXT || hasRecipeAmounts(body);
+}
+
+function hasRecipeAmounts(text: string): boolean {
+  return text.length >= 25 && /\d/.test(text);
 }
 
 function uniqueVideoBody(meta: VideoMetadata): string {

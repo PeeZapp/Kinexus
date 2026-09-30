@@ -11,6 +11,7 @@ import type { AiClient } from '../ai/provider.js';
 import { createAiClient } from '../ai/provider.js';
 import { parseJsonObject } from '../recipe-draft.js';
 import { createIdFactory, ingredientFromLine, type ExtractedRecipeCore } from './parse.js';
+import { isRecipeTeaser } from './adapters/recipe-links.js';
 
 const CLEAN_RECIPE_PROMPT = `You extract cookable recipes from source text. Return ONLY JSON.
 
@@ -139,15 +140,13 @@ const GROUNDING_STOPWORDS = new Set([
   'over',
 ]);
 
-/** A video extraction must be about the captioned dish, and its ingredients must appear in the source. */
+/** Reject a guessed dish when the source is only a teaser. A real caption or transcript is allowed through. */
 export function recipeIsGrounded(source: string, core: { title: string; ingredients: { name: string }[] }): boolean {
   const haystack = source.toLowerCase();
+  if (!isRecipeTeaser(source) && source.trim().length >= 80) return true;
   const titleWords = significantWords(core.title);
   if (titleWords.length > 0 && !titleWords.some((word) => haystack.includes(word))) return false;
-  const names = core.ingredients.map((line) => line.name.trim()).filter(Boolean);
-  if (!names.length) return false;
-  const grounded = names.filter((name) => significantWords(name).some((word) => haystack.includes(word)));
-  return grounded.length >= Math.min(2, names.length) && grounded.length * 2 >= names.length;
+  return true;
 }
 
 function significantWords(value: string): string[] {

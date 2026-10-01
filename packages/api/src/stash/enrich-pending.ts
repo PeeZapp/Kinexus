@@ -6,6 +6,8 @@ import { createServiceClient, isServiceRoleConfigured } from '../supabase-admin.
 import { renderScrapeBase, scrapeViaRender, warmRender, type RenderScrapedProduct } from './render-scrape.js';
 
 const MAX_PER_RUN = 25;
+/** Cold Render plus one product scrape fits under the 180s function cap. */
+const RUN_BUDGET_MS = 160_000;
 
 type PendingRow = {
   id: string;
@@ -29,18 +31,6 @@ export type EnrichResult = {
 
 function todayUtc(now = new Date()): string {
   return now.toISOString().slice(0, 10);
-}
-
-function continueEnrich(step: number): void {
-  const secret = process.env.CRON_SECRET?.trim();
-  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
-  if (process.env.VERCEL !== '1' || !secret || !host) return;
-  const origin = host.startsWith('http') ? host.replace(/\/$/, '') : `https://${host}`;
-  void fetch(`${origin}/api/stash/enrich?phase=item&step=${step}`, {
-    headers: { Authorization: `Bearer ${secret}` },
-  }).catch(() => {
-    /* remaining rows stay pending until the next daily run */
-  });
 }
 
 async function countWaiting(admin: SupabaseClient, today: string): Promise<number> {
@@ -93,10 +83,11 @@ async function enrichOne(
   base: string,
   row: PendingRow,
   today: string,
+  timeoutMs: number,
 ): Promise<'done' | 'miss' | 'unavailable'> {
   let scraped: RenderScrapedProduct | null;
   try {
-    scraped = await scrapeViaRender(base, row.source_url);
+    scraped = await scrapeViaRender(base, row.source_url, fetch, timeoutMs);
   } catch {
     return 'unavailable';
   }
@@ -142,61 +133,32 @@ export async function handleEnrichPendingProducts(request: Request): Promise<{ s
       return { status: 200, body: { ok: true, processed: 0, remaining: 0, continued: false } };
     }
 
-    const phase = new URL(request.url).searchParams.get('phase');
-    const step = Number(new URL(request.url).searchParams.get('step') ?? '0') || 0;
-    const onVercel = process.env.VERCEL === '1';
-
-    if (onVercel && phase !== 'item') {
-      const warm = await warmRender(base);
-      continueEnrich(0);
-      if (!warm) {
-        return {
-          status: 200,
-          body: {
-            ok: false,
-            processed: 0,
-            remaining: waiting,
-            continued: true,
-            lastError: 'Render did not answer the wake-up. The price pass will try once more.',
-          },
-        };
-      }
-      return { status: 200, body: { ok: true, processed: 0, remaining: waiting, continued: true } };
-    }
-
-    if (onVercel) {
-      if (step >= MAX_PER_RUN) {
-        return { status: 200, body: { ok: true, processed: 0, remaining: waiting, continued: false } };
-      }
-      const row = await nextWaiting(admin, today);
-      if (!row) return { status: 200, body: { ok: true, processed: 0, remaining: 0, continued: false } };
-      const outcome = await enrichOne(admin, base, row, today);
-      if (outcome === 'unavailable') {
-        return {
-          status: 200,
-          body: { ok: false, processed: 0, remaining: waiting, continued: false, lastError: 'Render scrape did not finish' },
-        };
-      }
-      const remaining = Math.max(0, waiting - 1);
-      const continued = remaining > 0 && step + 1 < MAX_PER_RUN;
-      if (continued) continueEnrich(step + 1);
-      return { status: 200, body: { ok: true, processed: outcome === 'done' ? 1 : 0, remaining, continued } };
-    }
-
+    const started = Date.now();
     const warm = await warmRender(base);
     if (!warm) {
+      console.warn('[stash-enrich] Render did not wake');
       return {
         status: 200,
-        body: { ok: false, processed: 0, remaining: waiting, continued: false, lastError: 'Render did not wake' },
+        body: {
+          ok: false,
+          processed: 0,
+          remaining: waiting,
+          continued: false,
+          lastError: 'Render did not wake. Pending items stay on the list.',
+        },
       };
     }
+
     let processed = 0;
     for (let n = 0; n < MAX_PER_RUN; n += 1) {
+      const budgetLeft = RUN_BUDGET_MS - (Date.now() - started);
+      if (budgetLeft < 20_000) break;
       const row = await nextWaiting(admin, today);
       if (!row) break;
-      const outcome = await enrichOne(admin, base, row, today);
+      const outcome = await enrichOne(admin, base, row, today, Math.min(70_000, budgetLeft - 2_000));
       if (outcome === 'unavailable') {
         const remaining = await countWaiting(admin, today);
+        console.warn('[stash-enrich] scrape timed out');
         return {
           status: 200,
           body: { ok: false, processed, remaining, continued: false, lastError: 'Render scrape did not finish' },
@@ -205,6 +167,7 @@ export async function handleEnrichPendingProducts(request: Request): Promise<{ s
       if (outcome === 'done') processed += 1;
     }
     const remaining = await countWaiting(admin, today);
+    console.log(`[stash-enrich] processed=${processed} remaining=${remaining}`);
     return { status: 200, body: { ok: true, processed, remaining, continued: false } };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Wishlist detail update failed';

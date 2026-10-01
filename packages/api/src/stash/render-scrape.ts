@@ -47,11 +47,15 @@ export function productFromRenderBody(body: unknown): RenderScrapedProduct | nul
   };
 }
 
-export async function warmRender(base: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+export async function warmRender(
+  base: string,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = 75_000,
+): Promise<boolean> {
   try {
     const response = await fetchImpl(`${base}/api/warmup`, {
       method: 'POST',
-      signal: AbortSignal.timeout(55_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     return response.ok;
   } catch {
@@ -63,9 +67,10 @@ export async function scrapeViaRender(
   base: string,
   pageUrl: string,
   fetchImpl: typeof fetch = fetch,
+  timeoutMs = 70_000,
 ): Promise<RenderScrapedProduct | null> {
   const response = await fetchImpl(`${base}/api/scrape?url=${encodeURIComponent(pageUrl)}`, {
-    signal: AbortSignal.timeout(50_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) return null;

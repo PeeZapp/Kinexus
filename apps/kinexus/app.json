@@ -14,7 +14,7 @@
     "android": {
       "package": "com.peezapp.kinexus",
       "adaptiveIcon": {
-        "backgroundColor": "#0B1016",
+        "backgroundColor": "#FDF5E8",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -41,7 +41,7 @@
         {
           "image": "./assets/images/splash-icon.png",
           "resizeMode": "contain",
-          "backgroundColor": "#0B1016"
+          "backgroundColor": "#FDF5E8"
         }
       ],
       "expo-secure-store"

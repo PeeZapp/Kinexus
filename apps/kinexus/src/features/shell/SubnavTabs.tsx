@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { Link, usePathname, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+
+import { AppModal } from '@/src/features/shell/AppModal';
 
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
@@ -61,7 +63,7 @@ function MobileSectionMenu({ tabs, title }: { tabs: SubnavTab[]; title: string }
         <Text style={styles.triggerLabel}>{current?.label ?? title}</Text>
       </Pressable>
 
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+      <AppModal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setOpen(false)} accessibilityLabel="Close menu">
           <Pressable onPress={() => undefined} style={styles.card} accessibilityViewIsModal>
             <View style={styles.cardHead}>
@@ -93,7 +95,7 @@ function MobileSectionMenu({ tabs, title }: { tabs: SubnavTab[]; title: string }
             </Pressable>
           </Pressable>
         </Pressable>
-      </Modal>
+      </AppModal>
     </View>
   );
 }

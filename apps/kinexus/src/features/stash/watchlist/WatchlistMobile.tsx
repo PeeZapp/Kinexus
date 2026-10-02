@@ -1,8 +1,8 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { EmptyState } from '@/src/features/shell/states';
 import { colors, space } from '@/src/features/shell/theme';
-import { PrimaryActions, StashChrome } from '@/src/features/stash/StashShared';
+import { ListBackLink, PrimaryActions, StashChrome } from '@/src/features/stash/StashShared';
 import type { WatchlistLayoutProps } from '@/src/features/stash/watchlist/WatchlistDesktop';
 import {
   WatchlistAttribution,
@@ -51,9 +51,7 @@ export function WatchlistMobile(props: WatchlistLayoutProps) {
 
   return (
     <ScrollView style={styles.shell} contentContainerStyle={styles.shellContent}>
-      <Pressable onPress={props.onBack} accessibilityRole="button" accessibilityLabel="Back to watchlists">
-        <Text style={styles.back}>← Watchlists</Text>
-      </Pressable>
+      <ListBackLink label="Watchlists" onPress={props.onBack} />
       <View style={styles.titleRow}>
         <Text style={styles.listTitle} numberOfLines={1}>
           {props.selectedListName}
@@ -95,7 +93,6 @@ export function WatchlistMobile(props: WatchlistLayoutProps) {
 const styles = StyleSheet.create({
   shell: { flex: 1, backgroundColor: colors.bg },
   shellContent: { padding: space.md, gap: 14, paddingBottom: 48 },
-  back: { color: colors.accent, fontSize: 13, fontWeight: '700' },
   titleRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' },
   listTitle: { color: colors.text, fontSize: 20, fontWeight: '800', flexShrink: 1 },
   meta: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },

@@ -6,6 +6,9 @@ import type { SavedLink } from './types';
 function link(partial: Partial<SavedLink> & Pick<SavedLink, 'id' | 'title'>): SavedLink {
   return {
     householdId: 'h1',
+    createdBy: 'u1',
+    visibility: 'household',
+    personIds: [],
     collectionIds: [],
     url: 'https://example.com/a',
     canonicalUrl: 'https://example.com/a',

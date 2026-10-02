@@ -1,3 +1,4 @@
+import { canCreateShared, canEditShared, canSeeShared } from '../household/access';
 import type { HouseholdRole } from '../household/types';
 import type { StashList, StashListKind, StashListNode, StashListProduct, StashListVisibility, StashProduct } from './types';
 
@@ -131,15 +132,36 @@ export function canManageLists(role: HouseholdRole | null | undefined): boolean 
   return role === 'owner' || role === 'admin';
 }
 
+export function canCreateLists(role: HouseholdRole | null | undefined): boolean {
+  return canCreateShared(role);
+}
+
+function listAccess(
+  list: Pick<StashList, 'createdBy' | 'visibility' | 'personIds'>,
+  opts: { role: HouseholdRole | null; userId: string | null; personId: string | null },
+) {
+  return {
+    role: opts.role,
+    userId: opts.userId,
+    personId: opts.personId,
+    createdBy: list.createdBy,
+    visibility: list.visibility,
+    personIds: list.personIds,
+  };
+}
+
 export function canViewList(
-  list: StashList,
+  list: Pick<StashList, 'createdBy' | 'visibility' | 'personIds'>,
   opts: { role: HouseholdRole | null; userId: string | null; personId: string | null },
 ): boolean {
-  if (canManageLists(opts.role)) return true;
-  if (list.createdBy && list.createdBy === opts.userId) return true;
-  if (list.visibility === 'household') return true;
-  if (list.visibility === 'private') return false;
-  return Boolean(opts.personId && list.personIds.includes(opts.personId));
+  return canSeeShared(listAccess(list, opts));
+}
+
+export function canEditList(
+  list: Pick<StashList, 'createdBy' | 'visibility' | 'personIds'>,
+  opts: { role: HouseholdRole | null; userId: string | null; personId: string | null },
+): boolean {
+  return canEditShared(listAccess(list, opts));
 }
 
 export function listShareLabel(list: StashList, people: readonly { id: string; name: string }[]): string {

@@ -287,7 +287,7 @@ After signing in and joining a household, open **Meals**:
 - **Shopping** — generate from the current week’s plan, check-off by aisle, add extras.
 - **Recipes** — catalog + household library, favourites, detail, import from URL or pasted text (scrape + AI via the API). Each recipe shows an approximate supermarket **cost per serve** (Woolworths/Coles for Australia) that refreshes on the first of the month.
 
-Use the web **Mobile preview** toggle (when `EXPO_PUBLIC_ENABLE_MOBILE_PREVIEW=1`) to check the mobile layout on desktop. Production web must omit that flag.
+Use the web preview control (when `EXPO_PUBLIC_ENABLE_MOBILE_PREVIEW=1`) to switch between the live desktop layout, an iPad landscape frame, and a phone frame. Production web must omit that flag.
 
 ## Lists UI
 

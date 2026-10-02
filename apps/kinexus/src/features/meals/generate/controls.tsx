@@ -1,4 +1,4 @@
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CORE_SLOTS, OPTIONAL_SLOTS, MEAL_SLOTS, type MealSlotKey, type NutritionGoals } from '@kinexus/domain';
 
@@ -7,6 +7,36 @@ import { Chip } from '@/src/features/meals/meals-kit';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
 import { GOAL_PRESETS, goalsMatch } from './presets';
+
+export function WeeklyBudgetField({
+  value,
+  onChange,
+  lines,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  lines: readonly string[];
+}) {
+  return (
+    <View style={styles.block}>
+      <Text style={styles.hint}>Optional. Enter your weekly food budget here.</Text>
+      <TextInput
+        value={value}
+        onChangeText={onChange}
+        placeholder="400"
+        placeholderTextColor={colors.textDim}
+        keyboardType="decimal-pad"
+        accessibilityLabel="Weekly food budget"
+        style={styles.amount}
+      />
+      {lines.map((line) => (
+        <Text key={line} style={styles.hint}>
+          {line}
+        </Text>
+      ))}
+    </View>
+  );
+}
 
 export function SlotPicker({
   selected,
@@ -131,6 +161,18 @@ const styles = StyleSheet.create({
   block: { gap: 10 },
   label: { color: colors.text, fontSize: 18, fontWeight: '700' },
   hint: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
+  amount: {
+    alignSelf: 'flex-start',
+    width: 120,
+    backgroundColor: colors.bgElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    color: colors.text,
+    fontSize: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
   sub: { color: colors.textDim, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   goalGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },

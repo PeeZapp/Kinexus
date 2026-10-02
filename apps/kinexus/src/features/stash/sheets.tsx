@@ -41,7 +41,7 @@ function openUrl(url: string) {
   void Linking.openURL(url);
 }
 
-function SharePicker({
+export function SharePicker({
   share,
   onChange,
   people,
@@ -85,7 +85,7 @@ function SharePicker({
         )
       ) : null}
       {share.visibility === 'private' ? (
-        <Text style={styles.meta}>Only you and household admins can see this list.</Text>
+        <Text style={styles.meta}>Only you and the household owner can see this.</Text>
       ) : null}
     </View>
   );
@@ -248,6 +248,8 @@ export function ChecklistItemSheet({
   visible,
   item,
   people = [],
+  chooseList = false,
+  lists,
   onClose,
   onSave,
   onDelete,
@@ -257,8 +259,10 @@ export function ChecklistItemSheet({
   visible: boolean;
   item: StashListItem | null;
   people?: HouseholdPerson[];
+  chooseList?: boolean;
+  lists?: readonly StashList[];
   onClose: () => void;
-  onSave: (draft: ChecklistItemDraft) => Promise<void>;
+  onSave: (draft: ChecklistItemDraft, listId?: string) => Promise<void>;
   onDelete?: () => Promise<void>;
   busy?: boolean;
   error?: string | null;
@@ -271,9 +275,12 @@ export function ChecklistItemSheet({
   const [dueText, setDueText] = useState('');
   const [recurrence, setRecurrence] = useState<StashListRecurrence>('none');
   const [assignedPersonId, setAssignedPersonId] = useState<string | null>(null);
+  const [listId, setListId] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const today = todayIso();
   const presets = dueDatePresets(today);
+  const listChoices = lists ?? [];
+  const singleListId = listChoices.length === 1 ? listChoices[0].id : null;
 
   useEffect(() => {
     if (!visible) return;
@@ -285,8 +292,9 @@ export function ChecklistItemSheet({
     setDueText(item?.dueOn ?? '');
     setRecurrence(item?.recurrence ?? 'none');
     setAssignedPersonId(item?.assignedPersonId ?? null);
+    setListId(singleListId);
     setLocalError(null);
-  }, [item, visible]);
+  }, [item, singleListId, visible]);
 
   function chooseDue(next: string | null) {
     setDueOn(next);
@@ -306,8 +314,15 @@ export function ChecklistItemSheet({
       nextDue = null;
     }
     if (recurrence !== 'none' && !nextDue) nextDue = today;
+    if (chooseList && !listId) {
+      setLocalError('Choose a list for this item');
+      return;
+    }
     setLocalError(null);
-    await onSave({ title, notes, category, priority, dueOn: nextDue, recurrence, assignedPersonId });
+    await onSave(
+      { title, notes, category, priority, dueOn: nextDue, recurrence, assignedPersonId },
+      chooseList ? (listId ?? undefined) : undefined,
+    );
   }
 
   const presetMatch = presets.some((preset) => preset.dueOn === dueOn);
@@ -374,8 +389,32 @@ export function ChecklistItemSheet({
             <Pill key={entry.id} label={entry.label} active={priority === entry.id} onPress={() => setPriority(entry.id)} />
           ))}
         </View>
+        {chooseList && !item ? (
+          <>
+            <Text style={styles.label}>Add to list</Text>
+            {listChoices.length === 0 ? (
+              <Text style={styles.meta}>Create a list first, then you can add items to it.</Text>
+            ) : (
+              <View style={styles.wrap}>
+                {listChoices.map((list) => (
+                  <Pill
+                    key={list.id}
+                    label={`${normalizeListEmoji(list.emoji)} ${formatListLabel(list, listChoices)}`}
+                    active={listId === list.id}
+                    onPress={() => setListId(list.id)}
+                  />
+                ))}
+              </View>
+            )}
+          </>
+        ) : null}
         {localError || error ? <Text style={styles.error}>{localError ?? error}</Text> : null}
-        <Btn label={item ? 'Save item' : 'Add item'} onPress={() => void save()} busy={busy} disabled={!title.trim()} />
+        <Btn
+          label={item ? 'Save item' : 'Add item'}
+          onPress={() => void save()}
+          busy={busy}
+          disabled={!title.trim() || (chooseList && !item && !listId)}
+        />
         {item && dueOn !== today ? (
           <Btn
             label="Add to today"
@@ -615,6 +654,7 @@ function readyToScrape(raw: string): boolean {
 export function AddLinkSheet({
   visible,
   collections,
+  people = [],
   defaultCollectionId,
   onClose,
   onScrape,
@@ -624,6 +664,7 @@ export function AddLinkSheet({
 }: {
   visible: boolean;
   collections: SavedLinkCollection[];
+  people?: HouseholdPerson[];
   defaultCollectionId: string | null;
   onClose: () => void;
   onScrape: (url: string) => Promise<LinkDraft>;
@@ -635,6 +676,7 @@ export function AddLinkSheet({
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [collectionId, setCollectionId] = useState<string | null>(defaultCollectionId);
+  const [share, setShare] = useState<ListShareDraft>({ visibility: 'household', personIds: [] });
   const [draft, setDraft] = useState<Partial<LinkDraft>>({});
   const [scrapedForUrl, setScrapedForUrl] = useState<string | null>(null);
   const [scrapeBusy, setScrapeBusy] = useState(false);
@@ -653,6 +695,7 @@ export function AddLinkSheet({
     setTitle('');
     setNotes('');
     setCollectionId(defaultCollectionId);
+    setShare({ visibility: 'household', personIds: [] });
     setDraft({});
     setScrapedForUrl(null);
     setLocalError(null);
@@ -716,6 +759,7 @@ export function AddLinkSheet({
       linkType: next.linkType,
       notes,
       collectionId,
+      share,
     });
   }
 
@@ -772,8 +816,9 @@ export function AddLinkSheet({
             ))}
           </View>
         ) : null}
+        <SharePicker share={share} onChange={setShare} people={people} />
         {localError || error ? <Text style={styles.error}>{localError ?? error}</Text> : null}
-        <Btn label="Save link" onPress={() => void submit()} busy={busy || scrapeBusy} disabled={!url.trim()} />
+        <Btn label="Save link" onPress={() => void submit()} busy={busy || scrapeBusy} disabled={!url.trim() || (share.visibility === 'people' && share.personIds.length === 0)} />
       </View>
     </Sheet>
   );
@@ -782,6 +827,8 @@ export function AddLinkSheet({
 export function LinkSheet({
   link,
   collections,
+  people = [],
+  canEdit = true,
   onClose,
   onSave,
   onDelete,
@@ -790,8 +837,10 @@ export function LinkSheet({
 }: {
   link: SavedLink | null;
   collections: SavedLinkCollection[];
+  people?: HouseholdPerson[];
+  canEdit?: boolean;
   onClose: () => void;
-  onSave: (patch: { title?: string; notes?: string | null; status?: SavedLink['status']; linkType?: SavedLink['linkType']; collectionIds?: string[] }) => Promise<void>;
+  onSave: (patch: { title?: string; notes?: string | null; status?: SavedLink['status']; linkType?: SavedLink['linkType']; collectionIds?: string[]; share?: ListShareDraft }) => Promise<void>;
   onDelete: () => Promise<void>;
   busy?: boolean;
   error?: string | null;
@@ -799,12 +848,14 @@ export function LinkSheet({
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [collectionIds, setCollectionIds] = useState<string[]>([]);
+  const [share, setShare] = useState<ListShareDraft>({ visibility: 'household', personIds: [] });
 
   useEffect(() => {
     if (!link) return;
     setTitle(link.title);
     setNotes(link.notes ?? '');
     setCollectionIds(link.collectionIds);
+    setShare({ visibility: link.visibility, personIds: link.personIds });
   }, [link]);
 
   return (
@@ -851,8 +902,9 @@ export function LinkSheet({
               </View>
             </>
           ) : null}
+          {canEdit ? <SharePicker share={share} onChange={setShare} people={people} /> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <Btn label="Save" onPress={() => void onSave({ title, notes })} busy={busy} />
+          {canEdit ? <Btn label="Save" onPress={() => void onSave({ title, notes, share })} busy={busy} /> : null}
           <Btn label="Open link" variant="secondary" onPress={() => openUrl(link.url)} />
           <Btn
             label="Read archived"
@@ -862,7 +914,7 @@ export function LinkSheet({
               router.push({ pathname: '/lists/reader', params: { url: link.url } });
             }}
           />
-          <Btn label="Remove link" variant="danger" onPress={() => void onDelete()} />
+          {canEdit ? <Btn label="Remove link" variant="danger" onPress={() => void onDelete()} /> : null}
         </View>
       ) : null}
     </Sheet>

@@ -1,39 +1,50 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Platform, useWindowDimensions } from 'react-native';
 
-import { isStandalonePwa, resolveExperienceMode, type ExperienceMode } from '@/src/lib/pwa';
+import {
+  isStandalonePwa,
+  resolveExperienceMode,
+  type ExperienceMode,
+  type PreviewSurface,
+} from '@/src/lib/pwa';
 
-const PREVIEW_STORAGE_KEY = 'kinexus.mobilePreview';
+const PREVIEW_STORAGE_KEY = 'kinexus.previewSurface';
+const LEGACY_PREVIEW_STORAGE_KEY = 'kinexus.mobilePreview';
 
 export const isMobilePreviewEnabled =
   Platform.OS === 'web' && process.env.EXPO_PUBLIC_ENABLE_MOBILE_PREVIEW === '1';
 
-export type { ExperienceMode };
+export type { ExperienceMode, PreviewSurface };
 
 type ExperienceContextValue = {
   mode: ExperienceMode;
   isNative: boolean;
   isStandalone: boolean;
   previewEnabled: boolean;
+  previewSurface: PreviewSurface;
+  /** Phone or tablet frame on desktop. Modals stay inside the frame. */
   isPreview: boolean;
-  setPreview: (on: boolean) => void;
+  setPreview: (surface: PreviewSurface) => void;
 };
 
 const ExperienceContext = createContext<ExperienceContextValue | null>(null);
 
-function readStoredPreview(): boolean {
-  if (typeof window === 'undefined') return false;
+function readStoredPreview(): PreviewSurface {
+  if (typeof window === 'undefined') return 'desktop';
   try {
-    return window.localStorage.getItem(PREVIEW_STORAGE_KEY) === '1';
+    const stored = window.localStorage.getItem(PREVIEW_STORAGE_KEY);
+    if (stored === 'tablet' || stored === 'phone' || stored === 'desktop') return stored;
+    if (window.localStorage.getItem(LEGACY_PREVIEW_STORAGE_KEY) === '1') return 'phone';
+    return 'desktop';
   } catch {
-    return false;
+    return 'desktop';
   }
 }
 
-function writeStoredPreview(on: boolean) {
+function writeStoredPreview(surface: PreviewSurface) {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(PREVIEW_STORAGE_KEY, on ? '1' : '0');
+    window.localStorage.setItem(PREVIEW_STORAGE_KEY, surface);
   } catch {
     // Ignore quota / private-mode failures.
   }
@@ -42,12 +53,12 @@ function writeStoredPreview(on: boolean) {
 export function ExperienceProvider({ children }: { children: ReactNode }) {
   const isNative = Platform.OS === 'ios' || Platform.OS === 'android';
   const { width } = useWindowDimensions();
-  const [isPreview, setIsPreview] = useState(false);
+  const [previewSurface, setPreviewSurface] = useState<PreviewSurface>('desktop');
   const [standalone, setStandalone] = useState(false);
 
   useEffect(() => {
     if (!isMobilePreviewEnabled) return;
-    setIsPreview(readStoredPreview());
+    setPreviewSurface(readStoredPreview());
   }, []);
 
   useEffect(() => {
@@ -60,25 +71,27 @@ export function ExperienceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<ExperienceContextValue>(() => {
-    const preview = isMobilePreviewEnabled && isPreview;
+    const surface: PreviewSurface = isMobilePreviewEnabled ? previewSurface : 'desktop';
+    const framed = surface === 'phone' || surface === 'tablet';
     return {
       mode: resolveExperienceMode({
         isNative,
-        isPreview: preview,
         standalone: Platform.OS === 'web' && standalone,
         width: Platform.OS === 'web' ? width : 0,
+        preview: surface,
       }),
       isNative,
       isStandalone: standalone,
       previewEnabled: isMobilePreviewEnabled,
-      isPreview: preview,
-      setPreview: (on: boolean) => {
+      previewSurface: surface,
+      isPreview: framed,
+      setPreview: (next: PreviewSurface) => {
         if (!isMobilePreviewEnabled) return;
-        setIsPreview(on);
-        writeStoredPreview(on);
+        setPreviewSurface(next);
+        writeStoredPreview(next);
       },
     };
-  }, [isNative, isPreview, standalone, width]);
+  }, [isNative, previewSurface, standalone, width]);
 
   return <ExperienceContext.Provider value={value}>{children}</ExperienceContext.Provider>;
 }

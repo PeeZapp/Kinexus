@@ -18,7 +18,12 @@ import {
   type WatchlistVisibility,
 } from '@kinexus/domain';
 
+import type { HouseholdPerson } from '@kinexus/domain';
+import type { StashListVisibility } from '@kinexus/domain';
+
 import { Btn, Field, Pill } from '@/src/features/household/ui';
+import { SharePicker } from '@/src/features/stash/sheets';
+import type { ListShareDraft } from '@/src/features/stash/use-stash-sync';
 import { Sheet } from '@/src/features/meals/meals-kit';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { lookupWatchlistCatalog, resolveWatchlistLink, searchWatchlistCatalog } from '@/src/features/stash/watchlist-api';
@@ -26,42 +31,38 @@ import { ProviderChips, openExternal } from '@/src/features/stash/watchlist/Watc
 
 export function AddWatchlistSheet({
   visible,
-  defaultVisibility = 'household',
+  people,
   onClose,
   onSave,
   busy,
   error,
 }: {
   visible: boolean;
-  defaultVisibility?: WatchlistVisibility;
+  people: HouseholdPerson[];
   onClose: () => void;
-  onSave: (name: string, visibility: WatchlistVisibility) => Promise<void>;
+  onSave: (name: string, share: ListShareDraft) => Promise<void>;
   busy?: boolean;
   error?: string | null;
 }) {
   const [name, setName] = useState('');
-  const [visibility, setVisibility] = useState<WatchlistVisibility>(defaultVisibility);
+  const [share, setShare] = useState<ListShareDraft>({ visibility: 'household', personIds: [] });
   useEffect(() => {
     if (!visible) return;
     setName('');
-    setVisibility(defaultVisibility);
-  }, [defaultVisibility, visible]);
+    setShare({ visibility: 'household', personIds: [] });
+  }, [visible]);
   return (
     <Sheet visible={visible} title="New watchlist" onClose={onClose}>
       <View style={styles.stack}>
         <Field label="Name" value={name} onChangeText={setName} placeholder="Weekend movies, my queue…" autoCapitalize="words" />
-        <Text style={styles.label}>Who can see this</Text>
-        <View style={styles.wrap}>
-          <Pill label="Household" active={visibility === 'household'} onPress={() => setVisibility('household')} />
-          <Pill label="Personal" active={visibility === 'personal'} onPress={() => setVisibility('personal')} />
-        </View>
-        <Text style={styles.hint}>
-          {visibility === 'personal'
-            ? 'Only you can see this list. Other household members keep their own personal lists.'
-            : 'Everyone in the household can see and add to this list.'}
-        </Text>
+        <SharePicker share={share} onChange={setShare} people={people} />
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Btn label="Create list" onPress={() => void onSave(name, visibility)} busy={busy} disabled={!name.trim()} />
+        <Btn
+          label="Create list"
+          onPress={() => void onSave(name, share)}
+          busy={busy}
+          disabled={!name.trim() || (share.visibility === 'people' && share.personIds.length === 0)}
+        />
       </View>
     </Sheet>
   );
@@ -71,8 +72,9 @@ export function WatchlistSettingsSheet({
   visible,
   name,
   onNameChange,
-  visibility,
-  onVisibilityChange,
+  share,
+  onShareChange,
+  people,
   onClose,
   onSave,
   onDelete,
@@ -82,8 +84,9 @@ export function WatchlistSettingsSheet({
   visible: boolean;
   name: string;
   onNameChange: (v: string) => void;
-  visibility: WatchlistVisibility;
-  onVisibilityChange: (v: WatchlistVisibility) => void;
+  share: ListShareDraft;
+  onShareChange: (share: ListShareDraft) => void;
+  people: HouseholdPerson[];
   onClose: () => void;
   onSave: () => Promise<void>;
   onDelete?: () => Promise<void>;
@@ -94,11 +97,7 @@ export function WatchlistSettingsSheet({
     <Sheet visible={visible} title="List settings" onClose={onClose}>
       <View style={styles.stack}>
         <Field label="Name" value={name} onChangeText={onNameChange} />
-        <Text style={styles.label}>Who can see this</Text>
-        <View style={styles.wrap}>
-          <Pill label="Household" active={visibility === 'household'} onPress={() => onVisibilityChange('household')} />
-          <Pill label="Personal" active={visibility === 'personal'} onPress={() => onVisibilityChange('personal')} />
-        </View>
+        <SharePicker share={share} onChange={onShareChange} people={people} />
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Btn label="Save" onPress={() => void onSave()} busy={busy} disabled={!name.trim()} />
         {onDelete ? <Btn label="Delete list" variant="danger" onPress={() => void onDelete()} /> : null}

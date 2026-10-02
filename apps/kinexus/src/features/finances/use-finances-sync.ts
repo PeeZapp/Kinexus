@@ -836,11 +836,12 @@ export function useFinancesSync() {
         amount: signed,
         ignored: false,
         source: 'manual',
+        created_by: userId,
       });
       throwIfError(error);
       await queryClient.invalidateQueries({ queryKey: txnsKey(householdId) });
     },
-    [budgetQuery.data, householdId, linesQuery.data, queryClient],
+    [budgetQuery.data, householdId, linesQuery.data, queryClient, userId],
   );
 
   const deleteTxn = useCallback(

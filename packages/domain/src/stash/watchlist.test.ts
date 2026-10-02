@@ -23,6 +23,7 @@ function list(partial: Partial<WatchlistList> & Pick<WatchlistList, 'id' | 'name
     householdId: 'h1',
     createdBy: 'u1',
     visibility: 'household',
+    personIds: [],
     createdAt: '2026-01-01',
     updatedAt: '2026-01-01',
     ...partial,
@@ -114,11 +115,15 @@ describe('watchlist urls', () => {
 
 describe('watchlist visibility', () => {
   it('hides personal lists from other household members', () => {
-    const mine = list({ id: 'p', name: 'Mine', visibility: 'personal', createdBy: 'u1' });
-    expect(canViewWatchlist(mine, { userId: 'u1' })).toBe(true);
-    expect(canViewWatchlist(mine, { userId: 'u2' })).toBe(false);
-    expect(canManageWatchlist(mine, { userId: 'u2', role: 'admin' })).toBe(false);
-    expect(canManageWatchlist(list({ id: 'h', name: 'Family' }), { userId: 'u2', role: 'admin' })).toBe(true);
+    const mine = list({ id: 'p', name: 'Mine', visibility: 'private', createdBy: 'u1' });
+    const viewer = { role: 'adult' as const, userId: 'u2', personId: null };
+    expect(canViewWatchlist(mine, { role: 'adult', userId: 'u1', personId: null })).toBe(true);
+    expect(canViewWatchlist(mine, viewer)).toBe(false);
+    expect(canViewWatchlist(mine, { role: 'admin', userId: 'u2', personId: null })).toBe(false);
+    expect(canManageWatchlist(mine, { role: 'admin', userId: 'u2', personId: null })).toBe(false);
+    expect(canManageWatchlist(mine, { role: 'owner', userId: 'u2', personId: null })).toBe(true);
+    expect(canManageWatchlist(list({ id: 'h', name: 'Family' }), { role: 'teen', userId: 'u2', personId: null })).toBe(true);
+    expect(canManageWatchlist(mine, { role: 'teen', userId: 'u2', personId: null })).toBe(false);
   });
 });
 

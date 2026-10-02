@@ -1,7 +1,14 @@
 import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 
-import { filterSavedLinks, type SavedLink, type SavedLinkType } from '@kinexus/domain';
+import {
+  canCreateLists,
+  canEditShared,
+  filterSavedLinks,
+  type SavedLink,
+  type SavedLinkStatus,
+  type SavedLinkType,
+} from '@kinexus/domain';
 
 import { ErrorText } from '@/src/features/household/ui';
 import { AddLinkSheet, AddListSheet, ConfirmRename, LinkSheet } from '@/src/features/stash/sheets';
@@ -10,13 +17,20 @@ import { SavesMobile } from '@/src/features/stash/saves/SavesMobile';
 import { useStashSync, actionErrorMessage } from '@/src/features/stash/use-stash-sync';
 import { LoadingState } from '@/src/features/shell/states';
 import { useExperienceMode } from '@/src/lib/experience-mode';
+import { useAuth } from '@/src/lib/auth';
+import { useHousehold } from '@/src/lib/household';
 
 export function SavesScreen() {
   const { mode } = useExperienceMode();
+  const { user } = useAuth();
+  const { people, role } = useHousehold();
   const stash = useStashSync();
+  const personId = people.find((person) => person.userId === user?.id)?.id ?? null;
+  const canCreate = canCreateLists(role);
   const [query, setQuery] = useState('');
   const [collectionId, setCollectionId] = useState<string | null>(null);
   const [type, setType] = useState<SavedLinkType | null>(null);
+  const [status, setStatus] = useState<SavedLinkStatus | null>(null);
   const [addLink, setAddLink] = useState(false);
   const [addCollection, setAddCollection] = useState(false);
   const [linkId, setLinkId] = useState<string | null>(null);
@@ -31,10 +45,11 @@ export function SavesScreen() {
         search: query,
         collectionId,
         type,
-        hideArchived: true,
+        status,
+        hideArchived: status == null,
         sort: 'newest',
       }),
-    [collectionId, query, stash.links, type],
+    [collectionId, query, stash.links, status, type],
   );
   const selected = stash.links.find((item) => item.id === linkId) ?? null;
 
@@ -60,14 +75,29 @@ export function SavesScreen() {
     setCollectionId,
     type,
     setType,
+    status,
+    setStatus,
     links,
     onOpen: (link: SavedLink) => setLinkId(link.id),
-    onAddLink: () => setAddLink(true),
-    onAddCollection: () => setAddCollection(true),
+    onAddLink: canCreate ? () => setAddLink(true) : undefined,
+    onAddCollection: canCreate ? () => setAddCollection(true) : undefined,
     onRenameCollection: (id: string) => {
       const collection = stash.collections.find((item) => item.id === id);
+      if (
+        !collection ||
+        !canEditShared({
+          role,
+          userId: user?.id ?? null,
+          personId,
+          createdBy: collection.createdBy,
+          visibility: collection.visibility,
+          personIds: collection.personIds,
+        })
+      ) {
+        return;
+      }
       setRenameId(id);
-      setRenameValue(collection?.name ?? '');
+      setRenameValue(collection.name);
     },
     online: stash.online,
   };
@@ -84,16 +114,19 @@ export function SavesScreen() {
         visible={addCollection}
         title="New collection"
         showIdentity={false}
+        showShare
+        people={people}
         busy={busy}
         error={actionError}
         onClose={() => setAddCollection(false)}
-        onSave={async (name) => {
-          if (await run(() => stash.createCollection(name))) setAddCollection(false);
+        onSave={async (name, share) => {
+          if (await run(() => stash.createCollection(name, share))) setAddCollection(false);
         }}
       />
       <AddLinkSheet
         visible={addLink}
         collections={stash.collections}
+        people={people}
         defaultCollectionId={collectionId}
         busy={busy}
         error={actionError}
@@ -117,6 +150,19 @@ export function SavesScreen() {
       <LinkSheet
         link={selected}
         collections={stash.collections}
+        people={people}
+        canEdit={
+          selected
+            ? canEditShared({
+                role,
+                userId: user?.id ?? null,
+                personId,
+                createdBy: selected.createdBy,
+                visibility: selected.visibility,
+                personIds: selected.personIds,
+              })
+            : false
+        }
         busy={busy}
         error={actionError}
         onClose={() => setLinkId(null)}

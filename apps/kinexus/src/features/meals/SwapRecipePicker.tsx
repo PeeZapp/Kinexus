@@ -6,12 +6,14 @@ import {
   proteinKindsInRecipes,
   sortRecipesByNutrition,
   type Recipe,
+  type RecipeProteinKind,
   type SwapRecipeFilters,
 } from '@kinexus/domain';
 
 import { Chip } from '@/src/features/meals/meals-kit';
 import { RecipePeek } from '@/src/features/meals/RecipePeek';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
+import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/FilterMenu';
 import { colors, radius } from '@/src/features/shell/theme';
 
 export function SwapRecipePicker({
@@ -39,6 +41,7 @@ export function SwapRecipePicker({
   onPick: (recipe: Recipe) => void;
   onRandom: () => void;
 }) {
+  const { openMenu, toggleMenu, pick } = useFilterMenus();
   const kinds = proteinKindsInRecipes(recipes);
   const hasVegetarian = recipes.some((recipe) => recipe.vegetarian);
   const reference = {
@@ -71,32 +74,45 @@ export function SwapRecipePicker({
         autoCorrect={false}
       />
       {hasVegetarian || kinds.length > 1 || showRandom ? (
-        <View style={styles.chips}>
+        <FilterBar>
           {hasVegetarian ? (
-            <Chip
-              label="Vegetarian"
+            <FilterDropdown<'any' | 'vegetarian'>
+              id="diet"
+              label="Diet"
+              value={filters.vegetarian ? 'vegetarian' : 'any'}
+              valueLabel={filters.vegetarian ? 'Vegetarian' : 'Any'}
               active={Boolean(filters.vegetarian)}
-              onPress={() => onChangeFilters({ ...filters, vegetarian: !filters.vegetarian })}
+              open={openMenu === 'diet'}
+              options={[
+                { value: 'any', label: 'Any' },
+                { value: 'vegetarian', label: 'Vegetarian' },
+              ]}
+              onToggle={toggleMenu}
+              onSelect={pick((value) => onChangeFilters({ ...filters, vegetarian: value === 'vegetarian' }))}
             />
           ) : null}
-          {kinds.map((kind) => {
-            const label = PROTEIN_KINDS.find((item) => item.id === kind)?.label ?? kind;
-            return (
-              <Chip
-                key={kind}
-                label={label}
-                active={filters.proteinKind === kind}
-                onPress={() =>
-                  onChangeFilters({
-                    ...filters,
-                    proteinKind: filters.proteinKind === kind ? null : kind,
-                  })
-                }
-              />
-            );
-          })}
+          {kinds.length > 1 ? (
+            <FilterDropdown<RecipeProteinKind | null>
+              id="protein"
+              label="Protein"
+              value={filters.proteinKind ?? null}
+              valueLabel={
+                PROTEIN_KINDS.find((item) => item.id === filters.proteinKind)?.label ?? 'Any'
+              }
+              open={openMenu === 'protein'}
+              options={[
+                { value: null, label: 'Any' },
+                ...kinds.map((kind) => ({
+                  value: kind,
+                  label: PROTEIN_KINDS.find((item) => item.id === kind)?.label ?? kind,
+                })),
+              ]}
+              onToggle={toggleMenu}
+              onSelect={pick((value) => onChangeFilters({ ...filters, proteinKind: value }))}
+            />
+          ) : null}
           {showRandom ? <Chip label="Random similar" onPress={onRandom} /> : null}
-        </View>
+        </FilterBar>
       ) : null}
       <Text style={styles.count}>
         {list.length} recipe{list.length === 1 ? '' : 's'} for this slot
@@ -142,7 +158,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     minHeight: 40,
   },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   count: { color: colors.textDim, fontSize: 12 },
   hint: { color: colors.textMuted, marginBottom: 8 },
   row: {

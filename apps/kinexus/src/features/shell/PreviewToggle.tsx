@@ -2,53 +2,68 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
+import type { PreviewSurface } from '@/src/lib/pwa';
+
+const SURFACES: { id: PreviewSurface; label: string }[] = [
+  { id: 'desktop', label: 'Desktop' },
+  { id: 'tablet', label: 'Tablet' },
+  { id: 'phone', label: 'Phone' },
+];
 
 export function PreviewToggle() {
-  const { previewEnabled, isPreview, setPreview } = useExperienceMode();
+  const { previewEnabled, previewSurface, setPreview } = useExperienceMode();
 
   if (!previewEnabled) return null;
 
   return (
-    <Pressable
-      onPress={() => setPreview(!isPreview)}
-      style={[styles.pill, isPreview && styles.pillOn]}
-      accessibilityRole="switch"
-      accessibilityState={{ checked: isPreview }}>
-      <View style={[styles.dot, isPreview && styles.dotOn]} />
-      <Text style={styles.label}>{isPreview ? 'Desktop layout' : 'Mobile preview'}</Text>
-    </Pressable>
+    <View style={styles.group} accessibilityRole="radiogroup">
+      {SURFACES.map((surface) => {
+        const selected = previewSurface === surface.id;
+        const framed = surface.id !== 'desktop';
+        return (
+          <Pressable
+            key={surface.id}
+            onPress={() => setPreview(surface.id)}
+            style={[styles.segment, selected && (framed ? styles.segmentOn : styles.segmentLive)]}
+            accessibilityRole="radio"
+            accessibilityState={{ selected }}>
+            <Text style={[styles.label, selected && styles.labelOn]}>{surface.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  pill: {
+  group: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
     backgroundColor: colors.bgCard,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.xl,
-    paddingVertical: 8,
+    padding: 3,
+    gap: 2,
+  },
+  segment: {
+    borderRadius: radius.xl,
+    paddingVertical: 6,
     paddingHorizontal: 12,
   },
-  pillOn: {
-    borderColor: colors.warning,
+  segmentLive: {
+    backgroundColor: colors.bgHover,
+  },
+  segmentOn: {
     backgroundColor: colors.warningBg,
   },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.textDim,
-  },
-  dotOn: {
-    backgroundColor: colors.warning,
-  },
   label: {
-    color: colors.text,
+    color: colors.textMuted,
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.3,
+  },
+  labelOn: {
+    color: colors.text,
   },
 });

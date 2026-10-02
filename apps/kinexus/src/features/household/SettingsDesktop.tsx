@@ -1,5 +1,6 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { RolePreviewCard } from '@/src/features/household/RolePreview';
 import {
   CreateJoinPanel,
   HouseholdSwitcher,
@@ -53,6 +54,7 @@ export function SettingsDesktop() {
       <ErrorText message={error} />
       <View style={styles.grid}>
         <View style={styles.col}>
+          <RolePreviewCard />
           <HouseholdSwitcher />
           <LocationPanel />
           <InvitePanel />

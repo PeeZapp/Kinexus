@@ -3,7 +3,8 @@ import { View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 
 import {
-  canManageLists,
+  canCreateLists,
+  canEditList,
   childLists,
   formatMoney,
   isTopLevelList,
@@ -27,6 +28,7 @@ import type { WishlistListCardModel } from '@/src/features/stash/StashShared';
 import { useStashSync, actionErrorMessage, type ListIdentityDraft, type ListShareDraft, type ProductDraft } from '@/src/features/stash/use-stash-sync';
 import { LoadingState } from '@/src/features/shell/states';
 import { useExperienceMode } from '@/src/lib/experience-mode';
+import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 
 const FAMILY_SHARE: ListShareDraft = { visibility: 'household', personIds: [] };
@@ -68,7 +70,11 @@ export function CatalogScreen() {
   const { mode } = useExperienceMode();
   const { people, role } = useHousehold();
   const stash = useStashSync();
-  const canManage = canManageLists(role);
+  const { user } = useAuth();
+  const personId = people.find((person) => person.userId === user?.id)?.id ?? null;
+  const listAccess = { role, userId: user?.id ?? null, personId };
+  const canCreate = canCreateLists(role);
+  const canManage = canCreate;
   const [query, setQuery] = useState('');
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [addList, setAddList] = useState(false);
@@ -281,9 +287,9 @@ export function CatalogScreen() {
     parentListName: parentList ? `${normalizeListEmoji(parentList.emoji)} ${parentList.name}` : null,
     onBack: goBack,
     onOpenList: openList,
-    onRenameList: canManage
-      ? (id: string) => {
+    onRenameList: (id: string) => {
           const list = lists.find((item) => item.id === id);
+          if (!list || !canEditList(list, listAccess)) return;
           setRenameId(id);
           setRenameValue(list?.name ?? '');
           setShare({
@@ -294,8 +300,7 @@ export function CatalogScreen() {
             emoji: normalizeListEmoji(list?.emoji),
             theme: normalizeListTheme(list?.theme),
           });
-        }
-      : undefined,
+        },
     products: visibleProducts,
     currency: stash.currency,
     totals,
@@ -304,7 +309,7 @@ export function CatalogScreen() {
     emptyItems: canManage ? 'Paste a product URL to add something to this list.' : 'Nothing on this wishlist yet.',
     addItemLabel: 'Add item',
     onAddList: canManage ? () => setAddList(true) : undefined,
-    onAddSublist: canManage && selectedListId && !selectedList?.parentListId ? () => setAddSub(true) : undefined,
+    onAddSublist: canCreate && selectedList && !selectedList.parentListId && canEditList(selectedList, listAccess) ? () => setAddSub(true) : undefined,
     onAddProduct: () => setAddProduct(true),
     onOpenProduct: (item: StashProduct) => setProductId(item.id),
     online: stash.online,
@@ -317,7 +322,7 @@ export function CatalogScreen() {
       void checkPrices();
     },
     onDismissPriceCheck: clearPriceCheck,
-    onShareList: canManage
+    onShareList: selectedList && canEditList(selectedList, listAccess)
       ? () => {
           void shareList();
         }

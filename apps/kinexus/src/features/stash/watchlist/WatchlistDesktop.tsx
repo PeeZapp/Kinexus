@@ -10,7 +10,7 @@ import type {
 
 import { EmptyState } from '@/src/features/shell/states';
 import { colors, space } from '@/src/features/shell/theme';
-import { PrimaryActions, StashChrome } from '@/src/features/stash/StashShared';
+import { ListBackLink, PrimaryActions, StashChrome } from '@/src/features/stash/StashShared';
 import {
   WatchlistAttribution,
   WatchlistCard,
@@ -98,9 +98,7 @@ export function WatchlistDesktop(props: WatchlistLayoutProps) {
 
   return (
     <DetailShell desktop>
-      <Pressable onPress={props.onBack} accessibilityRole="button" accessibilityLabel="Back to watchlists">
-        <Text style={styles.back}>← Watchlists</Text>
-      </Pressable>
+      <ListBackLink label="Watchlists" onPress={props.onBack} />
       <View style={styles.titleRow}>
         <Text style={styles.listTitle} numberOfLines={1}>
           {props.selectedListName}
@@ -143,7 +141,6 @@ const styles = StyleSheet.create({
   shell: { flex: 1, backgroundColor: colors.bg },
   shellContent: { padding: space.md, gap: 14, paddingBottom: 48 },
   shellContentDesktop: { paddingHorizontal: 48, paddingTop: 16, maxWidth: 1200 },
-  back: { color: colors.accent, fontSize: 13, fontWeight: '700' },
   titleRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' },
   listTitle: { color: colors.text, fontSize: 22, fontWeight: '800', flexShrink: 1 },
   meta: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },

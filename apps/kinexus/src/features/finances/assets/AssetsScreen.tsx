@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   accountKindLabel,
   accountsOfClass,
+  canEditFinanceRecords,
   canManageFinances,
   formatMoney,
   netWorth,
@@ -23,7 +24,8 @@ export function AssetsScreen() {
   const { mode } = useExperienceMode();
   const { role } = useHousehold();
   const finances = useFinancesSync();
-  const canManage = canManageFinances(role);
+  const canDelete = canManageFinances(role);
+  const canManage = canEditFinanceRecords(role);
   const desktop = mode === 'desktop';
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<FinanceAccount | null>(null);
@@ -109,7 +111,7 @@ export function AssetsScreen() {
           if (ok) setOpen(false);
         }}
         onDelete={
-          editing
+          editing && canDelete
             ? async () => {
                 const ok = await run(() => finances.deleteAccount(editing.id));
                 if (ok) setOpen(false);

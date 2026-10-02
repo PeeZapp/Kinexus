@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   budgetLineGroups,
   budgetTotals,
-  canManageFinances,
+  canEditBudgetTxn,
+  canEnterBudgetAmounts,
+  canManageBudgetPlan,
   cadenceDueLabel,
   cadenceDueMonths,
   cadenceLabel,
@@ -33,7 +35,8 @@ import {
   type SpendStatus,
 } from '@kinexus/domain';
 
-import { Btn, ErrorText, Pill } from '@/src/features/household/ui';
+import { Btn, ErrorText } from '@/src/features/household/ui';
+import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/FilterMenu';
 import { FinancesChrome, MoneyBar } from '@/src/features/finances/FinancesShared';
 import { BudgetEntrySheet, BudgetLineSheet } from '@/src/features/finances/sheets';
 import { BudgetSetupSheet } from '@/src/features/finances/budget/BudgetSetupSheet';
@@ -41,6 +44,7 @@ import { actionErrorMessage, useFinancesSync, type BudgetLineDraft } from '@/src
 import { EmptyState, LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
+import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 
 const SPREAD_KEY = 'kinexus.budget.spreadPeriodical';
@@ -63,9 +67,12 @@ function writeSpreadPeriodical(value: boolean) {
 
 export function BudgetScreen() {
   const { mode } = useExperienceMode();
+  const { user } = useAuth();
   const { role } = useHousehold();
   const finances = useFinancesSync();
-  const canManage = canManageFinances(role);
+  const canPlan = canManageBudgetPlan(role);
+  const canEnter = canEnterBudgetAmounts(role);
+  const canManage = canPlan;
   const desktop = mode === 'desktop';
   const [setupOpen, setSetupOpen] = useState(false);
   const [lineOpen, setLineOpen] = useState(false);
@@ -212,34 +219,40 @@ export function BudgetScreen() {
                 writeSpreadPeriodical(value);
               }}
             />
-            {canManage ? (
+            {canEnter || canPlan ? (
               <View style={styles.actions}>
-                <Btn
-                  label="Add item"
-                  onPress={() => {
-                    setAddingTo(null);
-                    setEntryOpen(true);
-                  }}
-                  disabled={!finances.online}
-                />
-                <Btn label="Edit plan" variant="secondary" onPress={() => setSetupOpen(true)} disabled={!finances.online} />
-                <Btn
-                  label="Add category"
-                  variant="secondary"
-                  onPress={() => {
-                    setEditing(null);
-                    setParentForNew(null);
-                    setDefaultKind('expense');
-                    setLineOpen(true);
-                  }}
-                  disabled={!finances.online}
-                />
-                <Btn
-                  label="Clear budget"
-                  variant="danger"
-                  onPress={() => void confirmClearBudget()}
-                  disabled={!finances.online || busy}
-                />
+                {canEnter ? (
+                  <Btn
+                    label="Add item"
+                    onPress={() => {
+                      setAddingTo(null);
+                      setEntryOpen(true);
+                    }}
+                    disabled={!finances.online}
+                  />
+                ) : null}
+                {canPlan ? <Btn label="Edit plan" variant="secondary" onPress={() => setSetupOpen(true)} disabled={!finances.online} /> : null}
+                {canPlan ? (
+                  <Btn
+                    label="Add category"
+                    variant="secondary"
+                    onPress={() => {
+                      setEditing(null);
+                      setParentForNew(null);
+                      setDefaultKind('expense');
+                      setLineOpen(true);
+                    }}
+                    disabled={!finances.online}
+                  />
+                ) : null}
+                {canPlan ? (
+                  <Btn
+                    label="Clear budget"
+                    variant="danger"
+                    onPress={() => void confirmClearBudget()}
+                    disabled={!finances.online || busy}
+                  />
+                ) : null}
               </View>
             ) : null}
             <LineGroup
@@ -249,6 +262,11 @@ export function BudgetScreen() {
               txns={monthTxns}
               currency={finances.currency}
               canManage={canManage}
+              canEnter={canEnter}
+              canRemoveTxn={(id) => {
+                const txn = monthTxns.find((item) => item.id === id);
+                return canEditBudgetTxn(role, txn?.createdBy, user?.id ?? null);
+              }}
               spreadPeriodical={spreadPeriodical}
               onEdit={(line) => {
                 setParentForNew(null);
@@ -276,6 +294,11 @@ export function BudgetScreen() {
               txns={monthTxns}
               currency={finances.currency}
               canManage={canManage}
+              canEnter={canEnter}
+              canRemoveTxn={(id) => {
+                const txn = monthTxns.find((item) => item.id === id);
+                return canEditBudgetTxn(role, txn?.createdBy, user?.id ?? null);
+              }}
               spreadPeriodical={spreadPeriodical}
               onEdit={(line) => {
                 setParentForNew(null);
@@ -416,6 +439,8 @@ function MonthNav({
   onNext: () => void;
   onSelect: (monthStart: string) => void;
 }) {
+  const { openMenu, toggleMenu, pick } = useFilterMenus();
+  const current = history.find((item) => item.monthStart === monthStart);
   return (
     <View style={styles.monthNav}>
       <View style={styles.monthHead}>
@@ -427,22 +452,24 @@ function MonthNav({
           <Text style={styles.monthBtnLabel}>Next</Text>
         </Pressable>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.history}>
-        {history.map((item) => {
-          const active = item.monthStart === monthStart;
-          return (
-            <Pressable
-              key={item.monthStart}
-              onPress={() => onSelect(item.monthStart)}
-              style={[styles.historyChip, active && styles.historyChipOn, item.over && styles.historyChipOver]}>
-              <Text style={[styles.historyLabel, active && styles.historyLabelOn]}>{item.label}</Text>
-              <Text style={[styles.historyMeta, item.over && styles.historyOver]}>
-                {item.over ? `${formatMoney(item.overBy, currency)} over` : 'On track'}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      {history.length > 0 ? (
+        <FilterBar>
+          <FilterDropdown<string>
+            id="month"
+            label="Month"
+            value={monthStart}
+            valueLabel={current ? `${current.label}${current.over ? ' · Over' : ''}` : monthLabel(monthStart)}
+            active={Boolean(current?.over)}
+            open={openMenu === 'month'}
+            options={history.map((item) => ({
+              value: item.monthStart,
+              label: `${item.label} · ${item.over ? `${formatMoney(item.overBy, currency)} over` : 'On track'}`,
+            }))}
+            onToggle={toggleMenu}
+            onSelect={pick(onSelect)}
+          />
+        </FilterBar>
+      ) : null}
     </View>
   );
 }
@@ -454,13 +481,26 @@ function SpreadToggle({
   value: boolean;
   onChange: (value: boolean) => void;
 }) {
+  const { openMenu, toggleMenu, pick } = useFilterMenus();
   return (
     <View style={styles.toggleCard}>
       <Text style={styles.toggleTitle}>Periodical bills</Text>
-      <View style={styles.toggleRow}>
-        <Pill label="As they fall due" active={!value} onPress={() => onChange(false)} />
-        <Pill label="As monthly amounts" active={value} onPress={() => onChange(true)} />
-      </View>
+      <FilterBar>
+        <FilterDropdown<'due' | 'monthly'>
+          id="spread"
+          label="Show"
+          value={value ? 'monthly' : 'due'}
+          valueLabel={value ? 'Monthly amounts' : 'As they fall due'}
+          active={value}
+          open={openMenu === 'spread'}
+          options={[
+            { value: 'due', label: 'As they fall due' },
+            { value: 'monthly', label: 'As monthly amounts' },
+          ]}
+          onToggle={toggleMenu}
+          onSelect={pick((next) => onChange(next === 'monthly'))}
+        />
+      </FilterBar>
       <Text style={styles.meta}>
         {value
           ? 'Every-second-month, quarterly, and yearly bills are divided into a monthly amount and shown in their categories.'
@@ -542,6 +582,8 @@ function LineGroup({
   txns,
   currency,
   canManage,
+  canEnter,
+  canRemoveTxn,
   spreadPeriodical,
   onEdit,
   onAdd,
@@ -555,6 +597,8 @@ function LineGroup({
   txns: FinanceBudgetTxn[];
   currency: string;
   canManage: boolean;
+  canEnter: boolean;
+  canRemoveTxn: (id: string) => boolean;
   spreadPeriodical: boolean;
   onEdit: (line: FinanceBudgetLine) => void;
   onAdd: (line: FinanceBudgetLine) => void;
@@ -575,6 +619,8 @@ function LineGroup({
           txns={txns}
           currency={currency}
           canManage={canManage}
+          canEnter={canEnter}
+          canRemoveTxn={canRemoveTxn}
           spreadPeriodical={spreadPeriodical}
           canMoveUp={index > 0}
           canMoveDown={index < groups.length - 1}
@@ -596,6 +642,8 @@ function BudgetCategoryBlock({
   txns,
   currency,
   canManage,
+  canEnter,
+  canRemoveTxn,
   spreadPeriodical,
   canMoveUp,
   canMoveDown,
@@ -611,6 +659,8 @@ function BudgetCategoryBlock({
   txns: FinanceBudgetTxn[];
   currency: string;
   canManage: boolean;
+  canEnter: boolean;
+  canRemoveTxn: (id: string) => boolean;
   spreadPeriodical: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -632,6 +682,8 @@ function BudgetCategoryBlock({
         txns={txns}
         currency={currency}
         canManage={canManage}
+        canEnter={canEnter}
+        canRemoveTxn={canRemoveTxn}
         spreadPeriodical={spreadPeriodical}
         childCount={childCount}
         groupOpen={childCount > 0 ? expanded : undefined}
@@ -653,6 +705,8 @@ function BudgetCategoryBlock({
                 txns={txns}
                 currency={currency}
                 canManage={canManage}
+                canEnter={canEnter}
+                canRemoveTxn={canRemoveTxn}
                 spreadPeriodical={spreadPeriodical}
                 nested
                 canMoveUp={index > 0}
@@ -675,6 +729,8 @@ function BudgetLineCard({
   txns,
   currency,
   canManage,
+  canEnter,
+  canRemoveTxn,
   spreadPeriodical,
   nested,
   childCount = 0,
@@ -693,6 +749,8 @@ function BudgetLineCard({
   txns: FinanceBudgetTxn[];
   currency: string;
   canManage: boolean;
+  canEnter: boolean;
+  canRemoveTxn: (id: string) => boolean;
   spreadPeriodical: boolean;
   nested?: boolean;
   childCount?: number;
@@ -764,9 +822,9 @@ function BudgetLineCard({
         </View>
       </Pressable>
       <MoneyBar progress={lineProgress(rolled)} over={!capture && status.over && line.kind === 'expense'} />
-      {canManage ? (
+      {canManage || canEnter ? (
         <View style={styles.lineActions}>
-          {onMove ? (
+          {canManage && onMove ? (
             <>
               <Pressable
                 onPress={(event) => {
@@ -788,23 +846,27 @@ function BudgetLineCard({
               </Pressable>
             </>
           ) : null}
-          <Pressable
-            onPress={(event) => {
-              event.stopPropagation?.();
-              onEdit();
-            }}
-            hitSlop={8}>
-            <Text style={styles.edit}>Edit</Text>
-          </Pressable>
-          <Pressable
-            onPress={(event) => {
-              event.stopPropagation?.();
-              onAdd();
-            }}
-            hitSlop={8}>
-            <Text style={styles.edit}>Add</Text>
-          </Pressable>
-          {onAddSub ? (
+          {canManage ? (
+            <Pressable
+              onPress={(event) => {
+                event.stopPropagation?.();
+                onEdit();
+              }}
+              hitSlop={8}>
+              <Text style={styles.edit}>Edit</Text>
+            </Pressable>
+          ) : null}
+          {canEnter ? (
+            <Pressable
+              onPress={(event) => {
+                event.stopPropagation?.();
+                onAdd();
+              }}
+              hitSlop={8}>
+              <Text style={styles.edit}>Add</Text>
+            </Pressable>
+          ) : null}
+          {canManage && onAddSub ? (
             <Pressable
               onPress={(event) => {
                 event.stopPropagation?.();
@@ -828,7 +890,7 @@ function BudgetLineCard({
                   {txn.description}
                 </Text>
                 <Text style={styles.txnAmount}>{formatMoney(Math.abs(txn.amount), currency)}</Text>
-                {canManage ? (
+                {canRemoveTxn(txn.id) ? (
                   <Pressable onPress={() => onDeleteTxn(txn.id)} hitSlop={8}>
                     <Text style={styles.remove}>Remove</Text>
                   </Pressable>
@@ -847,7 +909,7 @@ function BudgetLineCard({
                 {txn.description}
               </Text>
               <Text style={styles.txnAmount}>{formatMoney(Math.abs(txn.amount), currency)}</Text>
-              {canManage ? (
+              {canRemoveTxn(txn.id) ? (
                 <Pressable onPress={() => onDeleteTxn(txn.id)} hitSlop={8}>
                   <Text style={styles.remove}>Remove</Text>
                 </Pressable>
@@ -971,7 +1033,6 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   toggleTitle: { color: colors.text, fontSize: 13, fontWeight: '800', textTransform: 'uppercase' },
-  toggleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   monthNav: { gap: 10 },
   monthHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
@@ -985,22 +1046,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   monthBtnLabel: { color: colors.accent, fontSize: 13, fontWeight: '700' },
-  history: { gap: 8, paddingRight: 8 },
-  historyChip: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bgCard,
-    borderRadius: radius.md,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    minWidth: 110,
-  },
-  historyChipOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
-  historyChipOver: { borderColor: colors.danger },
-  historyLabel: { color: colors.text, fontSize: 12, fontWeight: '700' },
-  historyLabelOn: { color: colors.accent },
-  historyMeta: { color: colors.textDim, fontSize: 11, fontWeight: '700' },
-  historyOver: { color: colors.danger },
   group: {
     backgroundColor: colors.bgCard,
     borderWidth: 1,

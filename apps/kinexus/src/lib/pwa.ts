@@ -1,6 +1,14 @@
 export const MOBILE_SHELL_MAX_WIDTH = 900;
 
+/** iPhone-class viewport used by the dev phone frame. */
+export const PHONE_PREVIEW = { width: 390, height: 844 } as const;
+
+/** Landscape iPad viewport used by the dev tablet frame. Wider than the mobile shell breakpoint, so it uses the wide layout. */
+export const TABLET_PREVIEW = { width: 1180, height: 820 } as const;
+
 export type ExperienceMode = 'desktop' | 'mobile';
+
+export type PreviewSurface = 'desktop' | 'tablet' | 'phone';
 
 export type PwaInstallPlatform = 'ios' | 'android' | 'other';
 
@@ -26,11 +34,13 @@ export function getPwaInstallPlatform(): PwaInstallPlatform {
 
 export function resolveExperienceMode(input: {
   isNative: boolean;
-  isPreview: boolean;
   standalone: boolean;
   width: number;
+  preview?: PreviewSurface;
 }): ExperienceMode {
-  if (input.isNative || input.isPreview || input.standalone) return 'mobile';
-  if (input.width > 0 && input.width < MOBILE_SHELL_MAX_WIDTH) return 'mobile';
+  if (input.isNative || input.standalone) return 'mobile';
+  if (input.preview === 'phone') return 'mobile';
+  const width = input.preview === 'tablet' ? TABLET_PREVIEW.width : input.width;
+  if (width > 0 && width < MOBILE_SHELL_MAX_WIDTH) return 'mobile';
   return 'desktop';
 }

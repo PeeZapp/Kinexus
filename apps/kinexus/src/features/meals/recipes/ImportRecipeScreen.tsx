@@ -227,7 +227,7 @@ export function ImportRecipeScreen() {
     phase,
     source,
     missing,
-    onDishName: (dishName) => setMissing((current) => (current ? { ...current, dishName } : current)),
+    onDishName: (dishName: string) => setMissing((current) => (current ? { ...current, dishName } : current)),
     onGenerateFromName: () => void onGenerateFromName(),
     onSaveLink: () => void onSaveLink(),
     error,

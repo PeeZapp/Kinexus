@@ -1,3 +1,5 @@
+import type { HouseholdRole } from '@kinexus/domain';
+import { canViewFinances } from '@kinexus/domain';
 import type { Href } from 'expo-router';
 
 export type ModuleKey = 'meals' | 'lists' | 'finances' | 'nutrition' | 'train';
@@ -50,6 +52,10 @@ export const MODULES: readonly AppModule[] = [
     description: 'Workouts and training plans.',
   },
 ];
+
+export function visibleModules(role: HouseholdRole | null): readonly AppModule[] {
+  return MODULES.filter((mod) => mod.key !== 'finances' || canViewFinances(role));
+}
 
 export function moduleFromPath(pathname: string): AppModule | undefined {
   return MODULES.find((mod) => pathname === mod.href || pathname.startsWith(`${mod.href}/`));

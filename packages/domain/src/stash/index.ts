@@ -36,6 +36,8 @@ export {
   DEFAULT_STASH_LIST_THEME,
   STASH_LIST_EMOJIS,
   STASH_LIST_THEMES,
+  canCreateLists,
+  canEditList,
   canManageLists,
   canViewList,
   childLists,

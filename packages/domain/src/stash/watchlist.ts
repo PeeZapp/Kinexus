@@ -1,3 +1,4 @@
+import { canEditShared, canSeeShared } from '../household/access';
 import type { HouseholdRole } from '../household/types';
 import type {
   WatchlistEntry,
@@ -13,7 +14,7 @@ import type {
   WatchlistVisibility,
 } from './types';
 
-export const WATCHLIST_VISIBILITIES = ['household', 'personal'] as const;
+export const WATCHLIST_VISIBILITIES = ['household', 'private', 'people'] as const;
 export const WATCHLIST_MEDIA_TYPES = ['movie', 'tv'] as const;
 export const WATCHLIST_ITEM_STATUSES = ['want', 'watching', 'watched'] as const;
 export const WATCHLIST_OFFER_TYPES = ['flatrate', 'ads', 'free', 'rent', 'buy'] as const;
@@ -162,7 +163,9 @@ export function watchlistListError(parse: WatchlistUrlParse): string | null {
 }
 
 export function watchlistVisibilityLabel(visibility: WatchlistVisibility): string {
-  return visibility === 'personal' ? 'Personal' : 'Household';
+  if (visibility === 'private') return 'Private';
+  if (visibility === 'people') return 'Shared';
+  return 'Household';
 }
 
 export function mediaTypeLabel(mediaType: WatchlistMediaType): string {
@@ -191,18 +194,33 @@ export function titleYearLabel(title: Pick<WatchlistSearchHit, 'title' | 'year' 
 
 export function canViewWatchlist(
   list: WatchlistList,
-  opts: { userId: string | null },
+  opts: { role: HouseholdRole | null; userId: string | null; personId: string | null },
 ): boolean {
-  if (list.visibility === 'household') return true;
-  return Boolean(opts.userId && list.createdBy === opts.userId);
+  return canSeeShared({
+    role: opts.role,
+    userId: opts.userId,
+    personId: opts.personId,
+    createdBy: list.createdBy,
+    visibility: list.visibility,
+    personIds: list.personIds,
+  });
 }
 
 export function canManageWatchlist(
   list: WatchlistList,
-  opts: { userId: string | null; role: HouseholdRole | null },
+  opts: { role: HouseholdRole | null; userId: string | null; personId: string | null },
 ): boolean {
-  if (opts.userId && list.createdBy === opts.userId) return true;
-  return list.visibility === 'household' && (opts.role === 'owner' || opts.role === 'admin');
+  return canEditShared(
+    {
+      role: opts.role,
+      userId: opts.userId,
+      personId: opts.personId,
+      createdBy: list.createdBy,
+      visibility: list.visibility,
+      personIds: list.personIds,
+    },
+    true,
+  );
 }
 
 export function watchlistEntries(

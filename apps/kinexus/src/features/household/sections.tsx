@@ -1,14 +1,27 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useQueryClient } from '@tanstack/react-query';
 
-import type { HouseholdInvite, HouseholdMember, HouseholdPerson, HouseholdRole, PersonType } from '@kinexus/domain';
+import {
+  assignableRoles,
+  canChangeMemberRole,
+  canRemoveMember,
+  inviteRoles,
+  roleLabel,
+  type AssignableRole,
+  type HouseholdInvite,
+  type HouseholdMember,
+  type HouseholdPerson,
+  type HouseholdRole,
+  type PersonType,
+} from '@kinexus/domain';
 import { GROCERY_MARKETS, marketForHousehold, storeListLabel } from '@kinexus/domain';
 
 import { Btn, Card, ErrorText, Field, Pill } from '@/src/features/household/ui';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { parseInviteToken } from '@/src/lib/invite';
+import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 import { refreshRecipePrices } from '@/src/lib/meals-api';
 
@@ -81,7 +94,7 @@ export function CreateJoinPanel() {
 }
 
 export function HouseholdSwitcher() {
-  const { memberships, activeHousehold, setActiveHouseholdId, renameHousehold, canManageInvites } = useHousehold();
+  const { memberships, activeHousehold, setActiveHouseholdId, renameHousehold, canManageHousehold } = useHousehold();
   const [name, setName] = useState(activeHousehold?.name ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -121,7 +134,7 @@ export function HouseholdSwitcher() {
       ) : (
         <Text style={styles.body}>{activeHousehold.name}</Text>
       )}
-      {canManageInvites ? (
+      {canManageHousehold ? (
         <>
           <Field label="Name" value={name} onChangeText={setName} autoCapitalize="words" />
           <Btn
@@ -139,7 +152,7 @@ export function HouseholdSwitcher() {
 }
 
 export function LocationPanel() {
-  const { activeHousehold, canManageInvites, updateHouseholdLocation } = useHousehold();
+  const { activeHousehold, canManageHousehold, updateHouseholdLocation } = useHousehold();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [pricing, setPricing] = useState(false);
@@ -189,7 +202,7 @@ export function LocationPanel() {
         Recipe costs use typical {storeListLabel(current.stores)} prices in {current.currency}. The ingredient catalog
         refreshes on the first of each month, or tap update below.
       </Text>
-      {canManageInvites ? (
+      {canManageHousehold ? (
         <View style={styles.wrapRow}>
           {GROCERY_MARKETS.map((market) => (
             <Pill
@@ -203,7 +216,7 @@ export function LocationPanel() {
       ) : (
         <Text style={styles.body}>{current.label}</Text>
       )}
-      {canManageInvites ? (
+      {canManageHousehold ? (
         <Btn
           label={pricing ? 'Updating prices…' : 'Update prices now'}
           variant="secondary"
@@ -219,18 +232,19 @@ export function LocationPanel() {
 }
 
 export function InvitePanel() {
-  const { canManageInvites, createInvite, revokeInvite, invites } = useHousehold();
-  const [role, setRole] = useState<Exclude<HouseholdRole, 'owner'>>('member');
+  const { role: actorRole, canInvite, createInvite, revokeInvite, invites } = useHousehold();
+  const choices = inviteRoles(actorRole);
+  const [role, setRole] = useState<AssignableRole>(choices[0] ?? 'adult');
   const [created, setCreated] = useState<{ url: string; token: string; expiresAt: string } | null>(null);
   const [copied, setCopied] = useState<'url' | 'token' | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!canManageInvites) {
+  if (!canInvite) {
     return (
       <Card>
         <Text style={styles.heading}>Invites</Text>
-        <Text style={styles.body}>Only owners and admins can invite people to this household.</Text>
+        <Text style={styles.body}>Only owners, admins, and adults can invite people to this household.</Text>
       </Card>
     );
   }
@@ -263,8 +277,9 @@ export function InvitePanel() {
         Creates a one-time link. The raw token is shown once — it is stored hashed, not as a guessable code.
       </Text>
       <View style={styles.wrapRow}>
-        <Pill label="Member" active={role === 'member'} onPress={() => setRole('member')} />
-        <Pill label="Admin" active={role === 'admin'} onPress={() => setRole('admin')} />
+        {choices.map((choice) => (
+          <Pill key={choice} label={roleLabel(choice)} active={role === choice} onPress={() => setRole(choice)} />
+        ))}
       </View>
       <Btn label="Create invite link" onPress={() => void onCreate()} busy={busy} />
       {created ? (
@@ -307,7 +322,7 @@ function PendingInviteRow({ invite, onRevoke }: { invite: HouseholdInvite; onRev
   return (
     <View style={styles.row}>
       <View style={styles.rowText}>
-        <Text style={styles.rowTitle}>{invite.role}</Text>
+        <Text style={styles.rowTitle}>{roleLabel(invite.role)}</Text>
         <Text style={styles.meta}>Expires {new Date(invite.expiresAt).toLocaleString()}</Text>
       </View>
       <Pressable onPress={onRevoke} hitSlop={8}>
@@ -318,24 +333,156 @@ function PendingInviteRow({ invite, onRevoke }: { invite: HouseholdInvite; onRev
 }
 
 export function MembersList({ members }: { members: HouseholdMember[] }) {
+  const { user, signOut } = useAuth();
+  const { role, activeHousehold, leaveHousehold, deleteHousehold, deleteOwnAccount, setMemberRole, removeMember } = useHousehold();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function changeRole(member: HouseholdMember, next: AssignableRole) {
+    if (member.role === next) return;
+    setError(null);
+    setBusyId(member.userId);
+    try {
+      await setMemberRole(member.userId, next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not change role');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function confirmRemove(member: HouseholdMember) {
+    const name = member.profile.displayName ?? member.profile.email ?? 'this person';
+    Alert.alert('Remove from household', `Remove ${name}? They will lose access to this household.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          setError(null);
+          setBusyId(member.userId);
+          void removeMember(member.userId)
+            .catch((err) => setError(err instanceof Error ? err.message : 'Could not remove member'))
+            .finally(() => setBusyId(null));
+        },
+      },
+    ]);
+  }
+
+  function confirmLeave() {
+    Alert.alert('Leave household', 'You will lose access until someone invites you again.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Leave',
+        style: 'destructive',
+        onPress: () => {
+          setError(null);
+          void leaveHousehold().catch((err) => setError(err instanceof Error ? err.message : 'Could not leave'));
+        },
+      },
+    ]);
+  }
+
+  function confirmDeleteFamily() {
+    const name = activeHousehold?.name ?? 'this family';
+    Alert.alert(
+      'Delete family',
+      `Delete ${name}? Meals, lists, money, and everyone in it are removed. You stay signed in and can start a new family.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete family',
+          style: 'destructive',
+          onPress: () => {
+            setError(null);
+            void deleteHousehold().catch((err) => setError(err instanceof Error ? err.message : 'Could not delete the family'));
+          },
+        },
+      ],
+    );
+  }
+
+  function confirmDeleteAccount() {
+    Alert.alert(
+      'Delete your account',
+      'Your sign-in is removed, and any family you are the only owner of is deleted. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete account',
+          style: 'destructive',
+          onPress: () => {
+            setError(null);
+            void deleteOwnAccount()
+              .then(() => signOut())
+              .catch((err) => setError(err instanceof Error ? err.message : 'Could not delete your account'));
+          },
+        },
+      ],
+    );
+  }
+
   return (
     <Card>
       <Text style={styles.heading}>Members</Text>
-      {members.map((member) => (
-        <View key={member.userId} style={styles.row}>
-          <View style={styles.rowText}>
-            <Text style={styles.rowTitle}>{member.profile.displayName ?? 'Member'}</Text>
-            <Text style={styles.meta}>{member.profile.email ?? member.userId}</Text>
+      {members.map((member) => {
+        const isSelf = member.userId === user?.id;
+        const choices = assignableRoles(role, member.role, isSelf);
+        const removable = canRemoveMember(role, member.role, isSelf);
+        return (
+          <View key={member.userId} style={styles.memberBlock}>
+            <View style={styles.row}>
+              <View style={styles.rowText}>
+                <Text style={styles.rowTitle}>{member.profile.displayName ?? 'Member'}</Text>
+                <Text style={styles.meta}>{member.profile.email ?? member.userId}</Text>
+              </View>
+              <Text style={styles.roleBadge}>
+                {roleLabel(isSelf && role ? role : member.role)}
+                {isSelf && role && role !== member.role ? ' · preview' : ''}
+              </Text>
+            </View>
+            {choices.length > 0 ? (
+              <View style={styles.wrapRow}>
+                {choices.map((choice) => (
+                  <Pill
+                    key={choice}
+                    label={roleLabel(choice)}
+                    active={member.role === choice}
+                    onPress={
+                      busyId || !canChangeMemberRole(role, member.role, choice, isSelf)
+                        ? undefined
+                        : () => void changeRole(member, choice)
+                    }
+                  />
+                ))}
+              </View>
+            ) : null}
+            {removable ? (
+              <Pressable onPress={() => confirmRemove(member)} hitSlop={8} disabled={busyId === member.userId}>
+                <Text style={styles.dangerLink}>Remove</Text>
+              </Pressable>
+            ) : null}
           </View>
-          <Text style={styles.roleBadge}>{member.role}</Text>
-        </View>
-      ))}
+        );
+      })}
+      {role === 'owner' && members.filter((member) => member.role === 'owner').length <= 1 ? (
+        <>
+          <Btn label="Delete family" variant="danger" onPress={confirmDeleteFamily} />
+          <Btn label="Delete my account" variant="danger" onPress={confirmDeleteAccount} />
+        </>
+      ) : (
+        <>
+          <Btn label="Leave household" variant="danger" onPress={confirmLeave} />
+          {role === 'owner' ? <Btn label="Delete family" variant="danger" onPress={confirmDeleteFamily} /> : null}
+        </>
+      )}
+      <ErrorText message={error} />
     </Card>
   );
 }
 
 export function PeoplePanel() {
-  const { people, members, addPerson, removePerson, linkPerson, canManageInvites } = useHousehold();
+  const { people, members, addPerson, removePerson, linkPerson, canManageHousehold } = useHousehold();
   const [name, setName] = useState('');
   const [personType, setPersonType] = useState<PersonType>('adult');
   const [dietary, setDietary] = useState<string[]>([]);
@@ -376,7 +523,7 @@ export function PeoplePanel() {
           person={person}
           members={members}
           people={people}
-          canLink={canManageInvites}
+          canLink={canManageHousehold}
           onLink={(userId) => void linkPerson(person.id, userId)}
           onRemove={() => void removePerson(person.id)}
         />
@@ -536,6 +683,10 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 15,
     fontWeight: '600',
+  },
+  memberBlock: {
+    gap: 8,
+    paddingVertical: 8,
   },
   roleBadge: {
     color: colors.accent,

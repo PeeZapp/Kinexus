@@ -4,6 +4,7 @@ import { formatMoney, type StashProduct } from '@kinexus/domain';
 
 import { Pill } from '@/src/features/household/ui';
 import {
+  ListBackLink,
   PrimaryActions,
   ProductCard,
   SearchField,
@@ -127,11 +128,10 @@ export function CatalogDesktop(props: CatalogLayoutProps) {
 
   return (
     <StashChrome desktop kicker={props.kicker} title={props.selectedListName}>
-      <Pressable onPress={props.onBack} accessibilityRole="button" accessibilityLabel="Back to wishlists">
-        <Text style={styles.back}>
-          ← {props.parentListName ? props.parentListName : 'Wishlists'}
-        </Text>
-      </Pressable>
+      <ListBackLink
+        label={props.parentListName ? props.parentListName : 'Wishlists'}
+        onPress={props.onBack}
+      />
       <Text style={styles.meta}>
         {props.subListCards.length > 0
           ? `${props.subListCards.length} sub-list${props.subListCards.length === 1 ? '' : 's'} · `
@@ -221,7 +221,6 @@ export function CatalogDesktop(props: CatalogLayoutProps) {
 }
 
 const styles = StyleSheet.create({
-  back: { color: colors.accent, fontSize: 14, fontWeight: '700' },
   meta: { color: colors.textMuted, fontSize: 14, marginTop: -8 },
   detailActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   section: { gap: 12 },

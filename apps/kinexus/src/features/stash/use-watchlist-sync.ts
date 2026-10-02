@@ -4,6 +4,7 @@ import { useCallback } from 'react';
 
 import type { Database } from '@kinexus/db';
 import {
+  canViewWatchlist,
   normalizeCountryCode,
   providersAreStale,
   serializeWatchlistProviders,
@@ -12,7 +13,8 @@ import {
   type WatchlistResolvedTitle,
   type WatchlistSearchHit,
   type WatchlistTitle,
-  type WatchlistVisibility,
+  normalizeListShare,
+  type StashListVisibility,
 } from '@kinexus/domain';
 
 import { lookupWatchlistCatalog } from '@/src/features/stash/watchlist-api';
@@ -83,7 +85,7 @@ function providersPatch(title: WatchlistResolvedTitle) {
 }
 
 export function useWatchlistSync() {
-  const { activeHousehold } = useHousehold();
+  const { activeHousehold, people, role } = useHousehold();
   const { user } = useAuth();
   const online = useOnline();
   const queryClient = useQueryClient();
@@ -92,6 +94,16 @@ export function useWatchlistSync() {
   const country = normalizeCountryCode(activeHousehold?.country);
   const ready = Boolean(householdId && supabase && online);
 
+  const listPeopleQuery = useQuery({
+    queryKey: householdId ? ['watchlist', 'people', householdId] : ['watchlist', 'people', 'none'],
+    enabled: ready,
+    queryFn: async () => {
+      if (!supabase || !householdId) return [];
+      const { data, error } = await supabase.from('watchlist_list_people').select('*').eq('household_id', householdId);
+      if (error) throw error;
+      return (data ?? []).map((row) => ({ listId: row.list_id, personId: row.person_id }));
+    },
+  });
   const listsQuery = useQuery({
     queryKey: householdId ? listsKey(householdId) : ['watchlist', 'lists', 'none'],
     enabled: ready,
@@ -117,29 +129,47 @@ export function useWatchlistSync() {
     ]);
   }, [householdId, queryClient]);
 
+  const replaceWatchlistPeople = useCallback(
+    async (listId: string, personIds: string[]) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      const { error: delError } = await supabase.from('watchlist_list_people').delete().eq('list_id', listId);
+      throwIfError(delError);
+      if (personIds.length === 0) return;
+      const { error } = await supabase.from('watchlist_list_people').insert(
+        personIds.map((personId) => ({ household_id: householdId, list_id: listId, person_id: personId })),
+      );
+      throwIfError(error);
+    },
+    [householdId],
+  );
+
   const createList = useCallback(
-    async (name: string, visibility: WatchlistVisibility) => {
+    async (name: string, share: { visibility: StashListVisibility; personIds: string[] }) => {
       if (!householdId || !supabase) throw new Error('Not ready');
       const trimmed = name.trim();
       if (!trimmed) throw new Error('Give the list a name');
-      if (visibility === 'personal' && !userId) throw new Error('Sign in to create a personal watchlist');
+      const next = normalizeListShare(share.visibility, share.personIds);
+      if (next.visibility === 'private' && !userId) throw new Error('Sign in to create a private watchlist');
+      if (next.visibility === 'people' && next.personIds.length === 0) throw new Error('Pick at least one person to share with');
       const id = Crypto.randomUUID();
       const { error } = await supabase.from('watchlist_lists').insert({
         id,
         household_id: householdId,
         created_by: userId,
         name: trimmed,
-        visibility,
+        visibility: next.visibility,
       });
       throwIfError(error);
+      if (next.personIds.length > 0) await replaceWatchlistPeople(id, next.personIds);
       await queryClient.invalidateQueries({ queryKey: listsKey(householdId) });
+      await queryClient.invalidateQueries({ queryKey: ['watchlist', 'people', householdId] });
       return id;
     },
-    [householdId, queryClient, userId],
+    [householdId, queryClient, replaceWatchlistPeople, userId],
   );
 
   const updateList = useCallback(
-    async (id: string, patch: { name?: string; visibility?: WatchlistVisibility }) => {
+    async (id: string, patch: { name?: string; share?: { visibility: StashListVisibility; personIds: string[] } }) => {
       if (!householdId || !supabase) throw new Error('Not ready');
       const next: Database['public']['Tables']['watchlist_lists']['Update'] = {};
       if (patch.name != null) {
@@ -147,15 +177,19 @@ export function useWatchlistSync() {
         if (!trimmed) throw new Error('Give the list a name');
         next.name = trimmed;
       }
-      if (patch.visibility) {
-        if (patch.visibility === 'personal' && !userId) throw new Error('Sign in to keep a personal watchlist');
-        next.visibility = patch.visibility;
+      if (patch.share) {
+        const share = normalizeListShare(patch.share.visibility, patch.share.personIds);
+        if (share.visibility === 'private' && !userId) throw new Error('Sign in to keep a private watchlist');
+        if (share.visibility === 'people' && share.personIds.length === 0) throw new Error('Pick at least one person to share with');
+        next.visibility = share.visibility;
+        await replaceWatchlistPeople(id, share.personIds);
       }
       const { error } = await supabase.from('watchlist_lists').update(next).eq('id', id);
       throwIfError(error);
       await queryClient.invalidateQueries({ queryKey: listsKey(householdId) });
+      await queryClient.invalidateQueries({ queryKey: ['watchlist', 'people', householdId] });
     },
-    [householdId, queryClient, userId],
+    [householdId, queryClient, replaceWatchlistPeople, userId],
   );
 
   const deleteList = useCallback(
@@ -279,14 +313,24 @@ export function useWatchlistSync() {
     [country, householdId, queryClient],
   );
 
+  const viewerId = user?.id ?? null;
+  const personId = people.find((person) => person.userId === viewerId)?.id ?? null;
+  const lists = (listsQuery.data ?? [])
+    .map((list) => ({
+      ...list,
+      personIds: (listPeopleQuery.data ?? []).filter((row) => row.listId === list.id).map((row) => row.personId),
+    }))
+    .filter((list) => canViewWatchlist(list, { role, userId: viewerId, personId }));
+  const visibleListIds = new Set(lists.map((list) => list.id));
+
   return {
-    lists: listsQuery.data ?? [],
+    lists,
     titles: titlesQuery.data ?? [],
-    items: itemsQuery.data ?? [],
+    items: (itemsQuery.data ?? []).filter((item) => visibleListIds.has(item.listId)),
     country,
     userId,
     online,
-    loading: listsQuery.isLoading || titlesQuery.isLoading || itemsQuery.isLoading,
+    loading: listsQuery.isLoading || listPeopleQuery.isLoading || titlesQuery.isLoading || itemsQuery.isLoading,
     error: listsQuery.error ?? titlesQuery.error ?? itemsQuery.error,
     createList,
     updateList,

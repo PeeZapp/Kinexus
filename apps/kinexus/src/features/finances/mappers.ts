@@ -96,6 +96,7 @@ export function txnFromRow(row: TxnRow): FinanceBudgetTxn {
     amount: asNum(row.amount),
     ignored: row.ignored,
     source: row.source === 'import' || row.source === 'auto' ? row.source : 'manual',
+    createdBy: row.created_by,
   };
 }
 

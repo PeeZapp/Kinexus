@@ -1,4 +1,4 @@
-export type HouseholdRole = 'owner' | 'admin' | 'member';
+export type HouseholdRole = 'owner' | 'admin' | 'adult' | 'teen' | 'child';
 export type PersonType = 'adult' | 'child' | 'other';
 
 export type Household = {

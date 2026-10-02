@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
+  canEditFinanceRecords,
   canManageFinances,
   collectibleConditionLabel,
   collectibleHoldingValue,
@@ -30,7 +31,8 @@ export function CollectiblesScreen() {
   const { mode } = useExperienceMode();
   const { role } = useHousehold();
   const finances = useFinancesSync();
-  const canManage = canManageFinances(role);
+  const canDelete = canManageFinances(role);
+  const canManage = canEditFinanceRecords(role);
   const desktop = mode === 'desktop';
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<FinanceCollectible | null>(null);
@@ -226,7 +228,7 @@ export function CollectiblesScreen() {
           if (ok) setOpen(false);
         }}
         onDelete={
-          editing
+          editing && canDelete
             ? async () => {
                 const ok = await run(() => finances.deleteCollectible(editing.id));
                 if (ok) setOpen(false);

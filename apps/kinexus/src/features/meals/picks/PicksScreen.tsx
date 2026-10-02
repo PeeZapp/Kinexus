@@ -10,6 +10,7 @@ import { Chip } from '@/src/features/meals/meals-kit';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
 import { canManageMealPlan } from '@/src/features/meals/picker-access';
 import { useMealsSync } from '@/src/features/meals/use-meals-sync';
+import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/FilterMenu';
 import { colors, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useHousehold } from '@/src/lib/household';
@@ -25,6 +26,7 @@ export function PicksScreen() {
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const canManage = canManageMealPlan(role);
+  const { openMenu, toggleMenu, pick } = useFilterMenus();
 
   useEffect(() => {
     const valid = new Set(people.map((person) => person.id));
@@ -109,31 +111,34 @@ export function PicksScreen() {
         <Text style={styles.hint}>Add people in Settings first, then come back to curate their lists.</Text>
       ) : (
         <>
-          <Text style={styles.section}>Person</Text>
-          <View style={styles.chips}>
+          <FilterBar>
             {people.length > 1 ? (
-              <Chip label="All" active={allSelected} onPress={() => setSelectedIds(people.map((person) => person.id))} />
+              <FilterDropdown<string | null>
+                id="person"
+                label="Person"
+                value={allSelected ? null : selectedIds[0] ?? null}
+                valueLabel={allSelected ? 'All' : selectedPeople[0]?.name ?? 'Select'}
+                open={openMenu === 'person'}
+                options={[
+                  { value: null, label: 'All' },
+                  ...people.map((person) => ({ value: person.id, label: person.name })),
+                ]}
+                onToggle={toggleMenu}
+                onSelect={pick((id) => setSelectedIds(id ? [id] : people.map((person) => person.id)))}
+              />
             ) : null}
-            {people.map((person) => (
-              <Chip
-                key={person.id}
-                label={person.name}
-                active={!allSelected && selectedIds.length === 1 && selectedIds[0] === person.id}
-                onPress={() => setSelectedIds([person.id])}
-              />
-            ))}
-          </View>
-          <Text style={styles.section}>Meal</Text>
-          <View style={styles.chips}>
-            {MEAL_SLOTS.map((slot) => (
-              <Chip
-                key={slot.key}
-                label={slot.label}
-                active={slotKey === slot.key}
-                onPress={() => setSlotKey(slot.key)}
-              />
-            ))}
-          </View>
+            <FilterDropdown<MealSlotKey>
+              id="meal"
+              label="Meal"
+              value={slotKey}
+              valueLabel={slotLabel}
+              active={slotKey !== 'dinner'}
+              open={openMenu === 'meal'}
+              options={MEAL_SLOTS.map((slot) => ({ value: slot.key, label: slot.label }))}
+              onToggle={toggleMenu}
+              onSelect={pick(setSlotKey)}
+            />
+          </FilterBar>
           <Text style={styles.meta}>
             {selectedIds.length === 0
               ? 'Select a person'
@@ -194,14 +199,6 @@ const styles = StyleSheet.create({
   titleDesktop: { fontSize: 40 },
   lede: { color: colors.textMuted, fontSize: 15, lineHeight: 22 },
   hint: { color: colors.textMuted },
-  section: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-  },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   meta: { color: colors.textDim, fontSize: 13 },
   row: {
     flexDirection: 'row',

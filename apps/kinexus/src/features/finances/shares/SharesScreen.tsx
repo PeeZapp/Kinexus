@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { canManageFinances, formatMoney, holderIdLabel, holdingMarketValue, holdingsForPortfolio, portfolioTotals, type FinanceShareHolding, type FinanceSharePortfolio } from '@kinexus/domain';
+import { canEditFinanceRecords, canManageFinances, formatMoney, holderIdLabel, holdingMarketValue, holdingsForPortfolio, portfolioTotals, type FinanceShareHolding, type FinanceSharePortfolio } from '@kinexus/domain';
 
 import { Btn, ErrorText } from '@/src/features/household/ui';
 import { FinancesChrome } from '@/src/features/finances/FinancesShared';
@@ -12,6 +12,7 @@ import {
   type HoldingDraft,
   type PortfolioDraft,
 } from '@/src/features/finances/use-finances-sync';
+import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/FilterMenu';
 import { EmptyState, LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
@@ -21,7 +22,8 @@ export function SharesScreen() {
   const { mode } = useExperienceMode();
   const { role } = useHousehold();
   const finances = useFinancesSync();
-  const canManage = canManageFinances(role);
+  const canDelete = canManageFinances(role);
+  const canManage = canEditFinanceRecords(role);
   const desktop = mode === 'desktop';
   const [portfolioOpen, setPortfolioOpen] = useState(false);
   const [holdingOpen, setHoldingOpen] = useState(false);
@@ -31,6 +33,7 @@ export function SharesScreen() {
   const [activePortfolioId, setActivePortfolioId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const { openMenu, toggleMenu, pick } = useFilterMenus();
 
   const totals = useMemo(() => portfolioTotals(finances.holdings), [finances.holdings]);
   const selectedId = activePortfolioId && finances.portfolios.some((item) => item.id === activePortfolioId)
@@ -123,16 +126,24 @@ export function SharesScreen() {
           </EmptyState>
         ) : (
           <>
-            <View style={styles.pills}>
-              {finances.portfolios.map((portfolio) => (
-                <Pressable
-                  key={portfolio.id}
-                  onPress={() => setActivePortfolioId(portfolio.id)}
-                  style={[styles.pill, selectedId === portfolio.id && styles.pillActive]}>
-                  <Text style={[styles.pillLabel, selectedId === portfolio.id && styles.pillLabelActive]}>{portfolio.name}</Text>
-                </Pressable>
-              ))}
-            </View>
+            {finances.portfolios.length > 1 ? (
+              <FilterBar>
+                <FilterDropdown<string>
+                  id="portfolio"
+                  label="Portfolio"
+                  value={selectedId ?? finances.portfolios[0]!.id}
+                  valueLabel={selected?.name ?? 'Portfolio'}
+                  active
+                  open={openMenu === 'portfolio'}
+                  options={finances.portfolios.map((portfolio) => ({
+                    value: portfolio.id,
+                    label: portfolio.name,
+                  }))}
+                  onToggle={toggleMenu}
+                  onSelect={pick(setActivePortfolioId)}
+                />
+              </FilterBar>
+            ) : null}
             {selected ? (
               <View style={styles.card}>
                 <View style={styles.cardHead}>
@@ -195,7 +206,7 @@ export function SharesScreen() {
           if (ok) setPortfolioOpen(false);
         }}
         onDelete={
-          editingPortfolio
+          editingPortfolio && canDelete
             ? async () => {
                 const ok = await run(() => finances.deletePortfolio(editingPortfolio.id));
                 if (ok) setPortfolioOpen(false);
@@ -224,7 +235,7 @@ export function SharesScreen() {
           if (ok) setHoldingOpen(false);
         }}
         onDelete={
-          editingHolding
+          editingHolding && canDelete
             ? async () => {
                 const ok = await run(() => finances.deleteHolding(editingHolding.id));
                 if (ok) setHoldingOpen(false);
@@ -265,18 +276,6 @@ const styles = StyleSheet.create({
   summaryValue: { color: colors.text, fontSize: 28, fontWeight: '800' },
   meta: { color: colors.textDim, fontSize: 12 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  pill: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bgHover,
-  },
-  pillActive: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
-  pillLabel: { color: colors.textMuted, fontWeight: '700' },
-  pillLabelActive: { color: colors.accent },
   card: {
     backgroundColor: colors.bgCard,
     borderWidth: 1,

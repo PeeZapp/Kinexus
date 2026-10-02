@@ -3,14 +3,16 @@ import { View } from 'react-native';
 import type { Recipe } from '@kinexus/domain';
 
 import { RecipeCard, RecipesChrome } from '@/src/features/meals/recipes/RecipesShared';
-import type { RecipeFilter, RecipeSort, SortDir } from '@/src/features/meals/recipes/filters';
+import type { RecipeLibraryFilter, RecipeMealFilter, RecipeSort, SortDir } from '@/src/features/meals/recipes/filters';
 import { EmptyState } from '@/src/features/shell/states';
 
 export function RecipesDesktop(props: {
   query: string;
   setQuery: (v: string) => void;
-  filter: RecipeFilter;
-  setFilter: (v: RecipeFilter) => void;
+  meal: RecipeMealFilter;
+  setMeal: (v: RecipeMealFilter) => void;
+  library: RecipeLibraryFilter;
+  setLibrary: (v: RecipeLibraryFilter) => void;
   sort: RecipeSort;
   sortDir: SortDir;
   onSort: (v: RecipeSort) => void;
@@ -22,7 +24,7 @@ export function RecipesDesktop(props: {
   totalCount: number;
   loading?: boolean;
   favouriteIds: Set<string>;
-  filters: { id: RecipeFilter; label: string }[];
+  libraryChoices: { id: RecipeLibraryFilter; label: string }[];
   showNotForFamily?: boolean;
   setShowNotForFamily?: (v: boolean) => void;
   showFlag?: boolean;
@@ -35,8 +37,10 @@ export function RecipesDesktop(props: {
       desktop
       query={props.query}
       setQuery={props.setQuery}
-      filter={props.filter}
-      setFilter={props.setFilter}
+      meal={props.meal}
+      setMeal={props.setMeal}
+      library={props.library}
+      setLibrary={props.setLibrary}
       sort={props.sort}
       sortDir={props.sortDir}
       onSort={props.onSort}
@@ -47,7 +51,7 @@ export function RecipesDesktop(props: {
       totalCount={props.totalCount}
       shownCount={props.recipes.length}
       loading={props.loading}
-      filters={props.filters}
+      libraryChoices={props.libraryChoices}
       showNotForFamily={props.showNotForFamily}
       setShowNotForFamily={props.setShowNotForFamily}
       showImport={props.showImport}>

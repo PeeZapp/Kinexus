@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
+  canEditFinanceRecords,
   canManageFinances,
   formatMoney,
   metalHoldingMarketValue,
@@ -16,7 +17,8 @@ import {
   type MetalValueBasis,
 } from '@kinexus/domain';
 
-import { Btn, ErrorText, Pill } from '@/src/features/household/ui';
+import { Btn, ErrorText } from '@/src/features/household/ui';
+import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/FilterMenu';
 import { FinancesChrome } from '@/src/features/finances/FinancesShared';
 import { MetalHoldingSheet } from '@/src/features/finances/sheets';
 import {
@@ -33,13 +35,15 @@ export function MetalsScreen() {
   const { mode } = useExperienceMode();
   const { role } = useHousehold();
   const finances = useFinancesSync();
-  const canManage = canManageFinances(role);
+  const canDelete = canManageFinances(role);
+  const canManage = canEditFinanceRecords(role);
   const desktop = mode === 'desktop';
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState<FinanceMetalHolding | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [basis, setBasis] = useState<MetalValueBasis>('premium');
+  const { openMenu, toggleMenu, pick } = useFilterMenus();
 
   const totals = useMemo(
     () => metalPortfolioTotals(finances.metalHoldings, basis),
@@ -81,10 +85,22 @@ export function MetalsScreen() {
           <View style={styles.summaryHead}>
             <Text style={styles.summaryLabel}>{basis === 'spot' ? 'Value at spot' : 'Value with premiums'}</Text>
             {finances.metalHoldings.length > 0 ? (
-              <View style={styles.toggle}>
-                <Pill label="Spot" active={basis === 'spot'} onPress={() => setBasis('spot')} />
-                <Pill label="Premium" active={basis === 'premium'} onPress={() => setBasis('premium')} />
-              </View>
+              <FilterBar>
+                <FilterDropdown<MetalValueBasis>
+                  id="value"
+                  label="Value"
+                  value={basis}
+                  valueLabel={basis === 'spot' ? 'Spot' : 'Premium'}
+                  active={basis !== 'premium'}
+                  open={openMenu === 'value'}
+                  options={[
+                    { value: 'premium', label: 'Premium' },
+                    { value: 'spot', label: 'Spot' },
+                  ]}
+                  onToggle={toggleMenu}
+                  onSelect={pick(setBasis)}
+                />
+              </FilterBar>
             ) : null}
           </View>
           <Text style={styles.summaryValue}>{formatMoney(totals.marketValue, finances.currency)}</Text>
@@ -193,7 +209,7 @@ export function MetalsScreen() {
           if (ok) setSheetOpen(false);
         }}
         onDelete={
-          editing
+          editing && canDelete
             ? async () => {
                 const ok = await run(() => finances.deleteMetalHolding(editing.id));
                 if (ok) setSheetOpen(false);
@@ -216,7 +232,6 @@ const styles = StyleSheet.create({
   },
   summaryLabel: { color: colors.accent, fontSize: 12, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase' },
   summaryHead: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  toggle: { flexDirection: 'row', gap: 8 },
   summaryValue: { color: colors.text, fontSize: 28, fontWeight: '800' },
   meta: { color: colors.textDim, fontSize: 12 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

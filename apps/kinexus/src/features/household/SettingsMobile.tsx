@@ -1,6 +1,7 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { RolePreviewCard } from '@/src/features/household/RolePreview';
 import {
   CreateJoinPanel,
   HouseholdSwitcher,
@@ -52,6 +53,7 @@ export function SettingsMobile() {
       </Text>
       <Text style={styles.title}>{activeHousehold.name}</Text>
       <ErrorText message={error} />
+      <RolePreviewCard />
       <HouseholdSwitcher />
       <LocationPanel />
       <InvitePanel />

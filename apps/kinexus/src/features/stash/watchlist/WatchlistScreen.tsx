@@ -21,8 +21,10 @@ import { WatchlistDesktop } from '@/src/features/stash/watchlist/WatchlistDeskto
 import { WatchlistMobile } from '@/src/features/stash/watchlist/WatchlistMobile';
 import type { WatchlistListCardModel } from '@/src/features/stash/watchlist/WatchlistShared';
 import { AddTitleSheet, AddWatchlistSheet, TitleSheet, WatchlistSettingsSheet } from '@/src/features/stash/watchlist/sheets';
+import type { ListShareDraft } from '@/src/features/stash/use-stash-sync';
 import { useWatchlistSync, watchlistActionError } from '@/src/features/stash/use-watchlist-sync';
 import { useExperienceMode } from '@/src/lib/experience-mode';
+import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 
 function toListCard(
@@ -42,7 +44,9 @@ function toListCard(
 
 export function WatchlistScreen() {
   const { mode } = useExperienceMode();
-  const { role } = useHousehold();
+  const { user } = useAuth();
+  const { people, role } = useHousehold();
+  const personId = people.find((person) => person.userId === user?.id)?.id ?? null;
   const watchlist = useWatchlistSync();
   const [query, setQuery] = useState('');
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
@@ -54,7 +58,7 @@ export function WatchlistScreen() {
   const [openItemId, setOpenItemId] = useState<string | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [renameVisibility, setRenameVisibility] = useState<WatchlistVisibility>('household');
+  const [renameShare, setRenameShare] = useState<ListShareDraft>({ visibility: 'household', personIds: [] });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -99,7 +103,7 @@ export function WatchlistScreen() {
   function canSettings(listId: string) {
     const list = watchlist.lists.find((item) => item.id === listId);
     if (!list) return false;
-    return canManageWatchlist(list, { userId: watchlist.userId, role });
+    return canManageWatchlist(list, { userId: watchlist.userId, role, personId });
   }
 
   function openList(id: string) {
@@ -122,7 +126,7 @@ export function WatchlistScreen() {
     const list = watchlist.lists.find((item) => item.id === id);
     setRenameId(id);
     setRenameValue(list?.name ?? '');
-    setRenameVisibility(list?.visibility ?? 'household');
+    setRenameShare({ visibility: list?.visibility ?? 'household', personIds: list?.personIds ?? [] });
   }
 
   async function run(fn: () => Promise<unknown>): Promise<boolean> {
@@ -183,8 +187,9 @@ export function WatchlistScreen() {
         busy={busy}
         error={actionError}
         onClose={() => setAddList(false)}
-        onSave={async (name, visibility) => {
-          const ok = await run(() => watchlist.createList(name, visibility));
+        people={people}
+        onSave={async (name, share) => {
+          const ok = await run(() => watchlist.createList(name, share));
           if (ok) setAddList(false);
         }}
       />
@@ -205,14 +210,15 @@ export function WatchlistScreen() {
         visible={Boolean(renameId)}
         name={renameValue}
         onNameChange={setRenameValue}
-        visibility={renameVisibility}
-        onVisibilityChange={setRenameVisibility}
+        share={renameShare}
+        onShareChange={setRenameShare}
+        people={people}
         busy={busy}
         error={actionError}
         onClose={() => setRenameId(null)}
         onSave={async () => {
           if (!renameId) return;
-          const ok = await run(() => watchlist.updateList(renameId, { name: renameValue, visibility: renameVisibility }));
+          const ok = await run(() => watchlist.updateList(renameId, { name: renameValue, share: renameShare }));
           if (ok) setRenameId(null);
         }}
         onDelete={

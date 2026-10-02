@@ -4,6 +4,8 @@ import { useCallback, useEffect } from 'react';
 
 import type { Database } from '@kinexus/db';
 import {
+  canSeeShared,
+  canViewList,
   canonicalizeUrl,
   inferLinkType,
   isSale,
@@ -99,6 +101,20 @@ async function fetchLists(householdId: string): Promise<StashList[]> {
 
 type ListPerson = { listId: string; personId: string };
 
+async function fetchLinkPeople(householdId: string): Promise<{ linkId: string; personId: string }[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase.from('stash_link_people').select('*').eq('household_id', householdId);
+  if (error) throw error;
+  return (data ?? []).map((row) => ({ linkId: row.link_id, personId: row.person_id }));
+}
+
+async function fetchCollectionPeople(householdId: string): Promise<{ collectionId: string; personId: string }[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase.from('stash_link_collection_people').select('*').eq('household_id', householdId);
+  if (error) throw error;
+  return (data ?? []).map((row) => ({ collectionId: row.collection_id, personId: row.person_id }));
+}
+
 async function fetchListPeople(householdId: string): Promise<ListPerson[]> {
   if (!supabase) return [];
   const { data, error } = await supabase.from('stash_list_people').select('*').eq('household_id', householdId);
@@ -124,7 +140,7 @@ async function fetchCollections(householdId: string): Promise<SavedLinkCollectio
   if (!supabase) return [];
   const { data, error } = await supabase.from('stash_link_collections').select('*').eq('household_id', householdId).order('position').order('name');
   if (error) throw error;
-  return (data ?? []).map(collectionFromRow);
+  return (data ?? []).map((row) => collectionFromRow(row));
 }
 
 async function fetchCollectionItems(householdId: string): Promise<CollectionItem[]> {
@@ -199,10 +215,11 @@ export type LinkDraft = {
   linkType?: SavedLinkType;
   collectionId?: string | null;
   notes?: string;
+  share?: ListShareDraft;
 };
 
 export function useStashSync() {
-  const { activeHousehold } = useHousehold();
+  const { activeHousehold, people, role } = useHousehold();
   const { user } = useAuth();
   const online = useOnline();
   const queryClient = useQueryClient();
@@ -246,6 +263,16 @@ export function useStashSync() {
     enabled: ready,
     queryFn: () => fetchCollectionItems(householdId!),
   });
+  const linkPeopleQuery = useQuery({
+    queryKey: householdId ? ['stash', 'link-people', householdId] : ['stash', 'link-people', 'none'],
+    enabled: ready,
+    queryFn: () => fetchLinkPeople(householdId!),
+  });
+  const collectionPeopleQuery = useQuery({
+    queryKey: householdId ? ['stash', 'collection-people', householdId] : ['stash', 'collection-people', 'none'],
+    enabled: ready,
+    queryFn: () => fetchCollectionPeople(householdId!),
+  });
   const linksQuery = useQuery({
     queryKey: householdId ? linksKey(householdId) : ['stash', 'links', 'none'],
     enabled: ready,
@@ -264,6 +291,8 @@ export function useStashSync() {
       void queryClient.invalidateQueries({ queryKey: linksKey(householdId) });
       void queryClient.invalidateQueries({ queryKey: collectionsKey(householdId) });
       void queryClient.invalidateQueries({ queryKey: collectionItemsKey(householdId) });
+      void queryClient.invalidateQueries({ queryKey: ['stash', 'link-people', householdId] });
+      void queryClient.invalidateQueries({ queryKey: ['stash', 'collection-people', householdId] });
     };
     return retainPostgresChannel(client, `stash-sync:${householdId}`, (channel) =>
       channel
@@ -274,24 +303,57 @@ export function useStashSync() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_list_items', filter: `household_id=eq.${householdId}` }, invalidate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_links', filter: `household_id=eq.${householdId}` }, invalidate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_link_collections', filter: `household_id=eq.${householdId}` }, invalidate)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_link_collection_items', filter: `household_id=eq.${householdId}` }, invalidate),
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_link_collection_items', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_link_people', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'stash_link_collection_people', filter: `household_id=eq.${householdId}` }, invalidate),
     );
   }, [householdId, online, queryClient]);
 
   const products = productsQuery.data ?? [];
+  const viewerId = user?.id ?? null;
+  const personId = people.find((person) => person.userId === viewerId)?.id ?? null;
+  const access = { role, userId: viewerId, personId };
   const listPeople = listPeopleQuery.data ?? [];
-  const lists = (listsQuery.data ?? []).map((list) => ({
-    ...list,
-    personIds: listPeople.filter((row) => row.listId === list.id).map((row) => row.personId),
-  }));
-  const memberships = membershipsQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
-  const collections = collectionsQuery.data ?? [];
-  const collectionItems = collectionItemsQuery.data ?? [];
-  const links = (linksQuery.data ?? []).map((row) => {
-    const collectionIds = collectionItems.filter((item) => item.linkId === row.id).map((item) => item.collectionId);
-    return linkFromRow(row, collectionIds);
-  });
+  const lists = (listsQuery.data ?? [])
+    .map((list) => ({
+      ...list,
+      personIds: listPeople.filter((row) => row.listId === list.id).map((row) => row.personId),
+    }))
+    .filter((list) => canViewList(list, access));
+  const visibleListIds = new Set(lists.map((list) => list.id));
+  const memberships = (membershipsQuery.data ?? []).filter((row) => visibleListIds.has(row.listId));
+  const items = (itemsQuery.data ?? []).filter((row) => visibleListIds.has(row.listId));
+  const linkPeople = linkPeopleQuery.data ?? [];
+  const collectionPeople = collectionPeopleQuery.data ?? [];
+  const collections = (collectionsQuery.data ?? [])
+    .map((collection) => ({
+      ...collection,
+      personIds: collectionPeople.filter((row) => row.collectionId === collection.id).map((row) => row.personId),
+    }))
+    .filter((collection) =>
+      canSeeShared({
+        ...access,
+        createdBy: collection.createdBy,
+        visibility: collection.visibility,
+        personIds: collection.personIds,
+      }),
+    );
+  const visibleCollectionIds = new Set(collections.map((collection) => collection.id));
+  const collectionItems = (collectionItemsQuery.data ?? []).filter((item) => visibleCollectionIds.has(item.collectionId));
+  const links = (linksQuery.data ?? [])
+    .map((row) => {
+      const collectionIds = collectionItems.filter((item) => item.linkId === row.id).map((item) => item.collectionId);
+      const personIds = linkPeople.filter((item) => item.linkId === row.id).map((item) => item.personId);
+      return linkFromRow(row, collectionIds, personIds);
+    })
+    .filter((link) =>
+      canSeeShared({
+        ...access,
+        createdBy: link.createdBy,
+        visibility: link.visibility,
+        personIds: link.personIds,
+      }),
+    );
 
   const refreshAll = useCallback(async () => {
     if (!householdId) return;
@@ -685,21 +747,58 @@ export function useStashSync() {
     [products, scrapeProduct, updateProduct],
   );
 
+  const replaceLinkPeople = useCallback(
+    async (linkId: string, personIds: string[]) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      const { error: delError } = await supabase.from('stash_link_people').delete().eq('link_id', linkId);
+      throwIfError(delError);
+      if (personIds.length === 0) return;
+      const { error } = await supabase.from('stash_link_people').insert(
+        personIds.map((personId) => ({ household_id: householdId, link_id: linkId, person_id: personId })),
+      );
+      throwIfError(error);
+    },
+    [householdId],
+  );
+
+  const replaceCollectionPeople = useCallback(
+    async (collectionId: string, personIds: string[]) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      const { error: delError } = await supabase.from('stash_link_collection_people').delete().eq('collection_id', collectionId);
+      throwIfError(delError);
+      if (personIds.length === 0) return;
+      const { error } = await supabase.from('stash_link_collection_people').insert(
+        personIds.map((personId) => ({ household_id: householdId, collection_id: collectionId, person_id: personId })),
+      );
+      throwIfError(error);
+    },
+    [householdId],
+  );
+
   const createCollection = useCallback(
-    async (name: string) => {
+    async (name: string, share: ListShareDraft = { visibility: 'household', personIds: [] }) => {
       if (!householdId || !supabase) throw new Error('Not ready');
       const trimmed = name.trim();
       if (!trimmed) throw new Error('Give the collection a name');
+      const next = normalizeListShare(share.visibility, share.personIds);
+      if (next.visibility === 'people' && next.personIds.length === 0) {
+        throw new Error('Pick at least one person to share with');
+      }
+      const id = Crypto.randomUUID();
       const { error } = await supabase.from('stash_link_collections').insert({
+        id,
         household_id: householdId,
         created_by: userId,
         name: trimmed,
+        visibility: next.visibility,
         position: collections.length,
       });
       if (error) throw error;
+      if (next.personIds.length > 0) await replaceCollectionPeople(id, next.personIds);
       await queryClient.invalidateQueries({ queryKey: collectionsKey(householdId) });
+      await queryClient.invalidateQueries({ queryKey: ['stash', 'collection-people', householdId] });
     },
-    [collections.length, householdId, queryClient, userId],
+    [collections.length, householdId, queryClient, replaceCollectionPeople, userId],
   );
 
   const renameCollection = useCallback(
@@ -754,11 +853,16 @@ export function useStashSync() {
       if (!url) throw new Error('Paste a URL');
       const canonical = canonicalizeUrl(url);
       const title = (draft.title?.trim() || canonical.replace(/^https?:\/\//, '')).slice(0, 200);
+      const share = normalizeListShare(draft.share?.visibility ?? 'household', draft.share?.personIds ?? []);
+      if (share.visibility === 'people' && share.personIds.length === 0) {
+        throw new Error('Pick at least one person to share with');
+      }
       const { data, error } = await supabase
         .from('stash_links')
         .insert({
           household_id: householdId,
           created_by: userId,
+          visibility: share.visibility,
           url,
           canonical_url: canonical,
           title,
@@ -775,11 +879,13 @@ export function useStashSync() {
         if (error.code === '23505') throw new Error('That link is already saved');
         throw error;
       }
+      if (share.personIds.length > 0) await replaceLinkPeople(data.id, share.personIds);
       if (draft.collectionId) await setLinkCollections(data.id, [draft.collectionId]);
       await queryClient.invalidateQueries({ queryKey: linksKey(householdId) });
+      await queryClient.invalidateQueries({ queryKey: ['stash', 'link-people', householdId] });
       return linkFromRow(data, draft.collectionId ? [draft.collectionId] : []);
     },
-    [householdId, queryClient, setLinkCollections, userId],
+    [householdId, queryClient, replaceLinkPeople, setLinkCollections, userId],
   );
 
   const updateLink = useCallback(
@@ -791,6 +897,7 @@ export function useStashSync() {
         status?: SavedLinkStatus;
         linkType?: SavedLinkType;
         collectionIds?: string[];
+        share?: ListShareDraft;
       },
     ) => {
       if (!householdId || !supabase) throw new Error('Not ready');
@@ -803,6 +910,14 @@ export function useStashSync() {
       if (patch.notes !== undefined) row.notes = patch.notes?.trim() || null;
       if (patch.status !== undefined) row.status = patch.status;
       if (patch.linkType !== undefined) row.link_type = patch.linkType;
+      if (patch.share) {
+        const next = normalizeListShare(patch.share.visibility, patch.share.personIds);
+        if (next.visibility === 'people' && next.personIds.length === 0) {
+          throw new Error('Pick at least one person to share with');
+        }
+        row.visibility = next.visibility;
+        await replaceLinkPeople(id, next.personIds);
+      }
       if (Object.keys(row).length > 0) {
         const { error } = await supabase.from('stash_links').update(row).eq('id', id);
         if (error) throw error;
@@ -810,7 +925,7 @@ export function useStashSync() {
       if (patch.collectionIds) await setLinkCollections(id, patch.collectionIds);
       await queryClient.invalidateQueries({ queryKey: linksKey(householdId) });
     },
-    [householdId, queryClient, setLinkCollections],
+    [householdId, queryClient, replaceLinkPeople, setLinkCollections],
   );
 
   const deleteLink = useCallback(
@@ -836,6 +951,8 @@ export function useStashSync() {
     membershipsQuery.isLoading ||
     itemsQuery.isLoading ||
     collectionsQuery.isLoading ||
+    collectionPeopleQuery.isLoading ||
+    linkPeopleQuery.isLoading ||
     linksQuery.isLoading;
   const error =
     productsQuery.error?.message ??

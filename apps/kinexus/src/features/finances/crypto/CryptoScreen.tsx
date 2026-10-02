@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
+  canEditFinanceRecords,
   canManageFinances,
   cryptoHoldingMarketValue,
   cryptoPortfolioTotals,
@@ -26,7 +27,8 @@ export function CryptoScreen() {
   const { mode } = useExperienceMode();
   const { role } = useHousehold();
   const finances = useFinancesSync();
-  const canManage = canManageFinances(role);
+  const canDelete = canManageFinances(role);
+  const canManage = canEditFinanceRecords(role);
   const desktop = mode === 'desktop';
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState<FinanceCryptoHolding | null>(null);
@@ -169,7 +171,7 @@ export function CryptoScreen() {
           if (ok) setSheetOpen(false);
         }}
         onDelete={
-          editing
+          editing && canDelete
             ? async () => {
                 const ok = await run(() => finances.deleteCryptoHolding(editing.id));
                 if (ok) setSheetOpen(false);

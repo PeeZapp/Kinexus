@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { AppModal } from '@/src/features/shell/AppModal';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 
@@ -34,10 +35,11 @@ export function Sheet({
   const { mode } = useExperienceMode();
   const desktop = mode === 'desktop';
   return (
-    <Modal visible={visible} transparent animationType={desktop ? 'fade' : 'slide'} onRequestClose={onClose}>
+    <AppModal visible={visible} transparent animationType={desktop ? 'fade' : 'slide'} onRequestClose={onClose}>
       <Pressable style={styles.sheetBackdrop} onPress={onClose}>
         <Pressable
           onPress={() => undefined}
+          accessibilityViewIsModal
           style={[styles.sheetCard, desktop ? styles.sheetDesktop : styles.sheetMobile, wide && styles.sheetWide]}>
           <View style={styles.sheetHead}>
             <Text style={styles.sheetTitle}>{title}</Text>
@@ -50,7 +52,7 @@ export function Sheet({
           </ScrollView>
         </Pressable>
       </Pressable>
-    </Modal>
+    </AppModal>
   );
 }
 
@@ -100,6 +102,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     width: '100%',
     maxHeight: '88%',
+    flexShrink: 1,
+    overflow: 'hidden',
   },
   sheetDesktop: {
     maxWidth: 520,
@@ -125,7 +129,7 @@ const styles = StyleSheet.create({
   },
   sheetTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },
   sheetClose: { color: colors.accent, fontWeight: '700' },
-  sheetBody: { paddingHorizontal: space.md, paddingBottom: space.lg },
+  sheetBody: { flexShrink: 1, minHeight: 0, paddingHorizontal: space.md, paddingBottom: space.lg },
   chip: {
     borderRadius: radius.xl,
     borderWidth: 1,

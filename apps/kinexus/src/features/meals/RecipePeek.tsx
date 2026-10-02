@@ -16,6 +16,9 @@ export function RecipePeek({
   onBack,
   onEdit,
   onOpen,
+  onNotForFamily,
+  notForFamilyBusy = false,
+  note,
   belowActions,
 }: {
   recipe: Recipe;
@@ -27,13 +30,16 @@ export function RecipePeek({
   onBack?: () => void;
   onEdit?: () => void;
   onOpen?: () => void;
+  onNotForFamily?: () => void;
+  notForFamilyBusy?: boolean;
+  note?: string | null;
   belowActions?: ReactNode;
 }) {
   const slots = (recipe.mealSlots ?? [])
     .map((key) => MEAL_SLOTS.find((slot) => slot.key === key)?.label)
     .filter(Boolean)
     .join(' · ');
-  const hasActions = Boolean(onEdit || onOpen || onUse || onSwap || onRandom || onBack || belowActions);
+  const hasActions = Boolean(onEdit || onOpen || onUse || onSwap || onRandom || onBack || onNotForFamily || note || belowActions);
   return (
     <View style={styles.wrap}>
       <View style={styles.hero}>
@@ -69,6 +75,17 @@ export function RecipePeek({
               {onBack ? <PeekBtn label="Back" onPress={onBack} /> : null}
             </View>
           ) : null}
+          {onNotForFamily ? (
+            <Pressable
+              onPress={onNotForFamily}
+              disabled={notForFamilyBusy}
+              style={[styles.btn, styles.btnReject, notForFamilyBusy && styles.btnDisabled]}>
+              <Text style={[styles.btnLabel, styles.btnLabelReject]}>
+                {notForFamilyBusy ? 'Saving…' : 'Not for my family'}
+              </Text>
+            </Pressable>
+          ) : null}
+          {note ? <Text style={styles.note}>{note}</Text> : null}
           {belowActions}
         </View>
       ) : null}
@@ -140,6 +157,10 @@ const styles = StyleSheet.create({
   },
   btnLabel: { color: colors.text, fontSize: 13, fontWeight: '700' },
   btnLabelPrimary: { color: colors.bg },
+  btnReject: { alignSelf: 'flex-start', borderColor: colors.danger, backgroundColor: colors.dangerBg },
+  btnDisabled: { opacity: 0.55 },
+  btnLabelReject: { color: colors.danger },
+  note: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
   tip: { color: colors.textMuted, fontSize: 13, fontStyle: 'italic', lineHeight: 18 },
   heading: {
     color: colors.textMuted,

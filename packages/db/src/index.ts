@@ -7,6 +7,8 @@ export const rpc = {
   acceptInvite: 'accept_household_invite',
   revokeInvite: 'revoke_household_invite',
   leaveHousehold: 'leave_household',
+  deleteHousehold: 'delete_household',
+  deleteOwnAccount: 'delete_own_account',
   getOrCreateMealPlan: 'get_or_create_meal_plan',
   ensureNutritionGoals: 'ensure_household_nutrition_goals',
   ensureFinanceBudget: 'ensure_finance_budget',

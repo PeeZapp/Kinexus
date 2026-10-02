@@ -39,7 +39,8 @@ describe('finance accounts', () => {
   it('only owners and admins can manage finances', () => {
     expect(canManageFinances('owner')).toBe(true);
     expect(canManageFinances('admin')).toBe(true);
-    expect(canManageFinances('member')).toBe(false);
+    expect(canManageFinances('adult')).toBe(false);
+    expect(canManageFinances('teen')).toBe(false);
     expect(canManageFinances(null)).toBe(false);
   });
 

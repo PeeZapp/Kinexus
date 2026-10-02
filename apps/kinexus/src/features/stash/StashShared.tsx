@@ -257,16 +257,32 @@ export function ActionRow({ children }: { children: ReactNode }) {
   return <View style={styles.actions}>{children}</View>;
 }
 
+export function ListBackLink({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Back to ${label}`}
+      hitSlop={4}
+      style={({ pressed }) => [styles.backLink, pressed && styles.backLinkPressed]}>
+      <Text style={styles.backChevron}>←</Text>
+      <Text style={styles.backLabel} numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 export function PrimaryActions(props: {
   addLabel: string;
-  onAdd: () => void;
+  onAdd?: () => void;
   extraLabel?: string;
   onExtra?: () => void;
   disabled?: boolean;
 }) {
   return (
     <ActionRow>
-      <Btn label={props.addLabel} onPress={props.onAdd} disabled={props.disabled} />
+      {props.onAdd ? <Btn label={props.addLabel} onPress={props.onAdd} disabled={props.disabled} /> : null}
       {props.extraLabel && props.onExtra ? (
         <Btn label={props.extraLabel} variant="secondary" onPress={props.onExtra} disabled={props.disabled} />
       ) : null}
@@ -391,4 +407,21 @@ const styles = StyleSheet.create({
   listShare: { color: colors.textDim, fontSize: 11, fontWeight: '600', marginTop: 2 },
   listCount: { color: colors.textDim, fontSize: 12, fontWeight: '700' },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  backLink: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: '100%',
+    minHeight: 36,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1,
+    borderColor: colors.accentMuted,
+  },
+  backLinkPressed: { opacity: 0.72 },
+  backChevron: { color: colors.accent, fontSize: 16, fontWeight: '700', lineHeight: 20 },
+  backLabel: { color: colors.accent, fontSize: 15, fontWeight: '700', flexShrink: 1 },
 });

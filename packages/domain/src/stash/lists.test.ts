@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  canEditList,
   canManageLists,
   canViewList,
   descendantListIds,
@@ -95,13 +96,19 @@ describe('stash lists', () => {
       visibility: 'people',
       personIds: ['leo', 'paul'],
     });
-    const member = { role: 'member' as const, userId: 'kid-user', personId: 'leo' };
-    expect(canViewList(family, member)).toBe(true);
-    expect(canViewList(secret, member)).toBe(false);
-    expect(canViewList(secret, { role: 'admin', userId: 'other', personId: null })).toBe(true);
-    expect(canViewList(kids, member)).toBe(true);
-    expect(canViewList(kids, { role: 'member', userId: 'sib', personId: 'charlie' })).toBe(false);
-    expect(canManageLists('member')).toBe(false);
+    const adult = { role: 'adult' as const, userId: 'kid-user', personId: 'leo' };
+    expect(canViewList(family, adult)).toBe(true);
+    expect(canViewList(secret, adult)).toBe(false);
+    expect(canEditList(secret, adult)).toBe(false);
+    expect(canEditList(family, adult)).toBe(true);
+    expect(canViewList(secret, { role: 'admin', userId: 'other', personId: null })).toBe(false);
+    expect(canViewList(secret, { role: 'admin', userId: 'admin', personId: null })).toBe(true);
+    expect(canViewList(secret, { role: 'owner', userId: 'other', personId: null })).toBe(true);
+    expect(canEditList(secret, { role: 'admin', userId: 'other', personId: null })).toBe(false);
+    expect(canViewList(kids, adult)).toBe(true);
+    expect(canViewList(kids, { role: 'teen', userId: 'sib', personId: 'charlie' })).toBe(false);
+    expect(canEditList(family, { role: 'teen', userId: 'sib', personId: 'charlie' })).toBe(false);
+    expect(canManageLists('adult')).toBe(false);
     expect(canManageLists('owner')).toBe(true);
     expect(listShareLabel(kids, [{ id: 'leo', name: 'Leo' }, { id: 'paul', name: 'Paul' }])).toBe('Leo · Paul');
     expect(normalizeListShare('private', ['leo']).personIds).toEqual([]);

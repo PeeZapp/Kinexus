@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePathname } from 'expo-router';
 
+import { RolePreviewBar } from '@/src/features/household/RolePreview';
 import { DesktopSidebar } from '@/src/features/shell/DesktopSidebar';
 import { MobileTabBar } from '@/src/features/shell/MobileTabBar';
 import { PhoneFrame } from '@/src/features/shell/PhoneFrame';
@@ -14,40 +15,49 @@ import { useAuth } from '@/src/lib/auth';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 
 export function AppChrome({ children }: { children: ReactNode }) {
-  const { mode, isPreview, previewEnabled } = useExperienceMode();
+  const { mode, previewSurface, previewEnabled } = useExperienceMode();
 
-  if (mode === 'desktop') {
-    return (
-      <View style={styles.desktopRoot}>
-        <DesktopSidebar />
-        <View style={styles.desktopMain}>
-          {previewEnabled ? (
-            <View style={styles.desktopToolbar}>
-              <PreviewToggle />
-            </View>
-          ) : null}
-          <View style={styles.desktopContent}>{children}</View>
-        </View>
-      </View>
-    );
-  }
-
-  const mobile = <MobileShell>{children}</MobileShell>;
-
-  if (isPreview) {
+  if (previewSurface === 'phone' || previewSurface === 'tablet') {
+    const framed =
+      mode === 'desktop' ? <DesktopShell showToolbar={false}>{children}</DesktopShell> : <MobileShell>{children}</MobileShell>;
     return (
       <View style={styles.previewRoot}>
         <View style={styles.previewBanner}>
           <Text style={styles.previewBannerText}>DEV PREVIEW</Text>
-          <Text style={styles.previewBannerSub}>Mobile layout inside a phone frame — not a production surface</Text>
+          <Text style={styles.previewBannerSub}>
+            {previewSurface === 'tablet'
+              ? 'Wide layout inside an iPad landscape frame — not a production surface'
+              : 'Phone layout inside a phone frame — not a production surface'}
+          </Text>
           <PreviewToggle />
         </View>
-        <PhoneFrame>{mobile}</PhoneFrame>
+        <PhoneFrame variant={previewSurface}>{framed}</PhoneFrame>
       </View>
     );
   }
 
-  return mobile;
+  if (mode === 'desktop') {
+    return <DesktopShell showToolbar={previewEnabled}>{children}</DesktopShell>;
+  }
+
+  return <MobileShell>{children}</MobileShell>;
+}
+
+function DesktopShell({ children, showToolbar }: { children: ReactNode; showToolbar: boolean }) {
+  return (
+    <View style={styles.desktopRoot}>
+      <DesktopSidebar />
+      <View style={styles.desktopMain}>
+        {showToolbar ? (
+          <View style={styles.desktopToolbar}>
+            <PreviewToggle />
+          </View>
+        ) : null}
+        <RolePreviewBar />
+        <View style={styles.desktopContent}>{children}</View>
+      </View>
+    </View>
+  );
 }
 
 function MobileShell({ children }: { children: ReactNode }) {
@@ -67,6 +77,7 @@ function MobileShell({ children }: { children: ReactNode }) {
           <Text style={styles.signOut}>{user?.isDevBypass ? 'Leave dev' : 'Sign out'}</Text>
         </Pressable>
       </View>
+      <RolePreviewBar />
       <View style={styles.mobileBody}>{children}</View>
       <PwaInstallHint />
       <MobileTabBar />
@@ -82,6 +93,7 @@ const styles = StyleSheet.create({
   },
   desktopMain: {
     flex: 1,
+    zIndex: 1,
   },
   desktopToolbar: {
     alignItems: 'flex-end',
@@ -132,6 +144,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#06090D',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   previewBanner: {
     position: 'absolute',

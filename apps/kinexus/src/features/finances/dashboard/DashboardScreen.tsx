@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import {
   accountsOfClass,
   budgetTotals,
-  canManageFinances,
+  canEditFinanceRecords,
   collectiblesTotal,
   cryptoPortfolioTotals,
   formatMoney,
@@ -45,7 +45,7 @@ export function DashboardScreen() {
   const { mode } = useExperienceMode();
   const { role, activeHousehold } = useHousehold();
   const finances = useFinancesSync();
-  const canManage = canManageFinances(role);
+  const canManage = canEditFinanceRecords(role);
   const desktop = mode === 'desktop';
   const summary = useMemo(
     () =>

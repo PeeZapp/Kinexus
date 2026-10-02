@@ -1,4 +1,4 @@
-export type HouseholdRole = 'owner' | 'admin' | 'member';
+export type HouseholdRole = 'owner' | 'admin' | 'adult' | 'teen' | 'child';
 export type PersonType = 'adult' | 'child' | 'other';
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
@@ -824,6 +824,7 @@ export type Database = {
           name: string;
           description: string | null;
           color: string | null;
+          visibility: 'household' | 'private' | 'people';
           position: number;
           created_at: string;
           updated_at: string;
@@ -835,6 +836,7 @@ export type Database = {
           name: string;
           description?: string | null;
           color?: string | null;
+          visibility?: 'household' | 'private' | 'people';
           position?: number;
           created_at?: string;
           updated_at?: string;
@@ -843,6 +845,7 @@ export type Database = {
           name?: string;
           description?: string | null;
           color?: string | null;
+          visibility?: 'household' | 'private' | 'people';
           position?: number;
         };
         Relationships: [];
@@ -864,6 +867,7 @@ export type Database = {
           priority: number;
           tags: string[];
           notes: string | null;
+          visibility: 'household' | 'private' | 'people';
           created_at: string;
           updated_at: string;
         };
@@ -883,6 +887,7 @@ export type Database = {
           priority?: number;
           tags?: string[];
           notes?: string | null;
+          visibility?: 'household' | 'private' | 'people';
           created_at?: string;
           updated_at?: string;
         };
@@ -899,6 +904,61 @@ export type Database = {
           priority?: number;
           tags?: string[];
           notes?: string | null;
+          visibility?: 'household' | 'private' | 'people';
+        };
+        Relationships: [];
+      };
+      stash_link_people: {
+        Row: {
+          household_id: string;
+          link_id: string;
+          person_id: string;
+          added_at: string;
+        };
+        Insert: {
+          household_id: string;
+          link_id: string;
+          person_id: string;
+          added_at?: string;
+        };
+        Update: {
+          added_at?: string;
+        };
+        Relationships: [];
+      };
+      stash_link_collection_people: {
+        Row: {
+          household_id: string;
+          collection_id: string;
+          person_id: string;
+          added_at: string;
+        };
+        Insert: {
+          household_id: string;
+          collection_id: string;
+          person_id: string;
+          added_at?: string;
+        };
+        Update: {
+          added_at?: string;
+        };
+        Relationships: [];
+      };
+      watchlist_list_people: {
+        Row: {
+          household_id: string;
+          list_id: string;
+          person_id: string;
+          added_at: string;
+        };
+        Insert: {
+          household_id: string;
+          list_id: string;
+          person_id: string;
+          added_at?: string;
+        };
+        Update: {
+          added_at?: string;
         };
         Relationships: [];
       };
@@ -926,7 +986,7 @@ export type Database = {
           household_id: string;
           created_by: string | null;
           name: string;
-          visibility: 'household' | 'personal';
+          visibility: 'household' | 'private' | 'people';
           created_at: string;
           updated_at: string;
         };
@@ -935,13 +995,13 @@ export type Database = {
           household_id: string;
           created_by?: string | null;
           name: string;
-          visibility?: 'household' | 'personal';
+          visibility?: 'household' | 'private' | 'people';
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           name?: string;
-          visibility?: 'household' | 'personal';
+          visibility?: 'household' | 'private' | 'people';
         };
         Relationships: [];
       };
@@ -1185,6 +1245,7 @@ export type Database = {
           amount: number;
           ignored: boolean;
           source: 'manual' | 'import' | 'auto';
+          created_by: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -1199,6 +1260,7 @@ export type Database = {
           amount: number;
           ignored?: boolean;
           source?: 'manual' | 'import' | 'auto';
+          created_by?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1495,6 +1557,22 @@ export type Database = {
       };
       leave_household: {
         Args: { p_household_id: string };
+        Returns: undefined;
+      };
+      delete_household: {
+        Args: { p_household_id: string };
+        Returns: undefined;
+      };
+      delete_own_account: {
+        Args: Record<string, never>;
+        Returns: undefined;
+      };
+      set_household_member_role: {
+        Args: { p_household_id: string; p_user_id: string; p_role: HouseholdRole };
+        Returns: undefined;
+      };
+      remove_household_member: {
+        Args: { p_household_id: string; p_user_id: string };
         Returns: undefined;
       };
       get_or_create_meal_plan: {

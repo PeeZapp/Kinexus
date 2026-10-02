@@ -6,17 +6,20 @@ import type { Href } from 'expo-router';
 import { formatCostPerServe, type Recipe } from '@kinexus/domain';
 
 import { Btn, Field } from '@/src/features/household/ui';
-import { Chip, OfflineBanner } from '@/src/features/meals/meals-kit';
+import { OfflineBanner } from '@/src/features/meals/meals-kit';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
 import {
+  defaultSortDir,
   dirChipsForSort,
-  FILTERS,
+  LIBRARY_FILTERS,
+  MEAL_FILTERS,
   SORTS,
-  sortChipLabel,
-  type RecipeFilter,
+  type RecipeLibraryFilter,
+  type RecipeMealFilter,
   type RecipeSort,
   type SortDir,
 } from '@/src/features/meals/recipes/filters';
+import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/FilterMenu';
 import { isLinkOnlyRecipe } from '@/src/features/meals/recipes/link-recipe';
 import {
   getRecipesListScrollY,
@@ -35,8 +38,10 @@ export function RecipesChrome({
   desktop,
   query,
   setQuery,
-  filter,
-  setFilter,
+  meal,
+  setMeal,
+  library,
+  setLibrary,
   sort,
   sortDir,
   onSort,
@@ -47,7 +52,7 @@ export function RecipesChrome({
   totalCount,
   shownCount,
   loading,
-  filters = FILTERS,
+  libraryChoices = LIBRARY_FILTERS,
   showNotForFamily = false,
   setShowNotForFamily,
   showImport = true,
@@ -56,8 +61,10 @@ export function RecipesChrome({
   desktop: boolean;
   query: string;
   setQuery: (v: string) => void;
-  filter: RecipeFilter;
-  setFilter: (v: RecipeFilter) => void;
+  meal: RecipeMealFilter;
+  setMeal: (v: RecipeMealFilter) => void;
+  library: RecipeLibraryFilter;
+  setLibrary: (v: RecipeLibraryFilter) => void;
   sort: RecipeSort;
   sortDir: SortDir;
   onSort: (v: RecipeSort) => void;
@@ -68,13 +75,19 @@ export function RecipesChrome({
   totalCount: number;
   shownCount: number;
   loading?: boolean;
-  filters?: { id: RecipeFilter; label: string }[];
+  libraryChoices?: { id: RecipeLibraryFilter; label: string }[];
   showNotForFamily?: boolean;
   setShowNotForFamily?: (v: boolean) => void;
   showImport?: boolean;
   children: ReactNode;
 }) {
   const router = useRouter();
+  const { openMenu, toggleMenu, pick } = useFilterMenus();
+  const mealLabel = MEAL_FILTERS.find((item) => item.id === meal)?.label ?? 'All';
+  const libraryLabel = libraryChoices.find((item) => item.id === library)?.label ?? 'All';
+  const sortLabel = SORTS.find((item) => item.id === sort)?.label ?? 'A–Z';
+  const orderOptions = dirChipsForSort(sort);
+  const orderLabel = orderOptions.find((item) => item.id === sortDir)?.label ?? orderOptions[0]?.label ?? 'Order';
   const scrollRef = useRef<ScrollView>(null);
   const restoredRef = useRef(false);
   const pendingY = useRef(getRecipesListScrollY());
@@ -124,42 +137,68 @@ export function RecipesChrome({
         />
       ) : null}
       <Field label="Search" value={query} onChangeText={setQuery} placeholder="Name or cuisine" />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-        {filters.map((item) => (
-          <Chip key={item.id} label={item.label} active={filter === item.id} onPress={() => setFilter(item.id)} />
-        ))}
-      </ScrollView>
-      {setShowNotForFamily ? (
-        <View style={styles.chips}>
-          <Chip
-            label="Show not for family"
+      <FilterBar>
+        <FilterDropdown<RecipeMealFilter>
+          id="meal"
+          label="Meal"
+          value={meal}
+          valueLabel={mealLabel}
+          active={meal !== 'all'}
+          open={openMenu === 'meal'}
+          options={MEAL_FILTERS.map((item) => ({ value: item.id, label: item.label }))}
+          onToggle={toggleMenu}
+          onSelect={pick(setMeal)}
+        />
+        <FilterDropdown<RecipeLibraryFilter>
+          id="library"
+          label="Library"
+          value={library}
+          valueLabel={libraryLabel}
+          active={library !== 'all'}
+          open={openMenu === 'library'}
+          options={libraryChoices.map((item) => ({ value: item.id, label: item.label }))}
+          onToggle={toggleMenu}
+          onSelect={pick(setLibrary)}
+        />
+        {setShowNotForFamily ? (
+          <FilterDropdown<'family' | 'all'>
+            id="family"
+            label="Family"
+            value={showNotForFamily ? 'all' : 'family'}
+            valueLabel={showNotForFamily ? 'Show all' : 'Family only'}
             active={showNotForFamily}
-            onPress={() => setShowNotForFamily(!showNotForFamily)}
+            open={openMenu === 'family'}
+            options={[
+              { value: 'family', label: 'Family only' },
+              { value: 'all', label: 'Show all' },
+            ]}
+            onToggle={toggleMenu}
+            onSelect={pick((value) => setShowNotForFamily(value === 'all'))}
           />
-        </View>
-      ) : null}
-      <View style={styles.chips}>
-        {SORTS.map((item) => (
-          <Chip
-            key={item.id}
-            label={sortChipLabel(item.id, sortDir, sort === item.id)}
-            active={sort === item.id}
-            onPress={() => onSort(item.id)}
-          />
-        ))}
-      </View>
-      {sort !== 'alpha' ? (
-        <View style={styles.chips}>
-          {dirChipsForSort(sort).map((item) => (
-            <Chip
-              key={item.id}
-              label={item.label}
-              active={sortDir === item.id}
-              onPress={() => setSortDir(item.id)}
-            />
-          ))}
-        </View>
-      ) : null}
+        ) : null}
+        <FilterDropdown<RecipeSort>
+          id="sort"
+          label="Sort"
+          value={sort}
+          valueLabel={sortLabel}
+          active={sort !== 'alpha'}
+          open={openMenu === 'sort'}
+          options={SORTS.map((item) => ({ value: item.id, label: item.label }))}
+          onToggle={toggleMenu}
+          onSelect={pick(onSort)}
+        />
+        <FilterDropdown<SortDir>
+          id="order"
+          label="Order"
+          value={sortDir}
+          valueLabel={orderLabel}
+          active={sortDir !== defaultSortDir(sort)}
+          open={openMenu === 'order'}
+          options={orderOptions.map((item) => ({ value: item.id, label: item.label }))}
+          onToggle={toggleMenu}
+          onSelect={pick(setSortDir)}
+        />
+      </FilterBar>
       {children}
     </ScrollView>
   );
@@ -243,7 +282,6 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontSize: 28, fontWeight: '700' },
   titleDesktop: { fontSize: 40 },
   count: { color: colors.textMuted, fontSize: 14, marginTop: -4 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   card: {
     width: 220,
     backgroundColor: colors.bgCard,

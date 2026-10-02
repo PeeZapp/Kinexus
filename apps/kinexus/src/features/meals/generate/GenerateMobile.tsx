@@ -5,7 +5,7 @@ import { DAY_LABELS, MEAL_SLOTS } from '@kinexus/domain';
 
 import { Btn, Card, ErrorText } from '@/src/features/household/ui';
 import { Chip } from '@/src/features/meals/meals-kit';
-import { GoalsEditor, SlotPicker } from '@/src/features/meals/generate/controls';
+import { GoalsEditor, SlotPicker, WeeklyBudgetField } from '@/src/features/meals/generate/controls';
 import type { GenerateViewProps } from '@/src/features/meals/generate/GenerateDesktop';
 import { WeekSwitcher } from '@/src/features/meals/plan/PlanShared';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
@@ -27,6 +27,13 @@ export function GenerateMobile(props: GenerateViewProps) {
         <SlotPicker selected={props.selected} onToggle={props.onToggleSlot} />
       </Card>
       <Card>
+        <WeeklyBudgetField
+          value={props.weeklyBudget}
+          onChange={props.onChangeWeeklyBudget}
+          lines={props.budgetLines}
+        />
+      </Card>
+      <Card>
         <GoalsEditor goals={props.goals} onChange={props.onChangeGoals} desktop={false} />
       </Card>
       <Card>
@@ -44,6 +51,7 @@ export function GenerateMobile(props: GenerateViewProps) {
           <View style={styles.stats}>
             <Chip label={`~${props.avgCal} kcal`} active />
             <Chip label={`~${props.avgProt}g protein`} active />
+            {props.previewSpend ? <Chip label={props.previewSpend} active={!props.previewOverBudget} /> : null}
           </View>
           <Btn label={weekApplyLabel(props.weekStart)} onPress={props.onApply} busy={props.applying} />
           {props.planDays.map((day) => (

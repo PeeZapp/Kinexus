@@ -1,34 +1,30 @@
 import type { MealSlotKey, Recipe } from '@kinexus/domain';
 
-export type RecipeFilter =
-  | 'all'
-  | 'breakfast'
-  | 'lunch'
-  | 'dinner'
-  | 'snack'
-  | 'dessert'
-  | 'base'
-  | 'household'
-  | 'favourites'
-  | 'removed';
+export type RecipeMealFilter = 'all' | 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'dessert';
+export type RecipeLibraryFilter = 'all' | 'household' | 'favourites' | 'base' | 'removed';
 
 const SNACKS: MealSlotKey[] = ['morning_snack', 'afternoon_snack', 'night_snack'];
 
+function matchesMeal(recipe: Recipe, meal: RecipeMealFilter): boolean {
+  if (meal === 'all') return true;
+  if (meal === 'snack') return (recipe.mealSlots ?? []).some((slot) => SNACKS.includes(slot));
+  return (recipe.mealSlots ?? []).includes(meal) || (!(recipe.mealSlots ?? []).length && meal === 'dinner');
+}
+
 export function matchesFilter(
   recipe: Recipe,
-  filter: RecipeFilter,
+  meal: RecipeMealFilter,
+  library: RecipeLibraryFilter,
   favouriteIds: Set<string>,
   showNotForFamily = false,
 ): boolean {
-  if (filter === 'removed') return Boolean(recipe.removed);
+  if (library === 'removed') return Boolean(recipe.removed) && matchesMeal(recipe, meal);
   if (recipe.removed) return false;
   if (recipe.excludedFromAuto && !showNotForFamily) return false;
-  if (filter === 'all') return true;
-  if (filter === 'base') return Boolean(recipe.isComponent);
-  if (filter === 'household') return recipe.householdId !== null;
-  if (filter === 'favourites') return favouriteIds.has(recipe.id);
-  if (filter === 'snack') return (recipe.mealSlots ?? []).some((s) => SNACKS.includes(s));
-  return (recipe.mealSlots ?? []).includes(filter) || (!(recipe.mealSlots ?? []).length && filter === 'dinner');
+  if (library === 'base' && !recipe.isComponent) return false;
+  if (library === 'household' && recipe.householdId === null) return false;
+  if (library === 'favourites' && !favouriteIds.has(recipe.id)) return false;
+  return matchesMeal(recipe, meal);
 }
 
 export type RecipeSort = 'alpha' | 'calories' | 'protein' | 'cook_time' | 'cost_per_serve' | 'cost_per_dish';
@@ -71,13 +67,6 @@ export function sortRecipes(list: Recipe[], key: RecipeSort, dir: SortDir): Reci
   });
 }
 
-export function sortChipLabel(key: RecipeSort, dir: SortDir, active: boolean): string {
-  const base = SORTS.find((item) => item.id === key)?.label ?? key;
-  if (!active) return base;
-  if (key === 'alpha') return dir === 'asc' ? 'A–Z' : 'Z–A';
-  return dir === 'desc' ? `${base} ↓` : `${base} ↑`;
-}
-
 export const DIR_CHIPS: { id: SortDir; label: string }[] = [
   { id: 'desc', label: 'Largest first' },
   { id: 'asc', label: 'Smallest first' },
@@ -93,19 +82,23 @@ export function dirChipsForSort(sort: RecipeSort): { id: SortDir; label: string 
   return DIR_CHIPS;
 }
 
-export const FILTERS: { id: RecipeFilter; label: string }[] = [
+export const MEAL_FILTERS: { id: RecipeMealFilter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'breakfast', label: 'Breakfast' },
   { id: 'lunch', label: 'Lunch' },
   { id: 'dinner', label: 'Dinner' },
   { id: 'snack', label: 'Snacks' },
   { id: 'dessert', label: 'Dessert' },
+];
+
+export const LIBRARY_FILTERS: { id: RecipeLibraryFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
   { id: 'household', label: 'Household' },
   { id: 'favourites', label: 'Favourites' },
   { id: 'base', label: 'Base' },
 ];
 
-export const EDITOR_FILTERS: { id: RecipeFilter; label: string }[] = [
+export const EDITOR_LIBRARY_FILTERS: { id: RecipeLibraryFilter; label: string }[] = [
   { id: 'removed', label: 'Removed' },
 ];
 

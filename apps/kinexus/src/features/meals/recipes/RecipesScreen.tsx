@@ -9,9 +9,10 @@ import {
   matchesFilter,
   sortRecipes,
   defaultSortDir,
-  EDITOR_FILTERS,
-  FILTERS,
-  type RecipeFilter,
+  EDITOR_LIBRARY_FILTERS,
+  LIBRARY_FILTERS,
+  type RecipeLibraryFilter,
+  type RecipeMealFilter,
   type RecipeSort,
   type SortDir,
 } from '@/src/features/meals/recipes/filters';
@@ -26,9 +27,9 @@ import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 
-function allowlistKey(filter: RecipeFilter): 'all' | 'snack' | 'breakfast' | 'lunch' | 'dinner' | 'dessert' {
-  if (filter === 'breakfast' || filter === 'lunch' || filter === 'dinner' || filter === 'dessert' || filter === 'snack') {
-    return filter;
+function allowlistKey(meal: RecipeMealFilter): 'all' | 'snack' | 'breakfast' | 'lunch' | 'dinner' | 'dessert' {
+  if (meal === 'breakfast' || meal === 'lunch' || meal === 'dinner' || meal === 'dessert' || meal === 'snack') {
+    return meal;
   }
   return 'all';
 }
@@ -41,7 +42,8 @@ export function RecipesScreen() {
   const { people, role } = useHousehold();
   const saved = getRecipesListUiState();
   const [query, setQuery] = useState(saved.query);
-  const [filter, setFilter] = useState<RecipeFilter>(saved.filter);
+  const [meal, setMeal] = useState<RecipeMealFilter>(saved.meal);
+  const [library, setLibrary] = useState<RecipeLibraryFilter>(saved.library);
   const [showNotForFamily, setShowNotForFamily] = useState(saved.showNotForFamily);
   const [sort, setSort] = useState<RecipeSort>(saved.sort);
   const [sortDir, setSortDir] = useState<SortDir>(saved.sortDir);
@@ -50,52 +52,50 @@ export function RecipesScreen() {
   const linked = linkedPersonForUser(people, userId);
   const allowedIds =
     restricted && linked
-      ? approvedRecipeIdsForLibraryFilter(meals.slotApprovals, linked.id, allowlistKey(filter))
+      ? approvedRecipeIdsForLibraryFilter(meals.slotApprovals, linked.id, allowlistKey(meal))
       : null;
 
   useEffect(() => {
-    setRecipesListUiState({ query, filter, showNotForFamily, sort, sortDir });
-  }, [query, filter, showNotForFamily, sort, sortDir]);
+    setRecipesListUiState({ query, meal, library, showNotForFamily, sort, sortDir });
+  }, [query, meal, library, showNotForFamily, sort, sortDir]);
 
   const recipes = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = meals.recipes.filter((recipe) => {
       if (allowedIds && !allowedIds.has(recipe.id)) return false;
-      if (!matchesFilter(recipe, filter, meals.favouriteIds, showNotForFamily)) return false;
+      if (!matchesFilter(recipe, meal, library, meals.favouriteIds, showNotForFamily)) return false;
       if (!q) return true;
       return recipe.name.toLowerCase().includes(q) || (recipe.cuisine ?? '').toLowerCase().includes(q);
     });
     return sortRecipes(filtered, sort, sortDir);
-  }, [allowedIds, filter, meals.favouriteIds, meals.recipes, query, showNotForFamily, sort, sortDir]);
+  }, [allowedIds, library, meal, meals.favouriteIds, meals.recipes, query, showNotForFamily, sort, sortDir]);
 
   const onSort = (next: RecipeSort) => {
-    if (next === sort) {
-      setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'));
-      return;
-    }
+    if (next === sort) return;
     setSort(next);
     setSortDir(defaultSortDir(next));
   };
 
-  const filters = restricted
-    ? FILTERS.filter((item) =>
-        ['all', 'breakfast', 'lunch', 'dinner', 'snack', 'dessert', 'favourites'].includes(item.id),
-      )
+  const libraryChoices = restricted
+    ? LIBRARY_FILTERS.filter((item) => item.id === 'all' || item.id === 'favourites')
     : meals.isCatalogEditor
-      ? [...FILTERS, ...EDITOR_FILTERS]
-      : FILTERS;
+      ? [...LIBRARY_FILTERS, ...EDITOR_LIBRARY_FILTERS]
+      : LIBRARY_FILTERS;
 
   const totalCount = restricted
     ? meals.recipes.filter((r) => allowedIds?.has(r.id) && !r.removed && !r.excludedFromAuto).length
-    : filter === 'removed'
+    : library === 'removed'
       ? meals.recipes.filter((r) => r.removed).length
       : meals.recipes.filter((r) => !r.removed && (showNotForFamily || !r.excludedFromAuto)).length;
 
   const props = {
     query,
     setQuery,
-    filter,
-    setFilter,
+    meal,
+    setMeal,
+    library,
+    setLibrary,
+    libraryChoices,
     sort,
     sortDir,
     onSort,
@@ -107,7 +107,6 @@ export function RecipesScreen() {
     totalCount,
     loading: meals.isLoading,
     favouriteIds: meals.favouriteIds,
-    filters,
     showNotForFamily,
     setShowNotForFamily: restricted ? undefined : setShowNotForFamily,
     showFlag: meals.isCatalogEditor && !restricted,

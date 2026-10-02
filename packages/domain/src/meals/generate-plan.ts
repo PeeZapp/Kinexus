@@ -1,3 +1,4 @@
+import { roundMoney } from '../stash/money';
 import { hideReplacedCatalogRecipes } from './recipe-versions';
 import {
   DAYS,
@@ -133,6 +134,100 @@ export function slotTarget(
   };
 }
 
+function slotCostWeight(slot: MealSlotKey): number {
+  return SLOT_ASSUMED[slot].calories;
+}
+
+function allSlotCostWeight(): number {
+  return ALL_MEAL_SLOTS.reduce((sum, slot) => sum + slotCostWeight(slot), 0);
+}
+
+/** Shopping cost of putting this recipe on the plan once. */
+export function recipeShoppingCost(recipe: Recipe): number | null {
+  const cost = recipe.cost;
+  if (!cost) return null;
+  if (Number.isFinite(cost.totalCost) && cost.totalCost >= 0) return cost.totalCost;
+  if (!Number.isFinite(cost.costPerServe) || cost.costPerServe < 0) return null;
+  const serves = cost.servingsBasis > 0 ? cost.servingsBasis : 1;
+  return roundMoney(cost.costPerServe * serves);
+}
+
+export function fitsSlotBudget(cost: number, cap: number): boolean {
+  return Math.round(cost * 100) <= Math.round(cap * 100);
+}
+
+/**
+ * Max shopping cost for one occurrence of a slot.
+ * Every slot, including unselected snacks, keeps a share of the weekly total.
+ */
+export function slotOccurrenceBudget(weeklyBudget: number, slot: MealSlotKey): number {
+  const total = allSlotCostWeight();
+  if (!(weeklyBudget > 0) || total <= 0) return 0;
+  return (weeklyBudget * slotCostWeight(slot)) / total / DAYS.length;
+}
+
+/** How a weekly food budget splits between slots being filled and slots left alone. */
+export function weeklyBudgetSplit(
+  weeklyBudget: number,
+  selectedSlots: readonly MealSlotKey[],
+): { selected: number; reserved: number } {
+  const total = allSlotCostWeight();
+  const selectedWeight = selectedSlots.reduce((sum, slot) => sum + slotCostWeight(slot), 0);
+  const selected = total > 0 && weeklyBudget > 0 ? roundMoney((weeklyBudget * selectedWeight) / total) : 0;
+  return { selected, reserved: roundMoney(Math.max(0, weeklyBudget - selected)) };
+}
+
+/** Cap for the days actually being filled. A shorter plan does not absorb the rest of the week. */
+export function planBudgetCap(
+  weeklyBudget: number,
+  selectedSlots: readonly MealSlotKey[],
+  dayCount: number,
+): number {
+  if (!(weeklyBudget > 0) || dayCount <= 0) return 0;
+  const perDay = selectedSlots.reduce((sum, slot) => sum + slotOccurrenceBudget(weeklyBudget, slot), 0);
+  return roundMoney(perDay * dayCount);
+}
+
+export function planShoppingCost(rows: readonly { recipe: Recipe }[]): { total: number; missing: number } {
+  let total = 0;
+  let missing = 0;
+  for (const row of rows) {
+    const cost = recipeShoppingCost(row.recipe);
+    if (cost == null) missing += 1;
+    else total += cost;
+  }
+  return { total: roundMoney(total), missing };
+}
+
+/** Blank or zero means no budget. "$400" and "400" both parse. */
+export function parseWeeklyFoodBudget(value: string): number | null {
+  const cleaned = value.replace(/[^0-9.]/g, '');
+  if (!cleaned || cleaned === '.') return null;
+  const amount = Number(cleaned);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return roundMoney(amount);
+}
+
+/** Recipes at or under `cap`, or the cheapest band when nothing fits. */
+export function recipesAffordableForBudget(recipes: readonly Recipe[], cap: number): Recipe[] {
+  const priced = recipes.filter((recipe) => recipeShoppingCost(recipe) != null);
+  const affordable = priced.filter((recipe) => fitsSlotBudget(recipeShoppingCost(recipe)!, cap));
+  if (affordable.length > 0) return affordable;
+  if (priced.length === 0) return [...recipes];
+  const cheapest = Math.min(...priced.map((recipe) => recipeShoppingCost(recipe)!));
+  const ceiling = Math.max(cheapest * 1.15, cheapest + 1);
+  return priced.filter((recipe) => (recipeShoppingCost(recipe) ?? Infinity) <= ceiling);
+}
+
+function poolWithinBudget(preferred: readonly Recipe[], fallback: readonly Recipe[], cap: number): Recipe[] {
+  const affordable = preferred.filter((recipe) => {
+    const cost = recipeShoppingCost(recipe);
+    return cost != null && fitsSlotBudget(cost, cap);
+  });
+  if (affordable.length > 0) return affordable;
+  return recipesAffordableForBudget(fallback, cap);
+}
+
 /** Lower is better — matches auto-fill scoring (cal diff + 4× protein diff). */
 export function nutritionFitScore(
   recipe: Recipe,
@@ -183,6 +278,11 @@ export type GenerateMealPlanOptions = {
   random?: () => number;
   /** Days to fill. Defaults to the full week. */
   days?: readonly Day[];
+  /**
+   * Whole-week household food budget. Unselected slots, including snacks, keep their share,
+   * so a dinner-only plan cannot spend the full amount.
+   */
+  weeklyBudget?: number;
 };
 
 export function generateMealPlan(
@@ -195,6 +295,7 @@ export function generateMealPlan(
   if (selectedSlots.length === 0 || recipes.length === 0) return [];
 
   const random = options?.random ?? Math.random;
+  const weeklyBudget = options?.weeklyBudget;
   const results: GeneratedSlot[] = [];
 
   const usedPerSlot = new Map<MealSlotKey, Set<string>>(
@@ -231,7 +332,11 @@ export function generateMealPlan(
           (cuisineUsage.get(cuisineKey) ?? 0) < CUISINE_HARD_CAP
         );
       });
-      const scoringPool = eligibleByHardCaps.length > 0 ? eligibleByHardCaps : candidates;
+      const varietyPool = eligibleByHardCaps.length > 0 ? eligibleByHardCaps : candidates;
+      const scoringPool =
+        weeklyBudget != null && weeklyBudget > 0
+          ? poolWithinBudget(varietyPool, pool, slotOccurrenceBudget(weeklyBudget, slot))
+          : varietyPool;
 
       const scored = scoringPool.map((r) => {
         const nutritionScore = nutritionFitScore(r, target);

@@ -74,6 +74,7 @@ export type FinanceBudgetTxn = {
   amount: number;
   ignored: boolean;
   source?: FinanceBudgetTxnSource;
+  createdBy?: string | null;
 };
 
 export type FinanceGroupKind = FinanceAccountKind | 'shares' | 'crypto' | 'metals' | 'collectibles';

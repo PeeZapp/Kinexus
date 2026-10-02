@@ -82,9 +82,12 @@ export type SavedLinkPriority = 0 | 1 | 2 | 3 | 4;
 export type SavedLinkCollection = {
   id: string;
   householdId: string;
+  createdBy: string | null;
   name: string;
   description: string | null;
   color: string | null;
+  visibility: StashListVisibility;
+  personIds: string[];
   position: number;
   createdAt: string;
   updatedAt: string;
@@ -93,6 +96,9 @@ export type SavedLinkCollection = {
 export type SavedLink = {
   id: string;
   householdId: string;
+  createdBy: string | null;
+  visibility: StashListVisibility;
+  personIds: string[];
   collectionIds: string[];
   url: string;
   canonicalUrl: string;
@@ -131,7 +137,7 @@ export type ScrapedLink = {
   linkType: SavedLinkType;
 };
 
-export type WatchlistVisibility = 'household' | 'personal';
+export type WatchlistVisibility = 'household' | 'private' | 'people';
 
 export type WatchlistMediaType = 'movie' | 'tv';
 
@@ -145,6 +151,7 @@ export type WatchlistList = {
   createdBy: string | null;
   name: string;
   visibility: WatchlistVisibility;
+  personIds: string[];
   createdAt: string;
   updatedAt: string;
 };

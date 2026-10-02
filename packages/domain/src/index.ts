@@ -14,6 +14,27 @@ export type {
   Profile,
 } from './household/types';
 
+export {
+  assignableRoles,
+  canChangeMemberRole,
+  canCreateShared,
+  canDeleteFinanceRecords,
+  canEditBudgetTxn,
+  canEditFinanceRecords,
+  canEditShared,
+  canEnterBudgetAmounts,
+  canInvite,
+  canManageBudgetPlan,
+  canManageHousehold,
+  canRemoveMember,
+  canSeeShared,
+  canViewFinances,
+  inviteRoles,
+  roleLabel,
+  ROLE_LABELS,
+} from './household/access';
+export type { AssignableRole } from './household/access';
+
 export * as meals from './meals/index';
 
 export {
@@ -27,6 +48,7 @@ export {
   DIETARY_OPTIONS,
   filterRecipesByDietary,
   filterRecipesForPeople,
+  fitsSlotBudget,
   generateMealPlan,
   getDietaryOption,
   groupShoppingByCategory,
@@ -51,9 +73,14 @@ export {
   addDaysIso,
   nutritionFitScore,
   OPTIONAL_SLOTS,
+  parseWeeklyFoodBudget,
+  planBudgetCap,
+  planShoppingCost,
   parseAmount,
   PROTEIN_KINDS,
   recipeProteinKind,
+  recipeShoppingCost,
+  recipesAffordableForBudget,
   recipesForSlot,
   recipesForPicker,
   recipePrintHtml,
@@ -65,7 +92,9 @@ export {
   shoppingFromPlan,
   SHOPPING_CATEGORIES,
   SLOT_ASSUMED,
+  slotOccurrenceBudget,
   slotTarget,
+  weeklyBudgetSplit,
   filterRecipesForSwap,
   NUTRITION_SWAP_BAND,
   nutritionWithinBand,
@@ -180,6 +209,8 @@ export {
   CHECKLIST_RECURRENCES,
   SAVED_LINK_STATUSES,
   SAVED_LINK_TYPES,
+  canCreateLists,
+  canEditList,
   canManageLists,
   canViewList,
   canonicalizeUrl,

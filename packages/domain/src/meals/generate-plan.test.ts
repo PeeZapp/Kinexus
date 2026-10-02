@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ALL_MEAL_SLOTS,
   CORE_SLOTS,
   generateMealPlan,
   OPTIONAL_SLOTS,
+  parseWeeklyFoodBudget,
+  planBudgetCap,
   recipesForSlot,
   SLOT_ASSUMED,
+  slotOccurrenceBudget,
   slotTarget,
+  weeklyBudgetSplit,
 } from './generate-plan';
-import { mealSlotRecordKey, type NutritionGoals, type Recipe } from './types';
+import { mealSlotRecordKey, type NutritionGoals, type Recipe, type RecipeCostEstimate } from './types';
 
 const GOALS: NutritionGoals = { calories: 2000, protein: 120, carbs: 250, fat: 65 };
 
@@ -216,5 +221,77 @@ describe('generateMealPlan', () => {
     });
 
     expect(plan.map((row) => row.day)).toEqual(['monday', 'wednesday']);
+  });
+});
+
+function cost(totalCost: number): RecipeCostEstimate {
+  return {
+    totalCost,
+    costPerServe: totalCost / 4,
+    currency: 'AUD',
+    country: 'AU',
+    stores: [],
+    pricedAt: '2026-10-01T00:00:00.000Z',
+    servingsBasis: 4,
+    breakdown: [],
+  };
+}
+
+describe('weekly food budget', () => {
+  it('reserves a share for every slot, including snacks that are not generated', () => {
+    const split = weeklyBudgetSplit(400, ['dinner']);
+    const dinnerWeight = SLOT_ASSUMED.dinner.calories;
+    const totalWeight = ALL_MEAL_SLOTS.reduce((sum, slot) => sum + SLOT_ASSUMED[slot].calories, 0);
+    expect(split.selected).toBeCloseTo((400 * dinnerWeight) / totalWeight, 2);
+    expect(split.selected).toBeLessThan(150);
+    expect(split.reserved).toBeCloseTo(400 - split.selected, 2);
+    expect(slotOccurrenceBudget(400, 'dinner') * 7).toBeCloseTo(split.selected, 1);
+  });
+
+  it('gives the full week to the plan only when every slot is selected', () => {
+    const split = weeklyBudgetSplit(400, ALL_MEAL_SLOTS);
+    expect(split.selected).toBe(400);
+    expect(split.reserved).toBe(0);
+  });
+
+  it('keeps a dinner-only plan inside dinner’s share instead of the whole week', () => {
+    const pricey = recipe({
+      id: 'pricey',
+      name: 'Steak',
+      mealSlots: ['dinner'],
+      calories: 660,
+      protein: 38,
+      ingredients: [{ name: 'beef' }],
+      cost: cost(55),
+    });
+    const modest = recipe({
+      id: 'modest',
+      name: 'Stir fry',
+      mealSlots: ['dinner'],
+      calories: 500,
+      protein: 20,
+      ingredients: [{ name: 'chicken' }],
+      cost: cost(12),
+    });
+
+    const capped = generateMealPlan(['dinner'], new Set(), [pricey, modest], GOALS, {
+      random: () => 0,
+      weeklyBudget: 400,
+    });
+    const open = generateMealPlan(['dinner'], new Set(), [pricey, modest], GOALS, { random: () => 0 });
+
+    expect(capped.every((row) => row.recipe.id === 'modest')).toBe(true);
+    expect(open.some((row) => row.recipe.id === 'pricey')).toBe(true);
+    expect(open[0]?.recipe.id).toBe('pricey');
+    const cap = planBudgetCap(400, ['dinner'], 7);
+    const spent = capped.reduce((sum, row) => sum + (row.recipe.cost?.totalCost ?? 0), 0);
+    expect(spent).toBeLessThanOrEqual(cap);
+    expect(spent).toBeLessThan(400);
+  });
+
+  it('parses a money amount and ignores a blank budget', () => {
+    expect(parseWeeklyFoodBudget('$400')).toBe(400);
+    expect(parseWeeklyFoodBudget('')).toBeNull();
+    expect(parseWeeklyFoodBudget('0')).toBeNull();
   });
 });

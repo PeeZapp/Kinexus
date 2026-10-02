@@ -105,24 +105,30 @@ export function listProductFromRow(row: ListProductRow): StashListProduct {
   return { listId: row.list_id, productId: row.product_id, addedAt: row.added_at };
 }
 
-export function collectionFromRow(row: CollectionRow): SavedLinkCollection {
+export function collectionFromRow(row: CollectionRow, personIds: string[] = []): SavedLinkCollection {
   return {
     id: row.id,
     householdId: row.household_id,
+    createdBy: row.created_by,
     name: row.name,
     description: row.description,
     color: row.color,
+    visibility: VISIBILITIES.has(row.visibility) ? row.visibility : 'household',
+    personIds,
     position: row.position,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-export function linkFromRow(row: LinkRow, collectionIds: string[]): SavedLink {
+export function linkFromRow(row: LinkRow, collectionIds: string[], personIds: string[] = []): SavedLink {
   const priority = row.priority as SavedLinkPriority;
   return {
     id: row.id,
     householdId: row.household_id,
+    createdBy: row.created_by,
+    visibility: VISIBILITIES.has(row.visibility) ? row.visibility : 'household',
+    personIds,
     collectionIds,
     url: row.url,
     canonicalUrl: row.canonical_url,

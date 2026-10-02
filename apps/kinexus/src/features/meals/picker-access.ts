@@ -1,7 +1,7 @@
 import type { HouseholdPerson, HouseholdRole } from '@kinexus/domain';
 
 export function canManageMealPlan(role: HouseholdRole | null): boolean {
-  return role === 'owner' || role === 'admin';
+  return role === 'owner' || role === 'admin' || role === 'adult';
 }
 
 export function linkedPersonForUser(

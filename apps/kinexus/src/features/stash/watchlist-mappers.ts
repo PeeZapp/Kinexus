@@ -20,6 +20,7 @@ export function watchlistListFromRow(row: ListRow): WatchlistList {
     createdBy: row.created_by,
     name: row.name,
     visibility: isWatchlistVisibility(row.visibility) ? row.visibility : 'household',
+    personIds: [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

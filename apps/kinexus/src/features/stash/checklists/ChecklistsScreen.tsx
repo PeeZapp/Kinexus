@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { useWindowDimensions, View } from 'react-native';
 
 import {
   addDaysIso,
-  canManageLists,
+  canCreateLists,
+  canEditList,
   checklistItemsForDay,
   childLists,
   completeChecklistItem,
@@ -32,6 +33,7 @@ import { AddListSheet, ChecklistItemSheet, ListSettingsSheet } from '@/src/featu
 import { useStashSync, actionErrorMessage, type ChecklistItemDraft, type ListIdentityDraft, type ListShareDraft } from '@/src/features/stash/use-stash-sync';
 import { LoadingState } from '@/src/features/shell/states';
 import { useExperienceMode } from '@/src/lib/experience-mode';
+import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 
 const FAMILY_SHARE: ListShareDraft = { visibility: 'household', personIds: [] };
@@ -60,18 +62,26 @@ function toListCard(
 }
 
 export function ChecklistsScreen() {
-  const { mode } = useExperienceMode();
+  const { mode, previewSurface } = useExperienceMode();
+  const { width } = useWindowDimensions();
+  const tablet =
+    previewSurface === 'tablet' || (previewSurface === 'desktop' && width > 0 && width <= 1400);
+  const { user } = useAuth();
   const { people, role } = useHousehold();
   const stash = useStashSync();
-  const canManage = canManageLists(role);
+  const personId = people.find((person) => person.userId === user?.id)?.id ?? null;
+  const access = { role, userId: user?.id ?? null, personId };
+  const canCreate = canCreateLists(role);
   const [query, setQuery] = useState('');
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [personFilter, setPersonFilter] = useState<string | null>(null);
   const [quickAdd, setQuickAdd] = useState('');
   const [dayQuickAdd, setDayQuickAdd] = useState('');
   const [day, setDay] = useState(() => todayIso());
   const [addList, setAddList] = useState(false);
   const [addItem, setAddItem] = useState(false);
+  const [chooseList, setChooseList] = useState(false);
   const [itemId, setItemId] = useState<string | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -126,8 +136,9 @@ export function ChecklistsScreen() {
     return filterChecklistItems(itemsForList(selectedListId, stash.items), {
       search: query,
       category: categoryFilter,
+      assignedPersonId: personFilter,
     });
-  }, [categoryFilter, query, selectedListId, stash.items]);
+  }, [categoryFilter, personFilter, query, selectedListId, stash.items]);
   const { active, checked } = useMemo(() => splitCheckedItems(selectedItems, today), [selectedItems, today]);
 
   const categoriesInUse = useMemo(() => {
@@ -139,18 +150,29 @@ export function ChecklistsScreen() {
     return [...ids];
   }, [selectedListId, stash.items]);
 
+  const assigneesInUse = useMemo(() => {
+    if (!selectedListId) return [];
+    const ids = new Set<string>();
+    for (const row of itemsForList(selectedListId, stash.items)) {
+      if (row.assignedPersonId) ids.add(row.assignedPersonId);
+    }
+    return [...ids];
+  }, [selectedListId, stash.items]);
+
   const item = stash.items.find((row) => row.id === itemId) ?? null;
 
   function openList(id: string) {
     setSelectedListId(id);
     setQuery('');
     setCategoryFilter(null);
+    setPersonFilter(null);
     setQuickAdd('');
   }
 
   function goBack() {
     setQuery('');
     setCategoryFilter(null);
+    setPersonFilter(null);
     setQuickAdd('');
     if (selectedList?.parentListId) {
       setSelectedListId(selectedList.parentListId);
@@ -173,14 +195,25 @@ export function ChecklistsScreen() {
     }
   }
 
-  async function saveItem(draft: ChecklistItemDraft) {
+  const itemTargetLists = useMemo(() => {
+    const nextAccess = { role, userId: user?.id ?? null, personId };
+    return lists
+      .filter((list) => list.name.trim().toLowerCase() !== 'daily')
+      .filter((list) => canEditList(list, nextAccess))
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [lists, personId, role, user?.id]);
+
+  async function saveItem(draft: ChecklistItemDraft, listId?: string) {
     if (item) return run(() => stash.updateItem(item.id, draft));
-    if (!selectedListId) return false;
-    return run(() => stash.createItem(selectedListId, draft));
+    const targetListId = listId ?? selectedListId;
+    if (!targetListId) return false;
+    return run(() => stash.createItem(targetListId, draft));
   }
 
   const layoutProps = {
     desktop: mode === 'desktop',
+    tablet,
     kicker: 'Family',
     title: 'Lists',
     query,
@@ -241,22 +274,24 @@ export function ChecklistsScreen() {
     onPushToday: (row: StashListItem) => {
       void run(() => stash.updateItem(row.id, { dueOn: today }));
     },
-    onRenameList: canManage
-      ? (id: string) => {
-          const list = lists.find((row) => row.id === id);
-          setRenameId(id);
-          setRenameValue(list?.name ?? '');
-          setShare({
-            visibility: list?.visibility ?? 'household',
-            personIds: list?.personIds ?? [],
-          });
-          setIdentity({
-            emoji: normalizeListEmoji(list?.emoji),
-            theme: normalizeListTheme(list?.theme),
-          });
-        }
-      : undefined,
-    canManageList: () => canManage,
+    onRenameList: (id: string) => {
+      const list = lists.find((row) => row.id === id);
+      if (!list || !canEditList(list, access)) return;
+      setRenameId(id);
+      setRenameValue(list.name);
+      setShare({
+        visibility: list.visibility,
+        personIds: list.personIds,
+      });
+      setIdentity({
+        emoji: normalizeListEmoji(list.emoji),
+        theme: normalizeListTheme(list.theme),
+      });
+    },
+    canManageList: (id: string) => {
+      const list = lists.find((row) => row.id === id);
+      return list ? canEditList(list, access) : false;
+    },
     peopleNames,
     listNames,
     selectedListName: selectedList
@@ -266,10 +301,10 @@ export function ChecklistsScreen() {
     parentListName: parentList ? `${normalizeListEmoji(parentList.emoji)} ${parentList.name}` : null,
     active,
     checked,
-    emptyLists: canManage
+    emptyLists: canCreate
       ? 'Create a list, choose who can see it, then add items with a due date, repeat, and who it is for.'
       : 'No lists shared with you yet.',
-    emptyItems: canManage ? 'Add an item, or use quick add above.' : 'Nothing on this list yet.',
+    emptyItems: canCreate ? 'Add an item, or use quick add above.' : 'Nothing on this list yet.',
     emptyDay: 'Nothing planned for this day. Add a quick task above.',
     quickAdd,
     setQuickAdd,
@@ -294,10 +329,22 @@ export function ChecklistsScreen() {
     categoryFilter,
     setCategoryFilter,
     categoriesInUse,
-    onAddList: canManage ? () => setAddList(true) : undefined,
+    personFilter,
+    setPersonFilter,
+    assigneesInUse,
+    onAddList: canCreate ? () => setAddList(true) : undefined,
+    onAddItemAnywhere:
+      canCreate || itemTargetLists.length > 0
+        ? () => {
+            setItemId(null);
+            setChooseList(true);
+            setAddItem(true);
+          }
+        : undefined,
     onAddItem: selectedListId
       ? () => {
           setItemId(null);
+          setChooseList(false);
           setAddItem(true);
         }
       : undefined,
@@ -349,16 +396,20 @@ export function ChecklistsScreen() {
         visible={addItem || Boolean(item)}
         item={addItem ? null : item}
         people={people}
+        chooseList={chooseList && !item}
+        lists={chooseList ? itemTargetLists : undefined}
         busy={busy}
         error={actionError}
         onClose={() => {
           setAddItem(false);
           setItemId(null);
+          setChooseList(false);
         }}
-        onSave={async (draft) => {
-          if (await saveItem(draft)) {
+        onSave={async (draft, listId) => {
+          if (await saveItem(draft, listId)) {
             setAddItem(false);
             setItemId(null);
+            setChooseList(false);
           }
         }}
         onDelete={

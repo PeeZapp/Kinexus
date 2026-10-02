@@ -66,14 +66,22 @@ export { addDaysIso, mondayWeekStart } from './week';
 export {
   ALL_MEAL_SLOTS,
   CORE_SLOTS,
+  fitsSlotBudget,
   generateMealPlan,
   nutritionFitScore,
   OPTIONAL_SLOTS,
+  parseWeeklyFoodBudget,
+  planBudgetCap,
+  planShoppingCost,
   PROTEIN_KINDS,
   recipeProteinKind,
+  recipeShoppingCost,
+  recipesAffordableForBudget,
   recipesForSlot,
   SLOT_ASSUMED,
+  slotOccurrenceBudget,
   slotTarget,
+  weeklyBudgetSplit,
 } from './generate-plan';
 export type { GenerateMealPlanOptions, GeneratedSlot, RecipeProteinKind } from './generate-plan';
 

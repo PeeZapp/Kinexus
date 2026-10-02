@@ -1,8 +1,17 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { SAVED_LINK_TYPES, type SavedLink, type SavedLinkCollection, type SavedLinkType } from '@kinexus/domain';
+import {
+  SAVED_LINK_STATUSES,
+  SAVED_LINK_TYPES,
+  statusLabel,
+  type SavedLink,
+  type SavedLinkCollection,
+  type SavedLinkStatus,
+  type SavedLinkType,
+} from '@kinexus/domain';
 
 import { Pill } from '@/src/features/household/ui';
+import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/FilterMenu';
 import { LinkCard, PrimaryActions, SearchField, StashChrome } from '@/src/features/stash/StashShared';
 import { EmptyState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
@@ -15,13 +24,82 @@ export type SavesLayoutProps = {
   setCollectionId: (id: string | null) => void;
   type: SavedLinkType | null;
   setType: (type: SavedLinkType | null) => void;
+  status: SavedLinkStatus | null;
+  setStatus: (status: SavedLinkStatus | null) => void;
   links: SavedLink[];
   onOpen: (link: SavedLink) => void;
-  onAddLink: () => void;
-  onAddCollection: () => void;
+  onAddLink?: () => void;
+  onAddCollection?: () => void;
   onRenameCollection: (id: string) => void;
   online: boolean;
 };
+
+export function SavesFilters({
+  type,
+  setType,
+  status,
+  setStatus,
+  collections,
+  collectionId,
+  setCollectionId,
+  showCollections = false,
+}: {
+  type: SavedLinkType | null;
+  setType: (type: SavedLinkType | null) => void;
+  status: SavedLinkStatus | null;
+  setStatus: (status: SavedLinkStatus | null) => void;
+  collections?: SavedLinkCollection[];
+  collectionId?: string | null;
+  setCollectionId?: (id: string | null) => void;
+  showCollections?: boolean;
+}) {
+  const { openMenu, toggleMenu, pick } = useFilterMenus();
+  const typeLabel = SAVED_LINK_TYPES.find((item) => item.id === type)?.label ?? 'Any';
+  const collectionName = collections?.find((collection) => collection.id === collectionId)?.name ?? 'All';
+
+  return (
+    <FilterBar>
+      {showCollections && setCollectionId ? (
+        <FilterDropdown<string | null>
+          id="collection"
+          label="Collection"
+          value={collectionId ?? null}
+          valueLabel={collectionName}
+          open={openMenu === 'collection'}
+          options={[
+            { value: null, label: 'All' },
+            ...(collections ?? []).map((collection) => ({ value: collection.id, label: collection.name })),
+          ]}
+          onToggle={toggleMenu}
+          onSelect={pick(setCollectionId)}
+        />
+      ) : null}
+      <FilterDropdown<SavedLinkType | null>
+        id="type"
+        label="Type"
+        value={type}
+        valueLabel={typeLabel}
+        open={openMenu === 'type'}
+        options={[{ value: null, label: 'Any' }, ...SAVED_LINK_TYPES.map((item) => ({ value: item.id, label: item.label }))]}
+        onToggle={toggleMenu}
+        onSelect={pick(setType)}
+      />
+      <FilterDropdown<SavedLinkStatus | null>
+        id="status"
+        label="Status"
+        value={status}
+        valueLabel={status ? statusLabel(status) : 'Active'}
+        open={openMenu === 'status'}
+        options={[
+          { value: null, label: 'Active' },
+          ...SAVED_LINK_STATUSES.map((item) => ({ value: item.id, label: item.label })),
+        ]}
+        onToggle={toggleMenu}
+        onSelect={pick(setStatus)}
+      />
+    </FilterBar>
+  );
+}
 
 export function SavesDesktop(props: SavesLayoutProps) {
   return (
@@ -29,13 +107,15 @@ export function SavesDesktop(props: SavesLayoutProps) {
       desktop
       kicker="Library"
       title="Saves">
-      <PrimaryActions
-        addLabel="Save a link"
-        onAdd={props.onAddLink}
-        extraLabel="New collection"
-        onExtra={props.onAddCollection}
-        disabled={!props.online}
-      />
+      {props.onAddLink ? (
+        <PrimaryActions
+          addLabel="Save a link"
+          onAdd={props.onAddLink}
+          extraLabel="New collection"
+          onExtra={props.onAddCollection}
+          disabled={!props.online}
+        />
+      ) : null}
       <View style={styles.cols}>
         <View style={styles.sidebar}>
           <Text style={styles.sideTitle}>Collections</Text>
@@ -55,12 +135,7 @@ export function SavesDesktop(props: SavesLayoutProps) {
         </View>
         <View style={styles.main}>
           <SearchField value={props.query} onChange={props.setQuery} placeholder="Search saves" />
-          <View style={styles.wrap}>
-            <Pill label="Any type" active={!props.type} onPress={() => props.setType(null)} />
-            {SAVED_LINK_TYPES.map((item) => (
-              <Pill key={item.id} label={item.label} active={props.type === item.id} onPress={() => props.setType(item.id)} />
-            ))}
-          </View>
+          <SavesFilters type={props.type} setType={props.setType} status={props.status} setStatus={props.setStatus} />
           {props.links.length === 0 ? (
             <EmptyState title="No saved links" body="Paste a URL to keep a recipe, video, article, or anything else." />
           ) : (
@@ -100,6 +175,5 @@ const styles = StyleSheet.create({
   allActive: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   allLabel: { color: colors.textMuted, fontWeight: '700' },
   allLabelActive: { color: colors.accent },
-  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
 });

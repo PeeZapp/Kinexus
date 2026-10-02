@@ -4,7 +4,7 @@ import { DAY_LABELS, MEAL_SLOTS, mondayWeekStart, type Day, type GeneratedSlot, 
 
 import { Btn, ErrorText } from '@/src/features/household/ui';
 import { Chip } from '@/src/features/meals/meals-kit';
-import { GoalsEditor, SlotPicker } from '@/src/features/meals/generate/controls';
+import { GoalsEditor, SlotPicker, WeeklyBudgetField } from '@/src/features/meals/generate/controls';
 import { WeekSwitcher, slotTitle } from '@/src/features/meals/plan/PlanShared';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
 import { isoDayNumber, todayDay, weekApplyLabel, weekDayIso } from '@/src/features/meals/week-labels';
@@ -23,10 +23,15 @@ export type GenerateViewProps = {
   planDays: readonly Day[];
   hiddenSlotKeys: ReadonlySet<string>;
   fillableCount: number;
+  weeklyBudget: string;
+  onChangeWeeklyBudget: (value: string) => void;
+  budgetLines: string[];
   onGenerate: () => void;
   preview: GeneratedSlot[] | null;
   avgCal: number;
   avgProt: number;
+  previewSpend: string | null;
+  previewOverBudget: boolean;
   onSwap: (day: Day, slot: MealSlotKey) => void;
   onRandom: (day: Day, slot: MealSlotKey) => void;
   onApply: () => void;
@@ -66,6 +71,11 @@ export function GenerateDesktop(props: GenerateViewProps) {
       <View style={styles.controls}>
         <View style={styles.panel}>
           <SlotPicker selected={props.selected} onToggle={props.onToggleSlot} />
+          <WeeklyBudgetField
+            value={props.weeklyBudget}
+            onChange={props.onChangeWeeklyBudget}
+            lines={props.budgetLines}
+          />
         </View>
         <View style={styles.panel}>
           <GoalsEditor goals={props.goals} onChange={props.onChangeGoals} desktop />
@@ -76,6 +86,7 @@ export function GenerateDesktop(props: GenerateViewProps) {
         <View style={styles.stats}>
           <Chip label={`~${props.avgCal} kcal / day`} active />
           <Chip label={`~${props.avgProt}g protein / day`} active />
+          {props.previewSpend ? <Chip label={props.previewSpend} active={!props.previewOverBudget} /> : null}
         </View>
       ) : (
         <Text style={styles.hint}>

@@ -9,16 +9,18 @@ import {
   type ReactNode,
 } from 'react';
 
-import type {
-  CreatedInvite,
-  Household,
-  HouseholdInvite,
-  HouseholdMember,
-  HouseholdPerson,
-  HouseholdRole,
-  PeekedInvite,
-  PersonType,
-  Profile,
+import {
+  canInvite as allowInvite,
+  canManageHousehold as allowManageHousehold,
+  type CreatedInvite,
+  type Household,
+  type HouseholdInvite,
+  type HouseholdMember,
+  type HouseholdPerson,
+  type HouseholdRole,
+  type PeekedInvite,
+  type PersonType,
+  type Profile,
 } from '@kinexus/domain';
 
 import { useAuth, type AuthUser } from '@/src/lib/auth';
@@ -28,7 +30,9 @@ import {
   clearPendingInvite,
   readActiveHouseholdId,
   readPendingInvite,
+  readRolePreview,
   saveActiveHouseholdId,
+  saveRolePreview,
 } from '@/src/lib/storage';
 import { supabase } from '@/src/lib/supabase';
 
@@ -52,10 +56,16 @@ type HouseholdContextValue = {
   memberships: { household: Household; role: HouseholdRole; joinedAt: string }[];
   activeHousehold: Household | null;
   role: HouseholdRole | null;
+  actualRole: HouseholdRole | null;
+  previewRole: HouseholdRole | null;
+  canPreviewRoles: boolean;
+  setPreviewRole: (role: HouseholdRole | null) => void;
   members: HouseholdMember[];
   people: HouseholdPerson[];
   invites: HouseholdInvite[];
   canManageInvites: boolean;
+  canManageHousehold: boolean;
+  canInvite: boolean;
   setActiveHouseholdId: (id: string) => Promise<void>;
   refresh: () => Promise<void>;
   createHousehold: (input: CreateHouseholdInput) => Promise<string>;
@@ -70,6 +80,10 @@ type HouseholdContextValue = {
   linkPerson: (id: string, userId: string | null) => Promise<void>;
   removePerson: (id: string) => Promise<void>;
   leaveHousehold: () => Promise<void>;
+  deleteHousehold: () => Promise<void>;
+  deleteOwnAccount: () => Promise<void>;
+  setMemberRole: (userId: string, role: Exclude<HouseholdRole, 'owner'>) => Promise<void>;
+  removeMember: (userId: string) => Promise<void>;
 };
 
 const HouseholdContext = createContext<HouseholdContextValue | null>(null);
@@ -106,6 +120,12 @@ function mapProfile(row: {
   };
 }
 
+const PREVIEW_ROLES: readonly HouseholdRole[] = ['owner', 'admin', 'adult', 'teen', 'child'];
+
+function isHouseholdRole(value: string | null): value is HouseholdRole {
+  return PREVIEW_ROLES.some((role) => role === value);
+}
+
 function asErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string') {
     return err.message;
@@ -138,6 +158,7 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
   const [members, setMembers] = useState<HouseholdMember[]>([]);
   const [people, setPeople] = useState<HouseholdPerson[]>([]);
   const [invites, setInvites] = useState<HouseholdInvite[]>([]);
+  const [previewRole, setPreviewRoleState] = useState<HouseholdRole | null>(null);
   const loadedUserIdRef = useRef<string | null>(null);
 
   const load = useCallback(async (uid: string, preferredHouseholdId?: string | null) => {
@@ -243,7 +264,7 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
         id: row.id,
         householdId: row.household_id,
         email: row.email,
-        role: row.role === 'owner' ? 'member' : row.role,
+        role: row.role === 'owner' ? 'adult' : row.role,
         expiresAt: row.expires_at,
         acceptedAt: row.accepted_at,
         revokedAt: row.revoked_at,
@@ -297,10 +318,33 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
     };
   }, [authReady, load, user]);
 
+  const previewHydratedRef = useRef(false);
+
+  useEffect(() => {
+    previewHydratedRef.current = false;
+    if (!user) {
+      setPreviewRoleState(null);
+      return;
+    }
+    let cancelled = false;
+    void readRolePreview(user.id).then((stored) => {
+      if (cancelled || previewHydratedRef.current) return;
+      previewHydratedRef.current = true;
+      setPreviewRoleState(isHouseholdRole(stored) ? stored : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
   const activeMembership = memberships.find((m) => m.household.id === activeHouseholdId) ?? null;
   const activeHousehold = activeMembership?.household ?? null;
-  const role = activeMembership?.role ?? null;
-  const canManageInvites = role === 'owner' || role === 'admin';
+  const actualRole = activeMembership?.role ?? null;
+  const canPreviewRoles = actualRole === 'owner';
+  const role = canPreviewRoles && previewRole ? previewRole : actualRole;
+  const canManageHousehold = allowManageHousehold(role);
+  const canInvite = allowInvite(role);
+  const canManageInvites = canInvite;
 
   const refresh = useCallback(async () => {
     if (!user) return;
@@ -312,6 +356,17 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
     }
   }, [activeHouseholdId, load, user]);
 
+  const setPreviewRole = useCallback(
+    (next: HouseholdRole | null) => {
+      if (!user || !canPreviewRoles) return;
+      previewHydratedRef.current = true;
+      const stored = next && next !== actualRole ? next : null;
+      setPreviewRoleState(stored);
+      void saveRolePreview(user.id, stored);
+    },
+    [actualRole, canPreviewRoles, user],
+  );
+
   const value = useMemo<HouseholdContextValue>(
     () => ({
       isReady,
@@ -320,10 +375,16 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
       memberships,
       activeHousehold,
       role,
+      actualRole,
+      previewRole: canPreviewRoles ? previewRole : null,
+      canPreviewRoles,
+      setPreviewRole,
       members,
       people,
       invites,
       canManageInvites,
+      canManageHousehold,
+      canInvite,
       setActiveHouseholdId: async (id: string) => {
         setActiveId(id);
         await saveActiveHouseholdId(id);
@@ -465,10 +526,46 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
         if (rpcError) throw rpcError;
         await load(user.id);
       },
+      deleteHousehold: async () => {
+        if (!supabase || !user || !activeHousehold) throw new Error('No household selected');
+        const { error: rpcError } = await supabase.rpc('delete_household', {
+          p_household_id: activeHousehold.id,
+        });
+        if (rpcError) throw rpcError;
+        await load(user.id);
+      },
+      deleteOwnAccount: async () => {
+        if (!supabase || !user || user.isDevBypass) throw new Error('Sign in to delete your account');
+        const { error: rpcError } = await supabase.rpc('delete_own_account');
+        if (rpcError) throw rpcError;
+      },
+      setMemberRole: async (userId, nextRole) => {
+        if (!supabase || !user || !activeHousehold) throw new Error('No household selected');
+        const { error: rpcError } = await supabase.rpc('set_household_member_role', {
+          p_household_id: activeHousehold.id,
+          p_user_id: userId,
+          p_role: nextRole,
+        });
+        if (rpcError) throw rpcError;
+        await load(user.id, activeHousehold.id);
+      },
+      removeMember: async (userId) => {
+        if (!supabase || !user || !activeHousehold) throw new Error('No household selected');
+        const { error: rpcError } = await supabase.rpc('remove_household_member', {
+          p_household_id: activeHousehold.id,
+          p_user_id: userId,
+        });
+        if (rpcError) throw rpcError;
+        await load(user.id, activeHousehold.id);
+      },
     }),
     [
       activeHousehold,
       activeHouseholdId,
+      actualRole,
+      canInvite,
+      canPreviewRoles,
+      canManageHousehold,
       canManageInvites,
       error,
       invites,
@@ -478,8 +575,10 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
       memberships,
       pendingInviteToken,
       people,
+      previewRole,
       refresh,
       role,
+      setPreviewRole,
       user,
     ],
   );

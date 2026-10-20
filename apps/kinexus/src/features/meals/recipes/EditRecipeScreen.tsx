@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 
 import { findReplacingRecipe, nutritionKey } from '@kinexus/domain';
 
-import { Btn, ErrorText } from '@/src/features/household/ui';
+import { BackLink, Btn, ErrorText } from '@/src/features/household/ui';
 import { recipeHref, recipeParam } from '@/src/features/meals/recipe-href';
 import { ImportFieldsCard, importStyles } from '@/src/features/meals/recipes/ImportShared';
 import { applyNutrition, draftFromForm, formFromRecipe, patchRecipeForm, type RecipeFormState } from '@/src/features/meals/recipes/recipe-form';
@@ -97,7 +97,7 @@ export function EditRecipeScreen() {
     return (
       <View style={[importStyles.root, styles.pad, desktop && styles.padDesktop]}>
         <Text style={styles.title}>Recipe not found</Text>
-        <Btn label="Back to library" variant="secondary" onPress={() => router.push('/meals/recipes' as Href)} />
+        <BackLink label="Library" onPress={() => router.push('/meals/recipes' as Href)} />
       </View>
     );
   }
@@ -107,7 +107,7 @@ export function EditRecipeScreen() {
       return (
         <View style={[importStyles.root, styles.pad, desktop && styles.padDesktop]}>
           <Text style={styles.title}>Recipe not found</Text>
-          <Btn label="Back to library" variant="secondary" onPress={() => router.push('/meals/recipes' as Href)} />
+          <BackLink label="Library" onPress={() => router.push('/meals/recipes' as Href)} />
         </View>
       );
     }
@@ -122,7 +122,7 @@ export function EditRecipeScreen() {
     return (
       <View style={[importStyles.root, styles.pad, desktop && styles.padDesktop]}>
         <Text style={styles.title}>Recipe not found</Text>
-        <Btn label="Back to library" variant="secondary" onPress={() => router.push('/meals/recipes' as Href)} />
+        <BackLink label="Library" onPress={() => router.push('/meals/recipes' as Href)} />
       </View>
     );
   }
@@ -139,9 +139,7 @@ export function EditRecipeScreen() {
       style={importStyles.root}
       contentContainerStyle={[importStyles.content, desktop && importStyles.contentDesktop]}
       keyboardShouldPersistTaps="handled">
-      <Pressable onPress={() => router.push(recipeHref(recipe.id))}>
-        <Text style={styles.back}>← {recipe.name}</Text>
-      </Pressable>
+      <BackLink label={recipe.name} onPress={() => router.push(recipeHref(recipe.id))} />
       <Text style={styles.kicker}>{householdOwned ? 'Household recipe' : 'Catalog recipe'}</Text>
       <Text style={[styles.title, desktop && styles.titleDesktop]}>Edit recipe</Text>
       <Text style={styles.lede}>
@@ -182,7 +180,6 @@ export function EditRecipeScreen() {
 const styles = StyleSheet.create({
   pad: { padding: space.md, gap: 12 },
   padDesktop: { padding: 48 },
-  back: { color: colors.accent, fontWeight: '700' },
   kicker: { color: colors.accent, fontSize: 12, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' },
   title: { color: colors.text, fontSize: 28, fontWeight: '700' },
   titleDesktop: { fontSize: 40 },

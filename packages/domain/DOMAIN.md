@@ -74,4 +74,17 @@ Pure TypeScript. No React, React Native, or Firebase.
 | `portfolioTotals`, `normalizeAsxSymbol`, `yahooAsxSymbol` | Market value from units × last price |
 | `FinanceCollectible`, `COLLECTIBLE_KINDS` | LEGO/minifigs via BrickEconomy or Brickset; cards, games, comics, Funko, coins via PriceCharting; vinyl via Discogs; sneakers/watches often need a manual value |
 
-Not in this package: calendar, custom todo lists, outfits, daily nutrition log, barcode/photo logging, alerts, ads, live bank feeds, CHESS/HIN lookups, or tax filing. Statement CSV/OFX/QIF upload is a one-shot import, not a bank login.
+## Calendar (`calendar` namespace or named exports)
+
+| Export | Notes |
+|--------|--------|
+| `CalendarEvent`, `CalendarEventDraft`, `CalendarColor`, `CALENDAR_COLORS` | Household shared events (all-day or timed) |
+| `CalendarRecurrence`, `CALENDAR_RECURRENCES`, `untilOn` | Series: none / daily / weekly / monthly / yearly |
+| `expandEventsInRange` / `occurrenceKey` | Expand series masters into day occurrences |
+| `CalendarMarker`, `birthdayMarkers`, `schoolHolidayMarkers`, `publicHolidayMarkers` | Birthdays + school/public holiday overlays |
+| `emptyEventDraft` / `normalizeEventDraft` / `validateEventDraft` | Create/edit form helpers |
+| `eventsForDay` / `alertEventsForDay` / `monthGrid` / `formatEventTimeLabel` | Today HUD + month agenda |
+
+`CalendarEvent.source` may be `google` for personal Today overlays only — sync transport lives in the API, not this package.
+
+Not in this package: Apple sync, custom todo lists, outfits, daily nutrition log, barcode/photo logging, push alerts, ads, live bank feeds, CHESS/HIN lookups, or tax filing. Statement CSV/OFX/QIF upload is a one-shot import, not a bank login.

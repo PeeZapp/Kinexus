@@ -6,6 +6,8 @@ import { colors } from '@/src/features/shell/theme';
 export type ModuleGlyphName = ModuleKey | 'settings';
 
 const ICONS: Record<ModuleGlyphName, ImageSourcePropType> = {
+  today: require('../../../assets/images/nav/nav-today.png'),
+  calendar: require('../../../assets/images/nav/nav-calendar.png'),
   meals: require('../../../assets/images/nav/nav-meals.png'),
   lists: require('../../../assets/images/nav/nav-lists.png'),
   finances: require('../../../assets/images/nav/nav-money.png'),

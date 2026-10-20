@@ -1,3 +1,5 @@
+import type { WatchlistAudience } from './ratings';
+
 export type StashPriceSource = 'manual' | 'scraped';
 
 export type StashDetailStatus = 'ready' | 'pending';
@@ -137,7 +139,11 @@ export type ScrapedLink = {
   linkType: SavedLinkType;
 };
 
-export type WatchlistVisibility = 'household' | 'private' | 'people';
+export type WatchlistVisibility = 'household' | 'private' | 'people' | 'global';
+
+export type WatchlistListKind = 'custom' | 'watched_family' | 'watched_private';
+
+export type WatchedScope = 'private' | 'family';
 
 export type WatchlistMediaType = 'movie' | 'tv';
 
@@ -151,6 +157,13 @@ export type WatchlistList = {
   createdBy: string | null;
   name: string;
   visibility: WatchlistVisibility;
+  kind: WatchlistListKind;
+  /** Ceiling band for titles on a globally shared list. */
+  audience: WatchlistAudience;
+  /** Short public description when shared with everyone. */
+  blurb: string | null;
+  /** Up to four poster paths shown on the shared shelf. */
+  samplePosterPaths: string[];
   personIds: string[];
   createdAt: string;
   updatedAt: string;
@@ -178,10 +191,42 @@ export type WatchlistTitle = {
   sourceUrl: string | null;
   tmdbWatchUrl: string | null;
   trailerUrl: string | null;
+  contentRating: string | null;
+  audience: WatchlistAudience | null;
   providers: WatchlistProvider[];
   providersCountry: string | null;
   providersFetchedAt: string | null;
   createdAt: string;
+  updatedAt: string;
+};
+
+export type WatchlistGlobalReview = {
+  id: string;
+  userId: string;
+  alias: string;
+  tmdbId: number;
+  mediaType: WatchlistMediaType;
+  title: string | null;
+  year: number | null;
+  posterPath: string | null;
+  score: number;
+  body: string | null;
+  upvotes: number;
+  downvotes: number;
+  myVote: -1 | 0 | 1;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WatchlistPublicWatched = {
+  id: string;
+  userId: string;
+  tmdbId: number;
+  mediaType: WatchlistMediaType;
+  title: string;
+  year: number | null;
+  posterPath: string | null;
+  score: number | null;
   updatedAt: string;
 };
 
@@ -213,10 +258,34 @@ export type WatchlistSearchHit = {
   imdbId: string | null;
 };
 
+export type WatchlistReview = {
+  id: string;
+  householdId: string;
+  titleId: string;
+  personId: string;
+  score: number;
+  body: string | null;
+  updatedAt: string;
+};
+
+export type WatchlistRecommendSeed = {
+  tmdbId: number;
+  mediaType: WatchlistMediaType;
+  title: string;
+  userScore: number | null;
+};
+
+export type WatchlistSuggestion = WatchlistSearchHit & {
+  publicScore: number | null;
+  reason: string | null;
+};
+
 export type WatchlistResolvedTitle = WatchlistSearchHit & {
   sourceUrl: string | null;
   tmdbWatchUrl: string | null;
   trailerUrl: string | null;
+  contentRating: string | null;
+  audience: WatchlistAudience | null;
   providers: WatchlistProvider[];
   providersCountry: string;
 };

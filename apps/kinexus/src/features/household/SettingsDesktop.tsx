@@ -1,5 +1,8 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { CreatorPanel } from '@/src/features/creators/CreatorPanel';
+import { GoogleCalendarPanel } from '@/src/features/household/GoogleCalendarPanel';
+import { RecipeImageUploadLink } from '@/src/features/household/RecipeImageUploadLink';
 import { RolePreviewCard } from '@/src/features/household/RolePreview';
 import {
   CreateJoinPanel,
@@ -10,6 +13,7 @@ import {
   PeoplePanel,
 } from '@/src/features/household/sections';
 import { ErrorText } from '@/src/features/household/ui';
+import { StaffSettingsLink } from '@/src/features/staff/StaffSettingsLink';
 import { colors, space } from '@/src/features/shell/theme';
 import { useHousehold } from '@/src/lib/household';
 
@@ -36,6 +40,8 @@ export function SettingsDesktop() {
         </Text>
         <ErrorText message={error} />
         <View style={styles.narrow}>
+          <StaffSettingsLink />
+          <RecipeImageUploadLink />
           <CreateJoinPanel />
         </View>
       </View>
@@ -55,13 +61,17 @@ export function SettingsDesktop() {
       <View style={styles.grid}>
         <View style={styles.col}>
           <RolePreviewCard />
+          <StaffSettingsLink />
+          <RecipeImageUploadLink />
           <HouseholdSwitcher />
+          <GoogleCalendarPanel />
           <LocationPanel />
           <InvitePanel />
         </View>
         <View style={styles.col}>
           <MembersList members={members} />
           <PeoplePanel />
+          <CreatorPanel />
         </View>
       </View>
     </ScrollView>

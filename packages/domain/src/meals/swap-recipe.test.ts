@@ -78,6 +78,10 @@ describe('recipesForSlot lunch as dinner', () => {
       'dinner',
     ]);
   });
+
+  it('does not treat dinner-only recipes as lunch', () => {
+    expect(recipesForSlot([dinnerSteak, lunchSalad], 'lunch').map((item) => item.id)).toEqual(['lunch']);
+  });
 });
 
 describe('swap filters and nutrition band', () => {

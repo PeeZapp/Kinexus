@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
+  isHouseholdAudience,
   MEAL_SLOTS,
   recipeForHouseholdView,
   recipesForPicker,
@@ -13,6 +14,7 @@ import {
 } from '@kinexus/domain';
 
 import { Chip, Sheet } from '@/src/features/meals/meals-kit';
+import { audienceLabel } from '@/src/features/meals/plan/PlanShared';
 import { RecipePeek } from '@/src/features/meals/RecipePeek';
 import { RecipePhoto, recipePhotoUrl } from '@/src/features/meals/RecipePhoto';
 import { SwapRecipePicker } from '@/src/features/meals/SwapRecipePicker';
@@ -68,6 +70,13 @@ export function SlotSheet({
   const [viewing, setViewing] = useState<Recipe | null>(null);
   const [picking, setPicking] = useState(false);
   const label = MEAL_SLOTS.find((s) => s.key === slotKey)?.label ?? 'Slot';
+  const personNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const person of people) map.set(person.id, person.name);
+    return map;
+  }, [people]);
+  const householdMeal = isHouseholdAudience(slot?.audiencePersonIds);
+  const eatsLabel = audienceLabel(slot?.audiencePersonIds, personNames);
   const pool = useMemo(() => {
     if (!slotKey) return [];
     return recipesForPicker(recipes, slotKey, approvedIds);
@@ -75,13 +84,14 @@ export function SlotSheet({
   const currentRecipe = recipeForHouseholdView(recipes, slot?.recipeId) ?? null;
   const showRecipe = Boolean(currentRecipe) && !picking && !viewing;
   const showPicker = canEdit && (picking || !currentRecipe);
+  const removeLabel = householdMeal ? 'Remove from day' : 'Remove meal';
 
   useEffect(() => {
     if (!visible) return;
     setFilters(EMPTY_FILTERS);
     setViewing(null);
     setPicking(false);
-  }, [day, slotKey, visible]);
+  }, [day, slotKey, slot?.id, visible]);
 
   const hint = !canEdit
     ? assigneeName
@@ -98,8 +108,17 @@ export function SlotSheet({
     onClose();
   }
 
+  const sheetTitle = day
+    ? householdMeal
+      ? `${titleCase(day)} · ${label}`
+      : `${titleCase(day)} · ${label} · ${eatsLabel}`
+    : label;
+
   return (
-    <Sheet visible={visible} title={day ? `${titleCase(day)} · ${label}` : label} onClose={closeSheet}>
+    <Sheet visible={visible} title={sheetTitle} onClose={closeSheet}>
+      {!householdMeal ? (
+        <Text style={styles.audienceBanner}>For {eatsLabel}</Text>
+      ) : null}
       {showRecipe && currentRecipe ? (
         <RecipePeek
           recipe={currentRecipe}
@@ -115,7 +134,7 @@ export function SlotSheet({
                     <ActionBtn label="Random" onPress={() => void Promise.resolve(onShuffle())} />
                   ) : null}
                   {canAssign ? <ActionBtn label="Clear" onPress={onClear} /> : null}
-                  {canAssign ? <ActionBtn label="Remove from day" onPress={onHide} /> : null}
+                  {canAssign ? <ActionBtn label={removeLabel} onPress={onHide} /> : null}
                 </View>
               ) : null}
               <WhoPicks
@@ -149,7 +168,7 @@ export function SlotSheet({
             <ActionBtn label="Edit" onPress={() => slot.recipeId && onEditRecipe(slot.recipeId)} />
             <ActionBtn label="View recipe" onPress={() => slot.recipeId && onOpenRecipe(slot.recipeId)} />
             {canAssign ? <ActionBtn label="Clear" onPress={onClear} /> : null}
-            {canAssign ? <ActionBtn label="Remove from day" onPress={onHide} /> : null}
+            {canAssign ? <ActionBtn label={removeLabel} onPress={onHide} /> : null}
           </View>
         </View>
       ) : (
@@ -159,12 +178,12 @@ export function SlotSheet({
         <View style={[styles.actions, styles.actionsSpaced]}>
           <ActionBtn label="Back to recipe" onPress={() => setPicking(false)} />
           {canAssign ? <ActionBtn label="Clear" onPress={onClear} /> : null}
-          {canAssign ? <ActionBtn label="Remove from day" onPress={onHide} /> : null}
+          {canAssign ? <ActionBtn label={removeLabel} onPress={onHide} /> : null}
         </View>
       ) : null}
       {showPicker && !currentRecipe && !viewing && canAssign ? (
         <View style={[styles.actions, styles.actionsSpaced]}>
-          <ActionBtn label="Remove from day" onPress={onHide} />
+          <ActionBtn label={removeLabel} onPress={onHide} />
         </View>
       ) : null}
       {showPicker && !viewing ? (
@@ -243,6 +262,12 @@ function ActionBtn({ label, onPress }: { label: string; onPress: () => void }) {
 }
 
 const styles = StyleSheet.create({
+  audienceBanner: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 10,
+  },
   currentBlock: { gap: 8, marginBottom: 10 },
   current: {
     flexDirection: 'row',

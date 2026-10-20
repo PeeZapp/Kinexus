@@ -45,12 +45,15 @@ export function SharePicker({
   share,
   onChange,
   people,
+  allowGlobal,
 }: {
   share: ListShareDraft;
   onChange: (share: ListShareDraft) => void;
   people: HouseholdPerson[];
+  /** Watchlists can be shared with every signed-in Kinexus user. */
+  allowGlobal?: boolean;
 }) {
-  function setVisibility(visibility: StashListVisibility) {
+  function setVisibility(visibility: ListShareDraft['visibility']) {
     onChange({ visibility, personIds: visibility === 'people' ? share.personIds : [] });
   }
   function togglePerson(id: string) {
@@ -67,6 +70,9 @@ export function SharePicker({
         <Pill label="Whole family" active={share.visibility === 'household'} onPress={() => setVisibility('household')} />
         <Pill label="Private" active={share.visibility === 'private'} onPress={() => setVisibility('private')} />
         <Pill label="Specific people" active={share.visibility === 'people'} onPress={() => setVisibility('people')} />
+        {allowGlobal ? (
+          <Pill label="Everyone" active={share.visibility === 'global'} onPress={() => setVisibility('global')} />
+        ) : null}
       </View>
       {share.visibility === 'people' ? (
         people.length === 0 ? (
@@ -86,6 +92,11 @@ export function SharePicker({
       ) : null}
       {share.visibility === 'private' ? (
         <Text style={styles.meta}>Only you and the household owner can see this.</Text>
+      ) : null}
+      {share.visibility === 'global' ? (
+        <Text style={styles.meta}>
+          Anyone on Kinexus can browse this list. Age limits still hide it from younger household members.
+        </Text>
       ) : null}
     </View>
   );

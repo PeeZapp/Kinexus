@@ -1,6 +1,9 @@
 import type { Href } from 'expo-router';
 
-export function recipeHref(id: string): Href {
+export function recipeHref(id: string, opts?: { from?: 'shopping' }): Href {
+  if (opts?.from === 'shopping') {
+    return { pathname: '/meals/recipes/[id]', params: { id, from: 'shopping' } };
+  }
   return { pathname: '/meals/recipes/[id]', params: { id } };
 }
 

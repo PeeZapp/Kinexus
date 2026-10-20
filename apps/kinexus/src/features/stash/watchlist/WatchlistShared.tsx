@@ -12,12 +12,14 @@ import {
   type WatchlistMediaType,
   type WatchlistProvider,
   type WatchlistProviderOption,
+  type WatchlistSearchHit,
 } from '@kinexus/domain';
 
-import { Pill } from '@/src/features/household/ui';
+import { Btn, Pill } from '@/src/features/household/ui';
 import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/FilterMenu';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { StashPhoto } from '@/src/features/stash/StashShared';
+import type { WatchlistPersonHit, WatchlistSearchHitWithRole } from '@/src/features/stash/watchlist-api';
 
 export type WatchlistListCardModel = {
   id: string;
@@ -33,9 +35,31 @@ function statusChipLabel(status: WatchlistItemStatus): string {
   return 'Watched';
 }
 
+function catalogKey(hit: WatchlistSearchHit): string {
+  return `${hit.mediaType}-${hit.tmdbId}`;
+}
+
 export function WatchlistDetailToolbar({
-  query,
-  setQuery,
+  catalogQuery,
+  setCatalogQuery,
+  catalogHits,
+  catalogSearching,
+  catalogMessage,
+  catalogPeople = [],
+  catalogPersonId = null,
+  catalogPersonName = null,
+  onCatalogPersonId,
+  addingKey,
+  onListKeys,
+  onPickHit,
+  searchPlaceholder = 'Search movies, shows, or people',
+  showStatus = true,
+  addLabel = 'Add',
+  onListLabel = 'On list',
+  listQuery,
+  setListQuery,
+  findInList,
+  onToggleFindInList,
   status,
   setStatus,
   mediaType,
@@ -43,12 +67,29 @@ export function WatchlistDetailToolbar({
   providerId,
   setProviderId,
   providerOptions,
-  onAddTitle,
   onSettings,
   online,
 }: {
-  query: string;
-  setQuery: (v: string) => void;
+  catalogQuery: string;
+  setCatalogQuery: (v: string) => void;
+  catalogHits: readonly WatchlistSearchHitWithRole[];
+  catalogSearching: boolean;
+  catalogMessage: string | null;
+  catalogPeople?: readonly WatchlistPersonHit[];
+  catalogPersonId?: number | null;
+  catalogPersonName?: string | null;
+  onCatalogPersonId?: (id: number) => void;
+  addingKey: string | null;
+  onListKeys: ReadonlySet<string>;
+  onPickHit: (hit: WatchlistSearchHit) => void;
+  searchPlaceholder?: string;
+  showStatus?: boolean;
+  addLabel?: string;
+  onListLabel?: string;
+  listQuery: string;
+  setListQuery: (v: string) => void;
+  findInList: boolean;
+  onToggleFindInList: () => void;
   status: WatchlistItemStatus | null;
   setStatus: (status: WatchlistItemStatus | null) => void;
   mediaType: WatchlistMediaType | null;
@@ -56,33 +97,28 @@ export function WatchlistDetailToolbar({
   providerId: number | null;
   setProviderId: (id: number | null) => void;
   providerOptions: WatchlistProviderOption[];
-  onAddTitle: () => void;
   onSettings?: () => void;
   online: boolean;
 }) {
   const { openMenu, toggleMenu, pick } = useFilterMenus();
   const providerName =
     providerOptions.find((provider) => provider.providerId === providerId)?.providerName ?? 'Any';
+  const showResults = catalogQuery.trim().length >= 2;
 
   return (
     <View style={styles.toolbar}>
       <View style={styles.toolbarRow}>
         <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Search titles"
+          value={catalogQuery}
+          onChangeText={setCatalogQuery}
+          placeholder={searchPlaceholder}
           placeholderTextColor={colors.textDim}
           style={styles.search}
           autoCapitalize="none"
           autoCorrect={false}
           clearButtonMode="while-editing"
+          editable={online}
         />
-        <Pressable
-          onPress={onAddTitle}
-          disabled={!online}
-          style={[styles.toolbarBtn, styles.toolbarBtnPrimary, !online && styles.toolbarBtnDisabled]}>
-          <Text style={styles.toolbarBtnPrimaryLabel}>Add</Text>
-        </Pressable>
         {onSettings ? (
           <Pressable onPress={onSettings} style={styles.toolbarBtn}>
             <Text style={styles.toolbarBtnLabel}>Settings</Text>
@@ -90,7 +126,60 @@ export function WatchlistDetailToolbar({
         ) : null}
       </View>
 
+      {showResults ? (
+        <View style={styles.results}>
+          {catalogSearching && catalogHits.length === 0 ? (
+            <Text style={styles.resultStatus}>Searching…</Text>
+          ) : null}
+          {!catalogSearching && catalogMessage ? <Text style={styles.resultStatus}>{catalogMessage}</Text> : null}
+          {catalogPeople.length > 1 && onCatalogPersonId ? (
+            <View style={styles.peoplePills}>
+              {catalogPeople.map((person) => (
+                <Pill
+                  key={person.id}
+                  label={person.name}
+                  active={person.id === catalogPersonId}
+                  onPress={() => onCatalogPersonId(person.id)}
+                />
+              ))}
+            </View>
+          ) : null}
+          {catalogPersonName && catalogHits.length > 0 ? (
+            <Text style={styles.resultStatus}>Movies with {catalogPersonName}</Text>
+          ) : null}
+          {catalogHits.map((hit) => {
+            const key = catalogKey(hit);
+            const onList = onListKeys.has(key);
+            const adding = addingKey === key;
+            const poster = tmdbImageUrl(hit.posterPath, 'w92');
+            return (
+              <Pressable
+                key={key}
+                onPress={() => onPickHit(hit)}
+                disabled={!online || adding}
+                style={styles.hit}>
+                {poster ? <Image source={{ uri: poster }} style={styles.hitPoster} /> : <View style={styles.hitPoster} />}
+                <View style={styles.hitCopy}>
+                  <Text style={styles.hitName} numberOfLines={1}>
+                    {hit.title}
+                  </Text>
+                  <Text style={styles.hitMeta} numberOfLines={1}>
+                    {hit.year ? `${hit.year} · ` : ''}
+                    {mediaTypeLabel(hit.mediaType)}
+                    {hit.role ? ` · ${hit.role}` : ''}
+                  </Text>
+                </View>
+                <Text style={[styles.hitAction, onList && styles.hitActionDone]}>
+                  {adding ? 'Adding…' : onList ? onListLabel : addLabel}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+
       <FilterBar>
+        {showStatus ? (
         <FilterDropdown<WatchlistItemStatus | null>
           id="status"
           label="Status"
@@ -104,6 +193,7 @@ export function WatchlistDetailToolbar({
           onToggle={toggleMenu}
           onSelect={pick(setStatus)}
         />
+        ) : null}
         <FilterDropdown<WatchlistMediaType | null>
           id="media"
           label="Type"
@@ -136,7 +226,135 @@ export function WatchlistDetailToolbar({
             onSelect={pick(setProviderId)}
           />
         ) : null}
+        <Pressable
+          onPress={onToggleFindInList}
+          style={[styles.findBtn, (findInList || listQuery.trim().length > 0) && styles.findBtnActive]}>
+          <Text style={[styles.findBtnLabel, (findInList || listQuery.trim().length > 0) && styles.findBtnLabelActive]}>
+            Find in list
+          </Text>
+        </Pressable>
       </FilterBar>
+
+      {findInList ? (
+        <TextInput
+          value={listQuery}
+          onChangeText={setListQuery}
+          placeholder="Search titles in this list"
+          placeholderTextColor={colors.textDim}
+          style={styles.listSearch}
+          autoCapitalize="none"
+          autoCorrect={false}
+          clearButtonMode="while-editing"
+        />
+      ) : null}
+    </View>
+  );
+}
+
+export function WatchlistSectionTitle({ label }: { label: string }) {
+  return <Text style={styles.listsLabel}>{label}</Text>;
+}
+
+export function WatchedHomeSection({
+  cards,
+  query,
+  setQuery,
+  hits,
+  searching,
+  message,
+  people = [],
+  personId = null,
+  personName = null,
+  onPersonId,
+  onPick,
+  onOpenList,
+  online,
+  wide,
+}: {
+  cards: readonly WatchlistListCardModel[];
+  query: string;
+  setQuery: (value: string) => void;
+  hits: readonly WatchlistSearchHitWithRole[];
+  searching: boolean;
+  message: string | null;
+  people?: readonly WatchlistPersonHit[];
+  personId?: number | null;
+  personName?: string | null;
+  onPersonId?: (id: number) => void;
+  onPick: (hit: WatchlistSearchHit) => void;
+  onOpenList: (id: string) => void;
+  online: boolean;
+  wide?: boolean;
+}) {
+  const showResults = query.trim().length >= 2;
+  return (
+    <View style={styles.watched}>
+      <View style={styles.watchedHead}>
+        <Text style={styles.watchedTitle}>Watched</Text>
+        <Text style={styles.watchedHint}>Private stays with you. Family is shared.</Text>
+      </View>
+      <TextInput
+        value={query}
+        onChangeText={setQuery}
+        placeholder="Search a movie, show, or person you watched"
+        placeholderTextColor={colors.textDim}
+        style={styles.search}
+        autoCapitalize="none"
+        autoCorrect={false}
+        clearButtonMode="while-editing"
+        editable={online}
+      />
+      {showResults ? (
+        <View style={styles.results}>
+          {searching && hits.length === 0 ? <Text style={styles.resultStatus}>Searching…</Text> : null}
+          {!searching && message ? <Text style={styles.resultStatus}>{message}</Text> : null}
+          {people.length > 1 && onPersonId ? (
+            <View style={styles.peoplePills}>
+              {people.map((person) => (
+                <Pill
+                  key={person.id}
+                  label={person.name}
+                  active={person.id === personId}
+                  onPress={() => onPersonId(person.id)}
+                />
+              ))}
+            </View>
+          ) : null}
+          {personName && hits.length > 0 ? (
+            <Text style={styles.resultStatus}>Movies with {personName}</Text>
+          ) : null}
+          {hits.map((hit) => {
+            const poster = tmdbImageUrl(hit.posterPath, 'w92');
+            return (
+              <Pressable
+                key={`${hit.mediaType}-${hit.tmdbId}`}
+                onPress={() => onPick(hit)}
+                disabled={!online}
+                style={styles.hit}>
+                {poster ? <Image source={{ uri: poster }} style={styles.hitPoster} /> : <View style={styles.hitPoster} />}
+                <View style={styles.hitCopy}>
+                  <Text style={styles.hitName} numberOfLines={1}>
+                    {hit.title}
+                  </Text>
+                  <Text style={styles.hitMeta} numberOfLines={1}>
+                    {hit.year ? `${hit.year} · ` : ''}
+                    {mediaTypeLabel(hit.mediaType)}
+                    {hit.role ? ` · ${hit.role}` : ''}
+                  </Text>
+                </View>
+                <Text style={styles.hitAction}>Add</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+      <View style={styles.watchedRow}>
+        {cards.map((list) => (
+          <View key={list.id} style={styles.watchedSlot}>
+            <WatchlistListCard list={list} wide={wide} onPress={() => onOpenList(list.id)} />
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
@@ -179,12 +397,47 @@ export function WatchlistListCard({
   );
 }
 
+export function WatchlistIdeaActions({
+  onNext,
+  onSurprise,
+  onLike,
+  onServices,
+  servicesLabel,
+  disabled,
+}: {
+  onNext: () => void;
+  onSurprise: () => void;
+  onLike: () => void;
+  onServices: () => void;
+  servicesLabel: string;
+  disabled?: boolean;
+}) {
+  return (
+    <View style={styles.ideaRow}>
+      <Btn label="What next" variant="secondary" onPress={onNext} disabled={disabled} />
+      <Btn label="Surprise me" variant="ghost" onPress={onSurprise} disabled={disabled} />
+      <Btn label="Something like this" variant="ghost" onPress={onLike} disabled={disabled} />
+      <Btn label={servicesLabel} variant="ghost" onPress={onServices} disabled={disabled} />
+    </View>
+  );
+}
+
+export type WatchlistCardReview = {
+  id: string;
+  name: string;
+  score: number;
+};
+
 export function WatchlistCard({
   entry,
+  reviews,
+  scoreLine,
   wide,
   onPress,
 }: {
   entry: WatchlistEntry;
+  reviews?: readonly WatchlistCardReview[];
+  scoreLine?: string | null;
   wide?: boolean;
   onPress: () => void;
 }) {
@@ -203,6 +456,15 @@ export function WatchlistCard({
         <Text style={styles.stream} numberOfLines={1}>
           {streamingSummary(entry.title.providers)}
         </Text>
+        {scoreLine ? (
+          <Text style={styles.review} numberOfLines={1}>
+            {scoreLine}
+          </Text>
+        ) : reviews && reviews.length > 0 ? (
+          <Text style={styles.review} numberOfLines={2}>
+            {reviews.map((review) => `${review.name} ${review.score}/10`).join(' · ')}
+          </Text>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -245,6 +507,14 @@ export function WatchlistAttribution({ country }: { country: string }) {
 }
 
 const styles = StyleSheet.create({
+  ideaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  watched: { gap: 12 },
+  watchedHead: { gap: 2 },
+  watchedTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
+  watchedHint: { color: colors.textMuted, fontSize: 13 },
+  watchedRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md },
+  watchedSlot: { flex: 1, minWidth: 160, maxWidth: 300 },
+  listsLabel: { color: colors.text, fontSize: 16, fontWeight: '800', marginTop: 8 },
   toolbar: { gap: 10 },
   toolbarRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   search: {
@@ -271,13 +541,59 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  toolbarBtnPrimary: {
-    borderColor: colors.accentMuted,
+  toolbarBtnLabel: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
+  results: {
+    gap: 6,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgElevated,
+    padding: 6,
+  },
+  resultStatus: { color: colors.textMuted, fontSize: 13, paddingHorizontal: 8, paddingVertical: 6 },
+  peoplePills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 6, paddingVertical: 4 },
+  hit: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    borderRadius: radius.sm,
+  },
+  hitPoster: { width: 36, height: 52, borderRadius: 4, backgroundColor: colors.bg },
+  hitCopy: { flex: 1, minWidth: 0, gap: 2 },
+  hitName: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  hitMeta: { color: colors.textMuted, fontSize: 12 },
+  hitAction: { color: colors.accent, fontSize: 13, fontWeight: '800', paddingHorizontal: 8 },
+  hitActionDone: { color: colors.textDim, fontWeight: '700' },
+  findBtn: {
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgHover,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    minHeight: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  findBtnActive: {
+    borderColor: colors.accent,
     backgroundColor: colors.accentSoft,
   },
-  toolbarBtnDisabled: { opacity: 0.5 },
-  toolbarBtnLabel: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
-  toolbarBtnPrimaryLabel: { color: colors.accent, fontSize: 13, fontWeight: '800' },
+  findBtnLabel: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
+  findBtnLabelActive: { color: colors.accent },
+  listSearch: {
+    backgroundColor: colors.bg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    color: colors.textMuted,
+    fontSize: 13,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minHeight: 34,
+  },
   listCard: {
     backgroundColor: colors.bgCard,
     borderWidth: 1,
@@ -330,6 +646,7 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontSize: 14, fontWeight: '700' },
   meta: { color: colors.textMuted, fontSize: 12 },
   stream: { color: colors.accent, fontSize: 12, fontWeight: '700' },
+  review: { color: colors.text, fontSize: 12, fontWeight: '700', lineHeight: 16 },
   groups: { gap: 12 },
   group: { gap: 8 },
   groupLabel: {

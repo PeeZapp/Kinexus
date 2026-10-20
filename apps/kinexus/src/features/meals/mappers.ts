@@ -66,6 +66,9 @@ export function recipeFromRow(row: RecipeRow): Recipe {
     isCommunity: row.is_public && row.household_id === null,
     sourcedFromRecipeId: row.sourced_from_recipe_id ?? undefined,
     replacesSource: Boolean(row.replaces_source),
+    createdBy: row.created_by ?? undefined,
+    creatorPublishedAt: row.creator_published_at ?? undefined,
+    creatorSourceRecipeId: row.creator_source_recipe_id ?? undefined,
   };
 }
 
@@ -105,6 +108,7 @@ export function slotFromRow(row: SlotRow): MealSlot & { id: string; updatedAt: s
     cookTime: asNum(row.cook_time),
     hidden: row.hidden,
     assignedPersonId: row.assigned_person_id ?? undefined,
+    audiencePersonIds: row.audience_person_ids ?? [],
     updatedAt: row.client_updated_at,
   };
 }
@@ -130,6 +134,9 @@ export type ShoppingListItem = {
   checked: boolean;
   recipeSources: { recipeId: string; recipeName: string }[];
   sharedMealCount: number;
+  mergedFrom: string[];
+  /** True when the household added this row by hand (survives regenerate). */
+  manual: boolean;
 };
 
 type ShoppingRow = Database['public']['Tables']['shopping_items']['Row'];
@@ -149,6 +156,10 @@ export function shoppingFromRow(row: ShoppingRow): ShoppingListItem {
       })
     : [];
   const shared = asNum(meta.sharedMealCount);
+  const mergedRaw = meta.mergedFrom;
+  const mergedFrom = Array.isArray(mergedRaw)
+    ? mergedRaw.filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+    : [];
   return {
     id: row.id,
     name: row.name,
@@ -157,6 +168,8 @@ export function shoppingFromRow(row: ShoppingRow): ShoppingListItem {
     checked: row.checked,
     recipeSources,
     sharedMealCount: shared ?? 1,
+    mergedFrom,
+    manual: meta.manual === true,
   };
 }
 

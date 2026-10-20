@@ -1,10 +1,14 @@
 import { canEditShared, canSeeShared } from '../household/access';
 import type { HouseholdRole } from '../household/types';
+import type { WatchlistAudience } from './ratings';
+import { isWatchlistAudience, maxAudience } from './ratings';
 import type {
+  WatchedScope,
   WatchlistEntry,
   WatchlistItem,
   WatchlistItemStatus,
   WatchlistList,
+  WatchlistListKind,
   WatchlistMediaType,
   WatchlistOfferType,
   WatchlistProvider,
@@ -14,12 +18,14 @@ import type {
   WatchlistVisibility,
 } from './types';
 
-export const WATCHLIST_VISIBILITIES = ['household', 'private', 'people'] as const;
+export const WATCHLIST_VISIBILITIES = ['household', 'private', 'people', 'global'] as const;
+export const WATCHLIST_LIST_KINDS = ['custom', 'watched_family', 'watched_private'] as const;
 export const WATCHLIST_MEDIA_TYPES = ['movie', 'tv'] as const;
 export const WATCHLIST_ITEM_STATUSES = ['want', 'watching', 'watched'] as const;
 export const WATCHLIST_OFFER_TYPES = ['flatrate', 'ads', 'free', 'rent', 'buy'] as const;
 
 const VISIBILITY_SET = new Set<string>(WATCHLIST_VISIBILITIES);
+const LIST_KIND_SET = new Set<string>(WATCHLIST_LIST_KINDS);
 const MEDIA_SET = new Set<string>(WATCHLIST_MEDIA_TYPES);
 const STATUS_SET = new Set<string>(WATCHLIST_ITEM_STATUSES);
 const OFFER_SET = new Set<string>(WATCHLIST_OFFER_TYPES);
@@ -29,6 +35,84 @@ const PROVIDER_STALE_MS = 12 * 60 * 60 * 1000;
 
 export function isWatchlistVisibility(value: string): value is WatchlistVisibility {
   return VISIBILITY_SET.has(value);
+}
+
+/** Share draft for watchlists (includes global). */
+export function normalizeWatchlistShare(
+  visibility: WatchlistVisibility,
+  personIds: readonly string[],
+): { visibility: WatchlistVisibility; personIds: string[] } {
+  if (visibility === 'global') return { visibility: 'global', personIds: [] };
+  if (visibility !== 'people') return { visibility, personIds: [] };
+  return { visibility: 'people', personIds: [...new Set(personIds)] };
+}
+
+export const WATCHLIST_GLOBAL_BLURB_LIMIT = 280;
+export const WATCHLIST_GLOBAL_SAMPLE_LIMIT = 4;
+/** Lists with this average (or higher) count as "highly rated". */
+export const WATCHLIST_GLOBAL_LIST_HIGH_SCORE = 7;
+
+export function normalizeWatchlistBlurb(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? '';
+  if (!trimmed) return null;
+  return trimmed.slice(0, WATCHLIST_GLOBAL_BLURB_LIMIT);
+}
+
+export function normalizeSamplePosterPaths(paths: readonly string[]): string[] {
+  const unique: string[] = [];
+  for (const path of paths) {
+    const next = path.trim();
+    if (!next || unique.includes(next)) continue;
+    unique.push(next);
+    if (unique.length >= WATCHLIST_GLOBAL_SAMPLE_LIMIT) break;
+  }
+  return unique;
+}
+
+export function watchlistGlobalPublishError(input: {
+  name: string;
+  blurb: string | null | undefined;
+  samplePosterPaths: readonly string[];
+}): string | null {
+  if (!input.name.trim()) return 'Give the shared list a clear title';
+  const blurb = normalizeWatchlistBlurb(input.blurb);
+  if (!blurb) return 'Add a short blurb so people know what the list is about';
+  if (normalizeSamplePosterPaths(input.samplePosterPaths).length < 1) {
+    return 'Pick at least one sample poster for the shared shelf';
+  }
+  return null;
+}
+
+/** Highest audience among titles on a list (unknown titles count as 18+). */
+export function listAudienceFromTitles(titles: readonly Pick<WatchlistTitle, 'audience'>[]): WatchlistAudience {
+  let band: WatchlistAudience = 'all';
+  for (const title of titles) {
+    const next = title.audience && isWatchlistAudience(title.audience) ? title.audience : '18+';
+    band = maxAudience(band, next);
+  }
+  return band;
+}
+
+export function isWatchlistListKind(value: string): value is WatchlistListKind {
+  return LIST_KIND_SET.has(value);
+}
+
+export function isWatchedList(list: Pick<WatchlistList, 'kind'>): boolean {
+  return list.kind === 'watched_family' || list.kind === 'watched_private';
+}
+
+export function watchedScope(list: Pick<WatchlistList, 'kind'>): WatchedScope | null {
+  if (list.kind === 'watched_family') return 'family';
+  if (list.kind === 'watched_private') return 'private';
+  return null;
+}
+
+/** Family score is the average of the scores people actually left, from 1 to 10. */
+export function familyReviewAverage(scores: readonly number[]): number | null {
+  const scored = scores.filter((score) => Number.isInteger(score) && score >= 1 && score <= 10);
+  if (scored.length === 0) return null;
+  const average = scored.reduce((sum, score) => sum + score, 0) / scored.length;
+  return Math.round(average * 10) / 10;
 }
 
 export function isWatchlistMediaType(value: string): value is WatchlistMediaType {
@@ -165,6 +249,7 @@ export function watchlistListError(parse: WatchlistUrlParse): string | null {
 export function watchlistVisibilityLabel(visibility: WatchlistVisibility): string {
   if (visibility === 'private') return 'Private';
   if (visibility === 'people') return 'Shared';
+  if (visibility === 'global') return 'Everyone';
   return 'Household';
 }
 
@@ -196,6 +281,7 @@ export function canViewWatchlist(
   list: WatchlistList,
   opts: { role: HouseholdRole | null; userId: string | null; personId: string | null },
 ): boolean {
+  if (list.visibility === 'global') return Boolean(opts.userId);
   return canSeeShared({
     role: opts.role,
     userId: opts.userId,
@@ -210,13 +296,14 @@ export function canManageWatchlist(
   list: WatchlistList,
   opts: { role: HouseholdRole | null; userId: string | null; personId: string | null },
 ): boolean {
+  const visibility = list.visibility === 'global' ? 'household' : list.visibility;
   return canEditShared(
     {
       role: opts.role,
       userId: opts.userId,
       personId: opts.personId,
       createdBy: list.createdBy,
-      visibility: list.visibility,
+      visibility,
       personIds: list.personIds,
     },
     true,

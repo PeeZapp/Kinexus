@@ -105,6 +105,22 @@ export function Pill({
   );
 }
 
+export function BackLink({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Back to ${label}`}
+      hitSlop={4}
+      style={({ pressed }) => [styles.backLink, pressed && styles.backLinkPressed]}>
+      <Text style={styles.backChevron}>←</Text>
+      <Text style={styles.backLabel} numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.bgCard,
@@ -193,6 +209,23 @@ const styles = StyleSheet.create({
     borderColor: colors.accent,
     backgroundColor: colors.accentSoft,
   },
+  backLink: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: '100%',
+    minHeight: 36,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1,
+    borderColor: colors.accentMuted,
+  },
+  backLinkPressed: { opacity: 0.72 },
+  backChevron: { color: colors.accent, fontSize: 16, fontWeight: '700', lineHeight: 20 },
+  backLabel: { color: colors.accent, fontSize: 15, fontWeight: '700', flexShrink: 1 },
   pillLabel: {
     color: colors.textMuted,
     fontSize: 13,

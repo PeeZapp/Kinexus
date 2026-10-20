@@ -14,9 +14,14 @@ import {
   handleScrapeProduct,
   handleScrapeReader,
   handleArchiveFrame,
+  handleWatchlistDiscover,
   handleWatchlistLookup,
+  handleWatchlistPeople,
+  handleWatchlistPersonMovies,
+  handleWatchlistRecommend,
   handleWatchlistResolve,
   handleWatchlistSearch,
+  handleWatchlistServices,
   type AiRequestBody,
 } from './handlers.js';
 import { cronAuthorized, handleEstimateRecipeCost, handleRefreshRecipeCosts } from './prices.js';
@@ -28,6 +33,21 @@ import {
 } from './recipes/handlers.js';
 import { handleGetSharedWishlist } from './shared-wishlist.js';
 import { handleEnrichPendingProducts } from './stash/enrich-pending.js';
+import { handleCalendarObservances } from './calendar-observances.js';
+import {
+  handleGoogleCalendars,
+  handleGoogleConnectCallback,
+  handleGoogleConnectStart,
+  handleGoogleDeleteEvent,
+  handleGoogleDisconnect,
+  handleGooglePersonalDay,
+  handleGooglePushEvent,
+  handleGoogleSettings,
+  handleGoogleStatus,
+} from './google-calendar.js';
+import { handleVerifyCreatorLinks } from './creators/verify-links.js';
+import { handleOverviewNews, handleOverviewPlaces, handleOverviewWeather } from './overview.js';
+import { handleOverviewWordle } from './wordle.js';
 
 function registerMealsRoutes(router: Hono) {
   router.get('/health', (c) => c.json({ ok: true }));
@@ -78,6 +98,14 @@ function registerMealsRoutes(router: Hono) {
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
     const result = await handleScrapeLink(body as { url?: string });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/creators/verify-links', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleVerifyCreatorLinks(body as { urls?: unknown });
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 
@@ -191,6 +219,22 @@ function registerMealsRoutes(router: Hono) {
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 
+  router.post('/watchlist/people', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleWatchlistPeople(body as { query?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/watchlist/person', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleWatchlistPersonMovies(body as { personId?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
   router.post('/watchlist/search', async (c) => {
     const authed = await userFromRequest(c.req.raw);
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
@@ -205,6 +249,143 @@ function registerMealsRoutes(router: Hono) {
     const body = await c.req.json().catch(() => ({}));
     const result = await handleWatchlistLookup(
       body as { tmdbId?: unknown; mediaType?: unknown; country?: unknown; sourceUrl?: unknown },
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/overview/places', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleOverviewPlaces(body as { query?: unknown; latitude?: unknown; longitude?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/overview/weather', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleOverviewWeather(body as { latitude?: unknown; longitude?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/overview/news', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleOverviewNews(
+      body as { interests?: unknown; topicPriorities?: unknown; sportPriorities?: unknown },
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/overview/wordle', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleOverviewWordle(body as { date?: unknown; guesses?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/calendar/observances', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleCalendarObservances(body as { country?: unknown; from?: unknown; to?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/calendar/google/connect', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const result = await handleGoogleConnectStart(c.req.raw, authed.user.id);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/calendar/google/callback', async (c) => {
+    const result = await handleGoogleConnectCallback(c.req.raw);
+    return c.redirect(result.location, result.status as 302);
+  });
+
+  router.get('/calendar/google/status', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const result = await handleGoogleStatus(authed.user.id);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/calendar/google/calendars', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleGoogleCalendars(authed.user.id, body as Record<string, unknown>);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/calendar/google/settings', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleGoogleSettings(authed.user.id, body as Record<string, unknown>);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/calendar/google/disconnect', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleGoogleDisconnect(authed.user.id, body as Record<string, unknown>);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/calendar/google/push', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleGooglePushEvent(authed.user.id, body as Record<string, unknown>);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/calendar/google/delete', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleGoogleDeleteEvent(authed.user.id, body as Record<string, unknown>);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/calendar/google/personal', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleGooglePersonalDay(authed.user.id, body as Record<string, unknown>);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/watchlist/services', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleWatchlistServices(body as { country?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/watchlist/recommend', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleWatchlistRecommend(
+      body as { seeds?: unknown; exclude?: unknown; country?: unknown; providerIds?: unknown },
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/watchlist/discover', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleWatchlistDiscover(
+      body as { mediaType?: unknown; genreId?: unknown; mode?: unknown; country?: unknown; providerIds?: unknown },
     );
     return c.json(result.body, result.status as ContentfulStatusCode);
   });

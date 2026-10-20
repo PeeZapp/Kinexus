@@ -50,11 +50,24 @@ export {
 } from './clean-recipe';
 export type { NormalizedRecipeUrl } from './recipe-url';
 export { RecipeUrlError, classifyRecipeHost, normalizeRecipeUrl, youtubeVideoId } from './recipe-url';
-export { DAYS, DAY_LABELS, MEAL_SLOTS, mealSlotRecordKey } from './types';
+export type { SharedRecipePayload } from './share-recipe-url';
+export { extractRecipeUrlFromShare } from './share-recipe-url';
+export {
+  DAYS,
+  DAY_LABELS,
+  MEAL_SLOTS,
+  audienceOverlapsExisting,
+  isHouseholdAudience,
+  mealSlotRecordKey,
+  normalizeAudiencePersonIds,
+  slotMatchesPersonFilter,
+  slotMatchesPlanPersonFilter,
+} from './types';
 export {
   addableMealSlotKeys,
   dayIsRemovedFromPlan,
   hiddenMealSlotKeysForDay,
+  householdHideSlotMap,
   orderedMealSlotKeys,
   otherDaysToHideForNewSlot,
   plannedDays,
@@ -77,6 +90,7 @@ export {
   recipeProteinKind,
   recipeShoppingCost,
   recipesAffordableForBudget,
+  recipeMatchesSlot,
   recipesForSlot,
   SLOT_ASSUMED,
   slotOccurrenceBudget,
@@ -84,6 +98,16 @@ export {
   weeklyBudgetSplit,
 } from './generate-plan';
 export type { GenerateMealPlanOptions, GeneratedSlot, RecipeProteinKind } from './generate-plan';
+
+export {
+  defaultMealPrepDaysToCover,
+  generateMealPrepPlan,
+  mealPrepCookListCost,
+  mealPrepCookSummary,
+  mealPrepScore,
+  recipesForMealPrep,
+} from './meal-prep';
+export type { MealPrepParams, MealPrepResult, MealPrepStyle } from './meal-prep';
 
 export {
   filterRecipesForSwap,
@@ -96,8 +120,24 @@ export {
 } from './swap-recipe';
 export type { NutritionReference, SwapRecipeFilters } from './swap-recipe';
 
-export { combineAmounts, deduplicateIngredients, parseAmount } from './amounts';
-export type { FlatIngredient, ParsedAmount } from './amounts';
+export {
+  combineAmounts,
+  deduplicateIngredients,
+  parseAmount,
+  prefersMetricCountry,
+  GARLIC_CLOVE_GRAMS,
+} from './amounts';
+export type { FlatIngredient, ParsedAmount, CombineAmountsOptions, DeduplicateOptions } from './amounts';
+
+export { pickCanonicalShoppingName, shoppingMergeKey } from './ingredient-merge';
+
+export {
+  formatShoppingCountLabel,
+  shoppingCountDefFor,
+  COUNT_PREP_UNITS,
+  COUNT_SIZE_UNITS,
+} from './shopping-units';
+export type { ShoppingCountDef } from './shopping-units';
 
 export {
   groupShoppingByCategory,

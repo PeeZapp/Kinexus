@@ -1,0 +1,10 @@
+---
+description: Link new database migrations in chat for manual import
+alwaysApply: true
+---
+
+# Database migrations
+
+When you add or change a file under `packages/db/supabase/migrations/`, give the user a clickable link to that migration in the chat so they can import it manually.
+
+Do not tell them to run `pnpm db:push`, `supabase db push`, or another apply command unless they ask how to apply it.

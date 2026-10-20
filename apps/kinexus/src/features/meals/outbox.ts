@@ -2,13 +2,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import { Platform } from 'react-native';
 
-import type { Day, MealSlotKey } from '@kinexus/domain';
+import { mealSlotRecordKey, normalizeAudiencePersonIds, type Day, type MealSlotKey } from '@kinexus/domain';
 
 function canUseStorage() {
   return !(Platform.OS === 'web' && typeof window === 'undefined');
 }
 
-const OUTBOX_KEY = 'kinexus.slotOutbox.v1';
+const OUTBOX_KEY = 'kinexus.slotOutbox.v2';
 
 export type SlotOutboxOp = {
   id: string;
@@ -16,7 +16,10 @@ export type SlotOutboxOp = {
   weekStart: string;
   day: Day;
   slotKey: MealSlotKey;
-  kind: 'assign' | 'clear' | 'hide' | 'allocate';
+  /** Stable row id once known; preferred match key. */
+  slotId?: string | null;
+  audiencePersonIds?: string[];
+  kind: 'assign' | 'clear' | 'hide' | 'allocate' | 'audience' | 'delete';
   recipeId?: string | null;
   recipeName?: string | null;
   emoji?: string | null;
@@ -29,6 +32,11 @@ export type SlotOutboxOp = {
   assignedPersonId?: string | null;
   clientUpdatedAt: string;
 };
+
+function opCellKey(op: Pick<SlotOutboxOp, 'day' | 'slotKey' | 'slotId' | 'audiencePersonIds'>): string {
+  if (op.slotId) return `id:${op.slotId}`;
+  return mealSlotRecordKey(op.day, op.slotKey, op.audiencePersonIds);
+}
 
 export async function readSlotOutbox(): Promise<SlotOutboxOp[]> {
   if (!canUseStorage()) return [];
@@ -48,15 +56,19 @@ export async function writeSlotOutbox(ops: SlotOutboxOp[]): Promise<void> {
 }
 
 export async function enqueueSlotOp(op: Omit<SlotOutboxOp, 'id'>): Promise<SlotOutboxOp> {
-  const full: SlotOutboxOp = { ...op, id: Crypto.randomUUID() };
+  const full: SlotOutboxOp = {
+    ...op,
+    id: Crypto.randomUUID(),
+    audiencePersonIds: normalizeAudiencePersonIds(op.audiencePersonIds),
+  };
   const current = await readSlotOutbox();
+  const key = opCellKey(full);
   const next = current.filter(
     (item) =>
       !(
         item.householdId === full.householdId &&
         item.weekStart === full.weekStart &&
-        item.day === full.day &&
-        item.slotKey === full.slotKey
+        opCellKey(item) === key
       ),
   );
   next.push(full);

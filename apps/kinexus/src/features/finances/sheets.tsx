@@ -419,7 +419,8 @@ export function BudgetEntrySheet({
   const [query, setQuery] = useState('');
   const [lineId, setLineId] = useState<string | null>(selectedLineId ?? null);
   const [showMatches, setShowMatches] = useState(false);
-  const selected = lines.find((line) => line.id === lineId) ?? null;
+  const preset = lines.find((line) => line.id === selectedLineId) ?? null;
+  const selected = lines.find((line) => line.id === lineId) ?? preset;
   const amountValue = useMemo(() => evalMoneyExpression(amount), [amount]);
   const amountPreview = moneyExpressionHasOp(amount) && amountValue != null && amountValue > 0 ? amountValue : null;
   const matches = useMemo(() => {
@@ -462,39 +463,46 @@ export function BudgetEntrySheet({
     <Sheet visible={visible} title={selected ? `Add to ${selected.name}` : 'Add item'} onClose={onClose}>
       <View style={styles.stack}>
         <Text style={styles.hint}>
-          Adds to {monthLabel}. Start typing a category, then click the match. Amount accepts 50+30.
+          {preset
+            ? `Adds to ${monthLabel}. Amount accepts 50+30.`
+            : `Adds to ${monthLabel}. Start typing a category, then click the match. Amount accepts 50+30.`}
         </Text>
-        <Field
-          label="Category"
-          value={query}
-          onChangeText={typeCategory}
-          onFocus={() => {
-            if (query.trim()) setShowMatches(true);
-          }}
-          placeholder="Groceries"
-          autoCapitalize="words"
-          autoCorrect={false}
-        />
-        {showMatches && query.trim() ? (
-          <View style={styles.suggestList}>
-            {matches.length === 0 ? (
-              <Text style={styles.hint}>No matching category.</Text>
-            ) : (
-              matches.map((line) => (
-                <Pressable key={line.id} onPress={() => chooseLine(line)} style={styles.suggestRow}>
-                  <Text style={styles.hitName}>{linePathName(line, lines)}</Text>
-                  <Text style={styles.hint}>{line.kind === 'income' ? 'Income' : 'Expense'}</Text>
-                </Pressable>
-              ))
-            )}
-          </View>
-        ) : null}
+        {preset ? null : (
+          <>
+            <Field
+              label="Category"
+              value={query}
+              onChangeText={typeCategory}
+              onFocus={() => {
+                if (query.trim()) setShowMatches(true);
+              }}
+              placeholder="Groceries"
+              autoCapitalize="words"
+              autoCorrect={false}
+            />
+            {showMatches && query.trim() ? (
+              <View style={styles.suggestList}>
+                {matches.length === 0 ? (
+                  <Text style={styles.hint}>No matching category.</Text>
+                ) : (
+                  matches.map((line) => (
+                    <Pressable key={line.id} onPress={() => chooseLine(line)} style={styles.suggestRow}>
+                      <Text style={styles.hitName}>{linePathName(line, lines)}</Text>
+                      <Text style={styles.hint}>{line.kind === 'income' ? 'Income' : 'Expense'}</Text>
+                    </Pressable>
+                  ))
+                )}
+              </View>
+            ) : null}
+          </>
+        )}
         <Field
           label="What was it"
           value={description}
           onChangeText={setDescription}
           placeholder="Woolworths food shop"
           autoCapitalize="sentences"
+          autoFocus={Boolean(preset)}
         />
         <Field
           label="Amount"
@@ -511,7 +519,7 @@ export function BudgetEntrySheet({
         ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Btn
-          label="Add item"
+          label={selected?.kind === 'income' ? 'Add income' : selected ? 'Add expense' : 'Add item'}
           onPress={() =>
             selected &&
             amountValue != null &&

@@ -1,6 +1,9 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { CreatorPanel } from '@/src/features/creators/CreatorPanel';
+import { GoogleCalendarPanel } from '@/src/features/household/GoogleCalendarPanel';
+import { RecipeImageUploadLink } from '@/src/features/household/RecipeImageUploadLink';
 import { RolePreviewCard } from '@/src/features/household/RolePreview';
 import {
   CreateJoinPanel,
@@ -11,6 +14,7 @@ import {
   PeoplePanel,
 } from '@/src/features/household/sections';
 import { ErrorText } from '@/src/features/household/ui';
+import { StaffSettingsLink } from '@/src/features/staff/StaffSettingsLink';
 import { colors, space } from '@/src/features/shell/theme';
 import { useHousehold } from '@/src/lib/household';
 
@@ -38,6 +42,8 @@ export function SettingsMobile() {
           Create a household or paste an invite. Meals and the other modules unlock after you join.
         </Text>
         <ErrorText message={error} />
+        <StaffSettingsLink />
+        <RecipeImageUploadLink />
         <CreateJoinPanel />
       </ScrollView>
     );
@@ -54,11 +60,15 @@ export function SettingsMobile() {
       <Text style={styles.title}>{activeHousehold.name}</Text>
       <ErrorText message={error} />
       <RolePreviewCard />
+      <StaffSettingsLink />
+      <RecipeImageUploadLink />
       <HouseholdSwitcher />
+      <GoogleCalendarPanel />
       <LocationPanel />
       <InvitePanel />
       <MembersList members={members} />
       <PeoplePanel />
+      <CreatorPanel />
     </ScrollView>
   );
 }

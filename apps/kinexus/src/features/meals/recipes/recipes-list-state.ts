@@ -19,7 +19,7 @@ const DEFAULT_UI: RecipesListUiState = {
 };
 
 const MEALS = new Set<RecipeMealFilter>(['all', 'breakfast', 'lunch', 'dinner', 'snack', 'dessert']);
-const LIBRARIES = new Set<RecipeLibraryFilter>(['all', 'household', 'favourites', 'base', 'removed']);
+const LIBRARIES = new Set<RecipeLibraryFilter>(['all', 'household', 'imported', 'favourites', 'base', 'removed']);
 
 let uiState: RecipesListUiState = { ...DEFAULT_UI };
 let scrollY = 0;

@@ -17,15 +17,22 @@ export type {
   StashDetailStatus,
   StashPriceSource,
   StashProduct,
+  WatchedScope,
   WatchlistEntry,
   WatchlistItem,
   WatchlistItemStatus,
   WatchlistList,
+  WatchlistListKind,
   WatchlistMediaType,
   WatchlistOfferType,
   WatchlistProvider,
+  WatchlistRecommendSeed,
   WatchlistResolvedTitle,
+  WatchlistGlobalReview,
+  WatchlistPublicWatched,
+  WatchlistReview,
   WatchlistSearchHit,
+  WatchlistSuggestion,
   WatchlistTitle,
   WatchlistUrlParse,
   WatchlistVisibility,
@@ -110,14 +117,18 @@ export {
 
 export {
   WATCHLIST_ITEM_STATUSES,
+  WATCHLIST_LIST_KINDS,
   WATCHLIST_MEDIA_TYPES,
   WATCHLIST_OFFER_TYPES,
   WATCHLIST_VISIBILITIES,
   canManageWatchlist,
+  familyReviewAverage,
   canViewWatchlist,
   filterWatchlistEntries,
   groupWatchlistProviders,
+  isWatchedList,
   isWatchlistItemStatus,
+  isWatchlistListKind,
   isWatchlistMediaType,
   isWatchlistOfferType,
   isWatchlistVisibility,
@@ -134,9 +145,66 @@ export {
   titleYearLabel,
   tmdbImageUrl,
   watchlistEntries,
+  listAudienceFromTitles,
+  normalizeSamplePosterPaths,
+  normalizeWatchlistBlurb,
+  normalizeWatchlistShare,
+  watchlistGlobalPublishError,
+  WATCHLIST_GLOBAL_BLURB_LIMIT,
+  WATCHLIST_GLOBAL_LIST_HIGH_SCORE,
+  WATCHLIST_GLOBAL_SAMPLE_LIMIT,
   watchlistListError,
   watchlistProviderOptions,
+  watchedScope,
   watchlistVisibilityLabel,
   yearFromDate,
 } from './watchlist';
 export type { WatchlistProviderGroup, WatchlistProviderOption } from './watchlist';
+
+export {
+  STREAMING_SERVICE_LIMIT,
+  STREAMING_SERVICE_PICKER_LIMIT,
+  WATCHLIST_RECOMMEND_SCOPES,
+  isSelectableStreamingService,
+  isWatchlistRecommendScope,
+  mergeStreamingServices,
+  normalizeStreamingProviderIds,
+  resolveStreamingDisplayPriority,
+  titleStreamsOn,
+} from './streaming';
+export type { StreamingServiceOption, StreamingServiceRow, WatchlistRecommendScope } from './streaming';
+
+export {
+  WATCHLIST_GENRES,
+  WATCHLIST_LIKED_SCORE,
+  WATCHLIST_REVIEW_LIMIT,
+  WATCHLIST_SCORE_MAX,
+  WATCHLIST_SCORE_MIN,
+  isWatchlistGenre,
+  isWatchlistScore,
+  rankWatchlistSuggestions,
+  watchlistGenresFor,
+  watchlistRecommendSeeds,
+  watchlistTasteBand,
+  watchlistTitleKey,
+} from './recommend';
+export type { WatchlistTasteCandidate, WatchlistTasteRank, WatchlistTasteSeed } from './recommend';
+
+export { CURATED_WATCHLISTS, curatedWatchlistById, curatedWatchlistsForAudience, searchCuratedWatchlists } from './curated';
+export type { CuratedWatchlist, CuratedWatchlistMatch, CuratedWatchlistTitle } from './curated';
+
+export {
+  WATCHLIST_AUDIENCES,
+  audienceForBirthday,
+  audienceForRole,
+  audienceFromCertification,
+  audienceLabel,
+  audienceRank,
+  canViewAudience,
+  isWatchlistAudience,
+  maxAudience,
+  viewerAudience,
+} from './ratings';
+export type { WatchlistAudience } from './ratings';
+
+export { funnyAliasFromSeed, isFunnyAlias } from './aliases';

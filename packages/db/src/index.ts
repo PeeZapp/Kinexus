@@ -1,4 +1,11 @@
-export type { Database, HouseholdRole, Json, PersonType } from './types';
+export type {
+  CreatorApplicationStatus,
+  CreatorContentKind,
+  Database,
+  HouseholdRole,
+  Json,
+  PersonType,
+} from './types';
 
 export const rpc = {
   createHousehold: 'create_household',
@@ -15,4 +22,14 @@ export const rpc = {
   claimCatalogEditor: 'claim_catalog_editor',
   reviewCatalogImage: 'review_catalog_image',
   reviewCatalogRecipe: 'review_catalog_recipe',
+  claimPlatformStaff: 'claim_platform_staff',
+  invitePlatformStaff: 'invite_platform_staff',
+  revokePlatformStaff: 'revoke_platform_staff',
+  isApprovedCreator: 'is_approved_creator',
+  submitCreatorApplication: 'submit_creator_application',
+  reviewCreatorApplication: 'review_creator_application',
+  revokeCreator: 'revoke_creator',
+  publishCreatorRecipe: 'publish_creator_recipe',
+  unpublishCreatorRecipe: 'unpublish_creator_recipe',
+  staffCreatorContentDigest: 'staff_creator_content_digest',
 } as const;

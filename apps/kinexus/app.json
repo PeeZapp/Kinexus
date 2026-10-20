@@ -27,7 +27,7 @@
       "favicon": "./assets/images/favicon.png",
       "name": "Kinexus",
       "shortName": "Kinexus",
-      "description": "One suite for meals, lists, money, nutrition, and training.",
+      "description": "A personal daily overview, plus meals, lists, money, nutrition, and training.",
       "lang": "en",
       "themeColor": "#0B1016",
       "backgroundColor": "#0B1016",
@@ -44,7 +44,19 @@
           "backgroundColor": "#FDF5E8"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+            "NSExtensionActivationSupportsWebPageWithMaxCount": 1,
+            "NSExtensionActivationSupportsText": true
+          },
+          "iosShareExtensionName": "Kinexus",
+          "androidIntentFilters": ["text/*"]
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

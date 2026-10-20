@@ -1,8 +1,44 @@
-import { DAYS, MEAL_SLOTS, type Day, type MealSlotKey } from './types';
+import {
+  DAYS,
+  MEAL_SLOTS,
+  isHouseholdAudience,
+  mealSlotRecordKey,
+  type Day,
+  type MealSlotKey,
+} from './types';
 
 export function orderedMealSlotKeys(keys: readonly MealSlotKey[]): MealSlotKey[] {
   const set = new Set(keys);
   return MEAL_SLOTS.map((slot) => slot.key).filter((key) => set.has(key));
+}
+
+type SlotHideRow = {
+  day: Day;
+  slotKey: MealSlotKey;
+  hidden?: boolean;
+  audiencePersonIds?: readonly string[] | null;
+};
+
+/**
+ * Slot type is hidden on a day only when there is no visible personal meal
+ * and the household cell is hidden (or would be treated as off-plan).
+ */
+export function householdHideSlotMap(slots: readonly SlotHideRow[]): Map<string, { hidden?: boolean }> {
+  const map = new Map<string, { hidden?: boolean }>();
+  for (const slot of MEAL_SLOTS) {
+    for (const day of DAYS) {
+      const key = mealSlotRecordKey(day, slot.key);
+      const rows = slots.filter((row) => row.day === day && row.slotKey === slot.key);
+      const personals = rows.filter((row) => !isHouseholdAudience(row.audiencePersonIds) && !row.hidden);
+      if (personals.length > 0) {
+        map.set(key, { hidden: false });
+        continue;
+      }
+      const household = rows.find((row) => isHouseholdAudience(row.audiencePersonIds));
+      if (household?.hidden) map.set(key, { hidden: true });
+    }
+  }
+  return map;
 }
 
 export function hiddenMealSlotKeysForDay(
@@ -11,7 +47,7 @@ export function hiddenMealSlotKeysForDay(
 ): Set<MealSlotKey> {
   const hidden = new Set<MealSlotKey>();
   for (const slot of MEAL_SLOTS) {
-    if (slotMap.get(`${day}_${slot.key}`)?.hidden) hidden.add(slot.key);
+    if (slotMap.get(mealSlotRecordKey(day, slot.key))?.hidden) hidden.add(slot.key);
   }
   return hidden;
 }
@@ -61,5 +97,5 @@ export function shouldDropSlotFromActive(
   slotMap: ReadonlyMap<string, { hidden?: boolean }>,
 ): boolean {
   if (!activeSlots.includes(slotKey)) return false;
-  return DAYS.every((other) => other === day || Boolean(slotMap.get(`${other}_${slotKey}`)?.hidden));
+  return DAYS.every((other) => other === day || Boolean(slotMap.get(mealSlotRecordKey(other, slotKey))?.hidden));
 }

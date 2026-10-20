@@ -1,4 +1,5 @@
-import { deduplicateIngredients } from './amounts';
+import { deduplicateIngredients, prefersMetricCountry } from './amounts';
+import { shoppingMergeKey } from './ingredient-merge';
 import { recipeForHouseholdView } from './recipe-versions';
 import type {
   DerivedShoppingItem,
@@ -79,8 +80,16 @@ export const SHOPPING_CATEGORIES: readonly CategoryDef[] = [
     emoji: '🫙',
     keywords: [
       'oil', 'vinegar', 'sauce', 'condiment', 'ketchup', 'mustard', 'mayo', 'mayonnaise', 'soy',
-      'fish sauce', 'oyster sauce', 'worcestershire', 'tahini', 'miso', 'paste', 'stock', 'broth',
+      'fish sauce', 'oyster sauce', 'worcestershire', 'tahini', 'miso', 'paste',
       'harissa', 'sriracha', 'tabasco',
+    ],
+  },
+  {
+    label: 'Pantry',
+    emoji: '🏪',
+    keywords: [
+      'pantry', 'stock', 'broth', 'bouillon', 'stock cube', 'stock powder', 'gelatine', 'gelatin',
+      'baking powder', 'baking soda', 'bicarb', 'yeast', 'cornflour', 'cornstarch', 'sugar',
     ],
   },
   {
@@ -105,13 +114,51 @@ export const SHOPPING_CATEGORIES: readonly CategoryDef[] = [
   { label: 'Other', emoji: '🛒', keywords: [] },
 ];
 
-export function resolveShoppingCategory(raw: string | undefined): string {
-  if (!raw) return 'Other';
-  const lower = raw.toLowerCase().trim();
+const STOCK_BROTH_RE = /\b(stocks?|broths?|bouillon)\b/i;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Whole-phrase / whole-word match so "roll" does not hit "rolled oats". */
+function matchesKeyword(hay: string, kw: string): boolean {
+  const escaped = escapeRegExp(kw.toLowerCase());
+  if (kw.includes(' ')) {
+    return hay.includes(kw.toLowerCase());
+  }
+  return new RegExp(`(?:^|[^a-z])${escaped}(?:s)?(?:[^a-z]|$)`).test(hay);
+}
+
+/**
+ * Resolve an aisle label. Ingredient name overrides AI category for stock/broth → Pantry
+ * so "beef stock" does not land in Meat.
+ */
+export function resolveShoppingCategory(raw: string | undefined, name?: string): string {
+  const nameLower = (name ?? '').toLowerCase().trim();
+  const lower = (raw ?? '').toLowerCase().trim();
+
+  if (STOCK_BROTH_RE.test(nameLower) || STOCK_BROTH_RE.test(lower)) {
+    return 'Pantry';
+  }
+
+  // "clove" is a spice keyword; do not file garlic under Herbs & Spices
+  if (/\bgarlic\b/.test(nameLower)) {
+    return 'Vegetables';
+  }
+
+  if (!raw && !name) return 'Other';
+
   const direct = SHOPPING_CATEGORIES.find((c) => c.label.toLowerCase() === lower);
   if (direct) return direct.label;
-  for (const def of SHOPPING_CATEGORIES) {
-    if (def.keywords.some((kw) => lower.includes(kw))) return def.label;
+
+  // Prefer matching against the ingredient name when present (more specific than AI bucket)
+  const haystacks = nameLower ? [nameLower, lower] : [lower];
+  for (const hay of haystacks) {
+    if (!hay) continue;
+    for (const def of SHOPPING_CATEGORIES) {
+      if (def.label === 'Other') continue;
+      if (def.keywords.some((kw) => matchesKeyword(hay, kw))) return def.label;
+    }
   }
   return 'Other';
 }
@@ -126,7 +173,7 @@ export function groupShoppingByCategory(
   const map = new Map<string, DerivedShoppingItem[]>();
   const sorted = [...items].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   for (const item of sorted) {
-    const cat = resolveShoppingCategory(item.category);
+    const cat = resolveShoppingCategory(item.category, item.name);
     const group = map.get(cat);
     if (group) group.push(item);
     else map.set(cat, [item]);
@@ -147,14 +194,17 @@ export function groupShoppingByCategory(
 export type ShoppingFromPlanInput = {
   plan: Pick<MealPlan, 'activeSlots' | 'slots'>;
   recipes: readonly Recipe[];
+  /** Household country for unit preference (default AU / metric). */
+  country?: string | null;
 };
 
 /**
  * Build a shopping list from an active meal plan: merge amounts for the same
- * ingredient name, attach recipe sources, and resolve aisle categories.
+ * ingredient (including prep/unit variants), attach recipe sources, and resolve aisle categories.
  */
 export function shoppingFromPlan(input: ShoppingFromPlanInput): DerivedShoppingItem[] {
   const { plan, recipes } = input;
+  const preferMetric = prefersMetricCountry(input.country);
   const baseRecipeMap = new Map(recipes.filter((r) => r.isComponent).map((r) => [r.id, r]));
   const activeSlotSet = new Set<MealSlotKey>(plan.activeSlots ?? ['breakfast', 'lunch', 'dinner']);
 
@@ -185,32 +235,40 @@ export function shoppingFromPlan(input: ShoppingFromPlanInput): DerivedShoppingI
     }
   }
 
-  const deduped = deduplicateIngredients(raw.map(({ name, amount, category }) => ({ name, amount, category })));
+  const deduped = deduplicateIngredients(
+    raw.map(({ name, amount, category }) => ({ name, amount, category })),
+    { preferMetric },
+  );
 
-  const baseIdByName = new Map<string, string>();
-  const sourcesByName = new Map<string, ShoppingRecipeSource[]>();
-  const mealCountByName = new Map<string, number>();
+  const baseIdByKey = new Map<string, string>();
+  const sourcesByKey = new Map<string, ShoppingRecipeSource[]>();
+  const mealCountByKey = new Map<string, number>();
+  const categoryByKey = new Map<string, string>();
+
   for (const row of raw) {
-    const key = row.name.toLowerCase().trim();
-    mealCountByName.set(key, (mealCountByName.get(key) ?? 0) + 1);
-    if (row.baseRecipeId && !baseIdByName.has(key)) baseIdByName.set(key, row.baseRecipeId);
-    const sources = sourcesByName.get(key) ?? [];
+    const key = shoppingMergeKey(row.name) || row.name.toLowerCase().trim();
+    mealCountByKey.set(key, (mealCountByKey.get(key) ?? 0) + 1);
+    if (row.baseRecipeId && !baseIdByKey.has(key)) baseIdByKey.set(key, row.baseRecipeId);
+    if (row.category && !categoryByKey.has(key)) categoryByKey.set(key, row.category);
+    const sources = sourcesByKey.get(key) ?? [];
     if (!sources.some((s) => s.recipeId === row.recipeId)) {
       sources.push({ recipeId: row.recipeId, recipeName: row.recipeName });
     }
-    sourcesByName.set(key, sources);
+    sourcesByKey.set(key, sources);
   }
 
   return deduped.map((ing) => {
-    const key = ing.name.toLowerCase().trim();
-    const brId = baseIdByName.get(key);
+    const key = shoppingMergeKey(ing.name) || ing.name.toLowerCase().trim();
+    const brId = baseIdByKey.get(key);
     const br = brId ? baseRecipeMap.get(brId) : undefined;
+    const rawCategory = ing.category || categoryByKey.get(key) || 'other';
     return {
       name: ing.name,
       amount: ing.amount,
-      category: resolveShoppingCategory(ing.category || 'other'),
-      recipeSources: sourcesByName.get(key) ?? [],
-      sharedMealCount: mealCountByName.get(key) ?? 0,
+      category: resolveShoppingCategory(rawCategory, ing.name),
+      recipeSources: sourcesByKey.get(key) ?? [],
+      sharedMealCount: mealCountByKey.get(key) ?? 0,
+      ...(ing.mergedFrom?.length ? { mergedFrom: ing.mergedFrom } : {}),
       ...(br ? { isBaseRecipe: true, baseRecipeId: br.id, baseRecipeName: br.name } : {}),
     };
   });

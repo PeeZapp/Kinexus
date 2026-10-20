@@ -2,20 +2,34 @@ import type { HouseholdRole } from '@kinexus/domain';
 import { canViewFinances } from '@kinexus/domain';
 import type { Href } from 'expo-router';
 
-export type ModuleKey = 'meals' | 'lists' | 'finances' | 'nutrition' | 'train';
+export type ModuleKey = 'today' | 'calendar' | 'meals' | 'lists' | 'finances' | 'nutrition' | 'train';
 
 export const SETTINGS_PATH = '/settings';
 export const SETTINGS_HREF = SETTINGS_PATH as Href;
 
 export type AppModule = {
   key: ModuleKey;
-  href: '/meals' | '/lists' | '/finances' | '/nutrition' | '/train';
+  href: '/today' | '/calendar' | '/meals' | '/lists' | '/finances' | '/nutrition' | '/train';
   label: string;
   short: string;
   description: string;
 };
 
 export const MODULES: readonly AppModule[] = [
+  {
+    key: 'today',
+    href: '/today',
+    label: 'Today',
+    short: 'TD',
+    description: 'A personal daily HUD for tasks, the menu, and a private journal.',
+  },
+  {
+    key: 'calendar',
+    href: '/calendar',
+    label: 'Calendar',
+    short: 'CA',
+    description: 'A shared household calendar for family plans and reminders.',
+  },
   {
     key: 'meals',
     href: '/meals',
@@ -54,7 +68,11 @@ export const MODULES: readonly AppModule[] = [
 ];
 
 export function visibleModules(role: HouseholdRole | null): readonly AppModule[] {
-  return MODULES.filter((mod) => mod.key !== 'finances' || canViewFinances(role));
+  return MODULES.filter((mod) => {
+    if (mod.key === 'nutrition' || mod.key === 'train') return false;
+    if (mod.key === 'finances') return canViewFinances(role);
+    return true;
+  });
 }
 
 export function moduleFromPath(pathname: string): AppModule | undefined {
@@ -66,6 +84,7 @@ export function titleFromPath(pathname: string): string {
   if (pathname.startsWith('/invite')) return 'Invite';
   if (pathname.startsWith('/import')) return 'Import';
   if (pathname === '/recipes' || pathname.startsWith('/recipes/')) return 'Cook';
+  if (pathname === '/calendar' || pathname.startsWith('/calendar/')) return 'Calendar';
   if (pathname.startsWith('/lists/wishlists')) return 'Wishlists';
   if (pathname.startsWith('/lists/watchlist')) return 'Watchlist';
   if (pathname.startsWith('/lists/saves')) return 'Saves';

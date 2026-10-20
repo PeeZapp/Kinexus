@@ -7,6 +7,7 @@ import * as Linking from 'expo-linking';
 import { isSafeCookReturnPath, readCookReturnTo, clearCookReturnTo } from '@/src/features/cook/cook-storage';
 import { colors } from '@/src/features/shell/theme';
 import { createSessionFromUrl } from '@/src/lib/auth';
+import { takeAuthReturn } from '@/src/lib/auth-return';
 
 export default function AuthCallbackScreen() {
   const router = useRouter();
@@ -22,9 +23,16 @@ export default function AuthCallbackScreen() {
         if (href) {
           await createSessionFromUrl(href);
         }
-        const returnTo = await readCookReturnTo();
+        const cookReturn = await readCookReturnTo();
         await clearCookReturnTo();
-        if (!cancelled) router.replace((isSafeCookReturnPath(returnTo) ? returnTo : '/') as Href);
+        const staffOrAppReturn = takeAuthReturn('/');
+        const next =
+          cookReturn && isSafeCookReturnPath(cookReturn)
+            ? cookReturn
+            : staffOrAppReturn.startsWith('/staff')
+              ? staffOrAppReturn
+              : '/';
+        if (!cancelled) router.replace(next as Href);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Google sign-in failed');

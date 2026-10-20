@@ -6,25 +6,31 @@ import type { Href } from 'expo-router';
 
 import { formatCostPerServe, formatCostSource, formatDishCost, formatMoney, findReplacingRecipe, MEAL_SLOTS } from '@kinexus/domain';
 
+import { useCreator } from '@/src/features/creators/use-creator';
 import { useWakeLock } from '@/src/features/cook/use-wake-lock';
-import { Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
+import { BackLink, Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
 import { recipeEditHref, recipeHref, recipeParam } from '@/src/features/meals/recipe-href';
 import { CatalogRemoveEditor } from '@/src/features/meals/recipes/CatalogRemoveEditor';
 import { printRecipe } from '@/src/features/meals/recipes/print-recipe';
+import { RecipeImageDisclaimer } from '@/src/features/meals/RecipeImageDisclaimer';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
 import { fetchRecipeById, useMealsSync } from '@/src/features/meals/use-meals-sync';
 import { LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
+import { useAuth } from '@/src/lib/auth';
 import { useExperienceMode } from '@/src/lib/experience-mode';
-import { isLinkOnlyRecipe, openRecipeLink } from '@/src/features/meals/recipes/link-recipe';
+import { isLinkOnlyRecipe, openRecipeLink, sourceHostLabel } from '@/src/features/meals/recipes/link-recipe';
 
 export function RecipeDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string | string[] }>();
+  const { id, from } = useLocalSearchParams<{ id: string | string[]; from?: string | string[] }>();
   const recipeId = recipeParam(id);
+  const fromShopping = (Array.isArray(from) ? from[0] : from) === 'shopping';
   const router = useRouter();
   const { mode } = useExperienceMode();
   const desktop = mode === 'desktop';
   const meals = useMealsSync();
+  const creator = useCreator();
+  const { user } = useAuth();
   const listed = recipeId ? meals.recipes.find((r) => r.id === recipeId) : undefined;
   const detailQuery = useQuery({
     queryKey: ['meals', 'recipe', recipeId, meals.market.country, meals.market.currency],
@@ -41,10 +47,25 @@ export function RecipeDetailScreen() {
   const fav = recipe ? meals.favouriteIds.has(recipe.id) : false;
   const householdOwned = Boolean(recipe?.householdId && recipe.householdId === meals.householdId);
   const householdVersion = recipe && !householdOwned ? findReplacingRecipe(meals.recipes, recipe.id) : undefined;
+  const sourceHost = recipe ? sourceHostLabel(recipe.sourceUrl) : null;
   const [notes, setNotes] = useState(recipe?.notes ?? '');
   const [error, setError] = useState<string | null>(null);
   const [printing, setPrinting] = useState(false);
   const [cookMode, setCookMode] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const publishedCatalog = recipe
+    ? meals.recipes.find(
+        (r) => !r.householdId && !r.removed && r.creatorSourceRecipeId === recipe.id,
+      )
+    : undefined;
+  const isOwnCreatorCatalog = Boolean(
+    recipe &&
+      !recipe.householdId &&
+      recipe.createdBy &&
+      user?.id &&
+      recipe.createdBy === user.id &&
+      creator.isApprovedCreator,
+  );
 
   useWakeLock(cookMode);
 
@@ -52,13 +73,19 @@ export function RecipeDetailScreen() {
     setNotes(recipe?.notes ?? '');
   }, [recipe?.id, recipe?.notes]);
 
-  function goToLibrary() {
+  function goBack() {
+    if (fromShopping) {
+      router.push('/meals/shopping' as Href);
+      return;
+    }
     if (router.canGoBack()) {
       router.back();
       return;
     }
     router.push('/meals/recipes' as Href);
   }
+
+  const backLabel = fromShopping ? 'Shopping' : 'Library';
 
   if (!recipe && (meals.isLoading || detailQuery.isLoading)) {
     return (
@@ -72,19 +99,18 @@ export function RecipeDetailScreen() {
     return (
       <View style={[styles.root, desktop && styles.rootDesktop]}>
         <Text style={styles.title}>Recipe not found</Text>
-        <Btn label="Back to library" variant="secondary" onPress={goToLibrary} />
+        <BackLink label={backLabel} onPress={goBack} />
       </View>
     );
   }
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}>
-      <Pressable onPress={goToLibrary}>
-        <Text style={styles.back}>← Library</Text>
-      </Pressable>
+      <BackLink label={backLabel} onPress={goBack} />
       <View style={[styles.hero, desktop && styles.heroDesktop]}>
         <RecipePhoto uri={recipe.imageUrl} emoji={recipe.emoji} size="fill" radius={0} />
       </View>
+      <RecipeImageDisclaimer visible={Boolean(recipe.imageUrl)} style={styles.imageNote} />
       {meals.isCatalogEditor && !recipe.householdId ? (
         <CatalogRemoveEditor
           recipe={recipe}
@@ -95,6 +121,14 @@ export function RecipeDetailScreen() {
       <Text style={[styles.title, desktop && styles.titleDesktop]}>
         {recipe.name}
       </Text>
+      {!recipe.householdId && recipe.createdBy ? (
+        <Text style={styles.meta}>
+          Shared by a Kinexus creator
+          {recipe.creatorPublishedAt
+            ? ` · ${new Date(recipe.creatorPublishedAt).toLocaleDateString()}`
+            : ''}
+        </Text>
+      ) : null}
       {isLinkOnlyRecipe(recipe) && recipe.sourceUrl ? (
         <Card>
           <Text style={styles.heading}>Full recipe not found</Text>
@@ -104,6 +138,13 @@ export function RecipeDetailScreen() {
           </Pressable>
           <Btn label="Open recipe link" onPress={() => openRecipeLink(recipe.sourceUrl)} />
         </Card>
+      ) : recipe.sourceUrl ? (
+        <Pressable
+          accessibilityRole="link"
+          onPress={() => openRecipeLink(recipe.sourceUrl)}
+          style={styles.sourceRow}>
+          <Text style={styles.back}>View original{sourceHost ? ` on ${sourceHost}` : ''} →</Text>
+        </Pressable>
       ) : null}
       {householdOwned && recipe.replacesSource ? (
         <Text style={styles.hiddenHint}>Your household version of this recipe.</Text>
@@ -188,6 +229,42 @@ export function RecipeDetailScreen() {
             disabled={!meals.online}
             onPress={() => {
               void meals.deleteHouseholdRecipe(recipe.id).then(() => goToLibrary());
+            }}
+          />
+        ) : null}
+        {householdOwned && creator.isApprovedCreator ? (
+          <Btn
+            label={
+              publishing
+                ? 'Publishing…'
+                : publishedCatalog
+                  ? 'Update in library'
+                  : 'Publish to library'
+            }
+            variant="secondary"
+            disabled={!meals.online || publishing}
+            busy={publishing}
+            onPress={() => {
+              setPublishing(true);
+              setError(null);
+              void meals
+                .publishCreatorRecipe(recipe.id)
+                .then((catalogId) => router.push(recipeHref(catalogId)))
+                .catch((err) => setError(err instanceof Error ? err.message : 'Publish failed'))
+                .finally(() => setPublishing(false));
+            }}
+          />
+        ) : null}
+        {isOwnCreatorCatalog && recipe.createdBy ? (
+          <Btn
+            label="Remove from library"
+            variant="ghost"
+            disabled={!meals.online}
+            onPress={() => {
+              void meals
+                .unpublishCreatorRecipe(recipe.id)
+                .then(() => goToLibrary())
+                .catch((err) => setError(err instanceof Error ? err.message : 'Could not unpublish'));
             }}
           />
         ) : null}
@@ -311,8 +388,10 @@ const styles = StyleSheet.create({
   content: { padding: space.md, gap: 12, paddingBottom: 48 },
   contentDesktop: { paddingHorizontal: 48, maxWidth: 980, width: '100%', alignSelf: 'center' },
   back: { color: colors.accent, fontWeight: '700' },
+  sourceRow: { alignSelf: 'flex-start', marginTop: -4 },
   hero: { height: 220, borderRadius: radius.lg, overflow: 'hidden' },
   heroDesktop: { height: 320 },
+  imageNote: { marginTop: -4 },
   title: { color: colors.text, fontSize: 28, fontWeight: '700' },
   titleDesktop: { fontSize: 40 },
   meta: { color: colors.textMuted },

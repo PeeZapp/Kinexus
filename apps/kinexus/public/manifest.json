@@ -14,6 +14,16 @@
   "dir": "ltr",
   "categories": ["lifestyle", "food", "finance"],
   "prefer_related_applications": false,
+  "share_target": {
+    "action": "/share/recipe",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
   "icons": [
     {
       "src": "/icon-192.png",

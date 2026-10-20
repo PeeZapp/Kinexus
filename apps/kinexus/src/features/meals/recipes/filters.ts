@@ -1,14 +1,20 @@
-import type { MealSlotKey, Recipe } from '@kinexus/domain';
+import { recipeMatchesSlot, type MealSlotKey, type Recipe } from '@kinexus/domain';
 
 export type RecipeMealFilter = 'all' | 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'dessert';
-export type RecipeLibraryFilter = 'all' | 'household' | 'favourites' | 'base' | 'removed';
+export type RecipeLibraryFilter = 'all' | 'household' | 'imported' | 'favourites' | 'base' | 'removed';
 
 const SNACKS: MealSlotKey[] = ['morning_snack', 'afternoon_snack', 'night_snack'];
 
 function matchesMeal(recipe: Recipe, meal: RecipeMealFilter): boolean {
   if (meal === 'all') return true;
   if (meal === 'snack') return (recipe.mealSlots ?? []).some((slot) => SNACKS.includes(slot));
-  return (recipe.mealSlots ?? []).includes(meal) || (!(recipe.mealSlots ?? []).length && meal === 'dinner');
+  // Untagged recipes behave like dinner (same default as import/form).
+  if (!(recipe.mealSlots ?? []).length) return meal === 'dinner';
+  return recipeMatchesSlot(recipe, meal);
+}
+
+function isImportedRecipe(recipe: Recipe): boolean {
+  return recipe.householdId != null && Boolean(recipe.sourceUrl?.trim());
 }
 
 export function matchesFilter(
@@ -23,6 +29,7 @@ export function matchesFilter(
   if (recipe.excludedFromAuto && !showNotForFamily) return false;
   if (library === 'base' && !recipe.isComponent) return false;
   if (library === 'household' && recipe.householdId === null) return false;
+  if (library === 'imported' && !isImportedRecipe(recipe)) return false;
   if (library === 'favourites' && !favouriteIds.has(recipe.id)) return false;
   return matchesMeal(recipe, meal);
 }
@@ -94,6 +101,7 @@ export const MEAL_FILTERS: { id: RecipeMealFilter; label: string }[] = [
 export const LIBRARY_FILTERS: { id: RecipeLibraryFilter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'household', label: 'Household' },
+  { id: 'imported', label: 'Imported' },
   { id: 'favourites', label: 'Favourites' },
   { id: 'base', label: 'Base' },
 ];

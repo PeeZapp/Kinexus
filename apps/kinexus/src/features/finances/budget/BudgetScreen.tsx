@@ -821,10 +821,26 @@ function BudgetLineCard({
           {grouped ? <Text style={styles.chevron}>{open ? '▾' : '▸'}</Text> : null}
         </View>
       </Pressable>
-      <MoneyBar progress={lineProgress(rolled)} over={!capture && status.over && line.kind === 'expense'} />
-      {canManage || canEnter ? (
+      <View style={styles.lineTrack}>
+        <View style={styles.lineBar}>
+          <MoneyBar progress={lineProgress(rolled)} over={!capture && status.over && line.kind === 'expense'} />
+        </View>
+        {canEnter ? (
+          <Pressable
+            onPress={(event) => {
+              event.stopPropagation?.();
+              onAdd();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={line.kind === 'income' ? `Add income to ${line.name}` : `Add expense to ${line.name}`}
+            style={({ pressed }) => [styles.addBtn, pressed && styles.addBtnPressed]}>
+            <Text style={styles.addBtnLabel}>Add</Text>
+          </Pressable>
+        ) : null}
+      </View>
+      {canManage ? (
         <View style={styles.lineActions}>
-          {canManage && onMove ? (
+          {onMove ? (
             <>
               <Pressable
                 onPress={(event) => {
@@ -846,27 +862,15 @@ function BudgetLineCard({
               </Pressable>
             </>
           ) : null}
-          {canManage ? (
-            <Pressable
-              onPress={(event) => {
-                event.stopPropagation?.();
-                onEdit();
-              }}
-              hitSlop={8}>
-              <Text style={styles.edit}>Edit</Text>
-            </Pressable>
-          ) : null}
-          {canEnter ? (
-            <Pressable
-              onPress={(event) => {
-                event.stopPropagation?.();
-                onAdd();
-              }}
-              hitSlop={8}>
-              <Text style={styles.edit}>Add</Text>
-            </Pressable>
-          ) : null}
-          {canManage && onAddSub ? (
+          <Pressable
+            onPress={(event) => {
+              event.stopPropagation?.();
+              onEdit();
+            }}
+            hitSlop={8}>
+            <Text style={styles.edit}>Edit</Text>
+          </Pressable>
+          {onAddSub ? (
             <Pressable
               onPress={(event) => {
                 event.stopPropagation?.();
@@ -1066,6 +1070,20 @@ const styles = StyleSheet.create({
   lineName: { color: colors.text, fontSize: 16, fontWeight: '800' },
   lineFigures: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   lineMeta: { color: colors.textDim, fontSize: 12 },
+  lineTrack: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  lineBar: { flex: 1, minWidth: 0, justifyContent: 'center' },
+  addBtn: {
+    flexShrink: 0,
+    minHeight: 44,
+    minWidth: 72,
+    paddingHorizontal: 18,
+    borderRadius: radius.md,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addBtnPressed: { opacity: 0.86 },
+  addBtnLabel: { color: colors.bg, fontSize: 16, fontWeight: '800' },
   lineActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
   edit: { color: colors.accent, fontSize: 12, fontWeight: '700' },
   moveDisabled: { color: colors.textDim },

@@ -1,5 +1,7 @@
 export type HouseholdRole = 'owner' | 'admin' | 'adult' | 'teen' | 'child';
 export type PersonType = 'adult' | 'child' | 'other';
+export type CreatorApplicationStatus = 'pending' | 'approved' | 'rejected' | 'revoked';
+export type CreatorContentKind = 'recipe';
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
@@ -30,6 +32,276 @@ export type Database = {
           updated_at?: string;
         };
         Relationships: [];
+      };
+      user_overview: {
+        Row: {
+          user_id: string;
+          widgets: string[];
+          weather_label: string | null;
+          weather_latitude: number | null;
+          weather_longitude: number | null;
+          weather_timezone: string | null;
+          news_interests: string[];
+          sport_priorities: string[];
+          news_topic_priorities: Record<string, string[]>;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          widgets?: string[];
+          weather_label?: string | null;
+          weather_latitude?: number | null;
+          weather_longitude?: number | null;
+          weather_timezone?: string | null;
+          news_interests?: string[];
+          sport_priorities?: string[];
+          news_topic_priorities?: Record<string, string[]>;
+          updated_at?: string;
+        };
+        Update: {
+          widgets?: string[];
+          weather_label?: string | null;
+          weather_latitude?: number | null;
+          weather_longitude?: number | null;
+          weather_timezone?: string | null;
+          news_interests?: string[];
+          sport_priorities?: string[];
+          news_topic_priorities?: Record<string, string[]>;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'user_overview_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: true;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      user_watchlist_prefs: {
+        Row: {
+          user_id: string;
+          provider_ids: number[];
+          recommend_scope: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          provider_ids?: number[];
+          recommend_scope?: string;
+          updated_at?: string;
+        };
+        Update: {
+          provider_ids?: number[];
+          recommend_scope?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'user_watchlist_prefs_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: true;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      user_journal_entries: {
+        Row: {
+          id: string;
+          user_id: string;
+          day: string;
+          body: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          day: string;
+          body: string;
+          created_at?: string;
+        };
+        Update: {
+          day?: string;
+          body?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'user_journal_entries_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      user_journal_prefs: {
+        Row: {
+          user_id: string;
+          pin_salt: string;
+          pin_hash: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          pin_salt: string;
+          pin_hash: string;
+          updated_at?: string;
+        };
+        Update: {
+          pin_salt?: string;
+          pin_hash?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'user_journal_prefs_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: true;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      user_google_calendar: {
+        Row: {
+          id: string;
+          user_id: string;
+          google_sub: string | null;
+          google_email: string | null;
+          refresh_token: string;
+          access_token: string | null;
+          access_expires_at: string | null;
+          push_enabled: boolean;
+          push_calendar_id: string | null;
+          push_calendar_name: string | null;
+          pull_calendar_ids: string[];
+          connected_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          google_sub?: string | null;
+          google_email?: string | null;
+          refresh_token: string;
+          access_token?: string | null;
+          access_expires_at?: string | null;
+          push_enabled?: boolean;
+          push_calendar_id?: string | null;
+          push_calendar_name?: string | null;
+          pull_calendar_ids?: string[];
+          connected_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          google_sub?: string | null;
+          google_email?: string | null;
+          refresh_token?: string;
+          access_token?: string | null;
+          access_expires_at?: string | null;
+          push_enabled?: boolean;
+          push_calendar_id?: string | null;
+          push_calendar_name?: string | null;
+          pull_calendar_ids?: string[];
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'user_google_calendar_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      user_days: {
+        Row: {
+          user_id: string;
+          day: string;
+          tasks: Json;
+          journal: string;
+          workout_title: string;
+          workout_notes: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          day: string;
+          tasks?: Json;
+          journal?: string;
+          workout_title?: string;
+          workout_notes?: string;
+          updated_at?: string;
+        };
+        Update: {
+          tasks?: Json;
+          journal?: string;
+          workout_title?: string;
+          workout_notes?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'user_days_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      user_puzzle_days: {
+        Row: {
+          user_id: string;
+          played_on: string;
+          game: string;
+          state: Json;
+        };
+        Insert: {
+          user_id: string;
+          played_on: string;
+          game: string;
+          state?: Json;
+        };
+        Update: {
+          state?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'user_puzzle_days_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      user_wordle_days: {
+        Row: {
+          user_id: string;
+          played_on: string;
+          guesses: string[];
+        };
+        Insert: {
+          user_id: string;
+          played_on: string;
+          guesses?: string[];
+        };
+        Update: {
+          guesses?: string[];
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'user_wordle_days_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
       };
       households: {
         Row: {
@@ -129,6 +401,158 @@ export type Database = {
             columns: ['household_id'];
             isOneToOne: false;
             referencedRelation: 'households';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      household_events: {
+        Row: {
+          id: string;
+          household_id: string;
+          title: string;
+          notes: string;
+          location: string;
+          all_day: boolean;
+          starts_on: string;
+          ends_on: string;
+          start_time: string | null;
+          end_time: string | null;
+          color: string;
+          remind_minutes: number | null;
+          recurrence: string;
+          until_on: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          household_id: string;
+          title: string;
+          notes?: string;
+          location?: string;
+          all_day?: boolean;
+          starts_on: string;
+          ends_on: string;
+          start_time?: string | null;
+          end_time?: string | null;
+          color?: string;
+          remind_minutes?: number | null;
+          recurrence?: string;
+          until_on?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          title?: string;
+          notes?: string;
+          location?: string;
+          all_day?: boolean;
+          starts_on?: string;
+          ends_on?: string;
+          start_time?: string | null;
+          end_time?: string | null;
+          color?: string;
+          remind_minutes?: number | null;
+          recurrence?: string;
+          until_on?: string | null;
+          created_by?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'household_events_household_id_fkey';
+            columns: ['household_id'];
+            isOneToOne: false;
+            referencedRelation: 'households';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      household_event_people: {
+        Row: {
+          event_id: string;
+          person_id: string;
+          household_id: string;
+        };
+        Insert: {
+          event_id: string;
+          person_id: string;
+          household_id: string;
+        };
+        Update: {
+          event_id?: string;
+          person_id?: string;
+          household_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'household_event_people_event_id_fkey';
+            columns: ['event_id'];
+            isOneToOne: false;
+            referencedRelation: 'household_events';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'household_event_people_person_id_fkey';
+            columns: ['person_id'];
+            isOneToOne: false;
+            referencedRelation: 'household_people';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'household_event_people_household_id_fkey';
+            columns: ['household_id'];
+            isOneToOne: false;
+            referencedRelation: 'households';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      household_event_google_maps: {
+        Row: {
+          household_event_id: string;
+          user_id: string;
+          connection_id: string;
+          google_calendar_id: string;
+          google_event_id: string;
+          synced_at: string;
+        };
+        Insert: {
+          household_event_id: string;
+          user_id: string;
+          connection_id: string;
+          google_calendar_id: string;
+          google_event_id: string;
+          synced_at?: string;
+        };
+        Update: {
+          connection_id?: string;
+          google_calendar_id?: string;
+          google_event_id?: string;
+          synced_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'household_event_google_maps_household_event_id_fkey';
+            columns: ['household_event_id'];
+            isOneToOne: false;
+            referencedRelation: 'household_events';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'household_event_google_maps_user_id_fkey',
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'household_event_google_maps_connection_id_fkey',
+            columns: ['connection_id'];
+            isOneToOne: false;
+            referencedRelation: 'user_google_calendar';
             referencedColumns: ['id'];
           },
         ];
@@ -239,6 +663,9 @@ export type Database = {
           removed: boolean;
           sourced_from_recipe_id: string | null;
           replaces_source: boolean;
+          created_by: string | null;
+          creator_published_at: string | null;
+          creator_source_recipe_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -270,6 +697,9 @@ export type Database = {
           removed?: boolean;
           sourced_from_recipe_id?: string | null;
           replaces_source?: boolean;
+          created_by?: string | null;
+          creator_published_at?: string | null;
+          creator_source_recipe_id?: string | null;
         };
         Update: {
           name?: string;
@@ -295,6 +725,9 @@ export type Database = {
           removed?: boolean;
           sourced_from_recipe_id?: string | null;
           replaces_source?: boolean;
+          created_by?: string | null;
+          creator_published_at?: string | null;
+          creator_source_recipe_id?: string | null;
         };
         Relationships: [];
       };
@@ -523,6 +956,7 @@ export type Database = {
           hidden: boolean;
           eaten_by: Json;
           assigned_person_id: string | null;
+          audience_person_ids: string[];
           client_updated_at: string;
           created_at: string;
           updated_at: string;
@@ -544,6 +978,7 @@ export type Database = {
           hidden?: boolean;
           eaten_by?: Json;
           assigned_person_id?: string | null;
+          audience_person_ids?: string[];
           client_updated_at?: string;
         };
         Update: {
@@ -558,6 +993,7 @@ export type Database = {
           hidden?: boolean;
           eaten_by?: Json;
           assigned_person_id?: string | null;
+          audience_person_ids?: string[];
           client_updated_at?: string;
         };
         Relationships: [];
@@ -986,7 +1422,11 @@ export type Database = {
           household_id: string;
           created_by: string | null;
           name: string;
-          visibility: 'household' | 'private' | 'people';
+          visibility: 'household' | 'private' | 'people' | 'global';
+          kind: 'custom' | 'watched_family' | 'watched_private';
+          audience: 'all' | '7+' | '13+' | '16+' | '18+';
+          blurb: string | null;
+          sample_poster_paths: Json;
           created_at: string;
           updated_at: string;
         };
@@ -995,13 +1435,40 @@ export type Database = {
           household_id: string;
           created_by?: string | null;
           name: string;
-          visibility?: 'household' | 'private' | 'people';
+          visibility?: 'household' | 'private' | 'people' | 'global';
+          kind?: 'custom' | 'watched_family' | 'watched_private';
+          audience?: 'all' | '7+' | '13+' | '16+' | '18+';
+          blurb?: string | null;
+          sample_poster_paths?: Json;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           name?: string;
-          visibility?: 'household' | 'private' | 'people';
+          visibility?: 'household' | 'private' | 'people' | 'global';
+          audience?: 'all' | '7+' | '13+' | '16+' | '18+';
+          blurb?: string | null;
+          sample_poster_paths?: Json;
+        };
+        Relationships: [];
+      };
+      watchlist_global_list_ratings: {
+        Row: {
+          list_id: string;
+          user_id: string;
+          score: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          list_id: string;
+          user_id: string;
+          score: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          score?: number;
         };
         Relationships: [];
       };
@@ -1021,6 +1488,8 @@ export type Database = {
           source_url: string | null;
           tmdb_watch_url: string | null;
           trailer_url: string | null;
+          content_rating: string | null;
+          audience: 'all' | '7+' | '13+' | '16+' | '18+' | null;
           providers: Json;
           providers_country: string | null;
           providers_fetched_at: string | null;
@@ -1042,6 +1511,8 @@ export type Database = {
           source_url?: string | null;
           tmdb_watch_url?: string | null;
           trailer_url?: string | null;
+          content_rating?: string | null;
+          audience?: 'all' | '7+' | '13+' | '16+' | '18+' | null;
           providers?: Json;
           providers_country?: string | null;
           providers_fetched_at?: string | null;
@@ -1058,9 +1529,114 @@ export type Database = {
           source_url?: string | null;
           tmdb_watch_url?: string | null;
           trailer_url?: string | null;
+          content_rating?: string | null;
+          audience?: 'all' | '7+' | '13+' | '16+' | '18+' | null;
           providers?: Json;
           providers_country?: string | null;
           providers_fetched_at?: string | null;
+        };
+        Relationships: [];
+      };
+      watchlist_social_aliases: {
+        Row: {
+          user_id: string;
+          alias: string;
+          created_at: string;
+        };
+        Insert: {
+          user_id: string;
+          alias: string;
+          created_at?: string;
+        };
+        Update: {
+          alias?: string;
+        };
+        Relationships: [];
+      };
+      watchlist_global_reviews: {
+        Row: {
+          id: string;
+          user_id: string;
+          tmdb_id: number;
+          media_type: 'movie' | 'tv';
+          title: string | null;
+          year: number | null;
+          poster_path: string | null;
+          score: number;
+          body: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          tmdb_id: number;
+          media_type: 'movie' | 'tv';
+          title?: string | null;
+          year?: number | null;
+          poster_path?: string | null;
+          score: number;
+          body?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          title?: string | null;
+          year?: number | null;
+          poster_path?: string | null;
+          score?: number;
+          body?: string | null;
+        };
+        Relationships: [];
+      };
+      watchlist_public_watched: {
+        Row: {
+          id: string;
+          user_id: string;
+          tmdb_id: number;
+          media_type: 'movie' | 'tv';
+          title: string;
+          year: number | null;
+          poster_path: string | null;
+          score: number | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          tmdb_id: number;
+          media_type: 'movie' | 'tv';
+          title: string;
+          year?: number | null;
+          poster_path?: string | null;
+          score?: number | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          title?: string;
+          year?: number | null;
+          poster_path?: string | null;
+          score?: number | null;
+        };
+        Relationships: [];
+      };
+      watchlist_global_review_votes: {
+        Row: {
+          review_id: string;
+          user_id: string;
+          vote: number;
+          created_at: string;
+        };
+        Insert: {
+          review_id: string;
+          user_id: string;
+          vote: number;
+          created_at?: string;
+        };
+        Update: {
+          vote?: number;
         };
         Relationships: [];
       };
@@ -1088,6 +1664,188 @@ export type Database = {
         Update: {
           status?: 'want' | 'watching' | 'watched';
           notes?: string | null;
+        };
+        Relationships: [];
+      };
+      watchlist_reviews: {
+        Row: {
+          id: string;
+          household_id: string;
+          title_id: string;
+          person_id: string;
+          score: number;
+          body: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          household_id: string;
+          title_id: string;
+          person_id: string;
+          score: number;
+          body?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          score?: number;
+          body?: string | null;
+        };
+        Relationships: [];
+      };
+      platform_staff: {
+        Row: {
+          user_id: string;
+          invited_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          user_id: string;
+          invited_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          invited_by?: string | null;
+        };
+        Relationships: [];
+      };
+      platform_staff_invites: {
+        Row: {
+          email: string;
+          invited_by: string;
+          created_at: string;
+          accepted_at: string | null;
+        };
+        Insert: {
+          email: string;
+          invited_by: string;
+          created_at?: string;
+          accepted_at?: string | null;
+        };
+        Update: {
+          invited_by?: string;
+          accepted_at?: string | null;
+        };
+        Relationships: [];
+      };
+      creators: {
+        Row: {
+          user_id: string;
+          status: CreatorApplicationStatus;
+          display_name: string;
+          approved_at: string | null;
+          revoked_at: string | null;
+          revoked_reason: string | null;
+          updated_at: string;
+          created_at: string;
+        };
+        Insert: {
+          user_id: string;
+          status: CreatorApplicationStatus;
+          display_name: string;
+          approved_at?: string | null;
+          revoked_at?: string | null;
+          revoked_reason?: string | null;
+          updated_at?: string;
+          created_at?: string;
+        };
+        Update: {
+          status?: CreatorApplicationStatus;
+          display_name?: string;
+          approved_at?: string | null;
+          revoked_at?: string | null;
+          revoked_reason?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      creator_applications: {
+        Row: {
+          id: string;
+          user_id: string;
+          status: CreatorApplicationStatus;
+          display_name: string;
+          bio: string;
+          expertise: string;
+          portfolio_url: string | null;
+          instagram_url: string | null;
+          youtube_url: string | null;
+          tiktok_url: string | null;
+          website_url: string | null;
+          other_links: string | null;
+          value_pitch: string | null;
+          originality_attested: boolean;
+          staff_notes: string | null;
+          reviewed_by: string | null;
+          reviewed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          status?: CreatorApplicationStatus;
+          display_name: string;
+          bio: string;
+          expertise: string;
+          portfolio_url?: string | null;
+          instagram_url?: string | null;
+          youtube_url?: string | null;
+          tiktok_url?: string | null;
+          website_url?: string | null;
+          other_links?: string | null;
+          value_pitch: string;
+          originality_attested?: boolean;
+          staff_notes?: string | null;
+          reviewed_by?: string | null;
+          reviewed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          status?: CreatorApplicationStatus;
+          display_name?: string;
+          bio?: string;
+          expertise?: string;
+          portfolio_url?: string | null;
+          instagram_url?: string | null;
+          youtube_url?: string | null;
+          tiktok_url?: string | null;
+          website_url?: string | null;
+          other_links?: string | null;
+          value_pitch?: string;
+          originality_attested?: boolean;
+          staff_notes?: string | null;
+          reviewed_by?: string | null;
+          reviewed_at?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      creator_content_events: {
+        Row: {
+          id: string;
+          kind: CreatorContentKind;
+          content_id: string;
+          creator_id: string;
+          title: string;
+          published_at: string;
+        };
+        Insert: {
+          id?: string;
+          kind: CreatorContentKind;
+          content_id: string;
+          creator_id: string;
+          title: string;
+          published_at?: string;
+        };
+        Update: {
+          kind?: CreatorContentKind;
+          content_id?: string;
+          creator_id?: string;
+          title?: string;
+          published_at?: string;
         };
         Relationships: [];
       };
@@ -1599,6 +2357,14 @@ export type Database = {
         Args: { _title_id: string };
         Returns: boolean;
       };
+      watchlist_global_score: {
+        Args: { _tmdb_id: number; _media_type: string };
+        Returns: number | null;
+      };
+      watchlist_global_list_score: {
+        Args: { _list_id: string };
+        Returns: number | null;
+      };
       is_catalog_editor: {
         Args: Record<string, never>;
         Returns: boolean;
@@ -1615,10 +2381,75 @@ export type Database = {
         Args: { p_recipe_id: string; p_action: string };
         Returns: undefined;
       };
+      is_platform_staff: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      claim_platform_staff: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      invite_platform_staff: {
+        Args: { p_email: string };
+        Returns: undefined;
+      };
+      revoke_platform_staff: {
+        Args: { p_user_id: string };
+        Returns: undefined;
+      };
+      is_approved_creator: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      submit_creator_application: {
+        Args: {
+          p_display_name: string;
+          p_bio: string;
+          p_expertise: string;
+          p_portfolio_url?: string | null;
+          p_instagram_url?: string | null;
+          p_youtube_url?: string | null;
+          p_tiktok_url?: string | null;
+          p_website_url?: string | null;
+          p_other_links?: string | null;
+          p_value_pitch: string;
+          p_originality_attested: boolean;
+        };
+        Returns: string;
+      };
+      review_creator_application: {
+        Args: { p_application_id: string; p_action: string; p_staff_notes?: string | null };
+        Returns: undefined;
+      };
+      revoke_creator: {
+        Args: { p_user_id: string; p_reason?: string | null };
+        Returns: undefined;
+      };
+      publish_creator_recipe: {
+        Args: { p_source_recipe_id: string };
+        Returns: string;
+      };
+      unpublish_creator_recipe: {
+        Args: { p_recipe_id: string };
+        Returns: undefined;
+      };
+      staff_creator_content_digest: {
+        Args: { p_day?: string };
+        Returns: {
+          event_id: string;
+          kind: CreatorContentKind;
+          content_id: string;
+          creator_id: string;
+          creator_display_name: string;
+          title: string;
+          published_at: string;
+        }[];
+      };
     };
     Enums: {
       household_role: HouseholdRole;
       person_type: PersonType;
+      creator_application_status: CreatorApplicationStatus;
     };
     CompositeTypes: {
       [_ in never]: never;

@@ -1,12 +1,14 @@
 /* Kinexus PWA service worker.
    Network-first for pages so deploys are not stuck behind a stale shell.
    Cache-first only for hashed Expo assets. Do not precache the whole site.
-   Succeeded recipe-import JSON is network-first with a dedicated cache. */
+   Succeeded recipe-import JSON is network-first with a dedicated cache.
+   Intercepts Web Share Target POSTs so Android installed PWAs can receive shares. */
 
-const VERSION = 'kinexus-pwa-v2';
+const VERSION = 'kinexus-pwa-v3';
 const STATIC_CACHE = `${VERSION}-static`;
 const RECIPE_CACHE = 'kinexus-recipes-v1';
 const RECIPE_JSON = /^\/api\/recipes\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SHARE_RECIPE_PATH = '/share/recipe';
 
 const BYPASS_PREFIXES = [
   '/api/',
@@ -37,9 +39,15 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const request = event.request;
+  const url = new URL(request.url);
+
+  if (request.method === 'POST' && url.origin === self.location.origin && url.pathname === SHARE_RECIPE_PATH) {
+    event.respondWith(handleShareTarget(request));
+    return;
+  }
+
   if (request.method !== 'GET') return;
 
-  const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname === '/sw.js' || url.pathname === '/manifest.json') return;
 
@@ -59,6 +67,21 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(networkFirst(request));
   }
 });
+
+async function handleShareTarget(request) {
+  try {
+    const formData = await request.formData();
+    const params = new URLSearchParams();
+    for (const key of ['url', 'text', 'title']) {
+      const value = formData.get(key);
+      if (typeof value === 'string' && value.trim()) params.set(key, value);
+    }
+    const target = params.toString() ? `${SHARE_RECIPE_PATH}?${params}` : SHARE_RECIPE_PATH;
+    return Response.redirect(target, 303);
+  } catch {
+    return Response.redirect(SHARE_RECIPE_PATH, 303);
+  }
+}
 
 function shouldBypass(pathname) {
   return BYPASS_PREFIXES.some((prefix) => {

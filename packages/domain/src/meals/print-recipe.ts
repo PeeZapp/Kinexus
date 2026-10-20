@@ -16,6 +16,9 @@ export function recipePrintHtml(recipe: Recipe): string {
   const photo = recipe.imageUrl
     ? `<img class="photo" src="${escapeAttr(recipe.imageUrl)}" alt="" />`
     : `<div class="emoji">${escapeHtml(recipe.emoji || '🍽️')}</div>`;
+  const photoNote = recipe.imageUrl
+    ? '<p class="photo-note">Image is illustrative only</p>'
+    : '';
   const source = recipe.sourceUrl
     ? `<p class="source">From ${escapeHtml(recipe.sourceUrl)}</p>`
     : '';
@@ -31,7 +34,10 @@ export function recipePrintHtml(recipe: Recipe): string {
 <body>
   <article class="sheet">
     <header class="hero">
-      <div class="media">${photo}</div>
+      <div class="media-col">
+        <div class="media">${photo}</div>
+        ${photoNote}
+      </div>
       <div class="intro">
         <p class="brand">Kinexus</p>
         <h1>${title}</h1>
@@ -144,6 +150,9 @@ const PRINT_CSS = `
     align-items: center;
     margin-bottom: 22px;
   }
+  .media-col {
+    width: 168px;
+  }
   .media, .photo, .emoji {
     width: 168px;
     height: 168px;
@@ -155,6 +164,13 @@ const PRINT_CSS = `
     display: grid;
     place-items: center;
     font-size: 64px;
+  }
+  .photo-note {
+    margin: 6px 0 0;
+    color: var(--muted);
+    font-size: 11px;
+    font-style: italic;
+    line-height: 1.3;
   }
   .brand {
     margin: 0 0 6px;
@@ -271,7 +287,8 @@ const PRINT_CSS = `
   }
   @media (max-width: 640px) {
     .hero, .macros { grid-template-columns: 1fr; }
-    .media, .photo, .emoji { width: 100%; height: 200px; }
+    .media-col, .media, .photo, .emoji { width: 100%; }
+    .media, .photo, .emoji { height: 200px; }
     .ingredients { columns: 1; }
   }
   @page { margin: 12mm; size: A4; }

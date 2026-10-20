@@ -77,8 +77,9 @@ export function ImportScreen() {
         contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}
         keyboardShouldPersistTaps="handled">
         <Text style={styles.lede}>
-          Paste a recipe page or a YouTube, TikTok, Instagram, or Facebook cooking video. We show a clean cook
-          view and always link back to the original source.
+          Paste a recipe page or a YouTube, TikTok, Instagram, or Facebook cooking video — or share the link
+          straight from those apps into Kinexus. We show a clean cook view and always link back to the original
+          source.
         </Text>
         {!online ? (
           <ErrorBanner message="You are offline. URL import needs a connection." />

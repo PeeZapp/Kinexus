@@ -6,6 +6,16 @@ export function isLinkOnlyRecipe(recipe: { notes?: string | null; sourceUrl?: st
   return Boolean(recipe.sourceUrl) && (recipe.notes ?? '').includes('Full recipe not found');
 }
 
+export function sourceHostLabel(url: string | null | undefined): string | null {
+  const trimmed = url?.trim();
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed).hostname.replace(/^www\./i, '') || trimmed;
+  } catch {
+    return trimmed;
+  }
+}
+
 export function openRecipeLink(url: string | null | undefined) {
   if (!url) return;
   if (Platform.OS === 'web' && typeof window !== 'undefined') {

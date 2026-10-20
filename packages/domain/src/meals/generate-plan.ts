@@ -65,7 +65,8 @@ export function recipeProteinKind(recipe: Recipe): RecipeProteinKind {
   return 'other';
 }
 
-function recipeMatchesSlot(recipe: Recipe, slot: MealSlotKey): boolean {
+/** True when a recipe's meal tags can fill this plan/library slot. */
+export function recipeMatchesSlot(recipe: Recipe, slot: MealSlotKey): boolean {
   const rs = recipe.mealSlots ?? [];
   if (rs.includes(slot)) return true;
   const isSnackSlot = slot === 'morning_snack' || slot === 'afternoon_snack' || slot === 'night_snack';

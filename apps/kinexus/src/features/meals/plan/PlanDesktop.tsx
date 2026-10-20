@@ -1,27 +1,39 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { DAYS, mondayWeekStart, type Day, type MealSlotKey } from '@kinexus/domain';
+import { DAYS, DAY_LABELS, mondayWeekStart, type Day, type MealSlotKey } from '@kinexus/domain';
 
 import { Btn, ErrorText } from '@/src/features/household/ui';
-import { OfflineBanner } from '@/src/features/meals/meals-kit';
-import { DayPlanHeader, PlanMealCard, WeekSwitcher, dayPlanSlots } from '@/src/features/meals/plan/PlanShared';
+import { Chip, OfflineBanner } from '@/src/features/meals/meals-kit';
+import {
+  appliedPlanCells,
+  audienceLabel,
+  planDayMealViews,
+  DayStrip,
+  PlanAddTile,
+  PlanMealCard,
+  WeekSwitcher,
+  type PlanCellView,
+  type PlanPersonFilter,
+} from '@/src/features/meals/plan/PlanShared';
 import { recipePhotoUrl } from '@/src/features/meals/RecipePhoto';
-import type { useMealsSync } from '@/src/features/meals/use-meals-sync';
+import type { PlanSlot, useMealsSync } from '@/src/features/meals/use-meals-sync';
 import { isoDayNumber, todayDay, weekDayIso } from '@/src/features/meals/week-labels';
-import { colors, radius, space } from '@/src/features/shell/theme';
+import { colors } from '@/src/features/shell/theme';
 
 type Meals = ReturnType<typeof useMealsSync>;
 
 export function PlanDesktop({
   meals,
   personNames,
-  expandedDays,
+  peopleOptions,
+  personFilter,
+  onPersonFilter,
+  selectedDay,
+  onSelectDay,
   showGenerate = true,
   canManage = false,
-  onToggleDay,
   onOpenSlot,
-  onAddSlot,
-  onRemoveSlot,
+  onAddMeal,
   onRemoveDay,
   onRestoreDay,
   onGenerate,
@@ -29,13 +41,15 @@ export function PlanDesktop({
 }: {
   meals: Meals;
   personNames: Map<string, string>;
-  expandedDays: readonly Day[];
+  peopleOptions: { id: string; name: string }[];
+  personFilter: PlanPersonFilter;
+  onPersonFilter: (next: PlanPersonFilter) => void;
+  selectedDay: Day;
+  onSelectDay: (day: Day) => void;
   showGenerate?: boolean;
   canManage?: boolean;
-  onToggleDay: (day: Day) => void;
-  onOpenSlot: (day: Day, slot: MealSlotKey) => void;
-  onAddSlot: (day: Day) => void;
-  onRemoveSlot: (day: Day) => void;
+  onOpenSlot: (day: Day, slot: MealSlotKey, cell?: PlanSlot) => void;
+  onAddMeal: (day: Day) => void;
   onRemoveDay: (day: Day) => void;
   onRestoreDay: (day: Day) => void;
   onGenerate: () => void;
@@ -43,6 +57,16 @@ export function PlanDesktop({
 }) {
   const thisWeek = meals.weekStart === mondayWeekStart();
   const today = todayDay();
+  const dateNums = new Map(DAYS.map((day) => [day, isoDayNumber(weekDayIso(meals.weekStart, day))] as const));
+  const { cells, removed, filled, kcal } = planDayMealViews(
+    meals.activeSlots,
+    meals.slotMap,
+    meals.slots,
+    selectedDay,
+    personFilter,
+  );
+  const applied = appliedPlanCells(cells);
+  const dayLabel = thisWeek && selectedDay === today ? 'Today' : DAY_LABELS[selectedDay];
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -61,109 +85,133 @@ export function PlanDesktop({
         onPrev={() => meals.shiftWeek(-1)}
         onNext={() => meals.shiftWeek(1)}
       />
+      <DayStrip
+        days={DAYS}
+        selected={selectedDay}
+        today={thisWeek ? today : null}
+        dateNums={dateNums}
+        onSelect={onSelectDay}
+      />
+      <View style={styles.filterRow}>
+        <Text style={styles.filterLabel}>Show</Text>
+        <Chip label="Everyone" active={personFilter === 'all'} onPress={() => onPersonFilter('all')} />
+        {peopleOptions.map((person) => (
+          <Chip
+            key={person.id}
+            label={person.name}
+            active={personFilter === person.id}
+            onPress={() => onPersonFilter(person.id)}
+          />
+        ))}
+      </View>
       <OfflineBanner online={meals.online} pendingCount={meals.pendingCount} extra={meals.importBlockedReason} />
       <ErrorText message={meals.error} />
-      <View style={styles.days}>
-        {DAYS.map((day) => {
-          const iso = weekDayIso(meals.weekStart, day);
-          const highlight = thisWeek && day === today;
-          const { visible, addable, removed } = dayPlanSlots(meals.activeSlots, meals.slotMap, day);
-          const expanded = !removed && expandedDays.includes(day);
-          const filled = visible.filter((slot) => meals.slotMap.get(`${day}_${slot}`)?.recipeId).length;
-          const kcal = visible.reduce((sum, slot) => sum + (meals.slotMap.get(`${day}_${slot}`)?.calories ?? 0), 0);
-          return (
-            <View key={day} style={[styles.day, highlight && styles.dayToday, removed && styles.dayRemoved]}>
-              <DayPlanHeader
-                day={day}
-                dateNum={isoDayNumber(iso)}
-                highlight={highlight}
-                expanded={expanded}
-                removed={removed}
-                meta={`${filled} / ${visible.length} meals${kcal ? ` · ${Math.round(kcal).toLocaleString()} kcal` : ''}`}
-                canManage={canManage}
-                onToggle={() => onToggleDay?.(day)}
-                onRemove={() => onRemoveDay?.(day)}
-                onRestore={() => onRestoreDay?.(day)}
-              />
-              {expanded ? (
-                <View style={styles.meals}>
-                  {visible.map((slot) => {
-                    const cell = meals.slotMap.get(`${day}_${slot}`);
-                    const hasRecipe = Boolean(cell?.recipeId);
-                    const assignee = cell?.assignedPersonId ? personNames.get(cell.assignedPersonId) : null;
-                    return (
-                      <View key={slot} style={styles.mealWrap}>
-                        <PlanMealCard
-                          slot={slot}
-                          filled={hasRecipe}
-                          photoUrl={recipePhotoUrl(meals.recipes, cell?.recipeId)}
-                          emoji={cell?.emoji}
-                          title={hasRecipe ? (cell?.recipeName ?? 'Meal') : assignee ? `${assignee} picks` : 'Add meal'}
-                          meta={
-                            assignee && hasRecipe
-                              ? `${assignee}${cell?.calories ? ` · ${cell.calories} kcal` : ''}`
-                              : cell?.calories
-                                ? `${cell.calories} kcal`
-                                : ''
-                          }
-                          photoHeight={200}
-                          onPress={() => onOpenSlot(day, slot)}
-                        />
-                      </View>
-                    );
-                  })}
-                  {canManage && addable.length > 0 ? (
-                    <Pressable onPress={() => onAddSlot(day)} style={styles.addSlot}>
-                      <Text style={styles.addSlotLabel}>Add slot</Text>
-                    </Pressable>
-                  ) : null}
-                  {canManage && visible.length > 0 ? (
-                    <Pressable onPress={() => onRemoveSlot(day)} style={styles.addSlot}>
-                      <Text style={styles.addSlotLabel}>Remove slot</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              ) : null}
-            </View>
-          );
-        })}
+      <View style={styles.dayMeta}>
+        <View style={styles.dayMetaCopy}>
+          <Text style={styles.dayTitle}>{dayLabel}</Text>
+          <Text style={styles.daySubtitle}>
+            {removed
+              ? "Not on this week's plan"
+              : `${filled} meal${filled === 1 ? '' : 's'}${kcal ? ` · ${Math.round(kcal).toLocaleString()} kcal` : ''}`}
+          </Text>
+        </View>
+        {canManage ? (
+          removed ? (
+            <Pressable onPress={() => onRestoreDay(selectedDay)} hitSlop={6}>
+              <Text style={styles.dayAction}>Restore</Text>
+            </Pressable>
+          ) : (
+            <Pressable onPress={() => onRemoveDay(selectedDay)} hitSlop={6}>
+              <Text style={styles.dayActionMuted}>Remove day</Text>
+            </Pressable>
+          )
+        ) : null}
       </View>
+      {removed ? null : (
+        <View style={styles.grid}>
+          {applied.map((view) => (
+            <View key={view.key} style={styles.tile}>
+              <MealCardFromView
+                view={view}
+                meals={meals}
+                personNames={personNames}
+                photoHeight={160}
+                onPress={() => onOpenSlot(selectedDay, view.slotKey, view.cell)}
+              />
+            </View>
+          ))}
+          {canManage ? (
+            <View style={styles.tile}>
+              <PlanAddTile onPress={() => onAddMeal(selectedDay)} />
+            </View>
+          ) : null}
+        </View>
+      )}
     </ScrollView>
   );
 }
 
+function MealCardFromView({
+  view,
+  meals,
+  personNames,
+  photoHeight,
+  onPress,
+}: {
+  view: PlanCellView;
+  meals: Meals;
+  personNames: Map<string, string>;
+  photoHeight: number;
+  onPress: () => void;
+}) {
+  const cell = view.cell;
+  const hasRecipe = Boolean(cell?.recipeId);
+  const assignee = cell?.assignedPersonId ? personNames.get(cell.assignedPersonId) : null;
+  const who = audienceLabel(cell?.audiencePersonIds, personNames);
+  return (
+    <PlanMealCard
+      slot={view.slotKey}
+      slotLabel={view.household ? undefined : `${slotTitleCase(view.slotKey)} · ${who}`}
+      filled={hasRecipe}
+      photoUrl={recipePhotoUrl(meals.recipes, cell?.recipeId)}
+      emoji={cell?.emoji}
+      title={hasRecipe ? (cell?.recipeName ?? 'Meal') : assignee ? `${assignee} picks` : 'Add meal'}
+      meta={[assignee && hasRecipe ? assignee : null, cell?.calories ? `${cell.calories} kcal` : null]
+        .filter(Boolean)
+        .join(' · ')}
+      photoHeight={photoHeight}
+      onPress={onPress}
+    />
+  );
+}
+
+function slotTitleCase(slot: MealSlotKey): string {
+  return slot.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: 32, paddingBottom: 48, gap: 20 },
+  content: { paddingHorizontal: 32, paddingBottom: 48, gap: 16 },
   header: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16 },
   headerCopy: { flex: 1, minWidth: 0, gap: 4 },
   headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   kicker: { color: colors.accent, fontSize: 12, fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase' },
   title: { color: colors.text, fontSize: 40, fontWeight: '700' },
-  days: { gap: 28, width: '100%' },
-  day: {
-    backgroundColor: colors.bgCard,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+  filterLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginRight: 4,
   },
-  dayToday: { borderColor: colors.accent },
-  dayRemoved: { opacity: 0.72 },
-  meals: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, padding: space.md, paddingTop: 4 },
-  mealWrap: { flexGrow: 1, flexBasis: 240, minWidth: 220, maxWidth: 420 },
-  addSlot: {
-    flexGrow: 1,
-    flexBasis: 180,
-    minWidth: 160,
-    minHeight: 200,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderStyle: 'dashed',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-  },
-  addSlotLabel: { color: colors.accent, fontSize: 14, fontWeight: '700' },
+  dayMeta: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  dayMetaCopy: { flex: 1, minWidth: 0, gap: 2 },
+  dayTitle: { color: colors.text, fontSize: 24, fontWeight: '700' },
+  daySubtitle: { color: colors.textMuted, fontSize: 14 },
+  dayAction: { color: colors.accent, fontSize: 13, fontWeight: '700' },
+  dayActionMuted: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
+  tile: { flexGrow: 1, flexBasis: 220, minWidth: 200, maxWidth: 320 },
 });

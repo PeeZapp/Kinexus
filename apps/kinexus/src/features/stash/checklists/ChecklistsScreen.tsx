@@ -2,22 +2,17 @@ import { useMemo, useState } from 'react';
 import { useWindowDimensions, View } from 'react-native';
 
 import {
-  addDaysIso,
   canCreateLists,
   canEditList,
-  checklistItemsForDay,
   childLists,
   completeChecklistItem,
   filterChecklistItems,
-  formatDayHeading,
   isTopLevelList,
   itemsForList,
   listShareLabel,
   listsOfKind,
-  movedChecklistDayPositions,
   normalizeListEmoji,
   normalizeListTheme,
-  overdueChecklistItems,
   splitCheckedItems,
   todayChecklistItems,
   todayIso,
@@ -77,8 +72,6 @@ export function ChecklistsScreen() {
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [personFilter, setPersonFilter] = useState<string | null>(null);
   const [quickAdd, setQuickAdd] = useState('');
-  const [dayQuickAdd, setDayQuickAdd] = useState('');
-  const [day, setDay] = useState(() => todayIso());
   const [addList, setAddList] = useState(false);
   const [addItem, setAddItem] = useState(false);
   const [chooseList, setChooseList] = useState(false);
@@ -123,13 +116,6 @@ export function ChecklistsScreen() {
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((list) => toListCard(list, lists, stash.items, today, shareLabels.get(list.id) ?? 'Family'));
   }, [lists, selectedListId, shareLabels, stash.items, today]);
-
-  const dayItems = useMemo(() => checklistItemsForDay(stash.items, day), [day, stash.items]);
-  const { active: dayActive, checked: dayChecked } = useMemo(
-    () => splitCheckedItems(dayItems, today),
-    [dayItems, today],
-  );
-  const overdue = useMemo(() => overdueChecklistItems(stash.items, today), [stash.items, today]);
 
   const selectedItems = useMemo(() => {
     if (!selectedListId) return [];
@@ -224,53 +210,6 @@ export function ChecklistsScreen() {
     onOpenList: openList,
     onBack: goBack,
     today,
-    day,
-    dayHeading: formatDayHeading(day, today),
-    onPrevDay: () => setDay((current) => addDaysIso(current, -1)),
-    onNextDay: () => setDay((current) => addDaysIso(current, 1)),
-    onGoToday: () => setDay(today),
-    dayActive,
-    dayChecked,
-    overdueCount: overdue.length,
-    onMigrateOverdue:
-      overdue.length > 0
-        ? () => {
-            void run(async () => {
-              for (const row of overdue) {
-                await stash.updateItem(row.id, { dueOn: today });
-              }
-            });
-          }
-        : undefined,
-    onClearDayChecked:
-      dayChecked.length > 0
-        ? () => {
-            void run(async () => {
-              for (const row of dayChecked) {
-                await stash.deleteItem(row.id);
-              }
-            });
-          }
-        : undefined,
-    dayQuickAdd,
-    setDayQuickAdd,
-    onDayQuickAdd: () => {
-      const title = dayQuickAdd.trim();
-      if (!title) return;
-      void run(async () => {
-        const listId = await stash.ensureDailyList();
-        await stash.createItem(listId, { title, dueOn: day });
-        setDayQuickAdd('');
-      });
-    },
-    onMoveDayItem: (row: StashListItem, direction: -1 | 1) => {
-      const patches = movedChecklistDayPositions(dayActive, row.id, direction);
-      if (patches.length === 0) return;
-      void run(() => stash.reorderItems(patches));
-    },
-    onPushTomorrow: (row: StashListItem) => {
-      void run(() => stash.updateItem(row.id, { dueOn: addDaysIso(day, 1) }));
-    },
     onPushToday: (row: StashListItem) => {
       void run(() => stash.updateItem(row.id, { dueOn: today }));
     },
@@ -305,7 +244,6 @@ export function ChecklistsScreen() {
       ? 'Create a list, choose who can see it, then add items with a due date, repeat, and who it is for.'
       : 'No lists shared with you yet.',
     emptyItems: canCreate ? 'Add an item, or use quick add above.' : 'Nothing on this list yet.',
-    emptyDay: 'Nothing planned for this day. Add a quick task above.',
     quickAdd,
     setQuickAdd,
     onQuickAdd: () => {

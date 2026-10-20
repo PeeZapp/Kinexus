@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 import { MEAL_SLOTS } from '@kinexus/domain';
 
-import { Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
+import { BackLink, Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
 import { Chip } from '@/src/features/meals/meals-kit';
 import { IngredientEditor, MethodEditor } from '@/src/features/meals/recipes/recipe-editors';
 import type { RecipeFormState } from '@/src/features/meals/recipes/recipe-form';
@@ -260,9 +260,7 @@ export function ImportChrome({
 
   return (
     <>
-      <Pressable onPress={goBack} accessibilityRole="button" accessibilityLabel="Back">
-        <Text style={styles.back}>← Back</Text>
-      </Pressable>
+      <BackLink label="Library" onPress={goBack} />
       <Text style={styles.kicker}>Household library</Text>
       <Text style={[styles.title, desktop && styles.titleDesktop]}>Import recipe</Text>
       <Text style={styles.lede}>
@@ -284,7 +282,6 @@ export const importStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  back: { color: colors.accent, fontWeight: '700' },
   kicker: { color: colors.accent, fontSize: 12, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' },
   title: { color: colors.text, fontSize: 28, fontWeight: '700' },
   titleDesktop: { fontSize: 40 },

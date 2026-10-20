@@ -135,7 +135,7 @@ export function DesktopSidebar() {
         {collapsed ? null : (
           <View style={styles.brandCopy}>
             <Text style={styles.wordmark}>Kinexus</Text>
-            <Text style={styles.tagline}>Meals · Lists · Money · Nutrition · Train</Text>
+            <Text style={styles.tagline}>Today · Meals · Lists · Money · Nutrition · Train</Text>
           </View>
         )}
         {collapsed ? null : <CollapseButton collapsed={false} tip={tip} onTip={setTip} onPress={toggle} />}

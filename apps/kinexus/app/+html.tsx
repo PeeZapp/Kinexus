@@ -37,10 +37,11 @@ export default function Root({ children }: { children: ReactNode }) {
   );
 }
 
-// Phantom / MetaMask / Eternl race to define window.ethereum as non-configurable.
-// The second injection throws and Expo's web overlay treats it as an app crash.
+// Wallet extensions inject into every page. Kinexus does not connect to them.
+// Swallow their handshake failures before Expo's dev logger treats them as app crashes.
 const walletInjectGuard = `(function () {
   var keys = { ethereum: 1, solana: 1 };
+  var noise = /Failed to connect to MetaMask|Error restoring session|Cannot redefine property: ethereum|Cannot redefine property: solana|domHealthCheck|hasEternlApi|nkbihfbeogaeaoehlefnkodbefgpgknn/i;
   var define = Object.defineProperty;
   Object.defineProperty = function (target, key, desc) {
     if (target === window && keys[key]) {
@@ -52,12 +53,19 @@ const walletInjectGuard = `(function () {
     }
     return define(target, key, desc);
   };
-  window.addEventListener('error', function (event) {
-    if (event.message && event.message.indexOf('Cannot redefine property: ethereum') !== -1) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    }
-  }, true);
+  function textOf(value) {
+    if (typeof value === 'string') return value;
+    if (!value) return '';
+    return String(value.message || '') + '\\n' + String(value.stack || '');
+  }
+  function swallow(event) {
+    var reason = event.reason !== undefined ? event.reason : event.error;
+    if (!noise.test(textOf(event.message) + '\\n' + textOf(reason))) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+  window.addEventListener('error', swallow, true);
+  window.addEventListener('unhandledrejection', swallow, true);
 })();`;
 
 const registerServiceWorker = `

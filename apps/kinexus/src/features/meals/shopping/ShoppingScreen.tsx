@@ -29,7 +29,7 @@ export function ShoppingScreen() {
     onClearChecked: () => void meals.clearCheckedShopping(),
     onToggle: (item: typeof active[0]) => void meals.toggleShoppingItem(item.id, !item.checked),
     onDelete: (id: string) => void meals.deleteShoppingItem(id),
-    onRecipe: (id: string) => router.push(recipeHref(id)),
+    onRecipe: (id: string) => router.push(recipeHref(id, { from: 'shopping' })),
     onAdd: (name: string, amount?: string) => void meals.addShoppingItem(name, amount),
   };
 

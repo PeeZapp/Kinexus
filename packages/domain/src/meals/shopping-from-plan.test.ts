@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { combineAmounts } from './amounts';
-import { groupShoppingByCategory, shoppingFromPlan } from './shopping-from-plan';
+import { shoppingMergeKey } from './ingredient-merge';
+import { groupShoppingByCategory, resolveShoppingCategory, shoppingFromPlan } from './shopping-from-plan';
 import type { MealPlan, Recipe } from './types';
 
 function recipe(partial: Partial<Recipe> & Pick<Recipe, 'id' | 'name'>): Recipe {
@@ -15,6 +16,60 @@ describe('combineAmounts', () => {
 
   it('converts mixed volume units to ml', () => {
     expect(combineAmounts(['1 tbsp', '1 tsp'])).toBe('20ml');
+  });
+
+  it('converts garlic cloves to grams with approx note', () => {
+    expect(combineAmounts(['2 cloves', '6 cloves'], { ingredientName: 'garlic' })).toBe(
+      '32g (approx 8 cloves)',
+    );
+  });
+
+  it('sums onions into a simple shopping count', () => {
+    expect(
+      combineAmounts(['1 medium', '2 large', '1', '0.5 small'], { ingredientName: 'onion' }),
+    ).toBe('4.5 onions');
+    expect(combineAmounts(['1 chopped', '1 sliced'], { ingredientName: 'onion' })).toBe('2 onions');
+    expect(combineAmounts(['150g', '150g'], { ingredientName: 'onion' })).toBe('2 onions');
+  });
+
+  it('keeps fractional heads for lettuce', () => {
+    expect(combineAmounts(['0.5', '1/2'], { ingredientName: 'iceberg lettuce' })).toBe(
+      '1 iceberg lettuce',
+    );
+    expect(combineAmounts(['½'], { ingredientName: 'iceberg lettuce' })).toBe('0.5 iceberg lettuce');
+  });
+});
+
+describe('shoppingMergeKey', () => {
+  it('merges prep and garlic clove variants', () => {
+    expect(shoppingMergeKey('garlic cloves')).toBe(shoppingMergeKey('garlic'));
+    expect(shoppingMergeKey('sliced onions')).toBe(shoppingMergeKey('onion'));
+    expect(shoppingMergeKey('dry white wine')).toBe(shoppingMergeKey('white wine'));
+    expect(shoppingMergeKey('sea salt')).toBe(shoppingMergeKey('salt'));
+    expect(shoppingMergeKey('fine sea salt')).toBe(shoppingMergeKey('salt'));
+    expect(shoppingMergeKey('garlic salt')).not.toBe(shoppingMergeKey('salt'));
+  });
+
+  it('keeps distinct varieties separate', () => {
+    expect(shoppingMergeKey('green onion')).not.toBe(shoppingMergeKey('onion'));
+    expect(shoppingMergeKey('red onion')).not.toBe(shoppingMergeKey('brown onion'));
+    expect(shoppingMergeKey('red apple')).not.toBe(shoppingMergeKey('green apple'));
+    expect(shoppingMergeKey('red wine')).not.toBe(shoppingMergeKey('white wine'));
+  });
+
+  it('keeps vinegars separate from wine and from each other', () => {
+    expect(shoppingMergeKey('white wine vinegar')).not.toBe(shoppingMergeKey('white wine'));
+    expect(shoppingMergeKey('white wine vinegar')).not.toBe(shoppingMergeKey('wine vinegar'));
+    expect(shoppingMergeKey('red wine vinegar')).not.toBe(shoppingMergeKey('red wine'));
+    expect(shoppingMergeKey('balsamic vinegar')).not.toBe(shoppingMergeKey('apple cider vinegar'));
+    expect(shoppingMergeKey('dry white wine')).toBe(shoppingMergeKey('white wine'));
+  });
+});
+
+describe('resolveShoppingCategory', () => {
+  it('puts stock and broth in Pantry even when AI says meat', () => {
+    expect(resolveShoppingCategory('meat', 'beef stock')).toBe('Pantry');
+    expect(resolveShoppingCategory('meat', 'chicken broth')).toBe('Pantry');
   });
 });
 
@@ -114,5 +169,38 @@ describe('shoppingFromPlan', () => {
     expect(items.find((item) => item.name === 'Chicken thigh')?.recipeSources.map((s) => s.recipeId)).toEqual([
       'hh-burger',
     ]);
+  });
+
+  it('merges garlic variants and files stock under Pantry', () => {
+    const stew = recipe({
+      id: 'stew',
+      name: 'Stew',
+      mealSlots: ['dinner'],
+      ingredients: [
+        { name: 'garlic', amount: '2 cloves', category: 'vegetable' },
+        { name: 'beef stock', amount: '500ml', category: 'meat' },
+      ],
+    });
+    const tacos = recipe({
+      id: 'tacos',
+      name: 'Tacos',
+      mealSlots: ['dinner'],
+      ingredients: [{ name: 'garlic cloves', amount: '6 cloves', category: 'vegetable' }],
+    });
+    const items = shoppingFromPlan({
+      plan: {
+        activeSlots: ['dinner'],
+        slots: [
+          { day: 'monday', slotKey: 'dinner', recipeId: 'stew' },
+          { day: 'tuesday', slotKey: 'dinner', recipeId: 'tacos' },
+        ],
+      },
+      recipes: [stew, tacos],
+    });
+    const garlic = items.find((i) => shoppingMergeKey(i.name) === 'garlic');
+    expect(garlic?.amount).toBe('32g (approx 8 cloves)');
+    expect(garlic?.mergedFrom?.length).toBeGreaterThan(0);
+    expect(garlic?.sharedMealCount).toBe(2);
+    expect(items.find((i) => i.name.toLowerCase().includes('stock'))?.category).toBe('Pantry');
   });
 });

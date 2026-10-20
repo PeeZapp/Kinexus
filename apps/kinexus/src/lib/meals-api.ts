@@ -77,6 +77,10 @@ export async function scrapeRecipe(url: string): Promise<ScrapeResponse> {
   return post<ScrapeResponse>('/scrape', { url });
 }
 
+export async function verifyCreatorLinks(urls: string[]): Promise<{ ok: true }> {
+  return post<{ ok: true }>('/creators/verify-links', { urls });
+}
+
 export async function extractRecipeFromText(content: string): Promise<ImportedRecipe> {
   const data = await post<{ recipe: ImportedRecipe }>('/ai', { task: 'extract_recipe', content });
   return data.recipe;

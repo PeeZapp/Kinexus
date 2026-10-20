@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+﻿import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
 import { useCallback, useEffect } from 'react';
 
@@ -158,7 +158,8 @@ async function fetchLinks(householdId: string): Promise<Database['public']['Tabl
 }
 
 export type ListShareDraft = {
-  visibility: StashListVisibility;
+  /** `global` is watchlist-only (share with everyone on Kinexus). */
+  visibility: StashListVisibility | 'global';
   personIds: string[];
 };
 
@@ -396,7 +397,7 @@ export function useStashSync() {
       if (!householdId || !supabase) throw new Error('Not ready');
       const trimmed = name.trim();
       if (!trimmed) throw new Error('Give the list a name');
-      const next = normalizeListShare(share.visibility, share.personIds);
+      const next = normalizeListShare(share.visibility === 'global' ? 'household' : share.visibility, share.personIds);
       if (next.visibility === 'people' && next.personIds.length === 0) {
         throw new Error('Pick at least one person to share with');
       }
@@ -428,7 +429,7 @@ export function useStashSync() {
       if (!trimmed) throw new Error('Give the list a name');
       const patch: Database['public']['Tables']['stash_lists']['Update'] = { name: trimmed };
       if (share) {
-        const next = normalizeListShare(share.visibility, share.personIds);
+        const next = normalizeListShare(share.visibility === 'global' ? 'household' : share.visibility, share.personIds);
         if (next.visibility === 'people' && next.personIds.length === 0) {
           throw new Error('Pick at least one person to share with');
         }
@@ -550,13 +551,6 @@ export function useStashSync() {
     },
     [householdId, queryClient],
   );
-
-  const ensureDailyList = useCallback(async () => {
-    if (!householdId || !supabase) throw new Error('Not ready');
-    const existing = lists.find((list) => list.kind === 'checklist' && list.name.trim().toLowerCase() === 'daily');
-    if (existing) return existing.id;
-    return createList('Daily', { visibility: 'household', personIds: [] }, { kind: 'checklist' });
-  }, [createList, householdId, lists]);
 
   const addProductToList = useCallback(
     async (productId: string, listId: string) => {
@@ -780,7 +774,7 @@ export function useStashSync() {
       if (!householdId || !supabase) throw new Error('Not ready');
       const trimmed = name.trim();
       if (!trimmed) throw new Error('Give the collection a name');
-      const next = normalizeListShare(share.visibility, share.personIds);
+      const next = normalizeListShare(share.visibility === 'global' ? 'household' : share.visibility, share.personIds);
       if (next.visibility === 'people' && next.personIds.length === 0) {
         throw new Error('Pick at least one person to share with');
       }
@@ -853,7 +847,7 @@ export function useStashSync() {
       if (!url) throw new Error('Paste a URL');
       const canonical = canonicalizeUrl(url);
       const title = (draft.title?.trim() || canonical.replace(/^https?:\/\//, '')).slice(0, 200);
-      const share = normalizeListShare(draft.share?.visibility ?? 'household', draft.share?.personIds ?? []);
+      const share = normalizeListShare((draft.share?.visibility === 'global' ? 'household' : draft.share?.visibility) ?? 'household', draft.share?.personIds ?? []);
       if (share.visibility === 'people' && share.personIds.length === 0) {
         throw new Error('Pick at least one person to share with');
       }
@@ -911,7 +905,7 @@ export function useStashSync() {
       if (patch.status !== undefined) row.status = patch.status;
       if (patch.linkType !== undefined) row.link_type = patch.linkType;
       if (patch.share) {
-        const next = normalizeListShare(patch.share.visibility, patch.share.personIds);
+        const next = normalizeListShare(patch.share.visibility === 'global' ? 'household' : patch.share.visibility, patch.share.personIds);
         if (next.visibility === 'people' && next.personIds.length === 0) {
           throw new Error('Pick at least one person to share with');
         }
@@ -983,7 +977,6 @@ export function useStashSync() {
     updateItem,
     deleteItem,
     reorderItems,
-    ensureDailyList,
     createProduct,
     updateProduct,
     deleteProduct,

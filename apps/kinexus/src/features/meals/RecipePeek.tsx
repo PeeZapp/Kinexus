@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { MEAL_SLOTS, type Recipe } from '@kinexus/domain';
 
+import { RecipeImageDisclaimer } from '@/src/features/meals/RecipeImageDisclaimer';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
 import { colors, radius } from '@/src/features/shell/theme';
 
@@ -45,6 +46,7 @@ export function RecipePeek({
       <View style={styles.hero}>
         <RecipePhoto uri={recipe.imageUrl} emoji={recipe.emoji} size="fill" radius={0} />
       </View>
+      <RecipeImageDisclaimer visible={Boolean(recipe.imageUrl)} />
       <Text style={styles.name}>{recipe.name}</Text>
       <Text style={styles.meta}>
         {[

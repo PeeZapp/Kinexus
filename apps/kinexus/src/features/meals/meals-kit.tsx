@@ -25,12 +25,14 @@ export function Sheet({
   onClose,
   children,
   wide,
+  header,
 }: {
   visible: boolean;
   title: string;
   onClose: () => void;
   children: ReactNode;
   wide?: boolean;
+  header?: ReactNode;
 }) {
   const { mode } = useExperienceMode();
   const desktop = mode === 'desktop';
@@ -47,7 +49,10 @@ export function Sheet({
               <Text style={styles.sheetClose}>Close</Text>
             </Pressable>
           </View>
-          <ScrollView keyboardShouldPersistTaps="handled" style={styles.sheetBody}>
+          {header ? <View style={styles.sheetHeader}>{header}</View> : null}
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            style={[styles.sheetBody, header ? styles.sheetBodyUnderHeader : null]}>
             {children}
           </ScrollView>
         </Pressable>
@@ -129,7 +134,15 @@ const styles = StyleSheet.create({
   },
   sheetTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },
   sheetClose: { color: colors.accent, fontWeight: '700' },
+  sheetHeader: {
+    paddingHorizontal: space.md,
+    paddingBottom: space.sm,
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
   sheetBody: { flexShrink: 1, minHeight: 0, paddingHorizontal: space.md, paddingBottom: space.lg },
+  sheetBodyUnderHeader: { paddingTop: space.sm },
   chip: {
     borderRadius: radius.xl,
     borderWidth: 1,

@@ -4,7 +4,9 @@ import type { Href } from 'expo-router';
 
 import {
   CORE_SLOTS,
+  isHouseholdAudience,
   mondayWeekStart,
+  normalizeAudiencePersonIds,
   pickRandomSwapRecipe,
   recipeForHouseholdView,
   recipesForPicker,
@@ -18,7 +20,12 @@ import {
 
 import { PlanDesktop } from '@/src/features/meals/plan/PlanDesktop';
 import { PlanMobile } from '@/src/features/meals/plan/PlanMobile';
-import { DaySlotSheet, dayPlanSlots } from '@/src/features/meals/plan/PlanShared';
+import {
+  AddMealSheet,
+  dayPlanSlots,
+  familyAddMealSlotOptions,
+  type PlanPersonFilter,
+} from '@/src/features/meals/plan/PlanShared';
 import { SlotSheet } from '@/src/features/meals/plan/SlotSheet';
 import {
   canEditSlot,
@@ -28,13 +35,17 @@ import {
   personName,
 } from '@/src/features/meals/picker-access';
 import { recipeEditHref, recipeHref } from '@/src/features/meals/recipe-href';
-import { useMealsSync } from '@/src/features/meals/use-meals-sync';
+import { useMealsSync, type PlanSlot } from '@/src/features/meals/use-meals-sync';
 import { todayDay } from '@/src/features/meals/week-labels';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 
 const FALLBACK_GOALS: NutritionGoals = { calories: 2000, protein: 120, carbs: 250, fat: 65 };
+
+function defaultSelectedDay(weekStart: string): Day {
+  return weekStart === mondayWeekStart() ? todayDay() : 'monday';
+}
 
 export function PlanScreen() {
   const { mode } = useExperienceMode();
@@ -44,25 +55,38 @@ export function PlanScreen() {
   const { people, role } = useHousehold();
   const [sheetDay, setSheetDay] = useState<Day | null>(null);
   const [sheetSlot, setSheetSlot] = useState<MealSlotKey | null>(null);
-  const [slotDayEdit, setSlotDayEdit] = useState<{ day: Day; action: 'add' | 'remove' } | null>(null);
-  const [expandedDays, setExpandedDays] = useState<Day[]>(() =>
-    meals.weekStart === mondayWeekStart() ? [todayDay()] : [],
-  );
+  const [sheetCellId, setSheetCellId] = useState<string | null>(null);
+  const [addMealDay, setAddMealDay] = useState<Day | null>(null);
+  const [addMealError, setAddMealError] = useState<string | null>(null);
+  const [addMealBusy, setAddMealBusy] = useState(false);
+  const [selectedDay, setSelectedDay] = useState<Day>(() => defaultSelectedDay(meals.weekStart));
   const recentSwaps = useRef(new Map<string, string[]>());
   const userId = user && !user.isDevBypass ? user.id : null;
   const canAssign = canManageMealPlan(role);
   const restricted = isRestrictedPicker({ role, people, userId });
   const linked = linkedPersonForUser(people, userId);
+  const [personFilter, setPersonFilter] = useState<PlanPersonFilter>('all');
 
   useEffect(() => {
-    setExpandedDays(meals.weekStart === mondayWeekStart() ? [todayDay()] : []);
+    setSelectedDay(defaultSelectedDay(meals.weekStart));
   }, [meals.weekStart]);
 
-  function toggleDay(day: Day) {
-    setExpandedDays((current) => (current.includes(day) ? current.filter((item) => item !== day) : [...current, day]));
-  }
+  useEffect(() => {
+    if (linked?.id) setPersonFilter(linked.id);
+  }, [linked?.id]);
 
-  const sheetSlotRow = sheetDay && sheetSlot ? meals.slotMap.get(`${sheetDay}_${sheetSlot}`) : undefined;
+  const sheetSlotRow = useMemo(() => {
+    if (!sheetDay || !sheetSlot) return undefined;
+    if (sheetCellId) return meals.slots.find((slot) => slot.id === sheetCellId);
+    return meals.slots.find(
+      (slot) =>
+        slot.day === sheetDay &&
+        slot.slotKey === sheetSlot &&
+        isHouseholdAudience(slot.audiencePersonIds) &&
+        !slot.hidden,
+    );
+  }, [meals.slots, sheetCellId, sheetDay, sheetSlot]);
+
   const sheetCanEdit = canEditSlot({
     role,
     people,
@@ -79,41 +103,68 @@ export function PlanScreen() {
     return ids;
   }, [linked, meals.slotApprovals, restricted, sheetSlot, sheetSlotRow?.assignedPersonId]);
 
-  function openSlot(day: Day, slot: MealSlotKey) {
+  function openSlot(day: Day, slot: MealSlotKey, cell?: PlanSlot) {
     setSheetDay(day);
     setSheetSlot(slot);
+    setSheetCellId(cell?.id ?? null);
   }
 
-  async function pickDaySlot(slot: MealSlotKey) {
-    if (!slotDayEdit || !canAssign) return;
-    const { day, action } = slotDayEdit;
-    setSlotDayEdit(null);
-    if (action === 'add') {
-      await meals.addSlotToDay(day, slot);
-      setExpandedDays((current) => (current.includes(day) ? current : [...current, day]));
-      openSlot(day, slot);
-      return;
+  function closeSlotSheet() {
+    setSheetDay(null);
+    setSheetSlot(null);
+    setSheetCellId(null);
+  }
+
+  async function confirmAddMeal(slot: MealSlotKey, audiencePersonIds: string[]) {
+    if (!addMealDay || !canAssign) return;
+    const day = addMealDay;
+    setAddMealBusy(true);
+    setAddMealError(null);
+    try {
+      const audience = normalizeAudiencePersonIds(audiencePersonIds);
+      if (audience.length === 0) {
+        // Empty breakfast/lunch/dinner are already on the day — open picker, don't re-sync.
+        if (dayPlanSlots(meals.activeSlots, meals.slotMap, day).visible.includes(slot)) {
+          setAddMealDay(null);
+          openSlot(day, slot);
+          return;
+        }
+        await meals.addSlotToDay(day, slot);
+        setAddMealDay(null);
+        openSlot(day, slot);
+        return;
+      }
+      const created = await meals.createAudienceSlot(day, slot, audience);
+      setAddMealDay(null);
+      openSlot(day, slot, created ?? undefined);
+    } catch (err) {
+      setAddMealError(messageFromUnknown(err, 'Could not add meal'));
+    } finally {
+      setAddMealBusy(false);
     }
-    await meals.removeSlotFromDay(day, slot);
   }
 
-  function rememberSwap(day: Day, slot: MealSlotKey, recipeId: string) {
-    const key = `${day}_${slot}`;
+  function rememberSwap(day: Day, slot: MealSlotKey, recipeId: string, cellId?: string | null) {
+    const key = `${day}_${slot}_${cellId ?? 'family'}`;
     recentSwaps.current.set(key, rememberSwapId(recentSwaps.current.get(key) ?? [], recipeId));
   }
 
+  const slotOpts = {
+    slotId: sheetSlotRow?.id ?? sheetCellId,
+    audiencePersonIds: sheetSlotRow?.audiencePersonIds ?? [],
+  };
+
   async function assign(recipe: Recipe) {
     if (!sheetDay || !sheetSlot || !sheetCanEdit) return;
-    rememberSwap(sheetDay, sheetSlot, recipe.id);
-    await meals.assignSlot(sheetDay, sheetSlot, recipe);
-    setSheetDay(null);
-    setSheetSlot(null);
+    rememberSwap(sheetDay, sheetSlot, recipe.id, sheetSlotRow?.id);
+    await meals.assignSlot(sheetDay, sheetSlot, recipe, slotOpts);
+    closeSlotSheet();
   }
 
   async function shuffle(): Promise<Recipe | null> {
     if (!sheetDay || !sheetSlot || !sheetCanEdit) return null;
-    const key = `${sheetDay}_${sheetSlot}`;
-    const current = meals.slotMap.get(key);
+    const key = `${sheetDay}_${sheetSlot}_${sheetSlotRow?.id ?? 'family'}`;
+    const current = sheetSlotRow;
     const currentRecipe = recipeForHouseholdView(meals.recipes, current?.recipeId) ?? null;
     const pool = recipesForPicker(meals.recipes, sheetSlot, sheetApprovedIds);
     const goals = meals.goals ?? FALLBACK_GOALS;
@@ -126,14 +177,13 @@ export function PlanScreen() {
       recentIds: recentSwaps.current.get(key) ?? [],
     });
     if (!pick) return null;
-    rememberSwap(sheetDay, sheetSlot, pick.id);
-    await meals.assignSlot(sheetDay, sheetSlot, pick);
+    rememberSwap(sheetDay, sheetSlot, pick.id, sheetSlotRow?.id);
+    await meals.assignSlot(sheetDay, sheetSlot, pick, slotOpts);
     return pick;
   }
 
   function openRecipePage(href: Href) {
-    setSheetDay(null);
-    setSheetSlot(null);
+    closeSlotSheet();
     setTimeout(() => {
       router.push(href);
     }, 0);
@@ -160,23 +210,23 @@ export function PlanScreen() {
             )
           : null
       }
-      onClose={() => {
-        setSheetDay(null);
-        setSheetSlot(null);
-      }}
+      onClose={closeSlotSheet}
       onAssign={(recipe) => void assign(recipe)}
       onAllocate={(personId) => {
-        if (sheetDay && sheetSlot && canAssign) void meals.allocateSlot(sheetDay, sheetSlot, personId);
+        if (sheetDay && sheetSlot && canAssign) void meals.allocateSlot(sheetDay, sheetSlot, personId, slotOpts);
       }}
       onClear={() => {
-        if (sheetDay && sheetSlot && sheetCanEdit) void meals.clearSlot(sheetDay, sheetSlot);
-        setSheetDay(null);
-        setSheetSlot(null);
+        if (sheetDay && sheetSlot && sheetCanEdit) void meals.clearSlot(sheetDay, sheetSlot, slotOpts);
+        closeSlotSheet();
       }}
       onHide={() => {
-        if (sheetDay && sheetSlot && canAssign) void meals.removeSlotFromDay(sheetDay, sheetSlot);
-        setSheetDay(null);
-        setSheetSlot(null);
+        if (!sheetDay || !sheetSlot || !canAssign) return;
+        if (sheetSlotRow && !isHouseholdAudience(sheetSlotRow.audiencePersonIds)) {
+          void meals.deleteAudienceSlot(sheetSlotRow);
+        } else {
+          void meals.removeSlotFromDay(sheetDay, sheetSlot);
+        }
+        closeSlotSheet();
       }}
       onShuffle={() => void shuffle()}
       onOpenRecipe={(id) => openRecipePage(recipeHref(id))}
@@ -191,48 +241,59 @@ export function PlanScreen() {
     for (const person of people) map.set(person.id, person.name);
     return map;
   }, [people]);
-  const slotDayOptions = slotDayEdit
-    ? dayPlanSlots(meals.activeSlots, meals.slotMap, slotDayEdit.day)[slotDayEdit.action === 'add' ? 'addable' : 'visible']
+  const peopleOptions = useMemo(() => people.map((person) => ({ id: person.id, name: person.name })), [people]);
+  const familySlotOptions = addMealDay
+    ? familyAddMealSlotOptions(meals.activeSlots, meals.slotMap, meals.slots, addMealDay)
     : [];
 
   const planProps = {
     meals,
     personNames,
-    expandedDays,
+    peopleOptions,
+    personFilter,
+    onPersonFilter: setPersonFilter,
+    selectedDay,
+    onSelectDay: setSelectedDay,
     showGenerate: canAssign,
     canManage: canAssign,
-    onToggleDay: toggleDay,
     onOpenSlot: openSlot,
-    onAddSlot: (day: Day) => setSlotDayEdit({ day, action: 'add' }),
-    onRemoveSlot: (day: Day) => setSlotDayEdit({ day, action: 'remove' }),
+    onAddMeal: (day: Day) => {
+      setAddMealError(null);
+      setAddMealDay(day);
+    },
     onRemoveDay: (day: Day) => {
       if (!canAssign) return;
-      setExpandedDays((current) => current.filter((item) => item !== day));
       void meals.hideDay(day);
     },
     onRestoreDay: (day: Day) => {
       if (!canAssign) return;
-      setExpandedDays((current) => (current.includes(day) ? current : [...current, day]));
       void meals.restoreDay(day);
     },
     onGenerate: goGenerate,
     onShopping: goShopping,
   };
 
+  const addMealSheet = (
+    <AddMealSheet
+      day={addMealDay}
+      people={peopleOptions}
+      familySlotOptions={familySlotOptions}
+      error={addMealError}
+      busy={addMealBusy}
+      onClose={() => {
+        setAddMealDay(null);
+        setAddMealError(null);
+      }}
+      onConfirm={(slot, audience) => void confirmAddMeal(slot, audience)}
+    />
+  );
+
   if (mode === 'desktop') {
     return (
       <>
         <PlanDesktop {...planProps} />
         {sheet}
-        {slotDayEdit ? (
-          <DaySlotSheet
-            day={slotDayEdit.day}
-            action={slotDayEdit.action}
-            options={slotDayOptions}
-            onClose={() => setSlotDayEdit(null)}
-            onPick={(slot) => void pickDaySlot(slot)}
-          />
-        ) : null}
+        {addMealSheet}
       </>
     );
   }
@@ -241,15 +302,16 @@ export function PlanScreen() {
     <>
       <PlanMobile {...planProps} />
       {sheet}
-      {slotDayEdit ? (
-        <DaySlotSheet
-          day={slotDayEdit.day}
-          action={slotDayEdit.action}
-          options={slotDayOptions}
-          onClose={() => setSlotDayEdit(null)}
-          onPick={(slot) => void pickDaySlot(slot)}
-        />
-      ) : null}
+      {addMealSheet}
     </>
   );
+}
+
+function messageFromUnknown(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (err && typeof err === 'object' && 'message' in err) {
+    const message = (err as { message: unknown }).message;
+    if (typeof message === 'string' && message.trim()) return message;
+  }
+  return fallback;
 }

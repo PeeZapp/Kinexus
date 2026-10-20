@@ -37,7 +37,7 @@ export default function Index() {
     return <Redirect href={SETTINGS_HREF} />;
   }
 
-  return <Redirect href="/meals" />;
+  return <Redirect href="/today" />;
 }
 
 const styles = StyleSheet.create({

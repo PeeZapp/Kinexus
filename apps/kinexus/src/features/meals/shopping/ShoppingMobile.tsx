@@ -1,4 +1,4 @@
-import { AddItemForm, ShoppingChrome, ShoppingList } from '@/src/features/meals/shopping/ShoppingShared';
+import { ShoppingChrome, ShoppingList } from '@/src/features/meals/shopping/ShoppingShared';
 import type { ShoppingListItem } from '@/src/features/meals/mappers';
 import { weekPlanPhrase } from '@/src/features/meals/week-labels';
 import { EmptyState } from '@/src/features/shell/states';
@@ -35,6 +35,7 @@ export function ShoppingMobile(props: {
     onNextWeek: props.onNextWeek,
     onGenerate: props.onGenerate,
     onClearChecked: props.onClearChecked,
+    onAdd: props.onAdd,
   };
   return (
     <ShoppingChrome {...chrome} desktop={false} checkedCount={props.checked.length}>
@@ -44,7 +45,7 @@ export function ShoppingMobile(props: {
           body={
             props.plannedMealCount === 0
               ? `No meals on ${weekPlanPhrase(props.weekStart)} yet. Fill that week first, then generate.`
-              : `Generate from ${weekPlanPhrase(props.weekStart)} to pull ingredients, or add extras below. Check-off syncs live with the household.`
+              : `Generate from ${weekPlanPhrase(props.weekStart)} to pull ingredients, or add extras from the toolbar. Check-off syncs live with the household.`
           }
         />
       ) : (
@@ -56,7 +57,6 @@ export function ShoppingMobile(props: {
           onRecipe={props.onRecipe}
         />
       )}
-      <AddItemForm onAdd={props.onAdd} disabled={!props.online} />
       <ShoppingList
         title="Checked off"
         items={props.checked}

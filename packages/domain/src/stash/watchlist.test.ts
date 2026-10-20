@@ -4,7 +4,10 @@ import type { WatchlistItem, WatchlistList, WatchlistTitle } from './types';
 import {
   canManageWatchlist,
   canViewWatchlist,
+  familyReviewAverage,
   filterWatchlistEntries,
+  isWatchedList,
+  watchedScope,
   groupWatchlistProviders,
   parseStoredProviders,
   parseWatchlistUrl,
@@ -23,6 +26,10 @@ function list(partial: Partial<WatchlistList> & Pick<WatchlistList, 'id' | 'name
     householdId: 'h1',
     createdBy: 'u1',
     visibility: 'household',
+    kind: 'custom',
+    audience: '18+',
+    blurb: null,
+    samplePosterPaths: [],
     personIds: [],
     createdAt: '2026-01-01',
     updatedAt: '2026-01-01',
@@ -43,6 +50,8 @@ function title(partial: Partial<WatchlistTitle> & Pick<WatchlistTitle, 'id' | 't
     sourceUrl: null,
     tmdbWatchUrl: null,
     trailerUrl: null,
+    contentRating: null,
+    audience: null,
     providers: [],
     providersCountry: 'AU',
     providersFetchedAt: null,
@@ -183,6 +192,24 @@ describe('watchlist entries', () => {
     const groups = groupWatchlistProviders(providers);
     expect(groups[0]?.label).toBe('Stream');
     expect(streamingSummary(providers)).toBe('Netflix · Disney Plus');
+  });
+
+  it('averages family scores and ignores empty ones', () => {
+    expect(familyReviewAverage([])).toBeNull();
+    expect(familyReviewAverage([0, 11, 1.5])).toBeNull();
+    expect(familyReviewAverage([8, 7, 9])).toBe(8);
+    expect(familyReviewAverage([8, 7])).toBe(7.5);
+  });
+
+  it('tells watched lists apart from queues', () => {
+    const family = list({ id: 'fam', name: 'Family', kind: 'watched_family' });
+    const mine = list({ id: 'me', name: 'Private', kind: 'watched_private', visibility: 'private' });
+    const queue = list({ id: 'q', name: 'Weekend' });
+    expect(isWatchedList(family)).toBe(true);
+    expect(isWatchedList(queue)).toBe(false);
+    expect(watchedScope(family)).toBe('family');
+    expect(watchedScope(mine)).toBe('private');
+    expect(watchedScope(queue)).toBeNull();
   });
 
   it('picks the best YouTube trailer', () => {

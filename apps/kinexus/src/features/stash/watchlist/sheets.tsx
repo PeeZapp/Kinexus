@@ -16,6 +16,7 @@ import {
   type WatchlistEntry,
   type WatchlistItemStatus,
   type WatchlistList,
+  type WatchlistMediaType,
   type WatchlistProvider,
   type WatchlistResolvedTitle,
   type WatchlistReview,
@@ -40,6 +41,7 @@ import {
 } from '@/src/features/stash/watchlist-api';
 import { ProviderChips, openExternal } from '@/src/features/stash/watchlist/WatchlistShared';
 import { GlobalReviewsBlock } from '@/src/features/stash/watchlist/GlobalSocial';
+import { PersonMovies, TitleCast, type WatchlistCastMember } from '@/src/features/stash/watchlist/TitleCast';
 
 function GlobalPublishFields({
   publish,
@@ -414,6 +416,8 @@ export function CuratedTitleSheet({
   country,
   lists,
   savedListIds,
+  titleOnList,
+  onAddFromCast,
   onClose,
   onAdd,
   busy,
@@ -424,6 +428,8 @@ export function CuratedTitleSheet({
   country: string;
   lists: readonly WatchlistList[];
   savedListIds: ReadonlySet<string>;
+  titleOnList: (listId: string, mediaType: WatchlistMediaType, tmdbId: number) => boolean;
+  onAddFromCast: (hit: WatchlistSearchHit, listId: string) => Promise<boolean>;
   onClose: () => void;
   onAdd: (hit: WatchlistSearchHit, listId: string, status: WatchlistItemStatus) => Promise<void>;
   busy?: boolean;
@@ -434,12 +440,14 @@ export function CuratedTitleSheet({
   const [listId, setListId] = useState<string | null>(null);
   const [status, setStatus] = useState<WatchlistItemStatus>('want');
   const [loading, setLoading] = useState(false);
+  const [castPerson, setCastPerson] = useState<WatchlistCastMember | null>(null);
   const hitKey = hit ? `${hit.mediaType}-${hit.tmdbId}` : '';
   const pickedFor = useRef('');
 
   useEffect(() => {
     if (!visible) return;
     setStatus('want');
+    setCastPerson(null);
   }, [hitKey, visible]);
 
   useEffect(() => {
@@ -504,6 +512,7 @@ export function CuratedTitleSheet({
         context={savedNames.length > 0 ? `Already on ${savedNames.join(', ')}` : null}
       />
       <Synopsis text={overview} />
+      <TitleCast tmdbId={hit.tmdbId} mediaType={hit.mediaType} active={visible} onPick={setCastPerson} />
       {lists.length > 0 ? (
         <View style={detail.section}>
           <SectionHead label="Add to" />
@@ -544,8 +553,21 @@ export function CuratedTitleSheet({
   );
 
   return (
-    <Sheet visible={visible} title={hit.title} onClose={onClose} desktopMaxWidth={1080}>
-      {desktop ? (
+    <Sheet visible={visible} title={castPerson?.name ?? hit.title} onClose={onClose} desktopMaxWidth={1080}>
+      {castPerson ? (
+        <PersonMovies
+          person={castPerson}
+          backLabel={hit.title}
+          onBack={() => setCastPerson(null)}
+          excludeMovieId={hit.mediaType === 'movie' ? hit.tmdbId : null}
+          lists={lists}
+          defaultListId={listId}
+          titleOnList={titleOnList}
+          onAdd={onAddFromCast}
+          busy={busy}
+          error={error}
+        />
+      ) : desktop ? (
         <View style={detail.split}>
           <View style={detail.mainCol}>{about}</View>
           <View style={detail.sideCol}>{watch}</View>
@@ -559,6 +581,7 @@ export function CuratedTitleSheet({
             context={savedNames.length > 0 ? `Already on ${savedNames.join(', ')}` : null}
           />
           <Synopsis text={overview} />
+          <TitleCast tmdbId={hit.tmdbId} mediaType={hit.mediaType} active={visible} onPick={setCastPerson} />
           {watch}
           {lists.length > 0 ? (
             <View style={detail.section}>
@@ -1035,6 +1058,10 @@ export function TitleSheet({
   onSaveNotes,
   onRemove,
   onRefresh,
+  lists,
+  defaultListId,
+  titleOnList,
+  onAddFromCast,
   busy,
   error,
 }: {
@@ -1066,6 +1093,10 @@ export function TitleSheet({
   onSaveNotes: (notes: string) => Promise<void>;
   onRemove: () => Promise<void>;
   onRefresh: () => Promise<void>;
+  lists: readonly WatchlistList[];
+  defaultListId: string | null;
+  titleOnList: (listId: string, mediaType: WatchlistMediaType, tmdbId: number) => boolean;
+  onAddFromCast: (hit: WatchlistSearchHit, listId: string) => Promise<boolean>;
   busy?: boolean;
   error?: string | null;
 }) {
@@ -1073,8 +1104,10 @@ export function TitleSheet({
   const entryId = entry?.item.id ?? null;
   const [notes, setNotes] = useState(entry?.item.notes ?? '');
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [castPerson, setCastPerson] = useState<WatchlistCastMember | null>(null);
   useEffect(() => {
     setReviewOpen(false);
+    setCastPerson(null);
     if (!visible) return;
     setNotes(entry?.item.notes ?? '');
     // Only reset when this title opens, so a background refresh does not wipe a note in progress.
@@ -1171,56 +1204,85 @@ export function TitleSheet({
       />
     </View>
   );
-  const remove = (
-    <Pressable onPress={() => void onRemove()} disabled={busy} accessibilityRole="button" style={detail.removeBtn}>
-      <Text style={[detail.deleteLabel, busy && detail.linkDisabled]}>
-        {entry.list.kind === 'custom' ? 'Remove from list' : 'Remove from watched'}
-      </Text>
-    </Pressable>
-  );
+  const removeLabel = entry.list.kind === 'custom' ? 'Remove from list' : 'Remove from watched';
   return (
     <>
       <Sheet
         visible={visible}
-        title={entry.title.title}
+        title={castPerson?.name ?? entry.title.title}
         onClose={onClose}
         desktopMaxWidth={1080}
         action={
-          <Pressable
-            onPress={() => void onRefresh()}
-            disabled={busy}
-            accessibilityRole="button"
-            style={[detail.headerBtn, busy && detail.linkDisabled]}>
-            <Text style={detail.headerBtnLabel}>Refresh</Text>
-          </Pressable>
+          castPerson ? undefined : (
+            <View style={detail.headerActions}>
+              <Pressable
+                onPress={() => void onRemove()}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityLabel={removeLabel}
+                style={[detail.headerBtn, busy && detail.linkDisabled]}>
+                <Text style={detail.headerRemoveLabel}>{removeLabel}</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void onRefresh()}
+                disabled={busy}
+                accessibilityRole="button"
+                style={[detail.headerBtn, busy && detail.linkDisabled]}>
+                <Text style={detail.headerBtnLabel}>Refresh</Text>
+              </Pressable>
+            </View>
+          )
         }>
-        {desktop ? (
+        {castPerson ? (
+          <PersonMovies
+            person={castPerson}
+            backLabel={entry.title.title}
+            onBack={() => setCastPerson(null)}
+            excludeMovieId={entry.title.mediaType === 'movie' ? entry.title.tmdbId : null}
+            lists={lists}
+            defaultListId={defaultListId}
+            titleOnList={titleOnList}
+            onAdd={onAddFromCast}
+            busy={busy}
+            error={error}
+          />
+        ) : desktop ? (
           <View style={detail.split}>
             <View style={detail.mainCol}>
               {identity}
               <Synopsis text={entry.title.overview} />
-              {status}
-              {reviewButton}
-              {error ? <Text style={styles.error}>{error}</Text> : null}
-              {remove}
+              <TitleCast
+                tmdbId={entry.title.tmdbId}
+                mediaType={entry.title.mediaType}
+                active={visible}
+                onPick={setCastPerson}
+              />
             </View>
             <View style={detail.sideCol}>
               {watch}
+              {status}
+              {reviewButton}
               {publicScores}
               {notesBlock}
+              {error ? <Text style={styles.error}>{error}</Text> : null}
             </View>
           </View>
         ) : (
           <View style={detail.stack}>
             {identity}
             <Synopsis text={entry.title.overview} />
+            <TitleCast
+              tmdbId={entry.title.tmdbId}
+              mediaType={entry.title.mediaType}
+              active={visible}
+              onPick={setCastPerson}
+            />
             {watch}
             {status}
             {reviewButton}
             {publicScores}
             {notesBlock}
             {error ? <Text style={styles.error}>{error}</Text> : null}
-            {remove}
           </View>
         )}
       </Sheet>
@@ -1323,6 +1385,7 @@ const detail = StyleSheet.create({
   serviceName: { color: colors.text, fontSize: 11, lineHeight: 14, fontWeight: '600', textAlign: 'center' },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   actionSlot: { flex: 1, minWidth: 140 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerBtn: {
     minHeight: 32,
     paddingHorizontal: 12,
@@ -1334,6 +1397,7 @@ const detail = StyleSheet.create({
     justifyContent: 'center',
   },
   headerBtnLabel: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  headerRemoveLabel: { color: colors.danger, fontSize: 13, fontWeight: '700' },
   link: { color: colors.accent, fontSize: 13, fontWeight: '700' },
   linkDisabled: { opacity: 0.45 },
   segment: {
@@ -1454,5 +1518,4 @@ const detail = StyleSheet.create({
   saveOff: { opacity: 0.4 },
   saveLabel: { color: colors.bg, fontSize: 13, fontWeight: '800' },
   deleteLabel: { color: colors.danger, fontSize: 13, fontWeight: '700' },
-  removeBtn: { alignSelf: 'flex-start', minHeight: 32, justifyContent: 'center' },
 });

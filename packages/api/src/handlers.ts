@@ -10,7 +10,7 @@ import { fetchReaderDocument } from './scrape/reader.js';
 import { fetchArchiveFrameHtml } from './scrape/archive-frame.js';
 import { lookupCollectible, parseCollectibleKind, searchCollectibles } from './scrape/collectibles.js';
 import { scrapeRecipeSource } from './scrape/recipe-source.js';
-import { discoverWatchlistTitles, listStreamingServices, lookupWatchlistTitle, recommendWatchlistTitles, resolveWatchlistUrl, searchWatchlistPeople, searchWatchlistTitles, watchlistPersonMovies } from './watchlist.js';
+import { discoverWatchlistTitles, listStreamingServices, lookupWatchlistTitle, recommendWatchlistTitles, resolveWatchlistUrl, searchWatchlistPeople, searchWatchlistTitles, watchlistPersonMovies, watchlistTitleCast } from './watchlist.js';
 import type { RecipeDraft } from './recipe-draft.js';
 
 export type AiTask = 'extract_recipe' | 'extract_recipe_from_url' | 'generate_recipe_from_name' | 'estimate_recipe_nutrition';
@@ -442,6 +442,18 @@ export async function handleWatchlistPeople(body: { query?: unknown }) {
     return { status: 200 as const, body: { people } };
   } catch (err) {
     return tmdbError(err, 'Could not search people');
+  }
+}
+
+export async function handleWatchlistCast(body: { tmdbId?: unknown; mediaType?: unknown }) {
+  try {
+    const tmdbId = Number(body.tmdbId);
+    const mediaType = typeof body.mediaType === 'string' ? body.mediaType : '';
+    if (!isWatchlistMediaType(mediaType)) return { status: 400 as const, body: { error: 'mediaType must be movie or tv' } };
+    const cast = await watchlistTitleCast({ tmdbId, mediaType });
+    return { status: 200 as const, body: { cast } };
+  } catch (err) {
+    return tmdbError(err, 'Could not load the cast');
   }
 }
 

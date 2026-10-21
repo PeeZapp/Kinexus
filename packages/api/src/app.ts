@@ -14,6 +14,7 @@ import {
   handleScrapeProduct,
   handleScrapeReader,
   handleArchiveFrame,
+  handleWatchlistCast,
   handleWatchlistDiscover,
   handleWatchlistLookup,
   handleWatchlistPeople,
@@ -234,6 +235,14 @@ function registerMealsRoutes(router: Hono) {
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
     const result = await handleWatchlistPeople(body as { query?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/watchlist/cast', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleWatchlistCast(body as { tmdbId?: unknown; mediaType?: unknown });
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 

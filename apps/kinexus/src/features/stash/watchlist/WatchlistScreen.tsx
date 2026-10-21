@@ -860,6 +860,16 @@ export function WatchlistScreen() {
         .map((review) => review.score)
     : [];
 
+  function titleIsOnList(listId: string, mediaType: WatchlistMediaType, tmdbId: number) {
+    return entries.some(
+      (entry) => entry.list.id === listId && entry.title.mediaType === mediaType && entry.title.tmdbId === tmdbId,
+    );
+  }
+
+  async function addCastTitle(hit: WatchlistSearchHit, listId: string) {
+    return run(() => watchlist.addTitleToList(listId, hit, { status: 'want' }));
+  }
+
   if (watchlist.loading && watchlist.lists.length === 0 && watchlist.items.length === 0) {
     return <LoadingState label="Loading watchlist" />;
   }
@@ -885,6 +895,8 @@ export function WatchlistScreen() {
         country={watchlist.country}
         lists={customLists}
         savedListIds={curatedHitSavedIds}
+        titleOnList={titleIsOnList}
+        onAddFromCast={addCastTitle}
         busy={busy}
         error={actionError}
         onClose={() => setCuratedHit(null)}
@@ -1059,6 +1071,10 @@ export function WatchlistScreen() {
           const ok = await run(() => watchlist.removeItem(openEntry.item.id));
           if (ok) setOpenItemId(null);
         }}
+        lists={customLists}
+        defaultListId={openEntry?.list.kind === 'custom' ? openEntry.list.id : (customLists[0]?.id ?? null)}
+        titleOnList={titleIsOnList}
+        onAddFromCast={addCastTitle}
         onRefresh={async () => {
           if (!openEntry) return;
           await run(() => watchlist.refreshTitle(openEntry.title, true));

@@ -62,6 +62,21 @@ export async function searchWatchlistPeople(query: string): Promise<WatchlistPer
   return payload.people ?? [];
 }
 
+export type WatchlistCastMember = {
+  id: number;
+  name: string;
+  character: string | null;
+  profilePath: string | null;
+};
+
+export async function loadWatchlistTitleCast(
+  tmdbId: number,
+  mediaType: WatchlistMediaType,
+): Promise<WatchlistCastMember[]> {
+  const payload = await post<{ cast?: WatchlistCastMember[] }>('/watchlist/cast', { tmdbId, mediaType });
+  return payload.cast ?? [];
+}
+
 export async function loadWatchlistPersonMovies(personId: number): Promise<{
   name: string;
   profilePath: string | null;

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { fetchFailureDetail, lookupWatchlistTitle } from './watchlist.js';
+import { fetchFailureDetail, lookupWatchlistTitle, watchlistTitleCast } from './watchlist.js';
 
 describe('fetchFailureDetail', () => {
   it('unwraps the cause hidden behind fetch failed', () => {
@@ -56,5 +56,42 @@ describe('lookupWatchlistTitle', () => {
     await expect(lookupWatchlistTitle({ tmdbId: 11528, mediaType: 'movie', country: 'AU' })).rejects.toThrow(
       /Could not reach TMDB \(connect ECONNREFUSED/,
     );
+  });
+});
+
+describe('watchlistTitleCast', () => {
+  const previous = process.env.TMDB_API_KEY;
+
+  afterEach(() => {
+    process.env.TMDB_API_KEY = previous;
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('keeps the top billed cast for a movie or show', async () => {
+    process.env.TMDB_API_KEY = 'test-key';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            cast: [
+              { id: 2, name: 'Second', character: 'Friend', profile_path: null, order: 1 },
+              { id: 1, name: 'Lead', character: 'Hero', profile_path: '/lead.jpg', order: 0 },
+              { id: 1, name: 'Lead', character: 'Hero', profile_path: '/lead.jpg', order: 0 },
+              { id: 3, name: '   ', character: 'Extra', order: 2 },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      ),
+    );
+
+    const cast = await watchlistTitleCast({ tmdbId: 11528, mediaType: 'movie' });
+
+    expect(cast).toEqual([
+      { id: 1, name: 'Lead', character: 'Hero', profilePath: '/lead.jpg' },
+      { id: 2, name: 'Second', character: 'Friend', profilePath: null },
+    ]);
   });
 });

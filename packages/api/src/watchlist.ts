@@ -590,6 +590,52 @@ export async function searchWatchlistPeople(query: string): Promise<WatchlistPer
   return people;
 }
 
+export type WatchlistCastMember = {
+  id: number;
+  name: string;
+  character: string | null;
+  profilePath: string | null;
+};
+
+type TmdbCreditCast = {
+  id?: number;
+  name?: string;
+  character?: string;
+  profile_path?: string | null;
+  order?: number;
+};
+
+const TOP_CAST_LIMIT = 12;
+
+export async function watchlistTitleCast(input: {
+  tmdbId: number;
+  mediaType: WatchlistMediaType;
+}): Promise<WatchlistCastMember[]> {
+  if (!Number.isInteger(input.tmdbId) || input.tmdbId <= 0) {
+    throw Object.assign(new Error('A TMDB title id is required'), { status: 400 });
+  }
+  const path = input.mediaType === 'tv' ? `/tv/${input.tmdbId}/credits` : `/movie/${input.tmdbId}/credits`;
+  const payload = await tmdbGet<{ cast?: TmdbCreditCast[] }>(path, { language: 'en-US' });
+  const ranked = [...(payload.cast ?? [])].sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+  const people: WatchlistCastMember[] = [];
+  const seen = new Set<number>();
+  for (const row of ranked) {
+    const id = Number(row.id);
+    const name = (row.name ?? '').trim();
+    if (!Number.isInteger(id) || id <= 0 || !name || seen.has(id)) continue;
+    seen.add(id);
+    const character = row.character?.trim() ? row.character.trim().slice(0, 80) : null;
+    people.push({
+      id,
+      name: name.slice(0, 120),
+      character,
+      profilePath: row.profile_path ?? null,
+    });
+    if (people.length >= TOP_CAST_LIMIT) break;
+  }
+  return people;
+}
+
 export async function watchlistPersonMovies(personId: number): Promise<{
   name: string;
   profilePath: string | null;

@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
   crosswordSolved,
   crosswordWrong,
@@ -10,9 +10,12 @@ import {
 
 import { Btn } from '@/src/features/household/ui';
 import { colors } from '@/src/features/shell/theme';
+import { useExperienceMode } from '@/src/lib/experience-mode';
 
 import { useGameKeys } from './keys';
 import { usePuzzleState } from './use-puzzle-state';
+
+const LETTER_ROWS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'] as const;
 
 type BoardState = { entries: string[]; checked: boolean };
 
@@ -45,37 +48,100 @@ function move(puzzle: CrosswordPuzzle, index: number, direction: CrosswordDirect
   return next ?? index;
 }
 
+function useTouchEntry(): boolean {
+  const { mode, isNative } = useExperienceMode();
+  const [coarse, setCoarse] = useState(false);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const media = window.matchMedia('(pointer: coarse)');
+    const update = () => setCoarse(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+
+  return isNative || mode === 'mobile' || coarse;
+}
+
 export function CrosswordGame({ date }: { date: string }) {
   const puzzle = useMemo(() => dailyCrossword(date), [date]);
   const fallback = useMemo(() => blank(puzzle), [puzzle]);
   const { value, commit, ready } = usePuzzleState('crossword', date, fallback, (raw) => revive(puzzle, raw));
-  const [cursor, setCursor] = useState(() => puzzle.cells.findIndex((cell) => cell) );
+  const [cursor, setCursor] = useState(() => puzzle.cells.findIndex((cell) => cell));
   const [direction, setDirection] = useState<CrosswordDirection>('across');
+  const [draft, setDraft] = useState('');
+  const touch = useTouchEntry();
+  const inputRef = useRef<TextInput>(null);
+  const typedRef = useRef('');
+  const boardRef = useRef(value);
+  const cursorRef = useRef(cursor);
+  const directionRef = useRef(direction);
+  boardRef.current = value;
+  cursorRef.current = cursor;
+  directionRef.current = direction;
   const active = wordAt(puzzle, cursor, direction);
   const wrong = value.checked ? crosswordWrong(puzzle, value.entries) : [];
   const won = crosswordSolved(puzzle, value.entries);
+  const wonRef = useRef(won);
+  wonRef.current = won;
 
-  const typeAt = (index: number, letter: string) => {
-    if (won || !puzzle.cells[index]) return;
-    const entries = value.entries.slice();
-    entries[index] = letter;
-    commit({ entries, checked: value.checked });
-    setCursor(move(puzzle, index, direction, 1));
+  const focusEntry = () => {
+    if (wonRef.current) return;
+    const node = inputRef.current as (TextInput & { focus?: (opts?: { preventScroll?: boolean }) => void }) | null;
+    node?.focus?.({ preventScroll: true });
+  };
+
+  const typeLetters = (letters: string) => {
+    if (wonRef.current || !letters) return;
+    const entries = boardRef.current.entries.slice();
+    let index = cursorRef.current;
+    for (const letter of letters) {
+      if (!/^[a-z]$/.test(letter) || !puzzle.cells[index]) break;
+      entries[index] = letter;
+      const next = move(puzzle, index, directionRef.current, 1);
+      if (next === index) break;
+      index = next;
+    }
+    const nextState = { entries, checked: boardRef.current.checked };
+    boardRef.current = nextState;
+    cursorRef.current = index;
+    commit(nextState);
+    setCursor(index);
   };
 
   const eraseAt = (index: number) => {
-    if (won) return;
-    const entries = value.entries.slice();
+    if (wonRef.current) return;
+    const entries = boardRef.current.entries.slice();
     if (entries[index]) {
       entries[index] = '';
-      commit({ entries, checked: value.checked });
+      const nextState = { entries, checked: boardRef.current.checked };
+      boardRef.current = nextState;
+      commit(nextState);
       return;
     }
-    const previous = move(puzzle, index, direction, -1);
+    const previous = move(puzzle, index, directionRef.current, -1);
     if (previous === index) return;
     entries[previous] = '';
-    commit({ entries, checked: value.checked });
+    const nextState = { entries, checked: boardRef.current.checked };
+    boardRef.current = nextState;
+    cursorRef.current = previous;
+    commit(nextState);
     setCursor(previous);
+  };
+
+  const onDraft = (text: string) => {
+    const letters = text.toLowerCase().replace(/[^a-z]/g, '');
+    if (!letters) {
+      typedRef.current = '';
+      setDraft('');
+      return;
+    }
+    const previous = typedRef.current;
+    const added = previous && letters.startsWith(previous) ? letters.slice(previous.length) : letters.slice(-1);
+    typedRef.current = letters;
+    if (added) typeLetters(added);
+    setDraft('');
   };
 
   useGameKeys(ready && !won, (key, event) => {
@@ -92,7 +158,7 @@ export function CrosswordGame({ date }: { date: string }) {
       eraseAt(cursor);
     } else if (/^[a-zA-Z]$/.test(key)) {
       event.preventDefault();
-      typeAt(cursor, key.toLowerCase());
+      typeLetters(key.toLowerCase());
     } else if (key === 'Tab') {
       event.preventDefault();
       setDirection((current) => (current === 'across' ? 'down' : 'across'));
@@ -115,7 +181,9 @@ export function CrosswordGame({ date }: { date: string }) {
       <Text style={styles.note}>
         {won
           ? 'Solved. Every entry crosses.'
-          : `${active ? `${active.number} ${active.direction}. ${active.clue}` : 'Tap a square and type.'} Arrow keys move. Tab switches direction.`}
+          : touch
+            ? `${active ? `${active.number} ${active.direction}. ${active.clue}` : 'Tap a square.'} Use the letters below, or tap a square and type. Tap a selected square to switch direction.`
+            : `${active ? `${active.number} ${active.direction}. ${active.clue}` : 'Tap a square and type.'} Arrow keys move. Tab switches direction.`}
       </Text>
       <View style={[styles.grid, { width: puzzle.size * cellSize + (puzzle.size - 1) * gap }]}>
         {puzzle.cells.map((cell, index) => {
@@ -128,6 +196,7 @@ export function CrosswordGame({ date }: { date: string }) {
               onPress={() => {
                 if (cursor === index) setDirection((current) => (current === 'across' ? 'down' : 'across'));
                 else setCursor(index);
+                focusEntry();
               }}
               style={[
                 styles.cell,
@@ -142,6 +211,73 @@ export function CrosswordGame({ date }: { date: string }) {
           );
         })}
       </View>
+      {won ? null : (
+        <TextInput
+          ref={inputRef}
+          value={draft}
+          onChangeText={onDraft}
+          onKeyPress={(event) => {
+            const key = event.nativeEvent.key;
+            if (key === 'Backspace' || key === 'Delete') eraseAt(cursorRef.current);
+            else if (key === 'ArrowLeft' || key === 'ArrowRight') {
+              setDirection('across');
+              setCursor((current) => move(puzzle, current, 'across', key === 'ArrowLeft' ? -1 : 1));
+            } else if (key === 'ArrowUp' || key === 'ArrowDown') {
+              setDirection('down');
+              setCursor((current) => move(puzzle, current, 'down', key === 'ArrowUp' ? -1 : 1));
+            }
+          }}
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="off"
+          spellCheck={false}
+          caretHidden
+          blurOnSubmit={false}
+          pointerEvents="none"
+          accessible={false}
+          importantForAccessibility="no-hide-descendants"
+          accessibilityElementsHidden
+          style={styles.capture}
+        />
+      )}
+      {touch && !won ? (
+        <View style={styles.pad}>
+          <View style={styles.dirRow}>
+            {(['across', 'down'] as const).map((side) => {
+              const on = direction === side;
+              return (
+                <Pressable
+                  key={side}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  onPress={() => setDirection(side)}
+                  style={[styles.dir, on && styles.dirOn]}>
+                  <Text style={[styles.dirLabel, on && styles.dirLabelOn]}>{side === 'across' ? 'Across' : 'Down'}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {LETTER_ROWS.map((row) => (
+            <View key={row} style={styles.padRow}>
+              {row === 'zxcvbnm' ? (
+                <Pressable accessibilityRole="button" accessibilityLabel="Delete" onPress={() => eraseAt(cursor)} style={[styles.padKey, styles.padWide]}>
+                  <Text style={styles.padWideLabel}>Del</Text>
+                </Pressable>
+              ) : null}
+              {row.split('').map((letter) => (
+                <Pressable
+                  key={letter}
+                  accessibilityRole="button"
+                  accessibilityLabel={letter.toUpperCase()}
+                  onPress={() => typeLetters(letter)}
+                  style={styles.padKey}>
+                  <Text style={styles.padLabel}>{letter.toUpperCase()}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ))}
+        </View>
+      ) : null}
       <View style={styles.actions}>
         <Btn label="Check" variant="secondary" disabled={won} onPress={() => commit({ ...value, checked: true })} />
         <Btn
@@ -172,6 +308,7 @@ export function CrosswordGame({ date }: { date: string }) {
                     onPress={() => {
                       setDirection(clue.direction);
                       setCursor(clue.cells.find((index) => value.entries[index] !== puzzle.cells[index]?.letter) ?? clue.cells[0] ?? 0);
+                      focusEntry();
                     }}>
                     <Text style={[styles.clue, on && styles.clueOn, done && styles.clueDone]}>
                       {clue.number}. {clue.clue}
@@ -204,6 +341,41 @@ const styles = StyleSheet.create({
   cellWrong: { backgroundColor: colors.dangerBg },
   number: { position: 'absolute', top: 2, left: 3, color: colors.textDim, fontSize: 9, fontWeight: '700' },
   letter: { color: colors.text, fontSize: 20, fontWeight: '700' },
+  capture: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+    fontSize: 16,
+  },
+  pad: { alignSelf: 'stretch', gap: 6 },
+  dirRow: { flexDirection: 'row', gap: 8 },
+  dir: {
+    flex: 1,
+    height: 36,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dirOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  dirLabel: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  dirLabelOn: { color: colors.bg },
+  padRow: { flexDirection: 'row', gap: 4 },
+  padKey: {
+    flexGrow: 1,
+    flexBasis: 0,
+    height: 42,
+    borderRadius: 6,
+    backgroundColor: colors.bgHover,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  padWide: { flexGrow: 1.4 },
+  padLabel: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  padWideLabel: { color: colors.text, fontSize: 13, fontWeight: '700' },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   clues: { flexDirection: 'row', gap: 16 },
   clueCol: { flex: 1, gap: 6, minWidth: 140 },

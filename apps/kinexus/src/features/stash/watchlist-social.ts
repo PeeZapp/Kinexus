@@ -294,6 +294,21 @@ export async function upsertPublicWatched(input: {
   throwIfError(error);
 }
 
+export async function clearPublicWatchedScore(input: {
+  userId: string;
+  tmdbId: number;
+  mediaType: WatchlistMediaType;
+}): Promise<void> {
+  if (!supabase) throw new Error('Not ready');
+  const { error } = await supabase
+    .from('watchlist_public_watched')
+    .update({ score: null })
+    .eq('user_id', input.userId)
+    .eq('tmdb_id', input.tmdbId)
+    .eq('media_type', input.mediaType);
+  throwIfError(error);
+}
+
 export async function removePublicWatched(input: {
   userId: string;
   tmdbId: number;
@@ -415,6 +430,48 @@ export async function deleteGlobalReview(reviewId: string): Promise<void> {
   if (!supabase) throw new Error('Not ready');
   const { error } = await supabase.from('watchlist_global_reviews').delete().eq('id', reviewId);
   throwIfError(error);
+}
+
+export async function deleteGlobalReviewForTitle(input: {
+  userId: string;
+  tmdbId: number;
+  mediaType: WatchlistMediaType;
+}): Promise<void> {
+  if (!supabase) throw new Error('Not ready');
+  const { error } = await supabase
+    .from('watchlist_global_reviews')
+    .delete()
+    .eq('user_id', input.userId)
+    .eq('tmdb_id', input.tmdbId)
+    .eq('media_type', input.mediaType);
+  throwIfError(error);
+}
+
+export async function isTitleOnPublicProfile(input: {
+  userId: string;
+  tmdbId: number;
+  mediaType: WatchlistMediaType;
+}): Promise<boolean> {
+  if (!supabase) return false;
+  const [{ data: watched, error: watchedError }, { data: review, error: reviewError }] = await Promise.all([
+    supabase
+      .from('watchlist_public_watched')
+      .select('id')
+      .eq('user_id', input.userId)
+      .eq('tmdb_id', input.tmdbId)
+      .eq('media_type', input.mediaType)
+      .maybeSingle(),
+    supabase
+      .from('watchlist_global_reviews')
+      .select('id')
+      .eq('user_id', input.userId)
+      .eq('tmdb_id', input.tmdbId)
+      .eq('media_type', input.mediaType)
+      .maybeSingle(),
+  ]);
+  throwIfError(watchedError);
+  throwIfError(reviewError);
+  return Boolean(watched?.id || review?.id);
 }
 
 export async function voteGlobalReview(input: {

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo } from 'react';
 
-import type { Day, GeneratedSlot, MealSlot, MealSlotKey, NutritionGoals, PersonSlotApproval, Recipe } from '@kinexus/domain';
+import type { Day, GeneratedSlot, MealSlot, MealSlotKey, NutritionGoals, PersonSlotApproval, Recipe, StoredGroceryQuote } from '@kinexus/domain';
 import {
   attachRecipeCost,
   audienceOverlapsExisting,
@@ -19,12 +19,13 @@ import {
   normalizeAudiencePersonIds,
   orderedMealSlotKeys,
   otherDaysToHideForNewSlot,
+  resolveShoppingCategory,
   shoppingFromPlan,
   shoppingMergeKey,
   shouldDropSlotFromActive,
 } from '@kinexus/domain';
 
-import { rpc, type Database } from '@kinexus/db';
+import { rpc, type Database, type Json } from '@kinexus/db';
 
 import { readMealsCache, writeMealsCache } from '@/src/features/meals/cache';
 import {
@@ -309,6 +310,12 @@ export function useMealsSync() {
     queryKey: recipeKey,
     enabled: Boolean(householdId && supabase && online),
     queryFn: () => fetchRecipes(householdId!, market.country, market.currency),
+  });
+
+  const priceBookQuery = useQuery({
+    queryKey: ['meals', 'price-book', market.country, market.currency],
+    enabled: Boolean(supabase && online),
+    queryFn: () => fetchPriceBook(market.country, market.currency),
   });
 
   const planQuery = useQuery({
@@ -1059,6 +1066,60 @@ export function useMealsSync() {
     [householdId, online, queryClient, weekStart],
   );
 
+  const updateShoppingItem = useCallback(
+    async (id: string, name: string, amount?: string) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      if (!online) throw new Error('Editing shopping items needs a connection');
+      const trimmed = name.trim();
+      if (!trimmed) throw new Error('Name is required');
+      const nextAmount = amount?.trim() || null;
+      const key = shoppingKey(householdId, weekStart);
+      const previous = queryClient.getQueryData<ShoppingListItem[]>(key);
+      const currentItem = previous?.find((item) => item.id === id);
+      let category = currentItem?.category ?? 'Other';
+      if (!currentItem || trimmed.toLowerCase() !== currentItem.name.trim().toLowerCase()) {
+        const nextCategory = resolveShoppingCategory(undefined, trimmed);
+        if (nextCategory !== 'Other') category = nextCategory;
+      }
+      queryClient.setQueryData<ShoppingListItem[]>(key, (current) =>
+        (current ?? []).map((item) =>
+          item.id === id ? { ...item, name: trimmed, amount: nextAmount, category } : item,
+        ),
+      );
+      const { error } = await supabase
+        .from('shopping_items')
+        .update({ name: trimmed, amount: nextAmount, category })
+        .eq('id', id);
+      if (error) {
+        queryClient.setQueryData(key, previous);
+        throw new Error(error.message);
+      }
+    },
+    [householdId, online, queryClient, weekStart],
+  );
+
+  const saveShoppingQuotes = useCallback(
+    async (rows: { id: string; quote: StoredGroceryQuote }[]) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      if (!online) throw new Error('Saving prices needs a connection');
+      const key = shoppingKey(householdId, weekStart);
+      for (const row of rows) {
+        const { error } = await supabase
+          .from('shopping_items')
+          .update({ grocery_quote: row.quote as unknown as Json })
+          .eq('id', row.id);
+        if (error) throw new Error(error.message);
+      }
+      queryClient.setQueryData<ShoppingListItem[]>(key, (current) =>
+        (current ?? []).map((item) => {
+          const next = rows.find((row) => row.id === item.id);
+          return next ? { ...item, groceryQuote: next.quote } : item;
+        }),
+      );
+    },
+    [householdId, online, queryClient, weekStart],
+  );
+
   const deleteShoppingItem = useCallback(
     async (id: string) => {
       if (!householdId || !supabase) throw new Error('Not ready');
@@ -1518,6 +1579,7 @@ export function useMealsSync() {
   return {
     householdId,
     market,
+    priceBook: priceBookQuery.data ?? null,
     weekStart,
     setWeek,
     shiftWeek,
@@ -1560,6 +1622,8 @@ export function useMealsSync() {
     applyGeneratedPlan,
     toggleShoppingItem,
     addShoppingItem,
+    updateShoppingItem,
+    saveShoppingQuotes,
     deleteShoppingItem,
     clearCheckedShopping,
     toggleFavourite,

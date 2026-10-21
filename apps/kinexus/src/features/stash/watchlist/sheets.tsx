@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
   WATCHLIST_GLOBAL_SAMPLE_LIMIT,
@@ -16,6 +16,7 @@ import {
   type WatchlistEntry,
   type WatchlistItemStatus,
   type WatchlistList,
+  type WatchlistProvider,
   type WatchlistResolvedTitle,
   type WatchlistReview,
   type WatchlistSearchHit,
@@ -29,6 +30,7 @@ import type { ListShareDraft } from '@/src/features/stash/use-stash-sync';
 import type { WatchlistGlobalPublish } from '@/src/features/stash/use-watchlist-sync';
 import { Sheet } from '@/src/features/meals/meals-kit';
 import { colors, radius, space } from '@/src/features/shell/theme';
+import { useExperienceMode } from '@/src/lib/experience-mode';
 import {
   lookupWatchlistCatalog,
   resolveWatchlistLink,
@@ -427,6 +429,7 @@ export function CuratedTitleSheet({
   busy?: boolean;
   error?: string | null;
 }) {
+  const desktop = useExperienceMode().mode === 'desktop';
   const [resolved, setResolved] = useState<WatchlistResolvedTitle | null>(null);
   const [listId, setListId] = useState<string | null>(null);
   const [status, setStatus] = useState<WatchlistItemStatus>('want');
@@ -482,69 +485,336 @@ export function CuratedTitleSheet({
   const selected = lists.find((list) => list.id === listId) ?? null;
   const already = selected ? savedListIds.has(selected.id) : false;
   const savedNames = lists.filter((list) => savedListIds.has(list.id)).map((list) => list.name);
+  const watch = (
+    <WatchAvailability
+      providers={resolved?.providers ?? []}
+      country={country}
+      watchUrl={resolved?.tmdbWatchUrl ?? null}
+      trailerUrl={resolved?.trailerUrl ?? null}
+      resetKey={hitKey}
+      loading={loading}
+    />
+  );
+  const about = (
+    <>
+      <TitleIdentity
+        posterUri={poster}
+        year={hit.year}
+        mediaType={hit.mediaType}
+        context={savedNames.length > 0 ? `Already on ${savedNames.join(', ')}` : null}
+      />
+      <Synopsis text={overview} />
+      {lists.length > 0 ? (
+        <View style={detail.section}>
+          <SectionHead label="Add to" />
+          <View style={detail.choices}>
+            {lists.map((list) => {
+              const on = listId === list.id;
+              const saved = savedListIds.has(list.id);
+              return (
+                <Pressable
+                  key={list.id}
+                  onPress={() => setListId(list.id)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: on }}
+                  style={[detail.choice, on && detail.choiceOn]}>
+                  <View style={[detail.radio, on && detail.radioOn]}>{on ? <View style={detail.radioDot} /> : null}</View>
+                  <Text style={detail.choiceLabel} numberOfLines={1}>
+                    {list.name}
+                  </Text>
+                  {saved ? <Text style={detail.choiceMeta}>On list</Text> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+          <SectionHead label="Status" />
+          <StatusSegment value={status} onChange={setStatus} />
+        </View>
+      ) : (
+        <Text style={detail.quiet}>Create a watchlist first, then you can add this title.</Text>
+      )}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+      <Btn
+        label={already && selected ? `Already on ${selected.name}` : selected ? `Add to ${selected.name}` : 'Add to a watchlist'}
+        onPress={() => selected && !already && void onAdd(hit, selected.id, status)}
+        busy={busy}
+        disabled={!selected || already || busy}
+      />
+    </>
+  );
 
   return (
-    <Sheet visible={visible} title={hit.title} onClose={onClose} wide>
-      <View style={styles.stack}>
-        <View style={styles.hero}>
-          {poster ? <Image source={{ uri: poster }} style={styles.heroPoster} /> : <View style={styles.heroPoster} />}
-          <View style={styles.heroCopy}>
-            <Text style={styles.previewTitle}>{hit.title}</Text>
-            <Text style={styles.hint}>
-              {hit.year ? `${hit.year} · ` : ''}
-              {mediaTypeLabel(hit.mediaType)}
-            </Text>
-            {savedNames.length > 0 ? <Text style={styles.hint}>Already on {savedNames.join(', ')}</Text> : null}
-          </View>
+    <Sheet visible={visible} title={hit.title} onClose={onClose} desktopMaxWidth={1080}>
+      {desktop ? (
+        <View style={detail.split}>
+          <View style={detail.mainCol}>{about}</View>
+          <View style={detail.sideCol}>{watch}</View>
         </View>
-        {loading ? <Text style={styles.hint}>Loading details…</Text> : null}
-        {overview ? <Text style={styles.overview}>{overview}</Text> : null}
-        <Text style={styles.label}>Where to watch in {country}</Text>
-        <ProviderChips providers={resolved?.providers ?? []} />
-        {resolved?.trailerUrl || resolved?.tmdbWatchUrl ? (
-          <View style={styles.wrap}>
-            {resolved.trailerUrl ? <Btn label="Watch trailer" onPress={() => openExternal(resolved.trailerUrl)} /> : null}
-            {resolved.tmdbWatchUrl ? (
-              <Btn label="Open where to watch" variant="secondary" onPress={() => openExternal(resolved.tmdbWatchUrl)} />
-            ) : null}
-          </View>
-        ) : null}
-        {lists.length > 0 ? (
-          <>
-            <Text style={styles.label}>Add to</Text>
-            <View style={styles.wrap}>
-              {lists.map((list) => (
-                <Pill
-                  key={list.id}
-                  label={savedListIds.has(list.id) ? `${list.name} · on list` : list.name}
-                  active={listId === list.id}
-                  onPress={() => setListId(list.id)}
-                />
-              ))}
+      ) : (
+        <View style={detail.stack}>
+          <TitleIdentity
+            posterUri={poster}
+            year={hit.year}
+            mediaType={hit.mediaType}
+            context={savedNames.length > 0 ? `Already on ${savedNames.join(', ')}` : null}
+          />
+          <Synopsis text={overview} />
+          {watch}
+          {lists.length > 0 ? (
+            <View style={detail.section}>
+              <SectionHead label="Add to" />
+              <View style={detail.choices}>
+                {lists.map((list) => {
+                  const on = listId === list.id;
+                  const saved = savedListIds.has(list.id);
+                  return (
+                    <Pressable
+                      key={list.id}
+                      onPress={() => setListId(list.id)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: on }}
+                      style={[detail.choice, on && detail.choiceOn]}>
+                      <View style={[detail.radio, on && detail.radioOn]}>{on ? <View style={detail.radioDot} /> : null}</View>
+                      <Text style={detail.choiceLabel} numberOfLines={1}>
+                        {list.name}
+                      </Text>
+                      {saved ? <Text style={detail.choiceMeta}>On list</Text> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <SectionHead label="Status" />
+              <StatusSegment value={status} onChange={setStatus} />
             </View>
-            <Text style={styles.label}>Status</Text>
-            <View style={styles.wrap}>
-              {WATCHLIST_ITEM_STATUSES.map((item) => (
-                <Pill key={item} label={itemStatusLabel(item)} active={status === item} onPress={() => setStatus(item)} />
-              ))}
-            </View>
-          </>
-        ) : (
-          <Text style={styles.hint}>Create a watchlist first, then you can add this title.</Text>
-        )}
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Btn
-          label={already && selected ? `Already on ${selected.name}` : selected ? `Add to ${selected.name}` : 'Add to a watchlist'}
-          onPress={() => selected && !already && void onAdd(hit, selected.id, status)}
-          busy={busy}
-          disabled={!selected || already || busy}
-        />
-      </View>
+          ) : (
+            <Text style={detail.quiet}>Create a watchlist first, then you can add this title.</Text>
+          )}
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <Btn
+            label={already && selected ? `Already on ${selected.name}` : selected ? `Add to ${selected.name}` : 'Add to a watchlist'}
+            onPress={() => selected && !already && void onAdd(hit, selected.id, status)}
+            busy={busy}
+            disabled={!selected || already || busy}
+          />
+        </View>
+      )}
     </Sheet>
   );
 }
 
 const REVIEW_SCORES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+
+const STATUS_SHORT: Record<WatchlistItemStatus, string> = {
+  want: 'Want',
+  watching: 'Watching',
+  watched: 'Watched',
+};
+
+function SectionHead({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <View style={detail.sectionHead}>
+      <Text style={detail.sectionLabel}>{label}</Text>
+      {value ? <Text style={detail.sectionValue}>{value}</Text> : null}
+    </View>
+  );
+}
+
+function TitleIdentity({
+  posterUri,
+  year,
+  mediaType,
+  context,
+}: {
+  posterUri: string | null;
+  year: number | null;
+  mediaType: WatchlistSearchHit['mediaType'];
+  context?: string | null;
+}) {
+  return (
+    <View style={detail.identity}>
+      {posterUri ? <Image source={{ uri: posterUri }} style={detail.poster} /> : <View style={detail.poster} />}
+      <View style={detail.identityCopy}>
+        <Text style={detail.kicker}>
+          {year ? `${year}  ·  ` : ''}
+          {mediaTypeLabel(mediaType)}
+        </Text>
+        {context ? (
+          <Text style={detail.context} numberOfLines={2}>
+            {context}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function Synopsis({ text }: { text: string | null | undefined }) {
+  if (!text?.trim()) return null;
+  return <Text style={detail.synopsis}>{text.trim()}</Text>;
+}
+
+const WATCH_TABS = ['stream', 'rent', 'buy'] as const;
+type WatchTab = (typeof WATCH_TABS)[number];
+
+function providersForTab(providers: readonly WatchlistProvider[], tab: WatchTab): WatchlistProvider[] {
+  const allow = tab === 'stream' ? new Set(['flatrate', 'ads', 'free']) : new Set([tab]);
+  const seen = new Set<number>();
+  return providers
+    .filter((provider) => allow.has(provider.offerType))
+    .slice()
+    .sort((a, b) => a.displayPriority - b.displayPriority || a.providerName.localeCompare(b.providerName))
+    .filter((provider) => {
+      if (seen.has(provider.providerId)) return false;
+      seen.add(provider.providerId);
+      return true;
+    });
+}
+
+function WatchAvailability({
+  providers,
+  country,
+  watchUrl,
+  trailerUrl,
+  sourceUrl,
+  resetKey,
+  loading,
+}: {
+  providers: readonly WatchlistProvider[];
+  country: string;
+  watchUrl: string | null;
+  trailerUrl: string | null;
+  sourceUrl?: string | null;
+  resetKey: string;
+  loading?: boolean;
+}) {
+  const [tab, setTab] = useState<WatchTab>('stream');
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  useEffect(() => {
+    setTab('stream');
+    setSelectedId(null);
+  }, [resetKey]);
+  const rows = providersForTab(providers, tab);
+  const selected = rows.find((provider) => provider.providerId === selectedId) ?? null;
+  const empty =
+    tab === 'stream' ? 'Nothing to stream in this country yet.' : tab === 'rent' ? 'Nothing to rent in this country yet.' : 'Nothing to buy in this country yet.';
+  return (
+    <View style={detail.section}>
+      <SectionHead label="Where to watch" value={country} />
+      <View style={detail.segment}>
+        {WATCH_TABS.map((item) => {
+          const on = tab === item;
+          const label = item === 'stream' ? 'Stream' : item === 'rent' ? 'Rent' : 'Buy';
+          return (
+            <Pressable
+              key={item}
+              onPress={() => {
+                setTab(item);
+                setSelectedId(null);
+              }}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+              style={[detail.segmentItem, on && detail.segmentOn]}>
+              <Text style={[detail.segmentLabel, on && detail.segmentLabelOn]}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {loading ? (
+        <Text style={detail.quiet}>Checking availability…</Text>
+      ) : rows.length === 0 ? (
+        <Text style={detail.quiet}>{empty}</Text>
+      ) : (
+        <View style={detail.services}>
+          {rows.map((provider) => {
+            const on = selected?.providerId === provider.providerId;
+            const logo = tmdbImageUrl(provider.logoPath, 'w92');
+            return (
+              <Pressable
+                key={provider.providerId}
+                onPress={() => setSelectedId(on ? null : provider.providerId)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+                style={[detail.service, on && detail.serviceOn]}>
+                {logo ? <Image source={{ uri: logo }} style={detail.serviceLogo} /> : <View style={detail.serviceLogo} />}
+                <Text style={detail.serviceName} numberOfLines={2}>
+                  {provider.providerName}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+      <View style={detail.actionRow}>
+        {trailerUrl ? (
+          <View style={detail.actionSlot}>
+            <Btn label="Trailer" onPress={() => openExternal(trailerUrl)} />
+          </View>
+        ) : null}
+        <View style={detail.actionSlot}>
+          <Btn
+            label={selected ? selected.providerName : 'Where to watch'}
+            variant={selected ? 'primary' : 'secondary'}
+            onPress={() => openExternal(watchUrl)}
+            disabled={!watchUrl}
+          />
+        </View>
+      </View>
+      {sourceUrl ? (
+        <Pressable onPress={() => openExternal(sourceUrl)} hitSlop={6} accessibilityRole="button">
+          <Text style={detail.link}>Original link</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function StatusSegment({
+  value,
+  onChange,
+}: {
+  value: WatchlistItemStatus;
+  onChange: (status: WatchlistItemStatus) => void;
+}) {
+  return (
+    <View style={detail.segment}>
+      {WATCHLIST_ITEM_STATUSES.map((item) => {
+        const on = value === item;
+        return (
+          <Pressable
+            key={item}
+            onPress={() => onChange(item)}
+            accessibilityRole="button"
+            accessibilityLabel={itemStatusLabel(item)}
+            accessibilityState={{ selected: on }}
+            style={[detail.segmentItem, on && detail.segmentOn]}>
+            <Text style={[detail.segmentLabel, on && detail.segmentLabelOn]}>{STATUS_SHORT[item]}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function ScoreRail({ value, onChange }: { value: number | null; onChange: (score: number) => void }) {
+  return (
+    <View style={detail.rail}>
+      {REVIEW_SCORES.map((score) => {
+        const on = value === score;
+        return (
+          <Pressable
+            key={score}
+            onPress={() => onChange(score)}
+            accessibilityRole="button"
+            accessibilityLabel={`Score ${score}`}
+            accessibilityState={{ selected: on }}
+            style={[detail.railCell, on && detail.railCellOn]}>
+            <Text style={[detail.railLabel, on && detail.railLabelOn]}>{score}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
 
 function TitleReviews({
   reviews,
@@ -559,6 +829,8 @@ function TitleReviews({
   audience = 'household',
   heading,
   hint,
+  publicReview = null,
+  profileKnown = false,
 }: {
   reviews: WatchlistReview[];
   people: HouseholdPerson[];
@@ -567,17 +839,27 @@ function TitleReviews({
   defaultPersonId: string | null;
   resetKey: string;
   busy?: boolean;
-  onSave: (personId: string, score: number, body: string) => Promise<void>;
+  onSave: (
+    personId: string,
+    score: number,
+    body: string,
+    opts: { showOnProfile: boolean; profileKnown: boolean },
+  ) => Promise<void>;
   onDelete: (reviewId: string) => Promise<void>;
   audience?: 'household' | 'self';
   heading?: string;
   hint?: string;
+  publicReview?: { score: number; body: string | null; updatedAt: string } | null;
+  profileKnown?: boolean;
 }) {
   const [personId, setPersonId] = useState<string | null>(defaultPersonId);
   const [score, setScore] = useState<number | null>(null);
   const [body, setBody] = useState('');
+  const [showOnProfile, setShowOnProfile] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
   const loaded = useRef('');
   const appliedTitle = useRef('');
+  const profileTouched = useRef(false);
 
   useEffect(() => {
     const key = `${resetKey}:${defaultPersonId ?? ''}`;
@@ -590,104 +872,141 @@ function TitleReviews({
   const current = reviews.find((review) => review.personId === personId) ?? null;
   useEffect(() => {
     const stamp = `${resetKey}:${personId ?? ''}:${current?.updatedAt ?? 'new'}`;
-    if (loaded.current === stamp) return;
+    if (loaded.current === stamp) {
+      if (!current && publicReview && score == null && body === '') {
+        setScore(publicReview.score);
+        setBody(publicReview.body ?? '');
+      }
+      return;
+    }
     loaded.current = stamp;
-    setScore(current?.score ?? null);
-    setBody(current?.body ?? '');
-  }, [current, personId, resetKey]);
+    setScore(current?.score ?? publicReview?.score ?? null);
+    setBody(current?.body ?? publicReview?.body ?? '');
+  }, [body, current, personId, publicReview, resetKey, score]);
+
+  useEffect(() => {
+    profileTouched.current = false;
+    setComposerOpen(false);
+  }, [resetKey]);
+
+  useEffect(() => {
+    if (profileTouched.current) return;
+    setShowOnProfile(Boolean(publicReview));
+  }, [publicReview, resetKey]);
   const average = familyReviewAverage(reviews.map((review) => review.score));
 
   const youId = selfPersonId ?? 'self';
-  const writerName =
-    personId === youId || personId === 'self' ? selfName : (people.find((person) => person.id === personId)?.name ?? null);
+  const writingAsSelf = personId === youId || personId === 'self' || (selfPersonId != null && personId === selfPersonId);
+  const writerName = writingAsSelf ? selfName : (people.find((person) => person.id === personId)?.name ?? null);
   const others = people.filter((person) => person.id !== selfPersonId);
-
-  const scoreRow = (
-    <View style={styles.wrap}>
-      {REVIEW_SCORES.map((value) => (
-        <Pill key={value} label={String(value)} active={score === value} onPress={() => setScore(value)} />
-      ))}
-    </View>
-  );
-
-  if (audience === 'self') {
-    return (
-      <View style={styles.preview}>
-        <Text style={styles.label}>{heading ?? 'Your review'}</Text>
-        {scoreRow}
-        <Field
-          label="Review"
-          value={body}
-          onChangeText={setBody}
-          placeholder="Optional"
-          multiline
-          autoCapitalize="sentences"
-          autoCorrect
-        />
-        <Btn
-          label={current ? 'Update your review' : 'Save your review'}
-          onPress={() => personId && score && void onSave(personId, score, body)}
-          busy={busy}
-          disabled={!personId || !score || busy}
-        />
-        {current ? (
-          <Btn label="Delete your review" variant="danger" onPress={() => void onDelete(current.id)} disabled={busy} />
-        ) : null}
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.preview}>
-      <Text style={styles.label}>
-        {heading ?? 'Family reviews'}
-        {average != null ? ` · ${average}` : ''}
-      </Text>
-      {hint ? <Text style={styles.hint}>{hint}</Text> : null}
-      {[
-        { id: youId, name: `${selfName} (you)` },
-        ...others.map((person) => ({ id: person.id, name: person.name })),
-      ].map((person) => {
-        const review =
-          person.id === 'self' ? null : (reviews.find((row) => row.personId === person.id) ?? null);
-        return (
-          <View key={person.id} style={styles.reviewRow}>
-            <Text style={styles.hitName}>
-              {person.name}
-              {review ? ` · ${review.score}/10` : ' · No review'}
-            </Text>
-            {review?.body ? <Text style={styles.hint}>{review.body}</Text> : null}
-            <View style={styles.wrap}>
-              <Pill
-                label={review ? 'Edit' : 'Write'}
-                active={personId === person.id}
-                onPress={() => setPersonId(person.id)}
-              />
-              {review ? <Pill label="Delete" onPress={() => void onDelete(review.id)} /> : null}
-            </View>
-          </View>
-        );
-      })}
-      <Text style={styles.label}>{writerName ? `Writing as ${writerName}` : 'Choose who is writing'}</Text>
-      {scoreRow}
-      <Field
-        label="Review"
+  const saveOpts = { showOnProfile: writingAsSelf && showOnProfile, profileKnown };
+  const composer = (
+    <View style={detail.composer}>
+      {!writingAsSelf && writerName ? <Text style={detail.quiet}>Scoring as {writerName}</Text> : null}
+      <ScoreRail value={score} onChange={setScore} />
+      <TextInput
         value={body}
         onChangeText={setBody}
-        placeholder="What did you think?"
+        placeholder="Add a note"
+        placeholderTextColor={colors.textDim}
+        style={detail.noteInput}
         multiline
         autoCapitalize="sentences"
         autoCorrect
       />
-      <Btn
-        label={writerName ? (current ? `Update ${writerName}'s review` : `Save ${writerName}'s review`) : 'Save review'}
-        onPress={() => personId && score && void onSave(personId, score, body)}
-        busy={busy}
-        disabled={!personId || !score || busy}
-      />
-      {current ? (
-        <Btn label={`Delete ${writerName ?? 'this'} review`} variant="danger" onPress={() => void onDelete(current.id)} disabled={busy} />
+      {writingAsSelf ? (
+        <Pressable
+          onPress={() => {
+            profileTouched.current = true;
+            setShowOnProfile((value) => !value);
+          }}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: showOnProfile }}
+          style={detail.profileRow}>
+          <View style={detail.profileCopy}>
+            <Text style={detail.profileLabel}>Show on my profile</Text>
+            <Text style={detail.profileHint}>Shown under your alias</Text>
+          </View>
+          <Text style={[detail.profileState, showOnProfile && detail.profileStateOn]}>{showOnProfile ? 'On' : 'Off'}</Text>
+        </Pressable>
       ) : null}
+      <View style={detail.composerActions}>
+        {current ? (
+          <Pressable onPress={() => void onDelete(current.id)} disabled={busy} hitSlop={6} accessibilityRole="button">
+            <Text style={[detail.deleteLabel, busy && detail.linkDisabled]}>Delete</Text>
+          </Pressable>
+        ) : (
+          <View />
+        )}
+        <Pressable
+          onPress={() => personId && score && void onSave(personId, score, body, saveOpts)}
+          disabled={!personId || !score || busy}
+          accessibilityRole="button"
+          style={[detail.saveBtn, (!personId || !score || busy) && detail.saveOff]}>
+          <Text style={detail.saveLabel}>{busy ? 'Saving…' : current ? 'Update' : 'Save'}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+
+  if (audience === 'self') {
+    const showComposer = composerOpen || !current;
+    return (
+      <View style={detail.section}>
+        <SectionHead label={heading ?? 'Your score'} value={current ? String(current.score) : null} />
+        {current && !showComposer ? (
+          <Pressable onPress={() => setComposerOpen(true)} accessibilityRole="button" style={detail.summary}>
+            <Text style={current.body ? detail.personNote : detail.quiet}>{current.body || 'No note'}</Text>
+            <Text style={detail.link}>Edit</Text>
+          </Pressable>
+        ) : (
+          composer
+        )}
+      </View>
+    );
+  }
+
+  const rows = [
+    { id: youId, name: selfName, you: true },
+    ...others.map((person) => ({ id: person.id, name: person.name, you: false })),
+  ];
+
+  return (
+    <View style={detail.section}>
+      <SectionHead label={heading ?? 'Scores'} value={average != null ? String(average) : null} />
+      {hint ? <Text style={detail.quiet}>{hint}</Text> : null}
+      <View style={detail.people}>
+        {rows.map((person, index) => {
+          const review = person.id === 'self' ? null : (reviews.find((row) => row.personId === person.id) ?? null);
+          const open = composerOpen && personId === person.id;
+          return (
+            <View key={person.id} style={index > 0 ? detail.personRule : undefined}>
+              <Pressable
+                onPress={() => {
+                  setPersonId(person.id);
+                  setComposerOpen((openNow) => (personId === person.id ? !openNow : true));
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: open }}
+                style={detail.personRow}>
+                <View style={detail.personCopy}>
+                  <Text style={detail.personName} numberOfLines={1}>
+                    {person.name}
+                    {person.you ? <Text style={detail.you}>  ·  You</Text> : null}
+                  </Text>
+                  {review?.body && !open ? (
+                    <Text style={detail.personNote} numberOfLines={1}>
+                      {review.body}
+                    </Text>
+                  ) : null}
+                </View>
+                <Text style={[detail.scoreMark, review ? detail.scoreMarkOn : null]}>{review ? String(review.score) : '—'}</Text>
+              </Pressable>
+              {open ? composer : null}
+            </View>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -706,6 +1025,10 @@ export function TitleSheet({
   onOpenGlobalList,
   onSaveReview,
   onDeleteReview,
+  publicReview = null,
+  profileKnown = false,
+  socialRefresh = 0,
+  onOwnReview,
   onClose,
   onStatus,
   onMarkWatched,
@@ -726,8 +1049,17 @@ export function TitleSheet({
   userId: string | null;
   allowedAudience: WatchlistAudience;
   onOpenGlobalList?: (listId: string) => void;
-  onSaveReview: (personId: string, score: number, body: string) => Promise<void>;
+  onSaveReview: (
+    personId: string,
+    score: number,
+    body: string,
+    opts: { showOnProfile: boolean; profileKnown: boolean },
+  ) => Promise<void>;
   onDeleteReview: (reviewId: string) => Promise<void>;
+  publicReview?: { score: number; body: string | null; updatedAt: string } | null;
+  profileKnown?: boolean;
+  socialRefresh?: number;
+  onOwnReview?: (review: { score: number; body: string | null; updatedAt: string } | null) => void;
   onClose: () => void;
   onStatus: (status: WatchlistItemStatus) => Promise<void>;
   onMarkWatched?: () => void;
@@ -737,67 +1069,164 @@ export function TitleSheet({
   busy?: boolean;
   error?: string | null;
 }) {
+  const desktop = useExperienceMode().mode === 'desktop';
+  const entryId = entry?.item.id ?? null;
   const [notes, setNotes] = useState(entry?.item.notes ?? '');
+  const [reviewOpen, setReviewOpen] = useState(false);
   useEffect(() => {
+    setReviewOpen(false);
     if (!visible) return;
     setNotes(entry?.item.notes ?? '');
-  }, [entry, visible]);
+    // Only reset when this title opens, so a background refresh does not wipe a note in progress.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entryId, visible]);
   if (!entry) return null;
   const poster = tmdbImageUrl(entry.title.posterPath, 'w185');
+  const notesDirty = notes !== (entry.item.notes ?? '');
+  const statusValue: WatchlistItemStatus = entry.list.kind === 'custom' ? entry.item.status : 'watched';
+  const titleReviews = reviews.filter((review) => review.titleId === entry.title.id);
+  const ownReview = selfPersonId ? titleReviews.find((review) => review.personId === selfPersonId) ?? null : null;
+  const reviewScore =
+    entry.list.kind === 'watched_private' ? ownReview?.score ?? null : familyReviewAverage(titleReviews.map((review) => review.score));
+  const identity = (
+    <TitleIdentity
+      posterUri={poster}
+      year={entry.title.year}
+      mediaType={entry.title.mediaType}
+      context={`${entry.list.name}  ·  ${watchlistVisibilityLabel(entry.list.visibility)}`}
+    />
+  );
+  const watch = (
+    <WatchAvailability
+      providers={entry.title.providers}
+      country={country}
+      watchUrl={entry.title.tmdbWatchUrl}
+      trailerUrl={entry.title.trailerUrl}
+      sourceUrl={entry.title.sourceUrl}
+      resetKey={entry.title.id}
+    />
+  );
+  const status = (
+    <View style={detail.section}>
+      <SectionHead label="Status" />
+      <StatusSegment
+        value={statusValue}
+        onChange={(item) => {
+          if (item === 'watched' && onMarkWatched) {
+            onMarkWatched();
+            return;
+          }
+          void onStatus(item);
+        }}
+      />
+      {entry.list.kind === 'watched_family' ? (
+        <Text style={detail.quiet}>The family score is the average of everyone’s ratings.</Text>
+      ) : null}
+      {entry.list.kind === 'watched_private' ? (
+        <Text style={detail.quiet}>Only you can see this. Watched moves it to the family list.</Text>
+      ) : null}
+    </View>
+  );
+  const reviewButton = (
+    <Btn
+      label={reviewScore != null ? `Review · ${reviewScore}` : 'Review'}
+      variant="secondary"
+      onPress={() => setReviewOpen(true)}
+    />
+  );
+  const publicScores = (
+    <GlobalReviewsBlock
+      tmdbId={entry.title.tmdbId}
+      mediaType={entry.title.mediaType}
+      title={entry.title.title}
+      year={entry.title.year}
+      posterPath={entry.title.posterPath}
+      userId={userId}
+      allowedAudience={allowedAudience}
+      onOpenList={onOpenGlobalList}
+      busy={busy}
+      refreshKey={socialRefresh}
+      onOwnReview={onOwnReview}
+    />
+  );
+  const notesBlock = (
+    <View style={detail.section}>
+      <View style={detail.sectionHead}>
+        <Text style={detail.sectionLabel}>Notes</Text>
+        {notesDirty ? (
+          <Pressable onPress={() => void onSaveNotes(notes)} disabled={busy} hitSlop={6} accessibilityRole="button">
+            <Text style={[detail.link, busy && detail.linkDisabled]}>Save</Text>
+          </Pressable>
+        ) : null}
+      </View>
+      <TextInput
+        value={notes}
+        onChangeText={setNotes}
+        placeholder="A note just for this list"
+        placeholderTextColor={colors.textDim}
+        style={detail.noteInput}
+        multiline
+        autoCapitalize="sentences"
+        autoCorrect
+      />
+    </View>
+  );
+  const remove = (
+    <Pressable onPress={() => void onRemove()} disabled={busy} accessibilityRole="button" style={detail.removeBtn}>
+      <Text style={[detail.deleteLabel, busy && detail.linkDisabled]}>
+        {entry.list.kind === 'custom' ? 'Remove from list' : 'Remove from watched'}
+      </Text>
+    </Pressable>
+  );
   return (
-    <Sheet visible={visible} title={entry.title.title} onClose={onClose} wide>
-      <View style={styles.stack}>
-        <View style={styles.hero}>
-          {poster ? <Image source={{ uri: poster }} style={styles.heroPoster} /> : <View style={styles.heroPoster} />}
-          <View style={styles.heroCopy}>
-            <Text style={styles.previewTitle}>{entry.title.title}</Text>
-            <Text style={styles.hint}>
-              {entry.title.year ? `${entry.title.year} · ` : ''}
-              {mediaTypeLabel(entry.title.mediaType)} · {watchlistVisibilityLabel(entry.list.visibility)}
-            </Text>
-            <Text style={styles.hint}>{entry.list.name}</Text>
+    <>
+      <Sheet
+        visible={visible}
+        title={entry.title.title}
+        onClose={onClose}
+        desktopMaxWidth={1080}
+        action={
+          <Pressable
+            onPress={() => void onRefresh()}
+            disabled={busy}
+            accessibilityRole="button"
+            style={[detail.headerBtn, busy && detail.linkDisabled]}>
+            <Text style={detail.headerBtnLabel}>Refresh</Text>
+          </Pressable>
+        }>
+        {desktop ? (
+          <View style={detail.split}>
+            <View style={detail.mainCol}>
+              {identity}
+              <Synopsis text={entry.title.overview} />
+              {status}
+              {reviewButton}
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+              {remove}
+            </View>
+            <View style={detail.sideCol}>
+              {watch}
+              {publicScores}
+              {notesBlock}
+            </View>
           </View>
-        </View>
-        {entry.title.overview ? <Text style={styles.overview}>{entry.title.overview}</Text> : null}
-        <Text style={styles.label}>Where to watch in {country}</Text>
-        <ProviderChips providers={entry.title.providers} />
-        <View style={styles.wrap}>
-          {entry.title.trailerUrl ? (
-            <Btn label="Watch trailer" onPress={() => openExternal(entry.title.trailerUrl)} />
-          ) : null}
-          {entry.title.tmdbWatchUrl ? (
-            <Btn label="Open where to watch" variant="secondary" onPress={() => openExternal(entry.title.tmdbWatchUrl)} />
-          ) : null}
-          {entry.title.sourceUrl ? (
-            <Btn label="Open original link" variant="ghost" onPress={() => openExternal(entry.title.sourceUrl)} />
-          ) : null}
-          <Btn label="Refresh availability" variant="ghost" onPress={() => void onRefresh()} busy={busy} disabled={busy} />
-        </View>
-        <Text style={styles.label}>Status</Text>
-        <View style={styles.wrap}>
-          {WATCHLIST_ITEM_STATUSES.map((item) => (
-            <Pill
-              key={item}
-              label={itemStatusLabel(item)}
-              active={entry.item.status === item || (item === 'watched' && entry.list.kind !== 'custom')}
-              onPress={() => {
-                if (item === 'watched' && onMarkWatched) {
-                  onMarkWatched();
-                  return;
-                }
-                void onStatus(item);
-              }}
-            />
-          ))}
-        </View>
-        {entry.list.kind === 'watched_family' ? (
-          <Text style={styles.hint}>Anyone in the family can add a score. The family score is the average.</Text>
-        ) : null}
-        {entry.list.kind === 'watched_private' ? (
-          <Text style={styles.hint}>Only you can see this. Tap Watched to move it to the family list.</Text>
-        ) : null}
+        ) : (
+          <View style={detail.stack}>
+            {identity}
+            <Synopsis text={entry.title.overview} />
+            {watch}
+            {status}
+            {reviewButton}
+            {publicScores}
+            {notesBlock}
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+            {remove}
+          </View>
+        )}
+      </Sheet>
+      <Sheet visible={visible && reviewOpen} title="Review" onClose={() => setReviewOpen(false)}>
         <TitleReviews
-          reviews={reviews.filter((review) => review.titleId === entry.title.id)}
+          reviews={titleReviews}
           people={entry.list.kind === 'watched_private' ? [] : people}
           selfName={selfName}
           selfPersonId={selfPersonId}
@@ -808,29 +1237,11 @@ export function TitleSheet({
           onDelete={onDeleteReview}
           audience={entry.list.kind === 'watched_private' ? 'self' : 'household'}
           heading={entry.list.kind === 'watched_family' ? 'Family score' : undefined}
+          publicReview={publicReview}
+          profileKnown={profileKnown}
         />
-        <GlobalReviewsBlock
-          tmdbId={entry.title.tmdbId}
-          mediaType={entry.title.mediaType}
-          title={entry.title.title}
-          year={entry.title.year}
-          posterPath={entry.title.posterPath}
-          userId={userId}
-          allowedAudience={allowedAudience}
-          onOpenList={onOpenGlobalList}
-          busy={busy}
-        />
-        <Field label="Notes" value={notes} onChangeText={setNotes} placeholder="Optional" />
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Btn label="Save notes" variant="secondary" onPress={() => void onSaveNotes(notes)} busy={busy} />
-        <Btn
-          label={entry.list.kind === 'custom' ? 'Remove from list' : 'Remove from watched'}
-          variant="danger"
-          onPress={() => void onRemove()}
-          disabled={busy}
-        />
-      </View>
-    </Sheet>
+      </Sheet>
+    </>
   );
 }
 
@@ -857,10 +1268,6 @@ const styles = StyleSheet.create({
   preview: { gap: 10 },
   previewTitle: { color: colors.text, fontSize: 18, fontWeight: '800' },
   overview: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
-  hero: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
-  heroPoster: { width: 72, height: 108, borderRadius: radius.md, backgroundColor: colors.bgHover },
-  heroCopy: { flex: 1, minWidth: 0, gap: 4 },
-  reviewRow: { gap: 2 },
   posterPickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   posterPick: {
     width: 72,
@@ -875,4 +1282,177 @@ const styles = StyleSheet.create({
   posterPickOn: { borderColor: colors.accent, borderWidth: 2 },
   posterPickImage: { width: '100%', height: 96, backgroundColor: colors.bg },
   posterPickLabel: { color: colors.textMuted, fontSize: 10, lineHeight: 12, paddingHorizontal: 4 },
+});
+
+const detail = StyleSheet.create({
+  stack: { gap: 18, paddingTop: 4, paddingBottom: space.md },
+  split: { flexDirection: 'row', alignItems: 'flex-start', gap: 32, paddingTop: 4, paddingBottom: space.md },
+  mainCol: { flex: 1.15, minWidth: 0, gap: 18 },
+  sideCol: { flex: 0.9, minWidth: 300, gap: 18 },
+  section: { gap: 8 },
+  sectionHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
+  sectionLabel: {
+    color: colors.textDim,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  sectionValue: { color: colors.text, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  identity: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+  poster: { width: 64, height: 96, borderRadius: 8, backgroundColor: colors.bgHover },
+  identityCopy: { flex: 1, minWidth: 0, gap: 4 },
+  kicker: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+  context: { color: colors.text, fontSize: 14, fontWeight: '600', lineHeight: 19 },
+  synopsis: { color: colors.text, fontSize: 14, lineHeight: 21 },
+  quiet: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
+  services: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  service: {
+    width: 84,
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
+  },
+  serviceOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+  serviceLogo: { width: 36, height: 36, borderRadius: 8, backgroundColor: colors.bgHover },
+  serviceName: { color: colors.text, fontSize: 11, lineHeight: 14, fontWeight: '600', textAlign: 'center' },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  actionSlot: { flex: 1, minWidth: 140 },
+  headerBtn: {
+    minHeight: 32,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgHover,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerBtnLabel: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  link: { color: colors.accent, fontSize: 13, fontWeight: '700' },
+  linkDisabled: { opacity: 0.45 },
+  segment: {
+    flexDirection: 'row',
+    backgroundColor: colors.bg,
+    borderRadius: 10,
+    padding: 3,
+    gap: 2,
+  },
+  segmentItem: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentOn: { backgroundColor: colors.accentSoft },
+  segmentLabel: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
+  segmentLabelOn: { color: colors.accent },
+  choices: { gap: 4 },
+  choice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 40,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+  },
+  choiceOn: { backgroundColor: colors.bgHover },
+  radio: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: colors.textDim,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioOn: { borderColor: colors.accent },
+  radioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
+  choiceLabel: { flex: 1, minWidth: 0, color: colors.text, fontSize: 14, fontWeight: '600' },
+  choiceMeta: { color: colors.textDim, fontSize: 12, fontWeight: '700' },
+  people: { gap: 0 },
+  personRule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  personRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 44,
+    paddingVertical: 6,
+  },
+  personCopy: { flex: 1, minWidth: 0, gap: 2 },
+  personName: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  you: { color: colors.textDim, fontWeight: '600' },
+  personNote: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
+  scoreMark: {
+    minWidth: 28,
+    textAlign: 'right',
+    color: colors.textDim,
+    fontSize: 15,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  scoreMarkOn: { color: colors.accent },
+  summary: { gap: 6, paddingVertical: 2 },
+  composer: {
+    gap: 8,
+    paddingTop: 4,
+    paddingBottom: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  rail: { flexDirection: 'row', gap: 3 },
+  railCell: {
+    flex: 1,
+    minHeight: 32,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.bg,
+  },
+  railCellOn: { backgroundColor: colors.accent },
+  railLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  railLabelOn: { color: colors.bg },
+  noteInput: {
+    minHeight: 40,
+    maxHeight: 96,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 44,
+  },
+  profileCopy: { flex: 1, minWidth: 0, gap: 1 },
+  profileLabel: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  profileHint: { color: colors.textDim, fontSize: 12 },
+  profileState: { color: colors.textDim, fontSize: 13, fontWeight: '700' },
+  profileStateOn: { color: colors.accent },
+  composerActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  saveBtn: {
+    minHeight: 32,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveOff: { opacity: 0.4 },
+  saveLabel: { color: colors.bg, fontSize: 13, fontWeight: '800' },
+  deleteLabel: { color: colors.danger, fontSize: 13, fontWeight: '700' },
+  removeBtn: { alignSelf: 'flex-start', minHeight: 32, justifyContent: 'center' },
 });

@@ -1,5 +1,7 @@
 import { Platform } from 'react-native';
 
+import type { GroceryComparison } from '@kinexus/domain';
+
 import { supabase } from '@/src/lib/supabase';
 
 export type ImportedRecipe = {
@@ -141,6 +143,14 @@ export async function importRecipeFromUrl(url: string): Promise<ImportResult> {
   }
   const recipe = await extractRecipeFromUrlHint(url);
   return { recipe, source: 'blocked-ai' };
+}
+
+export async function compareGroceryPrices(input: {
+  country: string | null;
+  fresh?: boolean;
+  items: { id: string; name: string; amount: string | null }[];
+}): Promise<{ comparison: GroceryComparison; warnings: { chainId: string; message: string }[] }> {
+  return post('/grocery/compare', input);
 }
 
 function isSocialVideoUrl(url: string): boolean {

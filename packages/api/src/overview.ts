@@ -237,12 +237,39 @@ export function parseForecast(raw: unknown): WeatherReport {
       temperature_2m_min?: number[];
       precipitation_probability_max?: number[];
     };
+    hourly?: {
+      time?: string[];
+      temperature_2m?: number[];
+      weather_code?: number[];
+      precipitation_probability?: number[];
+    };
   };
   const currentCode = body.current?.weather_code;
   const currentTemp = body.current?.temperature_2m;
   const times = body.daily?.time ?? [];
   if (typeof currentTemp !== 'number' || typeof currentCode !== 'number' || times.length === 0) {
     throw new Error('Weather is unavailable right now.');
+  }
+  const hoursByDate = new Map<string, WeatherDay['hours']>();
+  const hourTimes = body.hourly?.time ?? [];
+  for (let i = 0; i < hourTimes.length; i += 1) {
+    const time = hourTimes[i];
+    if (!time || time.length < 13) continue;
+    const temperature = dayNumber(body.hourly?.temperature_2m, i);
+    const code = dayNumber(body.hourly?.weather_code, i);
+    if (temperature == null || code == null) continue;
+    const date = time.slice(0, 10);
+    const rain = dayNumber(body.hourly?.precipitation_probability, i);
+    const list = hoursByDate.get(date) ?? [];
+    list.push({
+      time,
+      temperature,
+      code,
+      label: weatherCodeLabel(code),
+      kind: weatherKind(code),
+      rainChance: rain == null ? null : Math.round(rain),
+    });
+    hoursByDate.set(date, list);
   }
   const days: WeatherDay[] = [];
   for (let i = 0; i < times.length && days.length < 7; i += 1) {
@@ -260,6 +287,7 @@ export function parseForecast(raw: unknown): WeatherReport {
       high,
       low,
       rainChance: rain == null ? null : Math.round(rain),
+      hours: hoursByDate.get(date) ?? [],
     });
   }
   if (days.length === 0) throw new Error('Weather is unavailable right now.');
@@ -287,6 +315,7 @@ export async function loadForecast(
     latitude: String(latitude),
     longitude: String(longitude),
     current: 'temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m',
+    hourly: 'temperature_2m,weather_code,precipitation_probability',
     daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
     timezone: 'auto',
     forecast_days: '7',

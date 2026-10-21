@@ -26,6 +26,8 @@ export function Sheet({
   children,
   wide,
   header,
+  action,
+  desktopMaxWidth,
 }: {
   visible: boolean;
   title: string;
@@ -33,6 +35,8 @@ export function Sheet({
   children: ReactNode;
   wide?: boolean;
   header?: ReactNode;
+  action?: ReactNode;
+  desktopMaxWidth?: number;
 }) {
   const { mode } = useExperienceMode();
   const desktop = mode === 'desktop';
@@ -42,9 +46,17 @@ export function Sheet({
         <Pressable
           onPress={() => undefined}
           accessibilityViewIsModal
-          style={[styles.sheetCard, desktop ? styles.sheetDesktop : styles.sheetMobile, wide && styles.sheetWide]}>
+          style={[
+            styles.sheetCard,
+            desktop ? styles.sheetDesktop : styles.sheetMobile,
+            wide && styles.sheetWide,
+            desktop && desktopMaxWidth ? { maxWidth: desktopMaxWidth } : null,
+          ]}>
           <View style={styles.sheetHead}>
-            <Text style={styles.sheetTitle}>{title}</Text>
+            <Text style={styles.sheetTitle} numberOfLines={2}>
+              {title}
+            </Text>
+            {action}
             <Pressable onPress={onClose} hitSlop={8}>
               <Text style={styles.sheetClose}>Close</Text>
             </Pressable>
@@ -128,11 +140,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 12,
     paddingHorizontal: space.md,
     paddingTop: space.md,
     paddingBottom: 8,
   },
-  sheetTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },
+  sheetTitle: { flex: 1, color: colors.text, fontSize: 18, fontWeight: '700', lineHeight: 24 },
   sheetClose: { color: colors.accent, fontWeight: '700' },
   sheetHeader: {
     paddingHorizontal: space.md,

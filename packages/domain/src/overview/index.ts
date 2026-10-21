@@ -188,6 +188,15 @@ export type WeatherSnapshot = {
   humidity: number | null;
 };
 
+export type WeatherHour = {
+  time: string;
+  temperature: number;
+  code: number;
+  label: string;
+  kind: WeatherKind;
+  rainChance: number | null;
+};
+
 export type WeatherDay = {
   date: string;
   code: number;
@@ -196,6 +205,7 @@ export type WeatherDay = {
   high: number;
   low: number;
   rainChance: number | null;
+  hours: WeatherHour[];
 };
 
 export type WeatherReport = {

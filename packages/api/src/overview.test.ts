@@ -54,11 +54,22 @@ describe('daily overview feeds', () => {
         temperature_2m_min: [13.4, 12],
         precipitation_probability_max: [10, 80],
       },
+      hourly: {
+        time: ['2026-10-17T09:00', '2026-10-17T10:00', '2026-10-18T09:00', 'nodate'],
+        temperature_2m: [18.2, 19.4, 16],
+        weather_code: [2, 3, 63, 0],
+        precipitation_probability: [10, 20, 70, 0],
+      },
     });
     expect(report.timezone).toBe('Australia/Perth');
     expect(report.current.label).toBe('Partly cloudy');
     expect(report.days).toHaveLength(2);
+    expect(report.days[0]?.hours).toEqual([
+      expect.objectContaining({ time: '2026-10-17T09:00', temperature: 18.2, label: 'Partly cloudy', rainChance: 10 }),
+      expect.objectContaining({ time: '2026-10-17T10:00', temperature: 19.4, label: 'Overcast', rainChance: 20 }),
+    ]);
     expect(report.days[1]).toMatchObject({ date: '2026-10-18', label: 'Rain', high: 19.1, low: 12, rainChance: 80 });
+    expect(report.days[1]?.hours[0]).toMatchObject({ time: '2026-10-18T09:00', label: 'Rain', rainChance: 70 });
   });
 
   it('names a searched place from the geocoder', async () => {

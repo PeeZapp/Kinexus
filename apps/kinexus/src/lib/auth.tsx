@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { User } from '@supabase/supabase-js';
 
-import { createSessionFromUrl, signInWithGoogle as startGoogleSignIn } from '@/src/lib/oauth';
+import { createSessionFromUrl, getAuthRedirectUrl, signInWithGoogle as startGoogleSignIn } from '@/src/lib/oauth';
 import { isSupabaseConfigured, supabase } from '@/src/lib/supabase';
 
 export type AuthUser = {
@@ -17,6 +17,8 @@ type AuthContextValue = {
   isReady: boolean;
   isSupabaseConfigured: boolean;
   signInWithGoogle: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
+  signUpWithEmail: (email: string, password: string) => Promise<{ needsEmailConfirmation: boolean }>;
   signInDevBypass: () => void;
   signOut: () => Promise<void>;
 };
@@ -117,6 +119,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         await startGoogleSignIn();
+      },
+      signInWithEmail: async (email: string, password: string) => {
+        if (!supabase) {
+          throw new Error('Supabase is not configured');
+        }
+        const { error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+        if (error) throw error;
+      },
+      signUpWithEmail: async (email: string, password: string) => {
+        if (!supabase) {
+          throw new Error('Supabase is not configured');
+        }
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: { emailRedirectTo: getAuthRedirectUrl() },
+        });
+        if (error) throw error;
+        if (data.user && (data.user.identities?.length ?? 0) === 0) {
+          throw new Error('An account with this email already exists. Sign in instead.');
+        }
+        return { needsEmailConfirmation: !data.session };
       },
       signInDevBypass: () => {
         setUser(DEV_USER);

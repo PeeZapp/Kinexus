@@ -48,6 +48,8 @@ import {
 import { handleVerifyCreatorLinks } from './creators/verify-links.js';
 import { handleOverviewNews, handleOverviewPlaces, handleOverviewWeather } from './overview.js';
 import { handleOverviewWordle } from './wordle.js';
+import { handleGroceryCompare } from './grocery/handlers.js';
+import type { GroceryCompareRequest } from './grocery/compare.js';
 
 function registerMealsRoutes(router: Hono) {
   router.get('/health', (c) => c.json({ ok: true }));
@@ -136,6 +138,14 @@ function registerMealsRoutes(router: Hono) {
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
     const result = await handleAi(body as AiRequestBody);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/grocery/compare', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleGroceryCompare(body as GroceryCompareRequest);
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 

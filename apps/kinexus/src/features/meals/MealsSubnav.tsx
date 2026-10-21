@@ -19,6 +19,7 @@ const TABS = [
     managersOnly: true,
   },
   { href: '/meals/shopping' as Href, label: 'Shopping', match: (p: string) => p.startsWith('/meals/shopping') },
+  { href: '/meals/pantry' as Href, label: 'Pantry', match: (p: string) => p.startsWith('/meals/pantry') },
   {
     href: '/meals/recipes' as Href,
     label: 'Recipes',

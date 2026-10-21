@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Image, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
@@ -471,28 +472,46 @@ export function WatchlistCard({
 }
 
 export function ProviderChips({ providers }: { providers: readonly WatchlistProvider[] }) {
+  const [expanded, setExpanded] = useState(false);
   const groups = groupWatchlistProviders(providers);
   if (groups.length === 0) {
-    return <Text style={styles.emptyProviders}>No streaming listed for this country yet.</Text>;
+    return <Text style={styles.emptyProviders}>Nothing listed in this country yet.</Text>;
   }
   return (
-    <View style={styles.groups}>
-      {groups.map((group) => (
-        <View key={group.offerType} style={styles.group}>
-          <Text style={styles.groupLabel}>{group.label}</Text>
-          <View style={styles.wrap}>
-            {group.providers.map((provider) => {
-              const logo = tmdbImageUrl(provider.logoPath, 'w45');
-              return (
-                <View key={`${group.offerType}-${provider.providerId}`} style={styles.chip}>
-                  {logo ? <Image source={{ uri: logo }} style={styles.logo} /> : null}
-                  <Text style={styles.chipLabel}>{provider.providerName}</Text>
-                </View>
-              );
-            })}
+    <View style={styles.avail}>
+      {groups.map((group) => {
+        const shown = expanded ? group.providers : group.providers.slice(0, 5);
+        const hidden = group.providers.length - shown.length;
+        return (
+          <View key={group.offerType} style={styles.availGroup}>
+            <Text style={styles.availKind} numberOfLines={1}>
+              {group.offerType === 'ads' ? 'Ads' : group.label}
+            </Text>
+            <View style={styles.availItems}>
+              {shown.map((provider) => {
+                const logo = tmdbImageUrl(provider.logoPath, 'w45');
+                return (
+                  <View key={`${group.offerType}-${provider.providerId}`} style={styles.availItem}>
+                    {logo ? (
+                      <Image source={{ uri: logo }} style={styles.availLogo} />
+                    ) : (
+                      <View style={styles.availLogo} />
+                    )}
+                    <Text style={styles.availName} numberOfLines={1}>
+                      {provider.providerName}
+                    </Text>
+                  </View>
+                );
+              })}
+              {hidden > 0 ? (
+                <Pressable onPress={() => setExpanded(true)} hitSlop={8} style={styles.availMore} accessibilityRole="button">
+                  <Text style={styles.availMoreLabel}>+{hidden}</Text>
+                </Pressable>
+              ) : null}
+            </View>
           </View>
-        </View>
-      ))}
+        );
+      })}
     </View>
   );
 }
@@ -647,29 +666,30 @@ const styles = StyleSheet.create({
   meta: { color: colors.textMuted, fontSize: 12 },
   stream: { color: colors.accent, fontSize: 12, fontWeight: '700' },
   review: { color: colors.text, fontSize: 12, fontWeight: '700', lineHeight: 16 },
-  groups: { gap: 12 },
-  group: { gap: 8 },
-  groupLabel: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.6,
+  avail: { gap: 8 },
+  availGroup: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  availKind: {
+    width: 72,
+    paddingTop: 5,
+    color: colors.textDim,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.4,
     textTransform: 'uppercase',
   },
-  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
+  availItems: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
+  availItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bgHover,
+    maxWidth: 148,
+    paddingVertical: 3,
+    paddingRight: 6,
   },
-  logo: { width: 18, height: 18, borderRadius: 4, backgroundColor: colors.bg },
-  chipLabel: { color: colors.text, fontSize: 13, fontWeight: '600' },
+  availLogo: { width: 18, height: 18, borderRadius: 4, backgroundColor: colors.bgHover },
+  availName: { flexShrink: 1, color: colors.text, fontSize: 13, fontWeight: '600' },
+  availMore: { paddingVertical: 4, paddingHorizontal: 6 },
+  availMoreLabel: { color: colors.accent, fontSize: 13, fontWeight: '700' },
   emptyProviders: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
   attr: { color: colors.textDim, fontSize: 11, lineHeight: 16 },
 });

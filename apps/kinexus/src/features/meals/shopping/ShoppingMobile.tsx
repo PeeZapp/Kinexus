@@ -1,4 +1,9 @@
+import { type ReactNode } from 'react';
+
+import type { ShoppingCostEstimate } from '@kinexus/domain';
+
 import { ShoppingChrome, ShoppingList } from '@/src/features/meals/shopping/ShoppingShared';
+import type { ShoppingItemPrice } from '@/src/features/meals/shopping/use-grocery-prices';
 import type { ShoppingListItem } from '@/src/features/meals/mappers';
 import { weekPlanPhrase } from '@/src/features/meals/week-labels';
 import { EmptyState } from '@/src/features/shell/states';
@@ -19,9 +24,14 @@ export function ShoppingMobile(props: {
   onGenerate: () => void;
   onClearChecked: () => void;
   onToggle: (item: ShoppingListItem) => void;
+  onEdit: (id: string, name: string, amount: string) => Promise<void>;
   onDelete: (id: string) => void;
   onRecipe: (id: string) => void;
   onAdd: (name: string, amount?: string) => void;
+  costEstimate: ShoppingCostEstimate | null;
+  stores: readonly string[];
+  shopPicker?: ReactNode;
+  itemPrices?: Readonly<Record<string, ShoppingItemPrice>>;
 }) {
   const chrome = {
     weekStart: props.weekStart,
@@ -36,6 +46,9 @@ export function ShoppingMobile(props: {
     onGenerate: props.onGenerate,
     onClearChecked: props.onClearChecked,
     onAdd: props.onAdd,
+    costEstimate: props.costEstimate,
+    stores: props.stores,
+    shopPicker: props.shopPicker,
   };
   return (
     <ShoppingChrome {...chrome} desktop={false} checkedCount={props.checked.length}>
@@ -53,16 +66,21 @@ export function ShoppingMobile(props: {
           title="To buy"
           items={props.active}
           onToggle={props.onToggle}
+          onEdit={props.onEdit}
           onDelete={props.onDelete}
           onRecipe={props.onRecipe}
+          editDisabled={!props.online}
+          itemPrices={props.itemPrices}
         />
       )}
       <ShoppingList
         title="Checked off"
         items={props.checked}
         onToggle={props.onToggle}
+        onEdit={props.onEdit}
         onDelete={props.onDelete}
         onRecipe={props.onRecipe}
+        editDisabled={!props.online}
       />
     </ShoppingChrome>
   );

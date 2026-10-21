@@ -100,6 +100,28 @@ export function shoppingMergeKey(name: string): string {
   return normalizePlural(n);
 }
 
+/**
+ * True when a pantry item can stand in for a recipe ingredient.
+ * "chicken" covers "chicken thigh", and "red onion" covers "onion".
+ * A generic pantry item does not cover a named variety ("onion" does not cover "red onion").
+ */
+export function ingredientCoveredByPantry(pantryName: string, ingredientName: string): boolean {
+  const pantryKey = shoppingMergeKey(pantryName);
+  const ingredientKey = shoppingMergeKey(ingredientName);
+  if (!pantryKey || !ingredientKey) return false;
+  if (pantryKey === ingredientKey) return true;
+
+  const pantryHasIngredient = phraseInName(pantryKey, ingredientKey);
+  const ingredientHasPantry = phraseInName(ingredientKey, pantryKey);
+  if (!pantryHasIngredient && !ingredientHasPantry) return false;
+
+  if (ingredientHasPantry) {
+    const specific = DISTINCT_PHRASES.find((phrase) => phraseInName(ingredientKey, phrase));
+    if (specific && specific !== pantryKey && !phraseInName(pantryKey, specific)) return false;
+  }
+  return true;
+}
+
 /** Prefer a short, clean display name from a merge group. */
 export function pickCanonicalShoppingName(names: readonly string[]): string {
   if (names.length === 0) return '';

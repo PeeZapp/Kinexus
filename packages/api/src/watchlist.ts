@@ -75,6 +75,32 @@ function assertTmdbConfigured(): void {
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Undici hides timeouts and connection errors behind the message "fetch failed". */
+export function fetchFailureDetail(err: unknown): string {
+  if (!(err instanceof Error)) return 'network error';
+  const cause = err.cause;
+  if (cause instanceof Error && cause.message) {
+    const code = typeof (cause as { code?: unknown }).code === 'string' ? (cause as { code: string }).code : '';
+    const detail = code && !cause.message.includes(code) ? `${cause.message} (${code})` : cause.message;
+    if (detail !== 'fetch failed') return detail;
+  }
+  if (err.name === 'TimeoutError' || /timeout|aborted/i.test(err.message)) return 'timed out';
+  if (err.message && err.message !== 'fetch failed') return err.message;
+  return 'network error';
+}
+
+function isTransientTmdbError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.message.includes('rejected the API key')) return false;
+  const http = err.message.match(/^TMDB request failed \(HTTP (\d+)\)$/);
+  if (http) return http[1] === '429' || http[1].startsWith('5');
+  return err.message === 'fetch failed' || err.name === 'TimeoutError' || err.name === 'AbortError';
+}
+
 async function tmdbGet<T>(path: string, params: Record<string, string> = {}): Promise<T> {
   assertTmdbConfigured();
   const url = new URL(`${TMDB_BASE}${path}`);
@@ -88,17 +114,33 @@ async function tmdbGet<T>(path: string, params: Record<string, string> = {}): Pr
   } else {
     url.searchParams.set('api_key', tmdbKey());
   }
-  const response = await fetch(url, {
-    headers,
-    signal: AbortSignal.timeout(12_000),
-  });
-  if (response.status === 401 || response.status === 403) {
-    throw new Error('TMDB rejected the API key. Check TMDB_API_KEY.');
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        headers,
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (response.status === 401 || response.status === 403) {
+        throw new Error('TMDB rejected the API key. Check TMDB_API_KEY.');
+      }
+      if (!response.ok) {
+        throw new Error(`TMDB request failed (HTTP ${response.status})`);
+      }
+      return (await response.json()) as T;
+    } catch (err) {
+      lastError = err;
+      if (!isTransientTmdbError(err) || attempt === 2) break;
+      await sleep(300 * (attempt + 1));
+    }
   }
-  if (!response.ok) {
-    throw new Error(`TMDB request failed (HTTP ${response.status})`);
+  if (
+    lastError instanceof Error &&
+    (lastError.message === 'fetch failed' || lastError.name === 'TimeoutError' || lastError.name === 'AbortError')
+  ) {
+    throw new Error(`Could not reach TMDB (${fetchFailureDetail(lastError)})`);
   }
-  return (await response.json()) as T;
+  throw lastError;
 }
 
 function hitFromTmdb(

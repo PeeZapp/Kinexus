@@ -129,7 +129,10 @@ export {
 } from './amounts';
 export type { FlatIngredient, ParsedAmount, CombineAmountsOptions, DeduplicateOptions } from './amounts';
 
-export { pickCanonicalShoppingName, shoppingMergeKey } from './ingredient-merge';
+export { ingredientCoveredByPantry, pickCanonicalShoppingName, shoppingMergeKey } from './ingredient-merge';
+
+export { addPantryIngredients, isAssumedPantryStaple, matchRecipesToPantry, parsePantryIngredients } from './pantry-match';
+export type { PantryMatch } from './pantry-match';
 
 export {
   formatShoppingCountLabel,
@@ -178,6 +181,29 @@ export {
 } from './markets';
 export type { GroceryMarket } from './markets';
 
+export { GROCERY_CHAINS, groceryChainById, lookupChainsForCountry } from './grocery-chains';
+export type { GroceryChain } from './grocery-chains';
+
+export {
+  catalogueQuery,
+  compareShoppingList,
+  comparisonFromLineQuotes,
+  offerMatchesIngredient,
+  parsePackSize,
+  parseUnitPrice,
+  pickCatalogueOffer,
+  storedGroceryQuoteMatches,
+} from './grocery-compare';
+export type {
+  CatalogueOffer,
+  GroceryComparison,
+  GroceryItemComparison,
+  GroceryLineQuote,
+  GroceryShopOffers,
+  GroceryShopTotal,
+  StoredGroceryQuote,
+} from './grocery-compare';
+
 export {
   asFiniteMoney,
   costMonthStartUtc,
@@ -198,6 +224,7 @@ export {
   estimateIngredientCostUSD,
   estimateRecipeCost,
   estimateRecipeCostForMarket,
+  estimateShoppingListCost,
   getCurrencyConfig,
   localFromUsd,
   parsePriceOverrideMap,
@@ -205,6 +232,7 @@ export {
 export type {
   CatalogIngredient,
   IngredientPriceBook,
+  ShoppingCostEstimate,
   PriceOverrideEntry,
   PriceOverrideMap,
   PriceOverrides,

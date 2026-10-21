@@ -1034,6 +1034,7 @@ export type Database = {
           category: string | null;
           checked: boolean;
           metadata: Json;
+          grocery_quote: Json | null;
           client_updated_at: string;
           created_at: string;
           updated_at: string;
@@ -1047,6 +1048,7 @@ export type Database = {
           category?: string | null;
           checked?: boolean;
           metadata?: Json;
+          grocery_quote?: Json | null;
           client_updated_at?: string;
         };
         Update: {
@@ -1055,6 +1057,7 @@ export type Database = {
           category?: string | null;
           checked?: boolean;
           metadata?: Json;
+          grocery_quote?: Json | null;
           client_updated_at?: string;
         };
         Relationships: [];

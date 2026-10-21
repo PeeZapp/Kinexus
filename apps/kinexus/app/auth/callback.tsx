@@ -35,7 +35,7 @@ export default function AuthCallbackScreen() {
         if (!cancelled) router.replace(next as Href);
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Google sign-in failed');
+          setError(err instanceof Error ? err.message : 'Sign-in failed');
         }
       }
     }

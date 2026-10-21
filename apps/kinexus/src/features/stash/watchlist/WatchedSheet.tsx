@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
@@ -24,6 +24,7 @@ export function WatchedSheet({
   initialScope,
   myReview,
   otherScores,
+  published = true,
   onClose,
   onSave,
   onRemove,
@@ -37,6 +38,7 @@ export function WatchedSheet({
   initialScope: WatchedScope;
   myReview: WatchlistReview | null;
   otherScores: readonly number[];
+  published?: boolean;
   onClose: () => void;
   onSave: (
     scope: WatchedScope,
@@ -51,14 +53,24 @@ export function WatchedSheet({
   const [score, setScore] = useState<number | null>(myReview?.score ?? null);
   const [body, setBody] = useState(myReview?.body ?? '');
   const [showOnProfile, setShowOnProfile] = useState(true);
+  const profileTouched = useRef(false);
+
+  useEffect(() => {
+    if (!visible) return;
+    profileTouched.current = false;
+  }, [hit?.mediaType, hit?.tmdbId, visible]);
 
   useEffect(() => {
     if (!visible) return;
     setScope(initialScope);
     setScore(myReview?.score ?? null);
     setBody(myReview?.body ?? '');
-    setShowOnProfile(true);
   }, [hit?.mediaType, hit?.tmdbId, initialScope, myReview?.body, myReview?.score, myReview?.updatedAt, visible]);
+
+  useEffect(() => {
+    if (!visible || profileTouched.current) return;
+    setShowOnProfile(published);
+  }, [hit?.mediaType, hit?.tmdbId, published, visible]);
 
   if (!hit) return null;
   const poster = tmdbImageUrl(hit.posterPath, 'w185');
@@ -126,11 +138,25 @@ export function WatchedSheet({
 
         <Text style={styles.label}>Public profile</Text>
         <View style={styles.choices}>
-          <Pill label="Show on my profile" active={showOnProfile} onPress={() => setShowOnProfile(true)} />
-          <Pill label="Keep private" active={!showOnProfile} onPress={() => setShowOnProfile(false)} />
+          <Pill
+            label="Show on my profile"
+            active={showOnProfile}
+            onPress={() => {
+              profileTouched.current = true;
+              setShowOnProfile(true);
+            }}
+          />
+          <Pill
+            label="Keep private"
+            active={!showOnProfile}
+            onPress={() => {
+              profileTouched.current = true;
+              setShowOnProfile(false);
+            }}
+          />
         </View>
         <Text style={styles.hint}>
-          Profile titles appear under your funny name for everyone. Real names stay hidden.
+          The score and note above are the public review on your profile. Real names stay hidden.
         </Text>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}

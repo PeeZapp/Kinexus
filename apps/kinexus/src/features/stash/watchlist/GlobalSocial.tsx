@@ -12,7 +12,7 @@ import {
   type WatchlistTitle,
 } from '@kinexus/domain';
 
-import { Btn, Field, Pill } from '@/src/features/household/ui';
+import { Btn, Pill } from '@/src/features/household/ui';
 import { EmptyState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { Sheet } from '@/src/features/meals/meals-kit';
@@ -22,7 +22,6 @@ import {
   fetchGlobalReviewsForTitle,
   fetchGlobalSharedCards,
   rateGlobalList,
-  saveGlobalReview,
   voteGlobalReview,
   type GlobalSharedListCard,
 } from '@/src/features/stash/watchlist-social';
@@ -344,14 +343,13 @@ export function GlobalListSheet({
 export function GlobalReviewsBlock({
   tmdbId,
   mediaType,
-  title,
-  year,
-  posterPath,
   userId,
   allowedAudience,
   onOpenList,
   busy,
   onBusy,
+  refreshKey = 0,
+  onOwnReview,
 }: {
   tmdbId: number;
   mediaType: WatchlistMediaType;
@@ -363,11 +361,11 @@ export function GlobalReviewsBlock({
   onOpenList?: (listId: string) => void;
   busy?: boolean;
   onBusy?: (busy: boolean) => void;
+  refreshKey?: number;
+  onOwnReview?: (review: { score: number; body: string | null; updatedAt: string } | null) => void;
 }) {
   const [average, setAverage] = useState<number | null>(null);
   const [reviews, setReviews] = useState<WatchlistGlobalReview[]>([]);
-  const [score, setScore] = useState<number | null>(null);
-  const [body, setBody] = useState('');
   const [profile, setProfile] = useState<{ userId: string; alias: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -376,8 +374,7 @@ export function GlobalReviewsBlock({
     setAverage(data.average);
     setReviews(data.reviews);
     const mine = userId ? data.reviews.find((review) => review.userId === userId) : null;
-    setScore(mine?.score ?? null);
-    setBody(mine?.body ?? '');
+    onOwnReview?.(mine ? { score: mine.score, body: mine.body, updatedAt: mine.updatedAt } : null);
   }
 
   useEffect(() => {
@@ -394,7 +391,7 @@ export function GlobalReviewsBlock({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mediaType, tmdbId, userId]);
+  }, [mediaType, refreshKey, tmdbId, userId]);
 
   async function run(action: () => Promise<void>) {
     onBusy?.(true);
@@ -410,65 +407,59 @@ export function GlobalReviewsBlock({
   }
 
   return (
-    <View style={styles.preview}>
-      <Text style={styles.label}>
-        Global score
-        {average != null ? ` · ${average}` : ''}
-      </Text>
-      <Text style={styles.hint}>Optional public review. Your real name stays hidden behind a funny alias.</Text>
-      <View style={styles.wrap}>
-        {SCORES.map((value) => (
-          <Pill key={value} label={String(value)} active={score === value} onPress={() => setScore(value)} />
-        ))}
+    <View style={styles.publicBlock}>
+      <View style={styles.publicHead}>
+        <Text style={styles.publicLabel}>Public</Text>
+        {average != null ? <Text style={styles.publicAvg}>{average}</Text> : null}
       </View>
-      <Field label="Your review" value={body} onChangeText={setBody} placeholder="Optional" multiline autoCapitalize="sentences" />
-      <Btn
-        label="Save global review"
-        onPress={() => {
-          if (!userId || !score) return;
-          void run(() =>
-            saveGlobalReview({
-              userId,
-              tmdbId,
-              mediaType,
-              score,
-              body,
-              title,
-              year,
-              posterPath,
-            }),
-          );
-        }}
-        busy={busy}
-        disabled={!userId || !score || busy}
-      />
+      {reviews.length === 0 ? <Text style={styles.publicEmpty}>No public scores yet.</Text> : null}
       {reviews.map((review) => (
-        <View key={review.id} style={styles.reviewRow}>
-          <Pressable onPress={() => setProfile({ userId: review.userId, alias: review.alias })}>
-            <Text style={styles.hitName}>
-              {review.alias} · {review.score}/10
+        <View key={review.id} style={styles.publicRow}>
+          <Pressable
+            onPress={() => setProfile({ userId: review.userId, alias: review.alias })}
+            accessibilityRole="button"
+            style={styles.publicPerson}>
+            <Text style={styles.publicAlias} numberOfLines={1}>
+              {review.alias}
             </Text>
+            <Text style={styles.publicScore}>{review.score}</Text>
           </Pressable>
-          {review.body ? <Text style={styles.hint}>{review.body}</Text> : null}
-          <View style={styles.wrap}>
-            <Pill
-              label={`▲ ${review.upvotes}`}
-              active={review.myVote === 1}
+          {review.body ? (
+            <Text style={styles.publicBody} numberOfLines={2}>
+              {review.body}
+            </Text>
+          ) : null}
+          <View style={styles.publicVotes}>
+            <Pressable
               onPress={() => {
-                if (!userId) return;
+                if (!userId || busy) return;
                 void run(() => voteGlobalReview({ userId, reviewId: review.id, vote: 1 }));
               }}
-            />
-            <Pill
-              label={`▼ ${review.downvotes}`}
-              active={review.myVote === -1}
+              disabled={!userId || busy}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityState={{ selected: review.myVote === 1 }}>
+              <Text style={[styles.publicVote, review.myVote === 1 && styles.publicVoteOn]}>▲ {review.upvotes}</Text>
+            </Pressable>
+            <Pressable
               onPress={() => {
-                if (!userId) return;
+                if (!userId || busy) return;
                 void run(() => voteGlobalReview({ userId, reviewId: review.id, vote: -1 }));
               }}
-            />
+              disabled={!userId || busy}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityState={{ selected: review.myVote === -1 }}>
+              <Text style={[styles.publicVote, review.myVote === -1 && styles.publicVoteDown]}>▼ {review.downvotes}</Text>
+            </Pressable>
             {userId && review.userId === userId ? (
-              <Pill label="Delete" onPress={() => void run(() => deleteGlobalReview(review.id))} />
+              <Pressable
+                onPress={() => void run(() => deleteGlobalReview(review.id))}
+                disabled={busy}
+                hitSlop={6}
+                accessibilityRole="button">
+                <Text style={styles.publicRemove}>Remove</Text>
+              </Pressable>
             ) : null}
           </View>
         </View>
@@ -532,4 +523,35 @@ const styles = StyleSheet.create({
   },
   poster: { width: 36, height: 52, borderRadius: 4, backgroundColor: colors.bg },
   rowCopy: { flex: 1, minWidth: 0, gap: 2 },
+  publicBlock: { gap: 6 },
+  publicHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
+  publicLabel: {
+    color: colors.textDim,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  publicAvg: { color: colors.text, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  publicEmpty: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
+  publicRow: {
+    gap: 4,
+    paddingVertical: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  publicPerson: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 28 },
+  publicAlias: { flex: 1, minWidth: 0, color: colors.text, fontSize: 15, fontWeight: '600' },
+  publicScore: {
+    color: colors.accent,
+    fontSize: 15,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  publicBody: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
+  publicVotes: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  publicVote: { color: colors.textMuted, fontSize: 13, fontWeight: '700', minHeight: 28, lineHeight: 28 },
+  publicVoteOn: { color: colors.accent },
+  publicVoteDown: { color: colors.danger },
+  publicRemove: { color: colors.danger, fontSize: 13, fontWeight: '700', minHeight: 28, lineHeight: 28 },
 });

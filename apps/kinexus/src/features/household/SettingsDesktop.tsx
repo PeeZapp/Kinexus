@@ -14,6 +14,7 @@ import {
 } from '@/src/features/household/sections';
 import { ErrorText } from '@/src/features/household/ui';
 import { StaffSettingsLink } from '@/src/features/staff/StaffSettingsLink';
+import { NewsTopicsLink } from '@/src/features/today/NewsTopicsScreen';
 import { colors, space } from '@/src/features/shell/theme';
 import { useHousehold } from '@/src/lib/household';
 
@@ -41,6 +42,7 @@ export function SettingsDesktop() {
         <ErrorText message={error} />
         <View style={styles.narrow}>
           <StaffSettingsLink />
+          <NewsTopicsLink />
           <RecipeImageUploadLink />
           <CreateJoinPanel />
         </View>
@@ -62,6 +64,7 @@ export function SettingsDesktop() {
         <View style={styles.col}>
           <RolePreviewCard />
           <StaffSettingsLink />
+          <NewsTopicsLink />
           <RecipeImageUploadLink />
           <HouseholdSwitcher />
           <GoogleCalendarPanel />

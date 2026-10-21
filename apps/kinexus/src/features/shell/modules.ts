@@ -98,6 +98,7 @@ export function titleFromPath(pathname: string): string {
   if (pathname === '/finances' || pathname.startsWith('/finances/budget')) return 'Budget';
   if (pathname.startsWith('/meals/generate')) return 'Generate';
   if (pathname.startsWith('/meals/shopping')) return 'Shopping';
+  if (pathname.startsWith('/meals/pantry')) return 'Pantry';
   if (pathname.startsWith('/meals/recipes/import')) return 'Import';
   if (pathname.startsWith('/meals/recipes')) return 'Recipes';
   return moduleFromPath(pathname)?.label ?? 'Kinexus';

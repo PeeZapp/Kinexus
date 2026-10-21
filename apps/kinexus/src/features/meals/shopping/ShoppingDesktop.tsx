@@ -1,6 +1,10 @@
+import { type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import type { ShoppingCostEstimate } from '@kinexus/domain';
+
 import { ShoppingChrome, ShoppingList } from '@/src/features/meals/shopping/ShoppingShared';
+import type { ShoppingItemPrice } from '@/src/features/meals/shopping/use-grocery-prices';
 import type { ShoppingListItem } from '@/src/features/meals/mappers';
 import { weekPlanPhrase } from '@/src/features/meals/week-labels';
 import { EmptyState } from '@/src/features/shell/states';
@@ -21,9 +25,14 @@ export function ShoppingDesktop(props: {
   onGenerate: () => void;
   onClearChecked: () => void;
   onToggle: (item: ShoppingListItem) => void;
+  onEdit: (id: string, name: string, amount: string) => Promise<void>;
   onDelete: (id: string) => void;
   onRecipe: (id: string) => void;
   onAdd: (name: string, amount?: string) => void;
+  costEstimate: ShoppingCostEstimate | null;
+  stores: readonly string[];
+  shopPicker?: ReactNode;
+  itemPrices?: Readonly<Record<string, ShoppingItemPrice>>;
 }) {
   const chrome = {
     weekStart: props.weekStart,
@@ -38,6 +47,9 @@ export function ShoppingDesktop(props: {
     onGenerate: props.onGenerate,
     onClearChecked: props.onClearChecked,
     onAdd: props.onAdd,
+    costEstimate: props.costEstimate,
+    stores: props.stores,
+    shopPicker: props.shopPicker,
   };
   return (
     <ShoppingChrome {...chrome} desktop checkedCount={props.checked.length}>
@@ -57,8 +69,11 @@ export function ShoppingDesktop(props: {
               title="To buy"
               items={props.active}
               onToggle={props.onToggle}
+              onEdit={props.onEdit}
               onDelete={props.onDelete}
               onRecipe={props.onRecipe}
+              editDisabled={!props.online}
+              itemPrices={props.itemPrices}
             />
           </View>
           <View style={styles.col}>
@@ -66,8 +81,10 @@ export function ShoppingDesktop(props: {
               title="Checked off"
               items={props.checked}
               onToggle={props.onToggle}
+              onEdit={props.onEdit}
               onDelete={props.onDelete}
               onRecipe={props.onRecipe}
+              editDisabled={!props.online}
             />
           </View>
         </View>

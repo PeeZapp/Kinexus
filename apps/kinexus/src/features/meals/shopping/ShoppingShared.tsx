@@ -1,10 +1,11 @@
 import { type ReactNode, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { resolveShoppingCategory, shoppingCategoryEmoji } from '@kinexus/domain';
+import { formatMoney, resolveShoppingCategory, shoppingCategoryEmoji, storeListLabel, type ShoppingCostEstimate } from '@kinexus/domain';
 
 import { Btn, ErrorText, Field } from '@/src/features/household/ui';
 import type { ShoppingListItem } from '@/src/features/meals/mappers';
+import type { ShoppingItemPrice } from '@/src/features/meals/shopping/use-grocery-prices';
 import { OfflineBanner, Sheet } from '@/src/features/meals/meals-kit';
 import { WeekSwitcher } from '@/src/features/meals/plan/PlanShared';
 import { weekPlanPhrase } from '@/src/features/meals/week-labels';
@@ -19,16 +20,23 @@ export function ShoppingList({
   title,
   items,
   onToggle,
+  onEdit,
   onDelete,
   onRecipe,
+  editDisabled,
+  itemPrices,
 }: {
   title: string;
   items: ShoppingListItem[];
   onToggle: (item: ShoppingListItem) => void;
+  onEdit: (id: string, name: string, amount: string) => Promise<void>;
   onDelete: (id: string) => void;
   onRecipe: (id: string) => void;
+  editDisabled: boolean;
+  itemPrices?: Readonly<Record<string, ShoppingItemPrice>>;
 }) {
   const [detail, setDetail] = useState<DetailSheet>(null);
+  const [editing, setEditing] = useState<ShoppingListItem | null>(null);
 
   const groups = useMemo(() => {
     const map = new Map<string, ShoppingListItem[]>();
@@ -94,6 +102,13 @@ export function ShoppingList({
                       {item.amount}
                     </Text>
                   ) : null}
+                  {itemPrices?.[item.id] ? (
+                    <Text style={styles.price} numberOfLines={2}>
+                      {itemPrices[item.id].shop} {itemPrices[item.id].priceLabel}
+                      {' · '}
+                      {itemPrices[item.id].product}
+                    </Text>
+                  ) : null}
                   <View style={styles.noteRow}>
                     {item.mergedFrom.length > 0 ? (
                       <Pressable onPress={() => setDetail({ kind: 'merged', item })} hitSlop={6}>
@@ -112,9 +127,14 @@ export function ShoppingList({
                     ) : null}
                   </View>
                 </View>
-                <Pressable onPress={() => onDelete(item.id)} hitSlop={8}>
-                  <Text style={styles.remove}>Remove</Text>
-                </Pressable>
+                <View style={styles.actions}>
+                  <Pressable onPress={() => setEditing(item)} hitSlop={8} disabled={editDisabled}>
+                    <Text style={[styles.edit, editDisabled && styles.actionDisabled]}>Edit</Text>
+                  </Pressable>
+                  <Pressable onPress={() => onDelete(item.id)} hitSlop={8}>
+                    <Text style={styles.remove}>Remove</Text>
+                  </Pressable>
+                </View>
               </View>
             );
           })}
@@ -148,6 +168,70 @@ export function ShoppingList({
           </View>
         ) : null}
       </Sheet>
+      <EditItemSheet
+        item={editing}
+        disabled={editDisabled}
+        onClose={() => setEditing(null)}
+        onSave={onEdit}
+      />
+    </View>
+  );
+}
+
+function EditItemSheet({
+  item,
+  disabled,
+  onClose,
+  onSave,
+}: {
+  item: ShoppingListItem | null;
+  disabled: boolean;
+  onClose: () => void;
+  onSave: (id: string, name: string, amount: string) => Promise<void>;
+}) {
+  return (
+    <Sheet visible={item != null} title="Edit item" onClose={onClose}>
+      {item ? <EditItemFields key={item.id} item={item} disabled={disabled} onClose={onClose} onSave={onSave} /> : null}
+    </Sheet>
+  );
+}
+
+function EditItemFields({
+  item,
+  disabled,
+  onClose,
+  onSave,
+}: {
+  item: ShoppingListItem;
+  disabled: boolean;
+  onClose: () => void;
+  onSave: (id: string, name: string, amount: string) => Promise<void>;
+}) {
+  const [name, setName] = useState(item.name);
+  const [amount, setAmount] = useState(item.amount ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <View style={styles.editForm}>
+      <Field label="Name" value={name} onChangeText={setName} placeholder="Bananas" autoCapitalize="sentences" />
+      <Field label="Amount" value={amount} onChangeText={setAmount} placeholder="6" />
+      <ErrorText message={error} />
+      <Btn
+        label="Save"
+        busy={busy}
+        disabled={disabled || busy || !name.trim()}
+        onPress={() => {
+          setBusy(true);
+          setError(null);
+          void onSave(item.id, name, amount)
+            .then(() => onClose())
+            .catch((err: unknown) => {
+              setBusy(false);
+              setError(err instanceof Error ? err.message : 'Could not save that item.');
+            });
+        }}
+      />
     </View>
   );
 }
@@ -188,6 +272,35 @@ export function AddItemButton({
   );
 }
 
+export function ShoppingTotal({
+  estimate,
+  stores,
+}: {
+  estimate: ShoppingCostEstimate;
+  stores: readonly string[];
+}) {
+  const coverage =
+    estimate.pricedCount === 0
+      ? 'No items could be priced'
+      : estimate.pricedCount === estimate.itemCount
+        ? `All ${estimate.itemCount} items priced`
+        : `${estimate.pricedCount} of ${estimate.itemCount} items priced`;
+
+  return (
+    <View style={styles.totalCard}>
+      <View style={styles.totalCopy}>
+        <Text style={styles.totalLabel}>Estimated total</Text>
+        <Text style={styles.totalHint}>
+          {coverage} · typical {storeListLabel(stores)} prices
+        </Text>
+      </View>
+      <Text style={styles.totalValue}>
+        {estimate.pricedCount > 0 ? formatMoney(estimate.total, estimate.currency) : '—'}
+      </Text>
+    </View>
+  );
+}
+
 export function ShoppingChrome({
   weekStart,
   desktop,
@@ -203,6 +316,9 @@ export function ShoppingChrome({
   onClearChecked,
   onAdd,
   checkedCount,
+  costEstimate,
+  stores,
+  shopPicker,
   children,
 }: {
   weekStart: string;
@@ -219,6 +335,9 @@ export function ShoppingChrome({
   onClearChecked: () => void;
   onAdd: (name: string, amount?: string) => void;
   checkedCount: number;
+  costEstimate: ShoppingCostEstimate | null;
+  stores: readonly string[];
+  shopPicker?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -241,6 +360,8 @@ export function ShoppingChrome({
           <Btn label="Clear checked" variant="ghost" onPress={onClearChecked} disabled={!online} />
         ) : null}
       </View>
+      {shopPicker}
+      {costEstimate ? <ShoppingTotal estimate={costEstimate} stores={stores} /> : null}
       {children}
     </ScrollView>
   );
@@ -255,6 +376,22 @@ const styles = StyleSheet.create({
   lede: { color: colors.textMuted, fontSize: 15 },
   toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
   toolbarDesktop: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'center' },
+  totalCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    backgroundColor: colors.bgCard,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  totalCopy: { flex: 1, gap: 2, minWidth: 0 },
+  totalLabel: { color: colors.text, fontSize: 13, fontWeight: '800' },
+  totalHint: { color: colors.textMuted, fontSize: 12 },
+  totalValue: { color: colors.text, fontSize: 22, fontWeight: '800' },
   block: { gap: 12 },
   heading: { color: colors.text, fontSize: 18, fontWeight: '700' },
   cat: { gap: 6 },
@@ -287,6 +424,7 @@ const styles = StyleSheet.create({
   name: { color: colors.text, fontWeight: '700', flexShrink: 1 },
   checkedName: { textDecorationLine: 'line-through', color: colors.textMuted },
   meta: { color: colors.textDim, fontSize: 12 },
+  price: { color: colors.accent, fontSize: 12, fontWeight: '700' },
   link: { color: colors.accent, fontSize: 12 },
   noteLink: { color: colors.textMuted, fontSize: 12, textDecorationLine: 'underline' },
   sharedChip: {
@@ -298,7 +436,11 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   sharedChipText: { color: colors.accent, fontSize: 11, fontWeight: '700' },
-  remove: { color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 4 },
+  actions: { alignItems: 'flex-end', gap: 8 },
+  edit: { color: colors.accent, fontSize: 12, fontWeight: '700' },
+  actionDisabled: { color: colors.textDim },
+  editForm: { gap: 12 },
+  remove: { color: colors.danger, fontSize: 12, fontWeight: '700' },
   sheetList: { gap: 10, paddingBottom: 8 },
   sheetLead: { color: colors.textMuted, fontSize: 14, marginBottom: 4 },
   sheetBullet: { color: colors.text, fontSize: 15 },

@@ -1,5 +1,5 @@
 import type { Database, Json } from '@kinexus/db';
-import type { Day, Ingredient, MealSlot, MealSlotKey, NutritionGoals, Recipe } from '@kinexus/domain';
+import type { Day, Ingredient, MealSlot, MealSlotKey, NutritionGoals, Recipe, StoredGroceryQuote } from '@kinexus/domain';
 import { DAYS, MEAL_SLOTS, parsePriceOverrideMap, type IngredientPriceBook } from '@kinexus/domain';
 
 type RecipeRow = Database['public']['Tables']['recipes']['Row'];
@@ -137,6 +137,7 @@ export type ShoppingListItem = {
   mergedFrom: string[];
   /** True when the household added this row by hand (survives regenerate). */
   manual: boolean;
+  groceryQuote: StoredGroceryQuote | null;
 };
 
 type ShoppingRow = Database['public']['Tables']['shopping_items']['Row'];
@@ -170,7 +171,33 @@ export function shoppingFromRow(row: ShoppingRow): ShoppingListItem {
     sharedMealCount: shared ?? 1,
     mergedFrom,
     manual: meta.manual === true,
+    groceryQuote: groceryQuoteFromJson(row.grocery_quote ?? null),
   };
+}
+
+function groceryQuoteFromJson(value: Json | null): StoredGroceryQuote | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const rec = value as Record<string, Json | undefined>;
+  if (typeof rec.name !== 'string' || !Array.isArray(rec.quotes)) return null;
+  if (rec.amount != null && typeof rec.amount !== 'string') return null;
+  const quotes: StoredGroceryQuote['quotes'] = [];
+  for (const row of rec.quotes) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+    const quote = row as Record<string, Json | undefined>;
+    if (typeof quote.chainId !== 'string' || typeof quote.chainName !== 'string' || typeof quote.productName !== 'string') return null;
+    if (typeof quote.price !== 'number' || typeof quote.packs !== 'number') return null;
+    quotes.push({
+      chainId: quote.chainId,
+      chainName: quote.chainName,
+      storeId: typeof quote.storeId === 'string' ? quote.storeId : quote.chainId,
+      storeName: typeof quote.storeName === 'string' ? quote.storeName : quote.chainName,
+      productId: typeof quote.productId === 'string' ? quote.productId : quote.productName,
+      productName: quote.productName,
+      price: quote.price,
+      packs: quote.packs,
+    });
+  }
+  return { name: rec.name, amount: typeof rec.amount === 'string' ? rec.amount : null, quotes };
 }
 
 export function recipeToInsert(householdId: string, recipe: Omit<Recipe, 'id' | 'householdId'>): Database['public']['Tables']['recipes']['Insert'] {

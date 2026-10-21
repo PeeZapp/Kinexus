@@ -4,6 +4,7 @@ import type { Href } from 'expo-router';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { RolePreviewSwitcher } from '@/src/features/household/RolePreview';
+import { AppMark } from '@/src/features/shell/AppMark';
 import { ModuleGlyph, type ModuleGlyphName } from '@/src/features/shell/ModuleGlyph';
 import { SETTINGS_HREF, SETTINGS_PATH, visibleModules } from '@/src/features/shell/modules';
 import { colors, radius, space } from '@/src/features/shell/theme';
@@ -128,10 +129,7 @@ export function DesktopSidebar() {
   return (
     <View style={[styles.sidebar, collapsed && styles.sidebarCollapsed]}>
       <View style={[styles.brand, collapsed && styles.brandCollapsed]}>
-        <View style={styles.mark}>
-          <View style={styles.markDot} />
-          <View style={styles.markRing} />
-        </View>
+        <AppMark size={36} />
         {collapsed ? null : (
           <View style={styles.brandCopy}>
             <Text style={styles.wordmark}>Kinexus</Text>
@@ -223,30 +221,6 @@ const styles = StyleSheet.create({
   brandCopy: {
     flex: 1,
     minWidth: 0,
-  },
-  mark: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: colors.bgCard,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  markDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.accent,
-  },
-  markRing: {
-    position: 'absolute',
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 1.5,
-    borderColor: colors.accentMuted,
   },
   wordmark: {
     color: colors.text,

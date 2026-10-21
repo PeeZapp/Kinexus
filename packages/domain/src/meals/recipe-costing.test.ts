@@ -6,6 +6,7 @@ import {
   estimateIngredientCostUSD,
   estimateRecipeCost,
   estimateRecipeCostForMarket,
+  estimateShoppingListCost,
 } from './recipe-costing';
 
 describe('recipe costing', () => {
@@ -55,6 +56,26 @@ describe('recipe costing', () => {
         ingredients: [{ name: 'mystery powder blend', amount: '1 pinch' }],
       }),
     ).toBeNull();
+  });
+
+  it('sums a shopping list in the household currency and skips unmatched items', () => {
+    const cost = estimateShoppingListCost(
+      [
+        { name: 'chicken breast', amount: '400g' },
+        { name: 'mystery powder', amount: '1 pinch' },
+      ],
+      DEFAULT_MARKET,
+    );
+    expect(cost).toEqual({
+      total: 5.58,
+      currency: 'AUD',
+      pricedCount: 1,
+      itemCount: 2,
+    });
+  });
+
+  it('returns null for an empty shopping list', () => {
+    expect(estimateShoppingListCost([], DEFAULT_MARKET)).toBeNull();
   });
 
   it('fills missing AI keys from the catalog baseline', () => {

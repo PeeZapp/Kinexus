@@ -566,6 +566,40 @@ export function attachRecipeCost(
   return cost ? { ...recipe, cost } : recipe;
 }
 
+export type ShoppingCostEstimate = {
+  total: number;
+  currency: string;
+  pricedCount: number;
+  itemCount: number;
+};
+
+/** Approximate supermarket cost of a merged shopping list, in the household currency. */
+export function estimateShoppingListCost(
+  items: readonly { name: string; amount?: string | null }[],
+  market: GroceryMarket,
+  book?: IngredientPriceBook | null,
+): ShoppingCostEstimate | null {
+  if (items.length === 0) return null;
+  const multiplier = getCurrencyConfig(market.country).multiplier;
+  let totalUsd = 0;
+  let pricedCount = 0;
+  for (const item of items) {
+    const usd = costForIngredientUsd(
+      { name: item.name, amount: item.amount?.trim() || undefined },
+      { aiPrices: book?.prices ?? {} },
+    );
+    if (usd == null) continue;
+    totalUsd += usd;
+    pricedCount += 1;
+  }
+  return {
+    total: pricedCount > 0 ? roundMoney(totalUsd * multiplier) : 0,
+    currency: market.currency,
+    pricedCount,
+    itemCount: items.length,
+  };
+}
+
 export function estimateRecipeCostForMarket(
   recipe: Pick<Recipe, 'ingredients' | 'servings'>,
   market: GroceryMarket,

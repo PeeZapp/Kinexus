@@ -49,7 +49,7 @@ import {
 } from '@/src/features/stash/watchlist/sheets';
 import { GlobalListSheet } from '@/src/features/stash/watchlist/GlobalSocial';
 import { WatchedSheet } from '@/src/features/stash/watchlist/WatchedSheet';
-import { removePublicWatched, upsertPublicWatched } from '@/src/features/stash/watchlist-social';
+import { removePublicWatched, saveGlobalReview, deleteGlobalReviewForTitle, upsertPublicWatched, isTitleOnPublicProfile, clearPublicWatchedScore } from '@/src/features/stash/watchlist-social';
 import type { ListShareDraft } from '@/src/features/stash/use-stash-sync';
 import { useWatchlistSync, watchlistActionError } from '@/src/features/stash/use-watchlist-sync';
 import {
@@ -151,6 +151,42 @@ export function WatchlistScreen() {
     queueListId: string | null;
     preferScope: WatchedScope | null;
   } | null>(null);
+  const [watchedPublished, setWatchedPublished] = useState<boolean | null>(null);
+  const [ownPublicReview, setOwnPublicReview] = useState<{
+    score: number;
+    body: string | null;
+    updatedAt: string;
+  } | null>(null);
+  const [profileKnown, setProfileKnown] = useState(false);
+  const [socialRefresh, setSocialRefresh] = useState(0);
+
+  useEffect(() => {
+    setOwnPublicReview(null);
+    setProfileKnown(false);
+  }, [openItemId]);
+
+  useEffect(() => {
+    if (!watchedDraft || !watchlist.userId) {
+      setWatchedPublished(null);
+      return;
+    }
+    let cancelled = false;
+    setWatchedPublished(null);
+    void isTitleOnPublicProfile({
+      userId: watchlist.userId,
+      tmdbId: watchedDraft.hit.tmdbId,
+      mediaType: watchedDraft.hit.mediaType,
+    })
+      .then((on) => {
+        if (!cancelled) setWatchedPublished(on);
+      })
+      .catch(() => {
+        if (!cancelled) setWatchedPublished(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [watchedDraft, watchlist.userId]);
 
   useEffect(() => {
     if (!user) return;
@@ -937,15 +973,65 @@ export function WatchlistScreen() {
           setOpenItemId(null);
           setGlobalListId(listId);
         }}
-        onSaveReview={async (reviewPersonId, score, body) => {
+        onSaveReview={async (reviewPersonId, score, body, opts) => {
           if (!openEntry) return;
-          await run(async () => {
+          const ok = await run(async () => {
+            const writingAsSelf = reviewPersonId === 'self' || reviewPersonId === selfId;
             const id = reviewPersonId === 'self' ? await ensureSelfPerson() : reviewPersonId;
             await watchlist.saveReview(openEntry.title.id, id, score, body);
+            if (!writingAsSelf || !watchlist.userId) return;
+            const title = openEntry.title;
+            if (opts.showOnProfile) {
+              await saveGlobalReview({
+                userId: watchlist.userId,
+                tmdbId: title.tmdbId,
+                mediaType: title.mediaType,
+                score,
+                body,
+                title: title.title,
+                year: title.year,
+                posterPath: title.posterPath,
+              });
+            } else if (opts.profileKnown && ownPublicReview) {
+              await deleteGlobalReviewForTitle({
+                userId: watchlist.userId,
+                tmdbId: title.tmdbId,
+                mediaType: title.mediaType,
+              });
+              await clearPublicWatchedScore({
+                userId: watchlist.userId,
+                tmdbId: title.tmdbId,
+                mediaType: title.mediaType,
+              });
+            }
           });
+          if (ok) setSocialRefresh((value) => value + 1);
         }}
         onDeleteReview={async (reviewId) => {
-          await run(() => watchlist.deleteReview(reviewId));
+          const row = watchlist.reviews.find((review) => review.id === reviewId);
+          const ok = await run(async () => {
+            await watchlist.deleteReview(reviewId);
+            if (!row || !selfId || row.personId !== selfId || !watchlist.userId || !openEntry) return;
+            if (row.titleId !== openEntry.title.id || !ownPublicReview) return;
+            await deleteGlobalReviewForTitle({
+              userId: watchlist.userId,
+              tmdbId: openEntry.title.tmdbId,
+              mediaType: openEntry.title.mediaType,
+            });
+            await clearPublicWatchedScore({
+              userId: watchlist.userId,
+              tmdbId: openEntry.title.tmdbId,
+              mediaType: openEntry.title.mediaType,
+            });
+          });
+          if (ok) setSocialRefresh((value) => value + 1);
+        }}
+        publicReview={ownPublicReview}
+        profileKnown={profileKnown}
+        socialRefresh={socialRefresh}
+        onOwnReview={(review) => {
+          setOwnPublicReview(review);
+          setProfileKnown(true);
         }}
         busy={busy}
         error={actionError}
@@ -986,6 +1072,7 @@ export function WatchlistScreen() {
         initialScope={watchedDraft?.preferScope ?? savedWatchedScope ?? 'family'}
         myReview={myWatchedReview}
         otherScores={otherWatchedScores}
+        published={savedWatchedItem == null ? true : watchedPublished === true}
         busy={busy}
         error={actionError}
         onClose={() => setWatchedDraft(null)}
@@ -1013,22 +1100,26 @@ export function WatchlistScreen() {
               await watchlist.deleteReview(existing.id);
             }
             if (watchlist.userId) {
-              if (opts.showOnProfile) {
-                await upsertPublicWatched({
-                  userId: watchlist.userId,
-                  tmdbId: draft.hit.tmdbId,
-                  mediaType: draft.hit.mediaType,
-                  title: draft.hit.title,
-                  year: draft.hit.year,
-                  posterPath: draft.hit.posterPath,
+              const titleFields = {
+                userId: watchlist.userId,
+                tmdbId: draft.hit.tmdbId,
+                mediaType: draft.hit.mediaType,
+                title: draft.hit.title,
+                year: draft.hit.year,
+                posterPath: draft.hit.posterPath,
+              };
+              if (opts.showOnProfile && review.score != null) {
+                await saveGlobalReview({
+                  ...titleFields,
                   score: review.score,
+                  body: review.body,
                 });
+              } else if (opts.showOnProfile) {
+                await deleteGlobalReviewForTitle(titleFields);
+                await upsertPublicWatched({ ...titleFields, score: null });
               } else {
-                await removePublicWatched({
-                  userId: watchlist.userId,
-                  tmdbId: draft.hit.tmdbId,
-                  mediaType: draft.hit.mediaType,
-                });
+                await deleteGlobalReviewForTitle(titleFields);
+                await removePublicWatched(titleFields);
               }
             }
           });

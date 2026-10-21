@@ -183,3 +183,23 @@ export async function saveOverviewPrefs(user: AuthUser, prefs: OverviewPrefs): P
   );
   if (error) throw explain(error);
 }
+
+let persistChain: Promise<void> = Promise.resolve();
+
+/** Serializes overview writes so a news-topic save cannot overwrite a weather save still in flight. */
+export function persistOverviewPrefs(
+  user: AuthUser,
+  update: (current: OverviewPrefs) => OverviewPrefs,
+): Promise<OverviewPrefs> {
+  const run = persistChain.catch(() => undefined).then(async () => {
+    const current = await loadOverviewPrefs(user);
+    const next = sanitizePrefs(update(current));
+    await saveOverviewPrefs(user, next);
+    return next;
+  });
+  persistChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}

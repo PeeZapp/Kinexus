@@ -30,9 +30,9 @@ export function RecipePhoto({
 
   const box: ViewStyle =
     size === 'fill'
-      ? { width: '100%', height: '100%' }
+      ? { width: '100%', height: '100%', minWidth: 0 }
       : { width: size, height: size };
-  const img: ImageStyle = { width: '100%', height: '100%' };
+  const img: ImageStyle = { width: '100%', height: '100%', minWidth: 0 };
   const showPhoto = Boolean(uri) && !failed;
   return (
     <View style={[styles.wrap, box, { borderRadius: corner }, style]}>

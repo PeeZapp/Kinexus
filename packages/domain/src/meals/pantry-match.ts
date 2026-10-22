@@ -68,6 +68,7 @@ export function matchRecipesToPantry(recipes: readonly Recipe[], pantry: readonl
   const matches: PantryMatch[] = [];
   for (const recipe of recipes) {
     if (recipe.removed || recipe.isComponent) continue;
+    if (recipe.recipeClass && !(recipe.mealSlots ?? []).length) continue;
     const required = uniqueIngredientNames(
       (recipe.ingredients ?? []).map((item) => item.name).filter((name) => name.trim() && !isAssumedPantryStaple(name)),
     );

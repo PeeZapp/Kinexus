@@ -655,6 +655,7 @@ export type Database = {
           notes: string | null;
           meal_slots: string[];
           is_component: boolean;
+          recipe_class: string | null;
           excluded_from_auto: boolean;
           is_public: boolean;
           source_url: string | null;
@@ -689,6 +690,7 @@ export type Database = {
           notes?: string | null;
           meal_slots?: string[];
           is_component?: boolean;
+          recipe_class?: string | null;
           excluded_from_auto?: boolean;
           is_public?: boolean;
           source_url?: string | null;
@@ -718,6 +720,7 @@ export type Database = {
           notes?: string | null;
           meal_slots?: string[];
           is_component?: boolean;
+          recipe_class?: string | null;
           excluded_from_auto?: boolean;
           source_url?: string | null;
           image_url?: string | null;
@@ -957,6 +960,8 @@ export type Database = {
           eaten_by: Json;
           assigned_person_id: string | null;
           audience_person_ids: string[];
+          side_recipe_ids: string[];
+          target_servings: number | null;
           client_updated_at: string;
           created_at: string;
           updated_at: string;
@@ -979,6 +984,8 @@ export type Database = {
           eaten_by?: Json;
           assigned_person_id?: string | null;
           audience_person_ids?: string[];
+          side_recipe_ids?: string[];
+          target_servings?: number | null;
           client_updated_at?: string;
         };
         Update: {
@@ -994,6 +1001,8 @@ export type Database = {
           eaten_by?: Json;
           assigned_person_id?: string | null;
           audience_person_ids?: string[];
+          side_recipe_ids?: string[];
+          target_servings?: number | null;
           client_updated_at?: string;
         };
         Relationships: [];

@@ -63,7 +63,7 @@ export function EditRecipeScreen() {
     try {
       const draft = draftFromForm(form, {
         vegetarian: recipe.vegetarian,
-        isComponent: recipe.isComponent,
+        isComponent: form.recipeClass ? form.slots.length === 0 : recipe.isComponent,
         imageUrl: recipe.imageUrl,
         excludedFromAuto: recipe.excludedFromAuto,
       });

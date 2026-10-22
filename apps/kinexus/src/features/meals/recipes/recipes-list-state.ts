@@ -1,3 +1,5 @@
+import { RECIPE_CLASSES } from '@kinexus/domain';
+
 import type { RecipeLibraryFilter, RecipeMealFilter, RecipeSort, SortDir } from '@/src/features/meals/recipes/filters';
 
 export type RecipesListUiState = {
@@ -18,7 +20,15 @@ const DEFAULT_UI: RecipesListUiState = {
   sortDir: 'asc',
 };
 
-const MEALS = new Set<RecipeMealFilter>(['all', 'breakfast', 'lunch', 'dinner', 'snack', 'dessert']);
+const MEALS = new Set<RecipeMealFilter>([
+  'all',
+  'breakfast',
+  'lunch',
+  'dinner',
+  'snack',
+  'dessert',
+  ...RECIPE_CLASSES.map((item) => item.key),
+]);
 const LIBRARIES = new Set<RecipeLibraryFilter>(['all', 'household', 'imported', 'favourites', 'base', 'removed']);
 
 let uiState: RecipesListUiState = { ...DEFAULT_UI };

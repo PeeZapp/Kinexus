@@ -84,11 +84,17 @@ export function recipeMatchesSlot(recipe: Recipe, slot: MealSlotKey): boolean {
 /**
  * Recipes that can fill a slot (falls back to the full eligible library if nothing matches).
  * Base recipes (`isComponent`), household "not for my family" (`excludedFromAuto`),
- * and catalog-removed recipes are never picked.
+ * catalog-removed recipes, sides, and other classed recipes that are not tagged for this slot
+ * are never picked. Sides belong beside a meal, not in the plan as the meal.
  */
 export function recipesForSlot(recipes: readonly Recipe[], slot: MealSlotKey): Recipe[] {
   const eligible = hideReplacedCatalogRecipes(recipes).filter(
-    (r) => !r.isComponent && !r.excludedFromAuto && !r.removed,
+    (r) =>
+      !r.isComponent &&
+      !r.excludedFromAuto &&
+      !r.removed &&
+      r.recipeClass !== 'side' &&
+      (!r.recipeClass || recipeMatchesSlot(r, slot)),
   );
   const matched = eligible.filter((r) => recipeMatchesSlot(r, slot));
   return matched.length > 0 ? matched : [...eligible];
@@ -189,13 +195,17 @@ export function planBudgetCap(
   return roundMoney(perDay * dayCount);
 }
 
-export function planShoppingCost(rows: readonly { recipe: Recipe }[]): { total: number; missing: number } {
+export function planShoppingCost(
+  rows: readonly { recipe: Recipe; sides?: readonly Recipe[] }[],
+): { total: number; missing: number } {
   let total = 0;
   let missing = 0;
   for (const row of rows) {
-    const cost = recipeShoppingCost(row.recipe);
-    if (cost == null) missing += 1;
-    else total += cost;
+    for (const recipe of [row.recipe, ...(row.sides ?? [])]) {
+      const cost = recipeShoppingCost(recipe);
+      if (cost == null) missing += 1;
+      else total += cost;
+    }
   }
   return { total: roundMoney(total), missing };
 }
@@ -245,6 +255,7 @@ export type GeneratedSlot = {
   recipe: Recipe;
   targetCalories: number;
   targetProtein: number;
+  sides?: Recipe[];
 };
 
 const STAPLE_INGREDIENTS = new Set([
@@ -274,6 +285,13 @@ function dominantProtein(recipe: Recipe): RecipeProteinKind {
   return recipeProteinKind(recipe);
 }
 
+/** Prefer meals not yet on the plan. Repeat only after every candidate has been used equally often. */
+function recipesUsedLeast(recipes: readonly Recipe[], timesUsed: ReadonlyMap<string, number>): Recipe[] {
+  let fewest = Infinity;
+  for (const recipe of recipes) fewest = Math.min(fewest, timesUsed.get(recipe.id) ?? 0);
+  return recipes.filter((recipe) => (timesUsed.get(recipe.id) ?? 0) === fewest);
+}
+
 export type GenerateMealPlanOptions = {
   /** Injected for tests. Defaults to `Math.random`. */
   random?: () => number;
@@ -299,9 +317,7 @@ export function generateMealPlan(
   const weeklyBudget = options?.weeklyBudget;
   const results: GeneratedSlot[] = [];
 
-  const usedPerSlot = new Map<MealSlotKey, Set<string>>(
-    selectedSlots.map((s) => [s, new Set<string>()]),
-  );
+  const timesUsed = new Map<string, number>();
   const ingredientUsage = new Map<string, number>();
   const proteinUsage = new Map<string, number>();
   const cuisineUsage = new Map<string, number>();
@@ -321,9 +337,7 @@ export function generateMealPlan(
       const pool = recipesForSlot(recipes, slot);
       if (pool.length === 0) continue;
 
-      const used = usedPerSlot.get(slot) ?? new Set<string>();
-      const unused = pool.filter((r) => !used.has(r.id));
-      const candidates = unused.length > 0 ? unused : pool;
+      const candidates = recipesUsedLeast(pool, timesUsed);
 
       const eligibleByHardCaps = candidates.filter((r) => {
         const proteinKey = dominantProtein(r);
@@ -360,7 +374,7 @@ export function generateMealPlan(
       const picked = scored[Math.floor(random() * topN)]?.recipe;
       if (!picked) continue;
 
-      used.add(picked.id);
+      timesUsed.set(picked.id, (timesUsed.get(picked.id) ?? 0) + 1);
       recipeIngredientSet(picked).forEach((ing) => {
         ingredientUsage.set(ing, (ingredientUsage.get(ing) ?? 0) + 1);
       });

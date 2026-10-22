@@ -34,7 +34,9 @@ async function scrapeSocialVideo(url: string, options: FetchPublicHtmlOptions): 
     return { source: 'not-found', url: normalized.canonicalUrl, recipeUrl: normalized.canonicalUrl };
   }
   const linked = await recipeFromLinkedPages(meta.linkedUrls, options);
-  if (linked) return { source: 'json-ld', recipe: linked };
+  if (linked) {
+    return { source: 'json-ld', recipe: { ...linked, imageUrl: linked.imageUrl ?? meta.thumbnailUrl } };
+  }
   const content = videoMetadataToText(meta).slice(0, 20_000);
   if (!videoTextIsUsable(meta, content)) {
     return {
@@ -44,7 +46,7 @@ async function scrapeSocialVideo(url: string, options: FetchPublicHtmlOptions): 
       dishName: dishNameFromCaption(meta.title) ?? dishNameFromCaption(meta.description),
     };
   }
-  return { source: 'text', content };
+  return { source: 'text', content, imageUrl: meta.thumbnailUrl };
 }
 
 async function recipeFromLinkedPages(

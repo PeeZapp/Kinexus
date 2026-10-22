@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { AppModal } from '@/src/features/shell/AppModal';
@@ -28,6 +28,7 @@ export function Sheet({
   header,
   action,
   desktopMaxWidth,
+  scrollTopToken = 0,
 }: {
   visible: boolean;
   title: string;
@@ -37,9 +38,22 @@ export function Sheet({
   header?: ReactNode;
   action?: ReactNode;
   desktopMaxWidth?: number;
+  scrollTopToken?: number;
 }) {
   const { mode } = useExperienceMode();
   const desktop = mode === 'desktop';
+  const bodyRef = useRef<ScrollView>(null);
+  useEffect(() => {
+    if (!visible) return;
+    const snap = () => bodyRef.current?.scrollTo({ y: 0, animated: false });
+    snap();
+    const frame = requestAnimationFrame(snap);
+    const timer = setTimeout(snap, 0);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [scrollTopToken, visible]);
   return (
     <AppModal visible={visible} transparent animationType={desktop ? 'fade' : 'slide'} onRequestClose={onClose}>
       <Pressable style={styles.sheetBackdrop} onPress={onClose}>
@@ -63,6 +77,7 @@ export function Sheet({
           </View>
           {header ? <View style={styles.sheetHeader}>{header}</View> : null}
           <ScrollView
+            ref={bodyRef}
             keyboardShouldPersistTaps="handled"
             style={[styles.sheetBody, header ? styles.sheetBodyUnderHeader : null]}>
             {children}

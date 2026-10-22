@@ -23,6 +23,7 @@ export function ShoppingList({
   onEdit,
   onDelete,
   onRecipe,
+  onSetPurchase,
   editDisabled,
   itemPrices,
 }: {
@@ -32,11 +33,20 @@ export function ShoppingList({
   onEdit: (id: string, name: string, amount: string) => Promise<void>;
   onDelete: (id: string) => void;
   onRecipe: (id: string) => void;
+  onSetPurchase?: (recipeId: string, mode: 'buy' | 'make') => void;
   editDisabled: boolean;
   itemPrices?: Readonly<Record<string, ShoppingItemPrice>>;
 }) {
   const [detail, setDetail] = useState<DetailSheet>(null);
   const [editing, setEditing] = useState<ShoppingListItem | null>(null);
+
+  const making = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of items) {
+      if (item.madeFromRecipeId && item.madeFromRecipeName) map.set(item.madeFromRecipeId, item.madeFromRecipeName);
+    }
+    return [...map.entries()];
+  }, [items]);
 
   const groups = useMemo(() => {
     const map = new Map<string, ShoppingListItem[]>();
@@ -69,6 +79,17 @@ export function ShoppingList({
   return (
     <View style={styles.block}>
       <Text style={styles.heading}>{title}</Text>
+      {making.map(([recipeId, recipeName]) => (
+        <View key={recipeId} style={styles.makeBanner}>
+          <Text style={styles.makeBannerText}>Making {recipeName}</Text>
+          <Pressable
+            onPress={() => onSetPurchase?.(recipeId, 'buy')}
+            disabled={editDisabled || !onSetPurchase}
+            hitSlop={6}>
+            <Text style={[styles.edit, (editDisabled || !onSetPurchase) && styles.actionDisabled]}>Buy instead</Text>
+          </Pressable>
+        </View>
+      ))}
       {groups.map((group) => (
         <View key={group.category} style={styles.cat}>
           <Text style={styles.catTitle}>
@@ -119,6 +140,21 @@ export function ShoppingList({
                       <Pressable onPress={() => onRecipe(single.recipeId)} hitSlop={6} style={{ flexShrink: 1 }}>
                         <Text style={styles.link} numberOfLines={1}>
                           {single.recipeName}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                    {item.madeFromRecipeName ? (
+                      <Text style={styles.meta} numberOfLines={1}>
+                        From {item.madeFromRecipeName}
+                      </Text>
+                    ) : null}
+                    {item.linkedRecipeId && !item.madeFromRecipeId ? (
+                      <Pressable
+                        onPress={() => onSetPurchase?.(item.linkedRecipeId!, 'make')}
+                        disabled={editDisabled || !onSetPurchase}
+                        hitSlop={6}>
+                        <Text style={[styles.link, (editDisabled || !onSetPurchase) && styles.actionDisabled]}>
+                          Make {item.linkedRecipeName ?? 'it'}
                         </Text>
                       </Pressable>
                     ) : null}
@@ -423,6 +459,14 @@ const styles = StyleSheet.create({
   checkMark: { color: colors.bg, fontWeight: '800' },
   name: { color: colors.text, fontWeight: '700', flexShrink: 1 },
   checkedName: { textDecorationLine: 'line-through', color: colors.textMuted },
+  makeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 8,
+  },
+  makeBannerText: { color: colors.text, fontSize: 14, fontWeight: '700', flex: 1 },
   meta: { color: colors.textDim, fontSize: 12 },
   price: { color: colors.accent, fontSize: 12, fontWeight: '700' },
   link: { color: colors.accent, fontSize: 12 },

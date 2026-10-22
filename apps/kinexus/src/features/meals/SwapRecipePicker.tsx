@@ -23,6 +23,7 @@ export function SwapRecipePicker({
   target,
   filters,
   viewing,
+  viewServings,
   showRandom = true,
   onChangeFilters,
   onView,
@@ -35,6 +36,7 @@ export function SwapRecipePicker({
   target?: { calories: number; protein: number } | null;
   filters: SwapRecipeFilters;
   viewing: Recipe | null;
+  viewServings?: number | null;
   showRandom?: boolean;
   onChangeFilters: (next: SwapRecipeFilters) => void;
   onView: (recipe: Recipe | null) => void;
@@ -54,6 +56,7 @@ export function SwapRecipePicker({
     return (
       <RecipePeek
         recipe={viewing}
+        viewServings={viewServings}
         target={target}
         onUse={() => onPick(viewing)}
         onRandom={showRandom ? onRandom : undefined}

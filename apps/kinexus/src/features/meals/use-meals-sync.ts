@@ -41,6 +41,7 @@ import {
 } from '@/src/features/meals/mappers';
 import { useMealsWeek } from '@/src/features/meals/MealsWeekContext';
 import {
+  dropHouseholdWeekOutbox,
   enqueueSlotOp,
   householdOutbox,
   removeSlotOps,
@@ -50,11 +51,25 @@ import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 import { useOnline } from '@/src/lib/online';
 import { retainPostgresChannel } from '@/src/lib/realtime';
+import { mirrorRecipeImage } from '@/src/lib/meals-api';
 import { supabase } from '@/src/lib/supabase';
 
 export type PlanSlot = MealSlot & { id: string; updatedAt: string };
 
 const SLOT_KEYS = new Set<string>(MEAL_SLOTS.map((s) => s.key));
+const WEEK_RESET_SLOT_ID = 'week-reset';
+
+let slotSyncChain: Promise<unknown> = Promise.resolve();
+
+/** Slot outbox reads and writes must not interleave with a week reset. */
+function runSlotSync<T>(task: () => Promise<T>): Promise<T> {
+  const run = slotSyncChain.then(task, task);
+  slotSyncChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
 
 function recipesKey(householdId: string, country: string, currency: string) {
   return ['meals', 'recipes', householdId, country, currency] as const;
@@ -194,6 +209,17 @@ async function flushOne(op: SlotOutboxOp): Promise<void> {
   const planId = await ensurePlan(op.householdId, op.weekStart);
   const audiencePersonIds = normalizeAudiencePersonIds(op.audiencePersonIds);
 
+  if (op.kind === 'reset-week') {
+    const { error: deleteError } = await supabase.from('meal_slots').delete().eq('meal_plan_id', planId);
+    throwDbError(deleteError);
+    const { error: planError } = await supabase
+      .from('meal_plans')
+      .update({ active_slots: [...CORE_SLOTS] })
+      .eq('id', planId);
+    throwDbError(planError);
+    return;
+  }
+
   if (op.kind === 'delete') {
     if (!op.slotId) return;
     const { error } = await supabase.from('meal_slots').delete().eq('id', op.slotId).eq('meal_plan_id', planId);
@@ -240,7 +266,7 @@ async function flushOne(op: SlotOutboxOp): Promise<void> {
         }
       : op.kind === 'clear'
         ? denormFromRecipe(null)
-        : {
+          : {
             recipe_id: existing?.recipe_id ?? null,
             recipe_name: existing?.recipe_name ?? null,
             emoji: existing?.emoji ?? null,
@@ -250,6 +276,14 @@ async function flushOne(op: SlotOutboxOp): Promise<void> {
             fat: existing?.fat ?? null,
             cook_time: existing?.cook_time ?? null,
           };
+
+  const sidePatch = op.kind === 'assign' && op.sideRecipeIds != null ? { side_recipe_ids: op.sideRecipeIds } : {};
+  const targetServings =
+    op.kind === 'clear'
+      ? null
+      : op.targetServings !== undefined
+        ? op.targetServings
+        : (existing?.target_servings ?? null);
 
   const hidden =
     op.kind === 'hide'
@@ -266,6 +300,8 @@ async function flushOne(op: SlotOutboxOp): Promise<void> {
         assigned_person_id: assignedPersonId,
         audience_person_ids: nextAudience,
         ...denorm,
+        ...sidePatch,
+        target_servings: targetServings,
         hidden,
       })
       .eq('id', existing.id);
@@ -283,6 +319,8 @@ async function flushOne(op: SlotOutboxOp): Promise<void> {
     assigned_person_id: assignedPersonId,
     audience_person_ids: nextAudience,
     ...denorm,
+    ...sidePatch,
+    target_servings: targetServings,
     hidden,
   };
 
@@ -323,6 +361,10 @@ export function useMealsSync() {
     enabled: Boolean(householdId && supabase && online),
     queryFn: async () => {
       const planId = await ensurePlan(householdId!, weekStart);
+      const pending = await householdOutbox(householdId!);
+      if (pending.some((op) => op.kind === 'reset-week' && op.weekStart === weekStart)) {
+        return { planId, activeSlots: [...CORE_SLOTS] };
+      }
       if (!supabase) return { planId, activeSlots: [...CORE_SLOTS] };
       const { data, error } = await supabase.from('meal_plans').select('*').eq('id', planId).maybeSingle();
       if (error) throw error;
@@ -336,7 +378,11 @@ export function useMealsSync() {
   const slotsQuery = useQuery({
     queryKey: householdId ? slotsKey(householdId, weekStart) : ['meals', 'slots', 'none'],
     enabled: Boolean(householdId && supabase && online),
-    queryFn: () => fetchSlots(householdId!, weekStart).then((r) => r.slots),
+    queryFn: async () => {
+      const pending = await householdOutbox(householdId!);
+      if (pending.some((op) => op.kind === 'reset-week' && op.weekStart === weekStart)) return [];
+      return fetchSlots(householdId!, weekStart).then((r) => r.slots);
+    },
   });
 
   const goalsQuery = useQuery({
@@ -509,7 +555,7 @@ export function useMealsSync() {
     );
   }, [householdId, online, queryClient, weekStart]);
 
-  const flush = useCallback(async () => {
+  const flushPending = useCallback(async () => {
     if (!householdId || !online || !supabase) return;
     const pending = await householdOutbox(householdId);
     const done: string[] = [];
@@ -528,6 +574,8 @@ export function useMealsSync() {
     if (firstError) throw firstError;
   }, [householdId, online, queryClient]);
 
+  const flush = useCallback(() => runSlotSync(() => flushPending()), [flushPending]);
+
   useEffect(() => {
     if (online) void flush();
   }, [flush, online]);
@@ -535,6 +583,17 @@ export function useMealsSync() {
   const applyLocal = useCallback(
     (op: SlotOutboxOp) => {
       if (!householdId) return;
+      if (op.kind === 'reset-week') {
+        queryClient.setQueryData<PlanSlot[]>(slotsKey(householdId, op.weekStart), []);
+        queryClient.setQueryData<{ planId: string; activeSlots: MealSlotKey[] } | undefined>(
+          planKey(householdId, op.weekStart),
+          (current) => ({
+            planId: current?.planId ?? '',
+            activeSlots: [...CORE_SLOTS],
+          }),
+        );
+        return;
+      }
       queryClient.setQueryData<PlanSlot[]>(slotsKey(householdId, weekStart), (current) => {
         const list = current ?? [];
         if (op.kind === 'delete') {
@@ -570,6 +629,14 @@ export function useMealsSync() {
               ? (op.assignedPersonId ?? undefined)
               : (op.assignedPersonId ?? existing?.assignedPersonId),
           audiencePersonIds,
+          sideRecipeIds:
+            op.kind === 'assign' && op.sideRecipeIds != null ? op.sideRecipeIds : existing?.sideRecipeIds,
+          targetServings:
+            op.kind === 'clear'
+              ? undefined
+              : op.targetServings !== undefined
+                ? (op.targetServings ?? undefined)
+                : existing?.targetServings,
           updatedAt: op.clientUpdatedAt,
         };
         if (idx >= 0) {
@@ -589,18 +656,40 @@ export function useMealsSync() {
       opts?: { flushNow?: boolean },
     ) => {
       if (!householdId) throw new Error('No household');
+      await runSlotSync(async () => {
+        const op = await enqueueSlotOp({
+          ...partial,
+          householdId,
+          weekStart,
+          clientUpdatedAt: new Date().toISOString(),
+        });
+        applyLocal(op);
+        await queryClient.invalidateQueries({ queryKey: outboxKey(householdId) });
+        if (opts?.flushNow !== false && online) await flushPending();
+      });
+    },
+    [applyLocal, flushPending, householdId, online, queryClient, weekStart],
+  );
+
+  const clearWeek = useCallback(async () => {
+    if (!householdId) throw new Error('No household');
+    await runSlotSync(async () => {
+      await dropHouseholdWeekOutbox(householdId, weekStart);
       const op = await enqueueSlotOp({
-        ...partial,
+        kind: 'reset-week',
         householdId,
         weekStart,
+        day: 'monday',
+        slotKey: 'breakfast',
+        slotId: WEEK_RESET_SLOT_ID,
+        audiencePersonIds: [],
         clientUpdatedAt: new Date().toISOString(),
       });
       applyLocal(op);
       await queryClient.invalidateQueries({ queryKey: outboxKey(householdId) });
-      if (opts?.flushNow !== false && online) await flush();
-    },
-    [applyLocal, flush, householdId, online, queryClient, weekStart],
-  );
+      if (online) await flushPending();
+    });
+  }, [applyLocal, flushPending, householdId, online, queryClient, weekStart]);
 
   const slotsList = useCallback(() => {
     if (!householdId) return [] as PlanSlot[];
@@ -921,7 +1010,7 @@ export function useMealsSync() {
     async (
       results: GeneratedSlot[],
       selectedSlots: MealSlotKey[],
-      opts?: { audiencePersonIds?: readonly string[] },
+      opts?: { audiencePersonIds?: readonly string[]; targetServings?: number | null },
     ) => {
       if (!householdId) throw new Error('No household');
       const audience = normalizeAudiencePersonIds(opts?.audiencePersonIds);
@@ -965,6 +1054,8 @@ export function useMealsSync() {
               carbs: row.recipe.carbs ?? null,
               fat: row.recipe.fat ?? null,
               cookTime: row.recipe.cookTime ?? null,
+              sideRecipeIds: (row.sides ?? []).map((side) => side.id),
+              targetServings: opts?.targetServings ?? null,
             },
             { flushNow: false },
           );
@@ -1025,6 +1116,8 @@ export function useMealsSync() {
             fat: row.recipe.fat ?? null,
             cookTime: row.recipe.cookTime ?? null,
             assignedPersonId: existing?.assignedPersonId ?? null,
+            sideRecipeIds: (row.sides ?? []).map((side) => side.id),
+            targetServings: opts?.targetServings ?? null,
           },
           { flushNow: false },
         );
@@ -1211,8 +1304,17 @@ export function useMealsSync() {
       if (!online) throw new Error('Saving recipes needs a connection');
       const { data, error } = await supabase.from('recipes').insert(recipeToInsert(householdId, draft)).select('*').single();
       if (error) throw error;
+      let row = data;
+      if (row.source_url) {
+        try {
+          const mirrored = await mirrorRecipeImage(row.id);
+          if (mirrored.imageUrl) row = { ...row, image_url: mirrored.imageUrl };
+        } catch {
+          // The recipe is saved. A remote photo URL still shows if the copy fails.
+        }
+      }
       await queryClient.invalidateQueries({ queryKey: recipesPrefix(householdId) });
-      return recipeFromRow(data);
+      return recipeFromRow(row);
     },
     [householdId, online, queryClient],
   );
@@ -1487,24 +1589,30 @@ export function useMealsSync() {
   );
 
   const rebuildShopping = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (makeRecipeIds?: readonly string[]) => {
       if (!householdId || !supabase) throw new Error('Not ready');
       if (!online) throw new Error('Shopping rebuild needs a connection');
-      const slots = (slotsQuery.data ?? []).filter((slot) => !slot.hidden && slot.recipeId);
+      const slots = (slotsQuery.data ?? []).filter(
+        (slot) => !slot.hidden && (slot.recipeId || (slot.sideRecipeIds?.length ?? 0) > 0),
+      );
       const recipes = hideReplacedCatalogRecipes(overlayHiddenRecipes(recipesQuery.data ?? [], hiddenQuery.data ?? []));
       const activeSlots = planQuery.data?.activeSlots ?? [...CORE_SLOTS];
       const existing = shoppingQuery.data ?? [];
       const checkedByKey = new Map<string, boolean>();
+      const keptMakeIds = new Set<string>();
       for (const item of existing) {
-        if (!item.checked) continue;
-        const key = shoppingMergeKey(item.name) || item.name.toLowerCase().trim();
-        checkedByKey.set(key, true);
+        if (item.checked) {
+          const key = shoppingMergeKey(item.name) || item.name.toLowerCase().trim();
+          checkedByKey.set(key, true);
+        }
+        if (item.madeFromRecipeId) keptMakeIds.add(item.madeFromRecipeId);
       }
       const manuals = existing.filter((item) => item.manual);
       const derived = shoppingFromPlan({
         plan: { activeSlots, slots },
         recipes,
         country: market.country,
+        makeRecipeIds: makeRecipeIds ?? [...keptMakeIds],
       });
       await supabase.from('shopping_items').delete().eq('household_id', householdId).eq('week_start', weekStart);
       const planRows = derived.map((item) => {
@@ -1521,6 +1629,10 @@ export function useMealsSync() {
             sharedMealCount: item.sharedMealCount,
             isBaseRecipe: item.isBaseRecipe ?? false,
             baseRecipeId: item.baseRecipeId ?? null,
+            linkedRecipeId: item.linkedRecipeId ?? null,
+            linkedRecipeName: item.linkedRecipeName ?? null,
+            madeFromRecipeId: item.madeFromRecipeId ?? null,
+            madeFromRecipeName: item.madeFromRecipeName ?? null,
             mergedFrom: item.mergedFrom ?? [],
             manual: false,
           },
@@ -1557,6 +1669,42 @@ export function useMealsSync() {
       if (householdId) void queryClient.invalidateQueries({ queryKey: shoppingKey(householdId, weekStart) });
     },
   });
+
+  const setShoppingPurchase = useCallback(
+    async (recipeId: string, mode: 'buy' | 'make') => {
+      const ids = new Set<string>();
+      for (const item of shoppingQuery.data ?? []) {
+        if (item.madeFromRecipeId) ids.add(item.madeFromRecipeId);
+      }
+      if (mode === 'make') ids.add(recipeId);
+      else ids.delete(recipeId);
+      await rebuildShopping.mutateAsync([...ids]);
+    },
+    [rebuildShopping, shoppingQuery.data],
+  );
+
+  const setSlotSides = useCallback(
+    async (slotId: string, sideRecipeIds: readonly string[]) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      if (!online) throw new Error('Updating the plan needs a connection');
+      const unique = [...new Set(sideRecipeIds.filter(Boolean))];
+      const key = slotsKey(householdId, weekStart);
+      const previous = queryClient.getQueryData<PlanSlot[]>(key);
+      queryClient.setQueryData<PlanSlot[]>(key, (current) =>
+        (current ?? []).map((slot) => (slot.id === slotId ? { ...slot, sideRecipeIds: unique } : slot)),
+      );
+      const { error } = await supabase
+        .from('meal_slots')
+        .update({ side_recipe_ids: unique })
+        .eq('id', slotId)
+        .eq('household_id', householdId);
+      if (error) {
+        queryClient.setQueryData(key, previous);
+        throw error;
+      }
+    },
+    [householdId, online, queryClient, weekStart],
+  );
 
   const slots = slotsQuery.data ?? [];
   const hiddenRecipeIds = useMemo(() => new Set(hiddenQuery.data ?? []), [hiddenQuery.data]);
@@ -1610,6 +1758,7 @@ export function useMealsSync() {
     assignSlot,
     allocateSlot,
     clearSlot,
+    clearWeek,
     hideSlot,
     hideDay,
     restoreDay,
@@ -1636,7 +1785,9 @@ export function useMealsSync() {
     publishCreatorRecipe,
     unpublishCreatorRecipe,
     reviewCatalogRecipe,
-    rebuildShopping: () => rebuildShopping.mutateAsync(),
+    rebuildShopping: () => rebuildShopping.mutateAsync(undefined),
+    setShoppingPurchase,
+    setSlotSides,
     shoppingBusy: rebuildShopping.isPending,
     shoppingError: rebuildShopping.error?.message ?? null,
     flush,

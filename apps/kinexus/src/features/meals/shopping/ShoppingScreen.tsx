@@ -68,6 +68,7 @@ export function ShoppingScreen() {
     onEdit: (id: string, name: string, amount: string) => meals.updateShoppingItem(id, name, amount),
     onDelete: (id: string) => void meals.deleteShoppingItem(id),
     onRecipe: (id: string) => router.push(recipeHref(id, { from: 'shopping' })),
+    onSetPurchase: (recipeId: string, mode: 'buy' | 'make') => void meals.setShoppingPurchase(recipeId, mode),
     onAdd: (name: string, amount?: string) => void meals.addShoppingItem(name, amount),
     costEstimate: grocery.comparison?.cheapestShop ? null : costEstimate,
     stores: meals.market.stores,

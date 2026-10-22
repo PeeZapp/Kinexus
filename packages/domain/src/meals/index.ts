@@ -9,6 +9,7 @@ export type {
   NutritionGoals,
   PersonDietary,
   Recipe,
+  RecipeClass,
   RecipeCostEstimate,
   RecipeCostLine,
   ShoppingRecipeSource,
@@ -48,6 +49,7 @@ export {
   scaledQuantityLabel,
   userErrorFromCode,
 } from './clean-recipe';
+export { recipeBaseServings, scaleRecipeToServings } from './scale-servings';
 export type { NormalizedRecipeUrl } from './recipe-url';
 export { RecipeUrlError, classifyRecipeHost, normalizeRecipeUrl, youtubeVideoId } from './recipe-url';
 export type { SharedRecipePayload } from './share-recipe-url';
@@ -130,6 +132,15 @@ export {
 export type { FlatIngredient, ParsedAmount, CombineAmountsOptions, DeduplicateOptions } from './amounts';
 
 export { ingredientCoveredByPantry, pickCanonicalShoppingName, shoppingMergeKey } from './ingredient-merge';
+export { formatIngredientSwaps, ingredientSwaps } from './ingredient-swaps';
+
+export {
+  RECIPE_CLASSES,
+  isRecipeClass,
+  linkedRecipeForIngredient,
+  recipeClassLabel,
+  recipeNameKey,
+} from './recipe-class';
 
 export { addPantryIngredients, isAssumedPantryStaple, matchRecipesToPantry, parsePantryIngredients } from './pantry-match';
 export type { PantryMatch } from './pantry-match';

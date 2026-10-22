@@ -1,4 +1,11 @@
-import { estimateRecipeNutrition, MEAL_SLOTS, type MealSlotKey, type Recipe, type RecipeNutritionEstimate } from '@kinexus/domain';
+import {
+  estimateRecipeNutrition,
+  MEAL_SLOTS,
+  type MealSlotKey,
+  type Recipe,
+  type RecipeClass,
+  type RecipeNutritionEstimate,
+} from '@kinexus/domain';
 
 export type RecipeIngredientRow = {
   id: string;
@@ -27,6 +34,8 @@ export type RecipeFormState = {
   chefTip: string;
   notes: string;
   slots: MealSlotKey[];
+  recipeClass: RecipeClass | null;
+  imageUrl: string;
 };
 
 const SLOT_KEYS = new Set<string>(MEAL_SLOTS.map((slot) => slot.key));
@@ -53,6 +62,8 @@ export const EMPTY_RECIPE_FORM: RecipeFormState = {
   chefTip: '',
   notes: '',
   slots: ['dinner'],
+  recipeClass: null,
+  imageUrl: '',
 };
 
 export function ingredientRowsFrom(list: { amount?: string; name: string }[]): RecipeIngredientRow[] {
@@ -98,7 +109,9 @@ export function formFromRecipe(recipe: Recipe): RecipeFormState {
     method: methodRowsFrom(recipe.method ?? []),
     chefTip: recipe.chefTip ?? '',
     notes: recipe.notes ?? '',
-    slots: slots.length ? slots : ['dinner'],
+    recipeClass: recipe.recipeClass ?? null,
+    slots: slots.length ? slots : recipe.recipeClass ? [] : ['dinner'],
+    imageUrl: recipe.imageUrl ?? '',
   };
 }
 
@@ -125,8 +138,10 @@ export function draftFromForm(
     method: form.method.map((row) => row.text.trim()).filter(Boolean),
     chefTip: form.chefTip.trim() || undefined,
     notes: form.notes.trim() || undefined,
-    mealSlots: form.slots.length ? form.slots : ['dinner'],
+    recipeClass: form.recipeClass ?? undefined,
+    mealSlots: form.slots.length ? form.slots : form.recipeClass ? [] : ['dinner'],
     sourceUrl: form.url.trim() || undefined,
+    imageUrl: form.imageUrl.trim() || undefined,
     ...extras,
   };
 }

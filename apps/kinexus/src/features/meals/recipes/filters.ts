@@ -1,12 +1,14 @@
-import { recipeMatchesSlot, type MealSlotKey, type Recipe } from '@kinexus/domain';
+import { isRecipeClass, RECIPE_CLASSES, recipeMatchesSlot, type MealSlotKey, type Recipe, type RecipeClass } from '@kinexus/domain';
 
-export type RecipeMealFilter = 'all' | 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'dessert';
+export type RecipeMealFilter = 'all' | 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'dessert' | RecipeClass;
 export type RecipeLibraryFilter = 'all' | 'household' | 'imported' | 'favourites' | 'base' | 'removed';
 
 const SNACKS: MealSlotKey[] = ['morning_snack', 'afternoon_snack', 'night_snack'];
 
 function matchesMeal(recipe: Recipe, meal: RecipeMealFilter): boolean {
   if (meal === 'all') return true;
+  if (isRecipeClass(meal)) return recipe.recipeClass === meal;
+  if (recipe.recipeClass && !(recipe.mealSlots ?? []).length) return false;
   if (meal === 'snack') return (recipe.mealSlots ?? []).some((slot) => SNACKS.includes(slot));
   // Untagged recipes behave like dinner (same default as import/form).
   if (!(recipe.mealSlots ?? []).length) return meal === 'dinner';
@@ -27,7 +29,7 @@ export function matchesFilter(
   if (library === 'removed') return Boolean(recipe.removed) && matchesMeal(recipe, meal);
   if (recipe.removed) return false;
   if (recipe.excludedFromAuto && !showNotForFamily) return false;
-  if (library === 'base' && !recipe.isComponent) return false;
+  if (library === 'base' && !recipe.isComponent && !recipe.recipeClass) return false;
   if (library === 'household' && recipe.householdId === null) return false;
   if (library === 'imported' && !isImportedRecipe(recipe)) return false;
   if (library === 'favourites' && !favouriteIds.has(recipe.id)) return false;
@@ -96,6 +98,7 @@ export const MEAL_FILTERS: { id: RecipeMealFilter; label: string }[] = [
   { id: 'dinner', label: 'Dinner' },
   { id: 'snack', label: 'Snacks' },
   { id: 'dessert', label: 'Dessert' },
+  ...RECIPE_CLASSES.map((item) => ({ id: item.key, label: item.label })),
 ];
 
 export const LIBRARY_FILTERS: { id: RecipeLibraryFilter; label: string }[] = [
@@ -103,7 +106,6 @@ export const LIBRARY_FILTERS: { id: RecipeLibraryFilter; label: string }[] = [
   { id: 'household', label: 'Household' },
   { id: 'imported', label: 'Imported' },
   { id: 'favourites', label: 'Favourites' },
-  { id: 'base', label: 'Base' },
 ];
 
 export const EDITOR_LIBRARY_FILTERS: { id: RecipeLibraryFilter; label: string }[] = [

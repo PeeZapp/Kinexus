@@ -213,6 +213,41 @@ export function MealPrepControls({
   );
 }
 
+export function ServesPicker({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (next: number | null) => void;
+}) {
+  const count = value ?? null;
+  return (
+    <Section label="Serves">
+      <View style={styles.row}>
+        <Chip label="As written" active={count == null} onPress={() => onChange(null)} />
+        <Pressable
+          onPress={() => count != null && onChange(Math.max(1, count - 1))}
+          disabled={count == null || count <= 1}
+          accessibilityRole="button"
+          accessibilityLabel="Fewer serves"
+          style={[styles.stepBtn, (count == null || count <= 1) && styles.stepBtnDisabled]}>
+          <Text style={styles.stepBtnLabel}>−</Text>
+        </Pressable>
+        <Text style={styles.stepValue}>{count ?? '—'}</Text>
+        <Pressable
+          onPress={() => onChange(count == null ? 2 : Math.min(24, count + 1))}
+          disabled={count != null && count >= 24}
+          accessibilityRole="button"
+          accessibilityLabel="More serves"
+          style={[styles.stepBtn, count != null && count >= 24 && styles.stepBtnDisabled]}>
+          <Text style={styles.stepBtnLabel}>+</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.meta}>Scale every recipe to this many serves.</Text>
+    </Section>
+  );
+}
+
 export function WeeklyBudgetField({
   value,
   onChange,
@@ -480,6 +515,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     paddingVertical: 10,
     minWidth: 72,
+  },
+  stepBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgElevated,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepBtnDisabled: { opacity: 0.4 },
+  stepBtnLabel: { color: colors.text, fontSize: 18, fontWeight: '700', lineHeight: 22 },
+  stepValue: {
+    minWidth: 28,
+    textAlign: 'center',
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '800',
   },
   goalsToggle: {
     flexDirection: 'row',

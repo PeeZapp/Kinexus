@@ -24,7 +24,7 @@ export type ImportedRecipe = {
 
 export type ScrapeResponse =
   | { source: 'json-ld'; recipe: ImportedRecipe }
-  | { source: 'text'; content: string }
+  | { source: 'text'; content: string; imageUrl?: string }
   | { source: 'blocked'; blocked: true }
   | { source: 'not-found'; url: string; recipeUrl: string; dishName?: string };
 
@@ -121,12 +121,16 @@ export async function generateRecipeFromName(name: string): Promise<ImportedReci
   return data.recipe;
 }
 
+export async function mirrorRecipeImage(recipeId: string): Promise<{ imageUrl: string | null }> {
+  return post<{ imageUrl: string | null }>('/recipes/mirror-image', { recipeId });
+}
+
 export async function importRecipeFromUrl(url: string): Promise<ImportResult> {
   const scraped = await scrapeRecipe(url);
   if (scraped.source === 'json-ld') return { recipe: scraped.recipe, source: 'json-ld' };
   if (scraped.source === 'text') {
     const recipe = await extractRecipeFromText(scraped.content);
-    return { recipe, source: 'text-scraped' };
+    return { recipe: { ...recipe, imageUrl: recipe.imageUrl ?? scraped.imageUrl }, source: 'text-scraped' };
   }
   if (scraped.source === 'not-found') {
     return {

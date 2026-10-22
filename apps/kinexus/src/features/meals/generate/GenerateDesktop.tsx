@@ -2,13 +2,16 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import {
   DAY_LABELS,
+  formatCostPerServe,
   MEAL_SLOTS,
   mondayWeekStart,
+  scaleRecipeToServings,
   type Day,
   type GeneratedSlot,
   type MealPrepStyle,
   type MealSlotKey,
   type NutritionGoals,
+  type Recipe,
 } from '@kinexus/domain';
 
 import { Btn, ErrorText } from '@/src/features/household/ui';
@@ -18,6 +21,7 @@ import {
   GenerateModePicker,
   GoalsEditor,
   MealPrepControls,
+  ServesPicker,
   SlotPicker,
   WeeklyBudgetField,
   type GenerateMode,
@@ -61,6 +65,8 @@ export type GenerateViewProps = {
   daysToCover: number;
   onChangeDaysToCover: (days: number) => void;
   maxDaysToCover: number;
+  serves: number | null;
+  onChangeServes: (serves: number | null) => void;
   cookSummary: string | null;
   onGenerate: () => void;
   preview: GeneratedSlot[] | null;
@@ -74,7 +80,23 @@ export type GenerateViewProps = {
   applying: boolean;
   error: string | null;
   onOpenRecipe: (id: string, day: Day, slot: MealSlotKey) => void;
+  onAddSide: (day: Day, slot: MealSlotKey) => void;
 };
+
+export function generatedMealFacts(
+  recipe: Pick<Recipe, 'calories' | 'servings' | 'cost' | 'ingredients'>,
+  viewServings?: number | null,
+): string {
+  const shown = scaleRecipeToServings(recipe, viewServings);
+  const servings = shown.servings && shown.servings > 0 ? shown.servings : shown.cost?.servingsBasis;
+  return [
+    recipe.calories != null ? `${recipe.calories} kcal` : null,
+    formatCostPerServe(shown.cost),
+    servings != null && servings > 0 ? `${servings} ${servings === 1 ? 'serving' : 'servings'}` : null,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(' · ');
+}
 
 export function GenerateDesktop(props: GenerateViewProps) {
   const thisWeek = props.weekStart === mondayWeekStart();
@@ -86,22 +108,10 @@ export function GenerateDesktop(props: GenerateViewProps) {
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <View style={styles.headerCopy}>
-          <Text style={styles.title}>Generate</Text>
-          <Text style={styles.meta}>
-            {props.recipeCount} recipes · {props.dietarySummary}
-          </Text>
-        </View>
-        <View style={styles.headerActions}>
-          <Btn
-            label={props.mode === 'meal_prep' ? `Prep ${props.fillableCount}` : `Generate ${props.fillableCount}`}
-            onPress={props.onGenerate}
-            disabled={!canGenerate}
-          />
-          {props.preview ? (
-            <Btn label={weekApplyLabel(props.weekStart)} onPress={props.onApply} busy={props.applying} />
-          ) : null}
-        </View>
+        <Text style={styles.title}>Generate</Text>
+        <Text style={styles.meta}>
+          {props.recipeCount} recipes · {props.dietarySummary}
+        </Text>
       </View>
 
       <WeekSwitcher weekStart={props.weekStart} onPrev={props.onPrevWeek} onNext={props.onNextWeek} />
@@ -136,6 +146,7 @@ export function GenerateDesktop(props: GenerateViewProps) {
               />
             )}
             <SlotPicker selected={props.selected} onToggle={props.onToggleSlot} />
+            <ServesPicker value={props.serves} onChange={props.onChangeServes} />
             <WeeklyBudgetField
               value={props.weeklyBudget}
               onChange={props.onChangeWeeklyBudget}
@@ -143,8 +154,18 @@ export function GenerateDesktop(props: GenerateViewProps) {
             />
           </View>
         </View>
-        <View style={styles.panel}>
+        <View style={[styles.panel, styles.goalsPanel]}>
           <GoalsEditor goals={props.goals} onChange={props.onChangeGoals} desktop defaultOpen />
+          <View style={styles.goalsActions}>
+            <Btn
+              label={props.mode === 'meal_prep' ? `Prep ${props.fillableCount}` : `Generate ${props.fillableCount}`}
+              onPress={props.onGenerate}
+              disabled={!canGenerate}
+            />
+            {props.preview ? (
+              <Btn label={weekApplyLabel(props.weekStart)} onPress={props.onApply} busy={props.applying} />
+            ) : null}
+          </View>
         </View>
       </View>
 
@@ -176,7 +197,10 @@ export function GenerateDesktop(props: GenerateViewProps) {
           const iso = weekDayIso(props.weekStart, day);
           const highlight = thisWeek && day === today;
           const kcal = slotKeys.reduce((sum, slot) => {
-            return sum + (previewByKey.get(`${day}_${slot}`)?.recipe.calories ?? 0);
+            const row = previewByKey.get(`${day}_${slot}`);
+            if (!row) return sum;
+            const sides = (row.sides ?? []).reduce((sideSum, side) => sideSum + (side.calories ?? 0), 0);
+            return sum + (row.recipe.calories ?? 0) + sides;
           }, 0);
           return (
             <View key={day} style={[styles.day, highlight && styles.dayToday]}>
@@ -206,12 +230,18 @@ export function GenerateDesktop(props: GenerateViewProps) {
                               <Text style={styles.mealName} numberOfLines={2}>
                                 {row.recipe.name}
                               </Text>
-                              <Text style={styles.mealKcal}>
-                                {row.recipe.calories != null ? `${row.recipe.calories} kcal` : ' '}
-                              </Text>
+                              <Text style={styles.mealKcal}>{generatedMealFacts(row.recipe, props.serves) || ' '}</Text>
+                              {(row.sides?.length ?? 0) > 0 ? (
+                                <Text style={styles.mealKcal} numberOfLines={2}>
+                                  {row.sides?.map((side) => side.name).join(', ')}
+                                </Text>
+                              ) : null}
                             </View>
                           </Pressable>
                           <View style={styles.cellActions}>
+                            <Pressable onPress={() => props.onAddSide(day, slot)} hitSlop={6}>
+                              <Text style={styles.swap}>Add side dish</Text>
+                            </Pressable>
                             <Pressable onPress={() => props.onSwap(day, slot)} hitSlop={6}>
                               <Text style={styles.swap}>Swap</Text>
                             </Pressable>
@@ -240,14 +270,7 @@ export function GenerateDesktop(props: GenerateViewProps) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { paddingHorizontal: 32, paddingBottom: 48, gap: 16 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    gap: 16,
-  },
-  headerCopy: { flex: 1, minWidth: 0, gap: 4 },
-  headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  header: { gap: 4 },
   title: {
     color: colors.text,
     fontSize: 36,
@@ -275,6 +298,17 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     padding: space.md,
     gap: 14,
+  },
+  goalsPanel: {
+    justifyContent: 'space-between',
+  },
+  goalsActions: {
+    marginTop: 16,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
   },
   form: { gap: 0 },
   emptyHint: {
@@ -388,7 +422,7 @@ const styles = StyleSheet.create({
     color: colors.textDim,
     fontSize: 12,
   },
-  mealKcal: { color: colors.textDim, fontSize: 11, minHeight: 14 },
+  mealKcal: { color: colors.textDim, fontSize: 11, lineHeight: 15, minHeight: 14 },
   cellActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',

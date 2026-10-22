@@ -114,7 +114,7 @@ export function RecipesChrome({
   return (
     <ScrollView
       ref={scrollRef}
-      style={styles.root}
+      style={[styles.root, desktop && styles.rootDesktop]}
       contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}
       scrollEventThrottle={16}
       onScroll={onScroll}
@@ -276,8 +276,9 @@ export function RecipeRow({
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
+  rootDesktop: { width: '100%', maxWidth: '100%', minWidth: 0, alignSelf: 'stretch' },
   content: { padding: space.md, gap: 12, paddingBottom: 48 },
-  contentDesktop: { paddingHorizontal: 48, maxWidth: 1200 },
+  contentDesktop: { paddingHorizontal: 48, width: '100%', alignSelf: 'stretch' },
   kicker: { color: colors.accent, fontSize: 12, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' },
   title: { color: colors.text, fontSize: 28, fontWeight: '700' },
   titleDesktop: { fontSize: 40 },
@@ -290,7 +291,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     overflow: 'hidden',
   },
-  cardWide: { width: 240 },
+  cardWide: { width: '100%', minWidth: 0 },
   cardPhoto: { height: 140, width: '100%' },
   cardCopy: { padding: space.sm, gap: 6 },
   row: {

@@ -52,10 +52,21 @@ export function FilterDropdown<T extends string | number | null>({
 }) {
   const highlighted = active ?? value != null;
   return (
-    <View style={[styles.dropdown, open && styles.dropdownOpen]}>
+    <View style={[styles.dropdown, open && styles.dropdownOpen]} collapsable={false}>
+      {open ? (
+        <Pressable
+          accessibilityLabel={`Close ${label} filter`}
+          onPress={() => onToggle(id)}
+          style={styles.backdrop}
+        />
+      ) : null}
       <Pressable
         onPress={() => onToggle(id)}
-        style={[styles.dropdownTrigger, (highlighted || open) && styles.dropdownTriggerActive]}>
+        style={[
+          styles.dropdownTrigger,
+          (highlighted || open) && styles.dropdownTriggerActive,
+          open && styles.dropdownFront,
+        ]}>
         <Text style={styles.dropdownKind}>{label}</Text>
         <Text style={[styles.dropdownValue, highlighted && styles.dropdownValueActive]} numberOfLines={1}>
           {valueLabel}
@@ -63,13 +74,16 @@ export function FilterDropdown<T extends string | number | null>({
         <Text style={styles.dropdownChevron}>{open ? '▴' : '▾'}</Text>
       </Pressable>
       {open ? (
-        <View style={styles.dropdownMenu}>
+        <View style={styles.dropdownMenu} pointerEvents="auto">
           {options.map((option, index) => {
             const selected = option.value === value;
             return (
               <Pressable
                 key={`${id}-${String(option.value)}`}
-                onPress={() => onSelect(option.value)}
+                onPress={(event) => {
+                  event.stopPropagation?.();
+                  onSelect(option.value);
+                }}
                 style={[
                   styles.dropdownItem,
                   index > 0 && styles.dropdownItemBorder,
@@ -93,7 +107,9 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     alignItems: 'flex-start',
     gap: 8,
-    zIndex: 2,
+    position: 'relative',
+    zIndex: 20,
+    overflow: 'visible',
   },
   dropdown: {
     flexGrow: 1,
@@ -102,8 +118,17 @@ const styles = StyleSheet.create({
     maxWidth: 220,
     position: 'relative',
     zIndex: 1,
+    overflow: 'visible',
   },
-  dropdownOpen: { zIndex: 30 },
+  dropdownOpen: { zIndex: 40 },
+  backdrop: {
+    position: 'fixed',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 1,
+  },
   dropdownTrigger: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -120,6 +145,7 @@ const styles = StyleSheet.create({
     borderColor: colors.accent,
     backgroundColor: colors.accentSoft,
   },
+  dropdownFront: { position: 'relative', zIndex: 3 },
   dropdownKind: {
     color: colors.textDim,
     fontSize: 11,
@@ -137,18 +163,22 @@ const styles = StyleSheet.create({
   dropdownValueActive: { color: colors.accent },
   dropdownChevron: { color: colors.textDim, fontSize: 11, fontWeight: '700' },
   dropdownMenu: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
     marginTop: 4,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.bgElevated,
     overflow: 'hidden',
-    zIndex: 20,
-    elevation: 8,
+    zIndex: 4,
+    elevation: 12,
     shadowColor: '#000',
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
   },
   dropdownItem: {
     paddingVertical: 9,

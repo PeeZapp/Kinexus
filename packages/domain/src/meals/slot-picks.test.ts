@@ -53,6 +53,19 @@ describe('recipesForPicker', () => {
     );
   });
 
+  it('does not offer a side as the meal, even from an allowlist', () => {
+    const tabbouleh = recipe({
+      id: 'tabbouleh',
+      name: 'Tabbouleh',
+      recipeClass: 'side',
+      mealSlots: ['lunch'],
+    });
+    expect(recipesForPicker([soup, tabbouleh], 'lunch').map((item) => item.id)).toEqual(['soup']);
+    expect(recipesForPicker([soup, tabbouleh], 'lunch', new Set(['tabbouleh', 'soup'])).map((item) => item.id)).toEqual([
+      'soup',
+    ]);
+  });
+
   it('restricts to the allowlist with no library fallback', () => {
     expect(recipesForPicker(library, 'dinner', new Set(['pasta', 'gone', 'stock'])).map((r) => r.id)).toEqual([
       'pasta',

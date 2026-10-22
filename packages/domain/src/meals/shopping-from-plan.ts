@@ -1,12 +1,18 @@
 import { deduplicateIngredients, prefersMetricCountry } from './amounts';
+import { scaleRecipeToServings } from './scale-servings';
 import { shoppingMergeKey } from './ingredient-merge';
+import { linkedRecipeForIngredient } from './recipe-class';
 import { recipeForHouseholdView } from './recipe-versions';
-import type {
-  DerivedShoppingItem,
-  MealPlan,
-  MealSlotKey,
-  Recipe,
-  ShoppingRecipeSource,
+import {
+  isHouseholdAudience,
+  type DerivedShoppingItem,
+  type Ingredient,
+  type MealPlan,
+  type MealSlot,
+  type MealSlotKey,
+  type Recipe,
+  type RecipeClass,
+  type ShoppingRecipeSource,
 } from './types';
 
 type CategoryDef = {
@@ -196,42 +202,117 @@ export type ShoppingFromPlanInput = {
   recipes: readonly Recipe[];
   /** Household country for unit preference (default AU / metric). */
   country?: string | null;
+  /**
+   * Classed recipes to cook from scratch this week.
+   * Omitted ids stay as the finished ingredient (buy the jar).
+   */
+  makeRecipeIds?: readonly string[];
 };
+
+type RawShopLine = {
+  name: string;
+  amount?: string;
+  category?: string;
+  recipeId: string;
+  recipeName: string;
+  linkedRecipeId?: string;
+  linkedRecipeName?: string;
+  linkedRecipeClass?: RecipeClass;
+  madeFromRecipeId?: string;
+  madeFromRecipeName?: string;
+};
+
+/**
+ * Household meals shop only for slot types on this week's plan.
+ * A personal or group meal still shops when that type is off the family plan,
+ * because those meals stay on the week for the people they are for.
+ */
+function slotFeedsShopping(slot: MealSlot, activeSlotSet: ReadonlySet<MealSlotKey>): boolean {
+  if (slot.hidden) return false;
+  if (!isHouseholdAudience(slot.audiencePersonIds)) return true;
+  return activeSlotSet.has(slot.slotKey);
+}
 
 /**
  * Build a shopping list from an active meal plan: merge amounts for the same
  * ingredient (including prep/unit variants), attach recipe sources, and resolve aisle categories.
+ * A linked sauce (or other class) stays as one finished item unless that recipe id is in `makeRecipeIds`,
+ * in which case one full batch of its ingredients replaces the finished line.
+ * Personal meals are included even when their slot type is not on the family plan.
  */
 export function shoppingFromPlan(input: ShoppingFromPlanInput): DerivedShoppingItem[] {
   const { plan, recipes } = input;
   const preferMetric = prefersMetricCountry(input.country);
-  const baseRecipeMap = new Map(recipes.filter((r) => r.isComponent).map((r) => [r.id, r]));
   const activeSlotSet = new Set<MealSlotKey>(plan.activeSlots ?? ['breakfast', 'lunch', 'dinner']);
+  const makeSet = new Set(input.makeRecipeIds ?? []);
+  const expanded = new Set<string>();
+  const extraSources = new Map<string, ShoppingRecipeSource[]>();
+  const raw: RawShopLine[] = [];
 
-  const raw: {
-    name: string;
-    amount?: string;
-    category?: string;
-    baseRecipeId?: string;
-    recipeId: string;
-    recipeName: string;
-  }[] = [];
+  function rememberSource(madeFromId: string, source: ShoppingRecipeSource) {
+    const list = extraSources.get(madeFromId) ?? [];
+    if (!list.some((item) => item.recipeId === source.recipeId)) list.push(source);
+    extraSources.set(madeFromId, list);
+  }
+
+  function pushIngredient(
+    ing: Ingredient,
+    source: ShoppingRecipeSource,
+    ownerId: string,
+    madeFrom?: ShoppingRecipeSource,
+  ) {
+    const linked = linkedRecipeForIngredient(ing.name, recipes, {
+      explicitId: ing.baseRecipeId,
+      excludeIds: [ownerId],
+    });
+    if (linked && makeSet.has(linked.id)) {
+      expandLinked(linked, source);
+      return;
+    }
+    raw.push({
+      name: ing.name,
+      amount: ing.amount,
+      category: ing.category,
+      recipeId: source.recipeId,
+      recipeName: source.recipeName,
+      ...(linked?.recipeClass
+        ? {
+            linkedRecipeId: linked.id,
+            linkedRecipeName: linked.name,
+            linkedRecipeClass: linked.recipeClass,
+          }
+        : {}),
+      ...(madeFrom ? { madeFromRecipeId: madeFrom.recipeId, madeFromRecipeName: madeFrom.recipeName } : {}),
+    });
+  }
+
+  function expandLinked(linked: Recipe, source: ShoppingRecipeSource) {
+    if (expanded.has(linked.id)) {
+      rememberSource(linked.id, source);
+      return;
+    }
+    expanded.add(linked.id);
+    const madeFrom = { recipeId: linked.id, recipeName: linked.name };
+    for (const ing of linked.ingredients ?? []) {
+      pushIngredient(ing, source, linked.id, madeFrom);
+    }
+  }
+
+  function addCookedRecipe(recipe: Recipe, targetServings?: number) {
+    const cooked = scaleRecipeToServings(recipe, targetServings);
+    const source = { recipeId: cooked.id, recipeName: cooked.name };
+    for (const ing of cooked.ingredients ?? []) pushIngredient(ing, source, cooked.id);
+  }
 
   for (const slot of plan.slots) {
-    if (!activeSlotSet.has(slot.slotKey)) continue;
-    if (slot.hidden) continue;
-    if (!slot.recipeId) continue;
-    const recipe = recipeForHouseholdView(recipes, slot.recipeId);
-    if (!recipe?.ingredients) continue;
-    for (const ing of recipe.ingredients) {
-      raw.push({
-        name: ing.name,
-        amount: ing.amount,
-        category: ing.category,
-        baseRecipeId: ing.baseRecipeId,
-        recipeId: recipe.id,
-        recipeName: recipe.name,
-      });
+    if (!slotFeedsShopping(slot, activeSlotSet)) continue;
+    if (slot.recipeId) {
+      const recipe = recipeForHouseholdView(recipes, slot.recipeId);
+      if (recipe) addCookedRecipe(recipe, slot.targetServings);
+    }
+    for (const sideId of slot.sideRecipeIds ?? []) {
+      const side = recipeForHouseholdView(recipes, sideId);
+      if (side) addCookedRecipe(side, slot.targetServings);
     }
   }
 
@@ -240,7 +321,8 @@ export function shoppingFromPlan(input: ShoppingFromPlanInput): DerivedShoppingI
     { preferMetric },
   );
 
-  const baseIdByKey = new Map<string, string>();
+  const linkedByKey = new Map<string, Pick<RawShopLine, 'linkedRecipeId' | 'linkedRecipeName' | 'linkedRecipeClass'>>();
+  const madeFromByKey = new Map<string, Pick<RawShopLine, 'madeFromRecipeId' | 'madeFromRecipeName'>>();
   const sourcesByKey = new Map<string, ShoppingRecipeSource[]>();
   const mealCountByKey = new Map<string, number>();
   const categoryByKey = new Map<string, string>();
@@ -248,19 +330,36 @@ export function shoppingFromPlan(input: ShoppingFromPlanInput): DerivedShoppingI
   for (const row of raw) {
     const key = shoppingMergeKey(row.name) || row.name.toLowerCase().trim();
     mealCountByKey.set(key, (mealCountByKey.get(key) ?? 0) + 1);
-    if (row.baseRecipeId && !baseIdByKey.has(key)) baseIdByKey.set(key, row.baseRecipeId);
+    if (row.linkedRecipeId && !linkedByKey.has(key)) {
+      linkedByKey.set(key, {
+        linkedRecipeId: row.linkedRecipeId,
+        linkedRecipeName: row.linkedRecipeName,
+        linkedRecipeClass: row.linkedRecipeClass,
+      });
+    }
+    if (row.madeFromRecipeId && !madeFromByKey.has(key)) {
+      madeFromByKey.set(key, {
+        madeFromRecipeId: row.madeFromRecipeId,
+        madeFromRecipeName: row.madeFromRecipeName,
+      });
+    }
     if (row.category && !categoryByKey.has(key)) categoryByKey.set(key, row.category);
     const sources = sourcesByKey.get(key) ?? [];
     if (!sources.some((s) => s.recipeId === row.recipeId)) {
       sources.push({ recipeId: row.recipeId, recipeName: row.recipeName });
+    }
+    if (row.madeFromRecipeId) {
+      for (const extra of extraSources.get(row.madeFromRecipeId) ?? []) {
+        if (!sources.some((s) => s.recipeId === extra.recipeId)) sources.push(extra);
+      }
     }
     sourcesByKey.set(key, sources);
   }
 
   return deduped.map((ing) => {
     const key = shoppingMergeKey(ing.name) || ing.name.toLowerCase().trim();
-    const brId = baseIdByKey.get(key);
-    const br = brId ? baseRecipeMap.get(brId) : undefined;
+    const linked = linkedByKey.get(key);
+    const madeFrom = madeFromByKey.get(key);
     const rawCategory = ing.category || categoryByKey.get(key) || 'other';
     return {
       name: ing.name,
@@ -269,7 +368,19 @@ export function shoppingFromPlan(input: ShoppingFromPlanInput): DerivedShoppingI
       recipeSources: sourcesByKey.get(key) ?? [],
       sharedMealCount: mealCountByKey.get(key) ?? 0,
       ...(ing.mergedFrom?.length ? { mergedFrom: ing.mergedFrom } : {}),
-      ...(br ? { isBaseRecipe: true, baseRecipeId: br.id, baseRecipeName: br.name } : {}),
+      ...(linked?.linkedRecipeId
+        ? {
+            isBaseRecipe: true,
+            baseRecipeId: linked.linkedRecipeId,
+            baseRecipeName: linked.linkedRecipeName,
+            linkedRecipeId: linked.linkedRecipeId,
+            linkedRecipeName: linked.linkedRecipeName,
+            linkedRecipeClass: linked.linkedRecipeClass,
+          }
+        : {}),
+      ...(madeFrom?.madeFromRecipeId
+        ? { madeFromRecipeId: madeFrom.madeFromRecipeId, madeFromRecipeName: madeFrom.madeFromRecipeName }
+        : {}),
     };
   });
 }

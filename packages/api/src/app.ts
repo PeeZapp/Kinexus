@@ -32,6 +32,7 @@ import {
   handleGetRecipeImport,
   handleRecipeImportWork,
 } from './recipes/handlers.js';
+import { handleMirrorRecipeImage } from './recipes/source-image.js';
 import { handleGetSharedWishlist } from './shared-wishlist.js';
 import { handleEnrichPendingProducts } from './stash/enrich-pending.js';
 import { handleCalendarObservances } from './calendar-observances.js';
@@ -77,6 +78,11 @@ function registerMealsRoutes(router: Hono) {
   });
   router.get('/recipes/:id', async (c) => {
     const result = await handleGetRecipeImport(c.req.param('id'));
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+  router.post('/recipes/mirror-image', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleMirrorRecipeImage(c.req.raw, body as { recipeId?: unknown });
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 

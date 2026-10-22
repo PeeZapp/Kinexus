@@ -28,6 +28,7 @@ export function ShoppingDesktop(props: {
   onEdit: (id: string, name: string, amount: string) => Promise<void>;
   onDelete: (id: string) => void;
   onRecipe: (id: string) => void;
+  onSetPurchase: (recipeId: string, mode: 'buy' | 'make') => void;
   onAdd: (name: string, amount?: string) => void;
   costEstimate: ShoppingCostEstimate | null;
   stores: readonly string[];
@@ -72,6 +73,7 @@ export function ShoppingDesktop(props: {
               onEdit={props.onEdit}
               onDelete={props.onDelete}
               onRecipe={props.onRecipe}
+              onSetPurchase={props.onSetPurchase}
               editDisabled={!props.online}
               itemPrices={props.itemPrices}
             />
@@ -84,6 +86,7 @@ export function ShoppingDesktop(props: {
               onEdit={props.onEdit}
               onDelete={props.onDelete}
               onRecipe={props.onRecipe}
+              onSetPurchase={props.onSetPurchase}
               editDisabled={!props.online}
             />
           </View>

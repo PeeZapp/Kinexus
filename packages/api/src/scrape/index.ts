@@ -1,3 +1,4 @@
+import { imageUrlFromRecipeHtml } from '../recipes/page-image.js';
 import { normalizeRecipeDraft, type RecipeDraft } from '../recipe-draft.js';
 import { fetchPublicHtmlDirect, fetchPublicHtmlHardened, type HardenedFetchOptions } from './hardened-fetch.js';
 
@@ -7,7 +8,7 @@ export { scrapeTransportStatus } from './hardened-fetch.js';
 
 export type ScrapeResult =
   | { source: 'json-ld'; recipe: RecipeDraft }
-  | { source: 'text'; content: string }
+  | { source: 'text'; content: string; imageUrl?: string }
   | { source: 'blocked'; blocked: true }
   | { source: 'not-found'; url: string; recipeUrl: string; dishName?: string };
 
@@ -146,7 +147,7 @@ export async function scrapeRecipeUrl(url: string, options: FetchPublicHtmlOptio
 
   if (!response.ok) {
     if (looksLikeHtml) {
-      const fromPage = recipeFromHtml(html);
+      const fromPage = recipeFromHtml(html, url);
       if (fromPage) return fromPage;
     }
     if ([401, 402, 403, 429].includes(response.status)) {
@@ -159,15 +160,20 @@ export async function scrapeRecipeUrl(url: string, options: FetchPublicHtmlOptio
     throw Object.assign(new Error('URL does not appear to be a webpage'), { status: 422 });
   }
 
-  return recipeFromHtml(html) ?? { content: pageText(html), source: 'text' };
+  return recipeFromHtml(html, url) ?? { content: pageText(html), source: 'text', imageUrl: imageUrlFromRecipeHtml(html, url) };
 }
 
-function recipeFromHtml(html: string): ScrapeResult | null {
+function recipeFromHtml(html: string, pageUrl: string): ScrapeResult | null {
+  const pageImage = imageUrlFromRecipeHtml(html, pageUrl);
   const jsonLd = extractJsonLdRecipe(html);
-  if (jsonLd) return { recipe: mapJsonLdToRecipe(jsonLd), source: 'json-ld' };
+  if (jsonLd) {
+    const recipe = mapJsonLdToRecipe(jsonLd);
+    recipe.imageUrl = pageImage ?? recipe.imageUrl;
+    return { recipe, source: 'json-ld' };
+  }
   const text = pageText(html);
   if (text.trim().length < 80) return null;
-  return { content: text, source: 'text' };
+  return { content: text, source: 'text', imageUrl: pageImage };
 }
 
 function pageText(html: string): string {

@@ -10,10 +10,11 @@ import {
   GenerateModePicker,
   GoalsEditor,
   MealPrepControls,
+  ServesPicker,
   SlotPicker,
   WeeklyBudgetField,
 } from '@/src/features/meals/generate/controls';
-import type { GenerateViewProps } from '@/src/features/meals/generate/GenerateDesktop';
+import { generatedMealFacts, type GenerateViewProps } from '@/src/features/meals/generate/GenerateDesktop';
 import { WeekSwitcher } from '@/src/features/meals/plan/PlanShared';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
 import { weekApplyLabel } from '@/src/features/meals/week-labels';
@@ -59,6 +60,7 @@ export function GenerateMobile(props: GenerateViewProps) {
           />
         )}
         <SlotPicker selected={props.selected} onToggle={props.onToggleSlot} />
+        <ServesPicker value={props.serves} onChange={props.onChangeServes} />
         <WeeklyBudgetField
           value={props.weeklyBudget}
           onChange={props.onChangeWeeklyBudget}
@@ -99,28 +101,40 @@ export function GenerateMobile(props: GenerateViewProps) {
             return (
               <View key={day} style={styles.day}>
                 <Text style={styles.dayName}>{DAY_LABELS[day]}</Text>
-                {rows.map((row) => (
-                  <View key={row.slot} style={styles.row}>
-                    <RecipePhoto uri={row.recipe.imageUrl} emoji={row.recipe.emoji} size={48} />
-                    <View style={styles.rowBody}>
-                      <Text style={styles.slotKey}>{MEAL_SLOTS.find((s) => s.key === row.slot)?.label}</Text>
-                      <Text style={styles.recipe} numberOfLines={2}>
-                        {row.recipe.name}
-                      </Text>
-                      <View style={styles.cellActions}>
-                        <Pressable onPress={() => props.onOpenRecipe(row.recipe.id, row.day, row.slot)}>
-                          <Text style={styles.swap}>View</Text>
-                        </Pressable>
-                        <Pressable onPress={() => props.onSwap(row.day, row.slot)}>
-                          <Text style={styles.swap}>Swap</Text>
-                        </Pressable>
-                        <Pressable onPress={() => props.onRandom(row.day, row.slot)}>
-                          <Text style={styles.swap}>Random</Text>
-                        </Pressable>
+                {rows.map((row) => {
+                  const facts = generatedMealFacts(row.recipe, props.serves);
+                  return (
+                    <View key={row.slot} style={styles.row}>
+                      <RecipePhoto uri={row.recipe.imageUrl} emoji={row.recipe.emoji} size={48} />
+                      <View style={styles.rowBody}>
+                        <Text style={styles.slotKey}>{MEAL_SLOTS.find((s) => s.key === row.slot)?.label}</Text>
+                        <Text style={styles.recipe} numberOfLines={2}>
+                          {row.recipe.name}
+                        </Text>
+                        {facts ? <Text style={styles.facts}>{facts}</Text> : null}
+                        {(row.sides?.length ?? 0) > 0 ? (
+                          <Text style={styles.facts} numberOfLines={2}>
+                            {row.sides?.map((side) => side.name).join(', ')}
+                          </Text>
+                        ) : null}
+                        <View style={styles.cellActions}>
+                          <Pressable onPress={() => props.onAddSide(row.day, row.slot)}>
+                            <Text style={styles.swap}>Add side dish</Text>
+                          </Pressable>
+                          <Pressable onPress={() => props.onOpenRecipe(row.recipe.id, row.day, row.slot)}>
+                            <Text style={styles.swap}>View</Text>
+                          </Pressable>
+                          <Pressable onPress={() => props.onSwap(row.day, row.slot)}>
+                            <Text style={styles.swap}>Swap</Text>
+                          </Pressable>
+                          <Pressable onPress={() => props.onRandom(row.day, row.slot)}>
+                            <Text style={styles.swap}>Random</Text>
+                          </Pressable>
+                        </View>
                       </View>
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
             );
           })}
@@ -214,6 +228,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   recipe: { color: colors.text, fontWeight: '700', fontSize: 14 },
+  facts: { color: colors.textDim, fontSize: 12, lineHeight: 16 },
   cellActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 4 },
   swap: { color: colors.accent, fontWeight: '700', fontSize: 12 },
 });

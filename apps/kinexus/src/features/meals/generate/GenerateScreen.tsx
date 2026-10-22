@@ -27,6 +27,7 @@ import {
   recipesForMealPrep,
   recipesForSlot,
   rememberSwapId,
+  scaleRecipeToServings,
   slotOccurrenceBudget,
   slotTarget,
   type Day,
@@ -43,6 +44,7 @@ import type { GenerateMode } from '@/src/features/meals/generate/controls';
 import { GenerateDesktop } from '@/src/features/meals/generate/GenerateDesktop';
 import { GenerateMobile } from '@/src/features/meals/generate/GenerateMobile';
 import { Sheet } from '@/src/features/meals/meals-kit';
+import { SideDishPicker } from '@/src/features/meals/plan/SideDishPicker';
 import { canManageMealPlan } from '@/src/features/meals/picker-access';
 import { recipeEditHref } from '@/src/features/meals/recipe-href';
 import { RecipePeek } from '@/src/features/meals/RecipePeek';
@@ -80,9 +82,11 @@ export function GenerateScreen() {
   const [cookDay, setCookDay] = useState<Day>('sunday');
   const [dishCount, setDishCount] = useState(2);
   const [daysToCover, setDaysToCover] = useState(() => defaultMealPrepDaysToCover('sunday'));
+  const [targetServings, setTargetServings] = useState<number | null>(null);
   const [preview, setPreview] = useState<GeneratedSlot[] | null>(null);
   const [prepResult, setPrepResult] = useState<MealPrepResult | null>(null);
   const [swapFor, setSwapFor] = useState<{ day: Day; slot: MealSlotKey } | null>(null);
+  const [sideFor, setSideFor] = useState<{ day: Day; slot: MealSlotKey } | null>(null);
   const [swapFilters, setSwapFilters] = useState<SwapRecipeFilters>(EMPTY_FILTERS);
   const [swapViewing, setSwapViewing] = useState<Recipe | null>(null);
   const [peek, setPeek] = useState<{ day: Day; slot: MealSlotKey; recipe: Recipe } | null>(null);
@@ -103,6 +107,11 @@ export function GenerateScreen() {
   const filtered = useMemo(
     () => filterRecipesForPeople(meals.recipes.filter((r) => !r.removed && !r.excludedFromAuto), people),
     [meals.recipes, people],
+  );
+  const libraryForGenerate = useMemo(
+    () =>
+      targetServings == null ? filtered : filtered.map((recipe) => scaleRecipeToServings(recipe, targetServings)),
+    [filtered, targetServings],
   );
   const dietarySummary = useMemo(() => {
     const ids = [...new Set(people.flatMap((p) => p.dietary))];
@@ -180,13 +189,26 @@ export function GenerateScreen() {
 
   const totals = useMemo(() => {
     if (!preview || preview.length === 0) return { avgCal: 0, avgProt: 0, spend: null as string | null, overBudget: false };
-    const cal = preview.reduce((sum, row) => sum + (row.recipe.calories ?? 0), 0);
-    const prot = preview.reduce((sum, row) => sum + (row.recipe.protein ?? 0), 0);
+    const cal = preview.reduce(
+      (sum, row) =>
+        sum + (row.recipe.calories ?? 0) + (row.sides ?? []).reduce((sideSum, side) => sideSum + (side.calories ?? 0), 0),
+      0,
+    );
+    const prot = preview.reduce(
+      (sum, row) =>
+        sum + (row.recipe.protein ?? 0) + (row.sides ?? []).reduce((sideSum, side) => sideSum + (side.protein ?? 0), 0),
+      0,
+    );
     const dayCount = Math.max(new Set(preview.map((row) => row.day)).size, 1);
     const shopping =
       generateMode === 'meal_prep' && prepResult
-        ? mealPrepCookListCost(prepResult.cookList)
-        : planShoppingCost(preview);
+        ? mealPrepCookListCost(prepResult.cookList.map((recipe) => scaleRecipeToServings(recipe, targetServings)))
+        : planShoppingCost(
+            preview.map((row) => ({
+              recipe: scaleRecipeToServings(row.recipe, targetServings),
+              sides: (row.sides ?? []).map((side) => scaleRecipeToServings(side, targetServings)),
+            })),
+          );
     const capDays = fillDays.length;
     const cap = weeklyBudget != null ? planBudgetCap(weeklyBudget, selectedArray, capDays) : null;
     const overBudget = cap != null && Math.round(shopping.total * 100) > Math.round(cap * 100);
@@ -197,13 +219,14 @@ export function GenerateScreen() {
           ? `${formatMoney(shopping.total, currency)} priced${overBudget ? ' · over the meal share' : ''}`
           : `${formatMoney(shopping.total, currency)} shopping${overBudget ? ' · over the meal share' : ''}`;
     return { avgCal: Math.round(cal / dayCount), avgProt: Math.round(prot / dayCount), spend, overBudget };
-  }, [currency, fillDays.length, generateMode, prepResult, preview, selectedArray, weeklyBudget]);
+  }, [currency, fillDays.length, generateMode, prepResult, preview, selectedArray, targetServings, weeklyBudget]);
 
   const cookSummary = useMemo(
     () => (generateMode === 'meal_prep' && prepResult ? mealPrepCookSummary(prepResult) : null),
     [generateMode, prepResult],
   );
 
+  const sideRow = sideFor ? (preview?.find((row) => row.day === sideFor.day && row.slot === sideFor.slot) ?? null) : null;
   const swapSlot = swapFor ?? peek;
   const swapTarget = swapSlot ? slotTarget(swapSlot.slot, selectedArray, goals) : null;
   const swapPool = useMemo(() => {
@@ -224,6 +247,7 @@ export function GenerateScreen() {
   function clearPreview() {
     setPreview(null);
     setPrepResult(null);
+    setSideFor(null);
   }
 
   const audience = useMemo(() => normalizeAudiencePersonIds(audienceIds), [audienceIds]);
@@ -294,7 +318,7 @@ export function GenerateScreen() {
     }
 
     if (generateMode === 'meal_prep') {
-      const result = generateMealPrepPlan(filtered, reserved, {
+      const result = generateMealPrepPlan(libraryForGenerate, reserved, {
         style: prepStyle,
         cookDay,
         slots: selectedArray,
@@ -309,8 +333,16 @@ export function GenerateScreen() {
         return;
       }
       recentSwaps.current.clear();
-      setPrepResult(result);
-      setPreview(result.slots);
+      const slots = result.slots.map((row) => ({
+        ...row,
+        recipe: filtered.find((item) => item.id === row.recipe.id) ?? row.recipe,
+        sides: row.sides?.map((side) => filtered.find((item) => item.id === side.id) ?? side),
+      }));
+      const cookList = result.cookList.map(
+        (recipe) => filtered.find((item) => item.id === recipe.id) ?? recipe,
+      );
+      setPrepResult({ ...result, slots, cookList });
+      setPreview(slots);
       return;
     }
 
@@ -320,7 +352,7 @@ export function GenerateScreen() {
       return;
     }
 
-    const results = generateMealPlan(selectedArray, reserved, filtered, goals, {
+    const results = generateMealPlan(selectedArray, reserved, libraryForGenerate, goals, {
       days: fillDays,
       weeklyBudget: weeklyBudget ?? undefined,
     });
@@ -331,7 +363,13 @@ export function GenerateScreen() {
     }
     recentSwaps.current.clear();
     setPrepResult(null);
-    setPreview(results);
+    setPreview(
+      results.map((row) => ({
+        ...row,
+        recipe: filtered.find((item) => item.id === row.recipe.id) ?? row.recipe,
+        sides: row.sides?.map((side) => filtered.find((item) => item.id === side.id) ?? side),
+      })),
+    );
   }
 
   async function apply() {
@@ -342,6 +380,7 @@ export function GenerateScreen() {
       if (!personalGenerate) await meals.saveGoals(goals);
       await meals.applyGeneratedPlan(preview, selectedArray, {
         audiencePersonIds: audience,
+        targetServings,
       });
       router.push('/meals' as Href);
     } catch (err) {
@@ -349,6 +388,12 @@ export function GenerateScreen() {
     } finally {
       setApplying(false);
     }
+  }
+
+  function previewSides(day: Day, slot: MealSlotKey, sides: Recipe[]) {
+    const next = (preview ?? []).map((row) => (row.day === day && row.slot === slot ? { ...row, sides } : row));
+    setPreview(next);
+    refreshPrepSummary(next);
   }
 
   function applySwap(recipe: Recipe, at: { day: Day; slot: MealSlotKey }) {
@@ -364,6 +409,16 @@ export function GenerateScreen() {
     setPeek((current) => (current && current.day === at.day && current.slot === at.slot ? { ...current, recipe } : current));
   }
 
+  function affordableForSlot(recipes: Recipe[], slot: MealSlotKey): Recipe[] {
+    if (weeklyBudget == null) return recipes;
+    const cap = slotOccurrenceBudget(weeklyBudget, slot);
+    if (targetServings == null) return recipesAffordableForBudget(recipes, cap);
+    const scaled = recipes.map((recipe) => scaleRecipeToServings(recipe, targetServings));
+    const ids = new Set(recipesAffordableForBudget(scaled, cap).map((recipe) => recipe.id));
+    const picked = recipes.filter((recipe) => ids.has(recipe.id));
+    return picked.length > 0 ? picked : recipes;
+  }
+
   function poolForSlot(slot: MealSlotKey): Recipe[] {
     return generateMode === 'meal_prep'
       ? recipesForMealPrep(filtered, slot, prepStyle)
@@ -372,8 +427,7 @@ export function GenerateScreen() {
 
   function replacementFor(day: Day, slot: MealSlotKey, excludeId: string, current: Recipe): Recipe | null {
     const slotRecipes = poolForSlot(slot).filter((item) => item.id !== excludeId);
-    const affordable =
-      weeklyBudget != null ? recipesAffordableForBudget(slotRecipes, slotOccurrenceBudget(weeklyBudget, slot)) : slotRecipes;
+    const affordable = affordableForSlot(slotRecipes, slot);
     const pool = affordable.length > 0 ? affordable : slotRecipes;
     return pickRandomSwapRecipe({
       recipes: pool,
@@ -428,8 +482,7 @@ export function GenerateScreen() {
   function randomAt(day: Day, slot: MealSlotKey): Recipe | null {
     const current = preview?.find((row) => row.day === day && row.slot === slot)?.recipe ?? null;
     const slotRecipes = poolForSlot(slot);
-    const affordable =
-      weeklyBudget != null ? recipesAffordableForBudget(slotRecipes, slotOccurrenceBudget(weeklyBudget, slot)) : slotRecipes;
+    const affordable = affordableForSlot(slotRecipes, slot);
     const pick = pickRandomSwapRecipe({
       recipes: affordable,
       currentId: current?.id,
@@ -518,6 +571,12 @@ export function GenerateScreen() {
       clearPreview();
     },
     maxDaysToCover,
+    serves: targetServings,
+    onChangeServes: (serves: number | null) => {
+      setTargetServings(serves);
+      setPeek(null);
+      clearPreview();
+    },
     cookSummary,
     onGenerate: runGenerate,
     preview,
@@ -527,6 +586,7 @@ export function GenerateScreen() {
     previewOverBudget: totals.overBudget,
     onSwap: (day: Day, slot: MealSlotKey) => {
       setPeek(null);
+      setSideFor(null);
       setSwapFilters(EMPTY_FILTERS);
       setSwapViewing(null);
       setSwapFor({ day, slot });
@@ -537,6 +597,11 @@ export function GenerateScreen() {
     onApply: () => void apply(),
     applying,
     error,
+    onAddSide: (day: Day, slot: MealSlotKey) => {
+      setPeek(null);
+      setSwapFor(null);
+      setSideFor({ day, slot });
+    },
     onOpenRecipe: (id: string, day: Day, slot: MealSlotKey) => {
       const recipe =
         preview?.find((row) => row.day === day && row.slot === slot && row.recipe.id === id)?.recipe ??
@@ -555,6 +620,27 @@ export function GenerateScreen() {
   return (
     <>
       {desktop ? <GenerateDesktop {...viewProps} /> : <GenerateMobile {...viewProps} />}
+      <Sheet visible={sideFor !== null} title="Add side dish" onClose={() => setSideFor(null)}>
+        {sideRow ? (
+          <SideDishPicker
+            recipes={meals.recipes}
+            selectedIds={(sideRow.sides ?? []).map((side) => side.id)}
+            excludeIds={[sideRow.recipe.id]}
+            onAdd={(recipe) => {
+              const current = sideRow.sides ?? [];
+              if (current.some((side) => side.id === recipe.id)) return;
+              previewSides(sideRow.day, sideRow.slot, [...current, recipe]);
+            }}
+            onRemove={(id) =>
+              previewSides(
+                sideRow.day,
+                sideRow.slot,
+                (sideRow.sides ?? []).filter((side) => side.id !== id),
+              )
+            }
+          />
+        ) : null}
+      </Sheet>
       <Sheet visible={swapFor !== null} title="Swap recipe" onClose={closeSwap}>
         {swapFor ? (
           <SwapRecipePicker
@@ -564,6 +650,7 @@ export function GenerateScreen() {
             target={swapTarget}
             filters={swapFilters}
             viewing={swapViewing}
+            viewServings={targetServings}
             onChangeFilters={setSwapFilters}
             onView={setSwapViewing}
             onPick={(recipe) => {
@@ -584,6 +671,7 @@ export function GenerateScreen() {
         {peek ? (
           <RecipePeek
             recipe={peek.recipe}
+            viewServings={targetServings}
             target={slotTarget(peek.slot, selectedArray, goals)}
             useLabel="Accept"
             onEdit={() => {

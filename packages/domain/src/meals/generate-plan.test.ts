@@ -135,6 +135,21 @@ describe('recipesForSlot eligibility', () => {
     expect(pool.map((r) => r.id)).toEqual(['s1']);
   });
 
+  it('never picks a side, even when it is tagged for the slot, and skips an untagged sauce', () => {
+    const potatoes = recipe({
+      id: 'pot',
+      name: 'Roast potatoes',
+      recipeClass: 'side',
+      mealSlots: ['breakfast'],
+      calories: 300,
+      protein: 6,
+    });
+    const pesto = recipe({ id: 'pesto', name: 'Pesto', recipeClass: 'sauce', calories: 80, protein: 2 });
+    expect(recipesForSlot([breakfast, potatoes, pesto], 'breakfast').map((r) => r.id)).toEqual(['b1']);
+    expect(recipesForSlot([potatoes, pesto], 'breakfast')).toEqual([]);
+    expect(recipesForSlot([pesto], 'dinner')).toEqual([]);
+  });
+
   it('falls back to all eligible recipes when none match the slot', () => {
     const pool = recipesForSlot([breakfast, component, excluded], 'dinner');
     expect(pool.map((r) => r.id)).toEqual(['b1']);
@@ -221,6 +236,74 @@ describe('generateMealPlan', () => {
     });
 
     expect(plan.map((row) => row.day)).toEqual(['monday', 'wednesday']);
+  });
+
+  it('keeps sides off the plan and does not repeat a meal while another is unused', () => {
+    const tabbouleh = recipe({
+      id: 'tabbouleh',
+      name: 'Tabbouleh',
+      recipeClass: 'side',
+      mealSlots: ['lunch'],
+      calories: 560,
+      protein: 30,
+      ingredients: [{ name: 'bulgur' }],
+    });
+    const lunches = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id, index) =>
+      recipe({
+        id: `lunch-${id}`,
+        name: `Lunch ${id}`,
+        mealSlots: ['lunch'],
+        calories: 560,
+        protein: 30,
+        ingredients: [{ name: `greens-${index}` }],
+      }),
+    );
+    const dinners = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id, index) =>
+      recipe({
+        id: `dinner-${id}`,
+        name: `Dinner ${id}`,
+        mealSlots: ['dinner'],
+        calories: 660,
+        protein: 38,
+        ingredients: [{ name: index % 2 === 0 ? 'chicken' : 'beef' }],
+      }),
+    );
+
+    const plan = generateMealPlan(['lunch', 'dinner'], new Set(), [tabbouleh, ...lunches, ...dinners], GOALS, {
+      random: () => 0,
+    });
+
+    expect(plan.some((row) => row.recipe.id === 'tabbouleh')).toBe(false);
+    expect(new Set(plan.map((row) => row.recipe.id)).size).toBe(plan.length);
+    expect(plan.filter((row) => row.slot === 'lunch').every((row) => row.recipe.id.startsWith('lunch-'))).toBe(true);
+    expect(plan.filter((row) => row.slot === 'dinner').every((row) => row.recipe.id.startsWith('dinner-'))).toBe(true);
+  });
+
+  it('spreads a recipe across the week only after every other meal has been used', () => {
+    const first = recipe({
+      id: 'first',
+      name: 'First dinner',
+      mealSlots: ['dinner'],
+      calories: 660,
+      protein: 38,
+      ingredients: [{ name: 'chicken' }],
+    });
+    const second = recipe({
+      id: 'second',
+      name: 'Second dinner',
+      mealSlots: ['dinner'],
+      calories: 640,
+      protein: 36,
+      ingredients: [{ name: 'beef' }],
+    });
+
+    const plan = generateMealPlan(['dinner'], new Set(), [first, second], GOALS, { random: () => 0 });
+    const counts = new Map<string, number>();
+    for (const row of plan) counts.set(row.recipe.id, (counts.get(row.recipe.id) ?? 0) + 1);
+
+    expect(plan).toHaveLength(7);
+    expect(counts.get('first')).toBeGreaterThanOrEqual(3);
+    expect(counts.get('second')).toBeGreaterThanOrEqual(3);
   });
 });
 

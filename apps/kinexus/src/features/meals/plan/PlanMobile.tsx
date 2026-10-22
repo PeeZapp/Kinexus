@@ -1,18 +1,20 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { DAYS, DAY_LABELS, mondayWeekStart, type Day, type MealSlotKey } from '@kinexus/domain';
+import { DAYS, DAY_LABELS, mondayWeekStart, recipeForHouseholdView, type Day, type MealSlotKey } from '@kinexus/domain';
 
 import { Btn, ErrorText } from '@/src/features/household/ui';
 import { Chip, OfflineBanner } from '@/src/features/meals/meals-kit';
 import {
-  appliedPlanCells,
   audienceLabel,
+  planBoardCells,
   planDayMealViews,
   DayStrip,
-  PlanAddTile,
+  PlanActionTile,
   PlanMealCard,
+  planMealCardMeta,
   WeekSwitcher,
+  WhoPicksMenu,
   type PlanCellView,
   type PlanPersonFilter,
 } from '@/src/features/meals/plan/PlanShared';
@@ -34,11 +36,18 @@ export function PlanMobile({
   showGenerate = true,
   canManage = false,
   onOpenSlot,
-  onAddMeal,
+  onAllocateMeal,
+  onPickMeal,
   onRemoveDay,
   onRestoreDay,
+  onClearWeek,
+  clearingWeek = false,
+  clearError = null,
   onGenerate,
   onShopping,
+  onAddSide,
+  onAllocate,
+  canEditCell,
 }: {
   meals: Meals;
   personNames: Map<string, string>;
@@ -50,11 +59,18 @@ export function PlanMobile({
   showGenerate?: boolean;
   canManage?: boolean;
   onOpenSlot: (day: Day, slot: MealSlotKey, cell?: PlanSlot) => void;
-  onAddMeal: (day: Day) => void;
+  onAllocateMeal: () => void;
+  onPickMeal: () => void;
   onRemoveDay: (day: Day) => void;
   onRestoreDay: (day: Day) => void;
+  onClearWeek: () => void;
+  clearingWeek?: boolean;
+  clearError?: string | null;
   onGenerate: () => void;
   onShopping: () => void;
+  onAddSide: (cell: PlanSlot) => void;
+  onAllocate: (cell: PlanSlot, personId: string | null) => void;
+  canEditCell: (cell: PlanSlot) => boolean;
 }) {
   const insets = useSafeAreaInsets();
   const thisWeek = meals.weekStart === mondayWeekStart();
@@ -67,7 +83,7 @@ export function PlanMobile({
     selectedDay,
     personFilter,
   );
-  const applied = appliedPlanCells(cells);
+  const applied = planBoardCells(cells);
   const dayLabel = thisWeek && selectedDay === today ? 'Today' : DAY_LABELS[selectedDay];
 
   return (
@@ -100,9 +116,10 @@ export function PlanMobile({
       <View style={styles.actions}>
         {showGenerate ? <Btn label="Generate plan" onPress={onGenerate} /> : null}
         <Btn label="Shopping list" variant="secondary" onPress={onShopping} />
+        {canManage ? <Btn label="Clear week" variant="danger" onPress={onClearWeek} busy={clearingWeek} /> : null}
       </View>
       <OfflineBanner online={meals.online} pendingCount={meals.pendingCount} extra={meals.importBlockedReason} />
-      <ErrorText message={meals.error} />
+      <ErrorText message={clearError ?? meals.error} />
       <View style={styles.dayMeta}>
         <View style={styles.dayMetaCopy}>
           <Text style={styles.dayTitle}>{dayLabel}</Text>
@@ -134,9 +151,16 @@ export function PlanMobile({
               personNames={personNames}
               photoHeight={160}
               onPress={() => onOpenSlot(selectedDay, view.slotKey, view.cell)}
+              onAddSide={onAddSide}
+              onAllocate={onAllocate}
+              canManage={canManage}
+              people={peopleOptions}
+              canEditCell={canEditCell}
             />
           ))}
-          {canManage ? <PlanAddTile onPress={() => onAddMeal(selectedDay)} /> : null}
+          {canManage ? (
+            <PlanActionTile onAllocate={onAllocateMeal} onPick={onPickMeal} />
+          ) : null}
         </View>
       )}
     </ScrollView>
@@ -149,17 +173,32 @@ function MealCardFromView({
   personNames,
   photoHeight,
   onPress,
+  onAddSide,
+  onAllocate,
+  canManage,
+  people,
+  canEditCell,
 }: {
   view: PlanCellView;
   meals: Meals;
   personNames: Map<string, string>;
   photoHeight: number;
   onPress: () => void;
+  onAddSide: (cell: PlanSlot) => void;
+  onAllocate: (cell: PlanSlot, personId: string | null) => void;
+  canManage: boolean;
+  people: { id: string; name: string }[];
+  canEditCell: (cell: PlanSlot) => boolean;
 }) {
   const cell = view.cell;
   const hasRecipe = Boolean(cell?.recipeId);
   const assignee = cell?.assignedPersonId ? personNames.get(cell.assignedPersonId) : null;
   const who = audienceLabel(cell?.audiencePersonIds, personNames);
+  const recipe = recipeForHouseholdView(meals.recipes, cell?.recipeId);
+  const sides = (cell?.sideRecipeIds ?? []).flatMap((id) => {
+    const recipe = recipeForHouseholdView(meals.recipes, id);
+    return recipe ? [{ id: recipe.id, name: recipe.name }] : [];
+  });
   return (
     <PlanMealCard
       slot={view.slotKey}
@@ -167,12 +206,35 @@ function MealCardFromView({
       filled={hasRecipe}
       photoUrl={recipePhotoUrl(meals.recipes, cell?.recipeId)}
       emoji={cell?.emoji}
-      title={hasRecipe ? (cell?.recipeName ?? 'Meal') : assignee ? `${assignee} picks` : 'Add meal'}
-      meta={[assignee && hasRecipe ? assignee : null, cell?.calories ? `${cell.calories} kcal` : null]
-        .filter(Boolean)
-        .join(' · ')}
+      blank={!hasRecipe}
+      title={hasRecipe ? (cell?.recipeName ?? 'Meal') : ''}
+      meta={
+        hasRecipe
+          ? planMealCardMeta({
+              assignee: !canManage && assignee ? assignee : null,
+              calories: cell?.calories,
+              servings: cell?.targetServings,
+              recipe,
+            })
+          : !canManage
+            ? assignee
+              ? `${assignee} picks`
+              : 'Anyone can pick'
+            : ''
+      }
       photoHeight={photoHeight}
       onPress={onPress}
+      onAddSide={cell && cell.id && hasRecipe && canEditCell(cell) ? () => onAddSide(cell) : undefined}
+      sides={sides}
+      footer={
+        canManage && cell && !hasRecipe ? (
+          <WhoPicksMenu
+            people={people}
+            assignedPersonId={cell.assignedPersonId}
+            onAllocate={(personId) => onAllocate(cell, personId)}
+          />
+        ) : undefined
+      }
     />
   );
 }

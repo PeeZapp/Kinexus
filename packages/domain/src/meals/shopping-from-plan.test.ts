@@ -119,6 +119,29 @@ describe('shoppingFromPlan', () => {
     expect(items.find((i) => i.name === 'Milk')?.amount).toBe('200ml');
   });
 
+  it('includes a personal meal even when that slot type is off the family plan', () => {
+    const eggs = recipe({
+      id: 'eggs',
+      name: 'Eggs',
+      mealSlots: ['breakfast'],
+      ingredients: [{ name: 'Eggs', amount: '2', category: 'dairy' }],
+    });
+    const items = shoppingFromPlan({
+      plan: {
+        ...plan,
+        slots: [
+          { day: 'monday', slotKey: 'breakfast', recipeId: 'oats' },
+          { day: 'monday', slotKey: 'breakfast', recipeId: 'eggs', audiencePersonIds: ['paul'] },
+          { day: 'tuesday', slotKey: 'dinner', recipeId: 'eggs', audiencePersonIds: ['paul'] },
+        ],
+      },
+      recipes: [oats, porridge, eggs],
+    });
+    expect(items.find((item) => item.name === 'Eggs')?.amount).toBe('4 Eggs');
+    expect(items.find((item) => item.name === 'Eggs')?.recipeSources.map((source) => source.recipeId)).toEqual(['eggs']);
+    expect(items.find((item) => item.name === 'Milk')?.amount).toBe('200ml');
+  });
+
   it('ignores hidden slots even when they still have a recipe', () => {
     const items = shoppingFromPlan({
       plan: {
@@ -202,5 +225,88 @@ describe('shoppingFromPlan', () => {
     expect(garlic?.mergedFrom?.length).toBeGreaterThan(0);
     expect(garlic?.sharedMealCount).toBe(2);
     expect(items.find((i) => i.name.toLowerCase().includes('stock'))?.category).toBe('Pantry');
+  });
+
+  it('links a matching sauce and can swap that line for one batch', () => {
+    const pesto = recipe({
+      id: 'pesto',
+      name: 'Pesto',
+      recipeClass: 'sauce',
+      householdId: 'hh',
+      ingredients: [
+        { name: 'basil', amount: '50g' },
+        { name: 'olive oil', amount: '60ml' },
+      ],
+    });
+    const pasta = recipe({
+      id: 'pasta',
+      name: 'Pasta',
+      mealSlots: ['dinner'],
+      ingredients: [{ name: 'pesto', amount: '4 tbsp' }, { name: 'spaghetti', amount: '400g' }],
+    });
+    const again = recipe({
+      id: 'again',
+      name: 'Pesto chicken',
+      mealSlots: ['dinner'],
+      ingredients: [{ name: 'Pesto', amount: '2 tbsp' }],
+    });
+    const plan = {
+      activeSlots: ['dinner'] as const,
+      slots: [
+        { day: 'monday' as const, slotKey: 'dinner' as const, recipeId: 'pasta' },
+        { day: 'tuesday' as const, slotKey: 'dinner' as const, recipeId: 'again' },
+      ],
+    };
+    const bought = shoppingFromPlan({ plan, recipes: [pesto, pasta, again] });
+    const pestoLine = bought.find((item) => item.name.toLowerCase() === 'pesto');
+    expect(pestoLine?.linkedRecipeId).toBe('pesto');
+    expect(bought.find((item) => item.name === 'basil')).toBeUndefined();
+
+    const made = shoppingFromPlan({ plan, recipes: [pesto, pasta, again], makeRecipeIds: ['pesto'] });
+    expect(made.find((item) => item.name.toLowerCase() === 'pesto')).toBeUndefined();
+    expect(made.find((item) => item.name === 'basil')?.amount).toBe('50g');
+    expect(made.find((item) => item.name === 'basil')?.madeFromRecipeId).toBe('pesto');
+    expect(made.filter((item) => item.name === 'olive oil')).toHaveLength(1);
+  });
+
+  it('adds a side recipe’s ingredients with the meal', () => {
+    const potatoes = recipe({
+      id: 'potatoes',
+      name: 'Roast potatoes',
+      recipeClass: 'side',
+      ingredients: [{ name: 'potatoes', amount: '800g' }],
+    });
+    const roast = recipe({
+      id: 'roast',
+      name: 'Roast chicken',
+      mealSlots: ['dinner'],
+      ingredients: [{ name: 'chicken', amount: '1.5kg' }],
+    });
+    const items = shoppingFromPlan({
+      plan: {
+        activeSlots: ['dinner'],
+        slots: [{ day: 'monday', slotKey: 'dinner', recipeId: 'roast', sideRecipeIds: ['potatoes'] }],
+      },
+      recipes: [roast, potatoes],
+    });
+    expect(items.map((item) => item.name).sort()).toEqual(['chicken', 'potatoes']);
+  });
+
+  it('scales a large recipe down to the slot serve count', () => {
+    const lasagne = recipe({
+      id: 'lasagne',
+      name: 'Lasagne',
+      servings: 8,
+      mealSlots: ['dinner'],
+      ingredients: [{ name: 'Mince', amount: '800g' }],
+    });
+    const items = shoppingFromPlan({
+      plan: {
+        activeSlots: ['dinner'],
+        slots: [{ day: 'monday', slotKey: 'dinner', recipeId: 'lasagne', targetServings: 2 }],
+      },
+      recipes: [lasagne],
+    });
+    expect(items.find((item) => item.name === 'Mince')?.amount).toBe('200g');
   });
 });

@@ -1,6 +1,6 @@
 import type { Database, Json } from '@kinexus/db';
 import type { Day, Ingredient, MealSlot, MealSlotKey, NutritionGoals, Recipe, StoredGroceryQuote } from '@kinexus/domain';
-import { DAYS, MEAL_SLOTS, parsePriceOverrideMap, type IngredientPriceBook } from '@kinexus/domain';
+import { DAYS, MEAL_SLOTS, isRecipeClass, parsePriceOverrideMap, type IngredientPriceBook } from '@kinexus/domain';
 
 type RecipeRow = Database['public']['Tables']['recipes']['Row'];
 type SlotRow = Database['public']['Tables']['meal_slots']['Row'];
@@ -57,6 +57,7 @@ export function recipeFromRow(row: RecipeRow): Recipe {
     chefTip: row.chef_tip ?? undefined,
     notes: row.notes ?? undefined,
     mealSlots: row.meal_slots.filter((s): s is MealSlotKey => SLOT_KEYS.has(s)),
+    recipeClass: isRecipeClass(row.recipe_class) ? row.recipe_class : undefined,
     isComponent: row.is_component,
     excludedFromAuto: row.excluded_from_auto,
     sourceUrl: row.source_url ?? undefined,
@@ -109,6 +110,8 @@ export function slotFromRow(row: SlotRow): MealSlot & { id: string; updatedAt: s
     hidden: row.hidden,
     assignedPersonId: row.assigned_person_id ?? undefined,
     audiencePersonIds: row.audience_person_ids ?? [],
+    sideRecipeIds: row.side_recipe_ids ?? [],
+    targetServings: asNum(row.target_servings),
     updatedAt: row.client_updated_at,
   };
 }
@@ -137,6 +140,10 @@ export type ShoppingListItem = {
   mergedFrom: string[];
   /** True when the household added this row by hand (survives regenerate). */
   manual: boolean;
+  linkedRecipeId: string | null;
+  linkedRecipeName: string | null;
+  madeFromRecipeId: string | null;
+  madeFromRecipeName: string | null;
   groceryQuote: StoredGroceryQuote | null;
 };
 
@@ -171,6 +178,10 @@ export function shoppingFromRow(row: ShoppingRow): ShoppingListItem {
     sharedMealCount: shared ?? 1,
     mergedFrom,
     manual: meta.manual === true,
+    linkedRecipeId: typeof meta.linkedRecipeId === 'string' ? meta.linkedRecipeId : null,
+    linkedRecipeName: typeof meta.linkedRecipeName === 'string' ? meta.linkedRecipeName : null,
+    madeFromRecipeId: typeof meta.madeFromRecipeId === 'string' ? meta.madeFromRecipeId : null,
+    madeFromRecipeName: typeof meta.madeFromRecipeName === 'string' ? meta.madeFromRecipeName : null,
     groceryQuote: groceryQuoteFromJson(row.grocery_quote ?? null),
   };
 }
@@ -217,8 +228,9 @@ export function recipeToInsert(householdId: string, recipe: Omit<Recipe, 'id' | 
     method: (recipe.method ?? []) as unknown as Json,
     chef_tip: recipe.chefTip ?? null,
     notes: recipe.notes ?? null,
-    meal_slots: recipe.mealSlots ?? ['dinner'],
-    is_component: Boolean(recipe.isComponent),
+    meal_slots: recipe.mealSlots ?? (recipe.recipeClass ? [] : ['dinner']),
+    is_component: recipe.recipeClass ? (recipe.mealSlots ?? []).length === 0 : Boolean(recipe.isComponent),
+    recipe_class: recipe.recipeClass ?? null,
     excluded_from_auto: Boolean(recipe.excludedFromAuto),
     is_public: false,
     source_url: recipe.sourceUrl ?? null,
@@ -244,8 +256,9 @@ export function recipeToUpdate(recipe: Omit<Recipe, 'id' | 'householdId'>): Data
     method: (recipe.method ?? []) as unknown as Json,
     chef_tip: recipe.chefTip ?? null,
     notes: recipe.notes ?? null,
-    meal_slots: recipe.mealSlots ?? ['dinner'],
-    is_component: Boolean(recipe.isComponent),
+    meal_slots: recipe.mealSlots ?? (recipe.recipeClass ? [] : ['dinner']),
+    is_component: recipe.recipeClass ? (recipe.mealSlots ?? []).length === 0 : Boolean(recipe.isComponent),
+    recipe_class: recipe.recipeClass ?? null,
     excluded_from_auto: Boolean(recipe.excludedFromAuto),
     source_url: recipe.sourceUrl ?? null,
     image_url: recipe.imageUrl ?? null,

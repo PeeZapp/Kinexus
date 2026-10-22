@@ -1,4 +1,4 @@
-import { recipesForSlot } from './generate-plan';
+import { recipeMatchesSlot, recipesForSlot } from './generate-plan';
 import { recipeForHouseholdView } from './recipe-versions';
 import type { MealSlotKey, Recipe } from './types';
 
@@ -62,7 +62,14 @@ export function recipesForPicker(
         .map((id) => recipeForHouseholdView(recipes, id)?.id)
         .filter((id): id is string => Boolean(id)),
     );
-    return recipes.filter((recipe) => resolved.has(recipe.id) && !recipe.removed && !recipe.isComponent);
+    return recipes.filter(
+      (recipe) =>
+        resolved.has(recipe.id) &&
+        !recipe.removed &&
+        !recipe.isComponent &&
+        recipe.recipeClass !== 'side' &&
+        (!recipe.recipeClass || recipeMatchesSlot(recipe, slot)),
+    );
   }
   return recipesForSlot(recipes, slot);
 }

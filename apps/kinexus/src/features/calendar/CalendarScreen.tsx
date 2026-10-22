@@ -178,9 +178,7 @@ export function CalendarScreen() {
     );
   }
 
-  return (
-    <View style={[styles.root, desktop && styles.rootDesktop]}>
-      <ScrollView contentContainerStyle={[styles.scroll, desktop && styles.scrollDesktop]}>
+  const monthPane = (
         <View style={[styles.hero, desktop && styles.heroDesktop]}>
           <Text style={styles.kicker}>Family calendar</Text>
           <Text style={styles.title}>{formatMonthHeading(monthCursor)}</Text>
@@ -210,15 +208,16 @@ export function CalendarScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.weekRow}>
-            {WEEKDAYS.map((day) => (
-              <Text key={day} style={styles.weekday}>
-                {day}
-              </Text>
-            ))}
-          </View>
-          <View style={styles.grid}>
-            {cells.map((cell) => {
+          <View style={desktop ? styles.gridFrameDesktop : undefined}>
+            <View style={[styles.weekRow, desktop && styles.weekRowDesktop]}>
+              {WEEKDAYS.map((day) => (
+                <Text key={day} style={styles.weekday}>
+                  {day}
+                </Text>
+              ))}
+            </View>
+            <View style={styles.grid}>
+            {cells.map((cell, index) => {
               const selectedDay = cell.date === selected;
               const hasEvents = eventDots.has(cell.date);
               const hasMarkers = markerDots.has(cell.date);
@@ -233,7 +232,10 @@ export function CalendarScreen() {
                   }}
                   style={[
                     styles.cell,
-                    !cell.inMonth && styles.cellMuted,
+                    desktop ? styles.cellDesktop : styles.cellSquare,
+                    desktop && index % 7 === 6 && styles.cellEdgeRight,
+                    desktop && index >= cells.length - 7 && styles.cellEdgeBottom,
+                    !desktop && !cell.inMonth && styles.cellMuted,
                     cell.isToday && styles.cellToday,
                     selectedDay && styles.cellSelected,
                   ]}>
@@ -254,9 +256,12 @@ export function CalendarScreen() {
                 </Pressable>
               );
             })}
+            </View>
           </View>
         </View>
+  );
 
+  const agendaPane = (
         <View style={[styles.agenda, desktop && styles.agendaDesktop]}>
           <View style={styles.agendaHead}>
             <View style={styles.agendaTitles}>
@@ -341,7 +346,23 @@ export function CalendarScreen() {
             })}
           </View>
         </View>
-      </ScrollView>
+  );
+
+  return (
+    <View style={[styles.root, desktop && styles.rootDesktop]}>
+      {desktop ? (
+        <View style={styles.desktopSplit}>
+          {monthPane}
+          <ScrollView style={styles.agendaScroll} contentContainerStyle={styles.agendaScrollContent}>
+            {agendaPane}
+          </ScrollView>
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={styles.scroll}>
+          {monthPane}
+          {agendaPane}
+        </ScrollView>
+      )}
 
       {draft ? (
         <EventSheet
@@ -365,7 +386,16 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   rootDesktop: { alignItems: 'center' },
   scroll: { padding: space.md, paddingBottom: space.xl, gap: space.lg },
-  scrollDesktop: { width: '100%', maxWidth: 880, paddingVertical: space.lg },
+  desktopSplit: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 1120,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: space.md,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+  },
   hero: {
     backgroundColor: colors.bgCard,
     borderColor: colors.border,
@@ -375,7 +405,7 @@ const styles = StyleSheet.create({
     gap: space.sm,
     overflow: 'hidden',
   },
-  heroDesktop: { padding: space.lg },
+  heroDesktop: { flex: 1.4, minWidth: 0, padding: space.md, alignSelf: 'flex-start' },
   kicker: {
     color: colors.accent,
     fontSize: 12,
@@ -409,6 +439,19 @@ const styles = StyleSheet.create({
   },
   todayChipLabel: { color: colors.accent, fontWeight: '800', fontSize: 13 },
   weekRow: { flexDirection: 'row', marginTop: space.sm },
+  weekRowDesktop: {
+    marginTop: 0,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.bgElevated,
+  },
+  gridFrameDesktop: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    overflow: 'hidden',
+  },
   weekday: {
     flex: 1,
     textAlign: 'center',
@@ -420,12 +463,21 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   cell: {
     width: `${100 / 7}%`,
-    aspectRatio: 1,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.md,
     gap: 3,
   },
+  cellSquare: { aspectRatio: 1 },
+  cellDesktop: {
+    height: 44,
+    borderRadius: 0,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.border,
+  },
+  cellEdgeRight: { borderRightWidth: 0 },
+  cellEdgeBottom: { borderBottomWidth: 0 },
   cellMuted: { opacity: 0.45 },
   cellToday: { backgroundColor: colors.bgHover },
   cellSelected: { backgroundColor: colors.accent },
@@ -437,8 +489,16 @@ const styles = StyleSheet.create({
   dotOn: { backgroundColor: colors.accent },
   dotMarker: { backgroundColor: colors.warning },
   dotSelected: { backgroundColor: colors.bg },
+  agendaScroll: { flex: 1, minWidth: 280 },
+  agendaScrollContent: { paddingBottom: space.md },
   agenda: { gap: space.md },
-  agendaDesktop: { paddingHorizontal: space.xs },
+  agendaDesktop: {
+    padding: space.md,
+    backgroundColor: colors.bgCard,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+  },
   agendaHead: {
     flexDirection: 'row',
     alignItems: 'center',

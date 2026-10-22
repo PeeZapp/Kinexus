@@ -2,7 +2,7 @@ import { type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
-import { MEAL_SLOTS } from '@kinexus/domain';
+import { MEAL_SLOTS, RECIPE_CLASSES, type RecipeClass } from '@kinexus/domain';
 
 import { BackLink, Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
 import { Chip } from '@/src/features/meals/meals-kit';
@@ -188,6 +188,25 @@ export function ImportFieldsCard({
           <Field label="Carbs g" value={form.carbs} onChangeText={(carbs) => setForm({ carbs })} keyboardType="numeric" />
           <Field label="Fat g" value={form.fat} onChangeText={(fat) => setForm({ fat })} keyboardType="numeric" />
           <Text style={styles.hint}>Calories and macros update from the ingredient list.</Text>
+          <Text style={styles.hint}>Class</Text>
+          <Text style={styles.hint}>
+            Sauces, marinades, and the other classes stay in the recipe book. A side can also be added next to a meal.
+            Leave meal slots empty when this recipe is not a meal.
+          </Text>
+          <View style={styles.chips}>
+            {RECIPE_CLASSES.map((item) => (
+              <Chip
+                key={item.key}
+                label={item.label}
+                active={form.recipeClass === item.key}
+                onPress={() =>
+                  setForm({
+                    recipeClass: (form.recipeClass === item.key ? null : item.key) as RecipeClass | null,
+                  })
+                }
+              />
+            ))}
+          </View>
           <Text style={styles.hint}>Meal slots</Text>
           <View style={styles.chips}>
             {MEAL_SLOTS.map((slot) => (

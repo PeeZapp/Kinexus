@@ -7,6 +7,17 @@ export type MealSlotKey =
   | 'night_snack'
   | 'dessert';
 
+/** A recipe-book class that is not itself a meal slot. A recipe has at most one. */
+export type RecipeClass =
+  | 'sauce'
+  | 'side'
+  | 'marinade'
+  | 'dressing'
+  | 'stock'
+  | 'rub'
+  | 'dip'
+  | 'condiment';
+
 export type Day = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
 
 export const DAYS: readonly Day[] = [
@@ -88,6 +99,8 @@ export type Recipe = {
   chefTip?: string;
   notes?: string;
   mealSlots?: MealSlotKey[];
+  /** Sauce, side, marinade, and the other non-meal classes. One per recipe. */
+  recipeClass?: RecipeClass;
   isComponent?: boolean;
   /** Household marked this recipe as not for the family — skip plans and suggestions. */
   excludedFromAuto?: boolean;
@@ -150,6 +163,10 @@ export type MealSlot = {
    * Non-empty = personal/group meal for those household people only.
    */
   audiencePersonIds?: string[];
+  /** Side recipes served with this meal. They are not their own plan row. */
+  sideRecipeIds?: string[];
+  /** Cook this cell's recipe (and its sides) for this many serves. Empty keeps the written yield. */
+  targetServings?: number;
 };
 
 export type MealPlan = {
@@ -172,6 +189,13 @@ export type DerivedShoppingItem = {
   isBaseRecipe?: boolean;
   baseRecipeId?: string;
   baseRecipeName?: string;
+  /** Classed recipe this line can be bought ready-made or cooked from. */
+  linkedRecipeId?: string;
+  linkedRecipeName?: string;
+  linkedRecipeClass?: RecipeClass;
+  /** Set when this line is an ingredient of a classed recipe the household is making. */
+  madeFromRecipeId?: string;
+  madeFromRecipeName?: string;
   recipeSources: ShoppingRecipeSource[];
   sharedMealCount: number;
   /** Other ingredient name spellings merged into this row. */

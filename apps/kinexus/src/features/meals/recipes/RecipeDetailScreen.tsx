@@ -1,16 +1,16 @@
 import { type ReactNode, useEffect, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View, type TextStyle } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View, type TextStyle } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 
-import { formatCostPerServe, formatCostSource, formatDishCost, formatMoney, findReplacingRecipe, MEAL_SLOTS } from '@kinexus/domain';
+import { formatCostPerServe, formatCostSource, formatDishCost, formatMoney, findReplacingRecipe, linkedRecipeForIngredient, MEAL_SLOTS, recipeBaseServings, recipeClassLabel, scaleRecipeToServings } from '@kinexus/domain';
 
 import { useCreator } from '@/src/features/creators/use-creator';
 import { useWakeLock } from '@/src/features/cook/use-wake-lock';
 import { BackLink, Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
+import { IngredientSwapSlot } from '@/src/features/meals/IngredientSwapSlot';
 import { recipeEditHref, recipeHref, recipeParam } from '@/src/features/meals/recipe-href';
-import { CatalogRemoveEditor } from '@/src/features/meals/recipes/CatalogRemoveEditor';
 import { printRecipe } from '@/src/features/meals/recipes/print-recipe';
 import { RecipeImageDisclaimer } from '@/src/features/meals/RecipeImageDisclaimer';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
@@ -21,9 +21,16 @@ import { useAuth } from '@/src/lib/auth';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { isLinkOnlyRecipe, openRecipeLink, sourceHostLabel } from '@/src/features/meals/recipes/link-recipe';
 
+const CATALOG_REMOVE_EMAIL = 'pzappft@gmail.com';
+
 export function RecipeDetailScreen() {
-  const { id, from } = useLocalSearchParams<{ id: string | string[]; from?: string | string[] }>();
+  const { id, from, serves } = useLocalSearchParams<{
+    id: string | string[];
+    from?: string | string[];
+    serves?: string | string[];
+  }>();
   const recipeId = recipeParam(id);
+  const servesParam = Array.isArray(serves) ? serves[0] : serves;
   const fromShopping = (Array.isArray(from) ? from[0] : from) === 'shopping';
   const router = useRouter();
   const { mode } = useExperienceMode();
@@ -52,7 +59,9 @@ export function RecipeDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [printing, setPrinting] = useState(false);
   const [cookMode, setCookMode] = useState(false);
+  const [viewServings, setViewServings] = useState<number | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const publishedCatalog = recipe
     ? meals.recipes.find(
         (r) => !r.householdId && !r.removed && r.creatorSourceRecipeId === recipe.id,
@@ -66,12 +75,27 @@ export function RecipeDetailScreen() {
       recipe.createdBy === user.id &&
       creator.isApprovedCreator,
   );
+  const canRemoveFromCatalog = Boolean(
+    recipe &&
+      !recipe.householdId &&
+      !recipe.removed &&
+      user?.email?.toLowerCase() === CATALOG_REMOVE_EMAIL,
+  );
 
   useWakeLock(cookMode);
 
   useEffect(() => {
     setNotes(recipe?.notes ?? '');
   }, [recipe?.id, recipe?.notes]);
+
+  useEffect(() => {
+    const next = Number(servesParam);
+    setViewServings(Number.isFinite(next) && next > 0 ? Math.round(next) : null);
+  }, [recipeId, servesParam]);
+
+  function goToLibrary() {
+    router.push('/meals/recipes' as Href);
+  }
 
   function goBack() {
     if (fromShopping) {
@@ -86,6 +110,41 @@ export function RecipeDetailScreen() {
   }
 
   const backLabel = fromShopping ? 'Shopping' : 'Library';
+
+  async function removeFromCatalog() {
+    if (!recipe || removing) return;
+    const message = 'This hides it from the recipe library for every household.';
+    const confirmed =
+      Platform.OS === 'web' && typeof window !== 'undefined'
+        ? window.confirm(`Remove ${recipe.name} from the catalog?\n\n${message}`)
+        : await new Promise<boolean>((resolve) => {
+            let settled = false;
+            const settle = (value: boolean) => {
+              if (settled) return;
+              settled = true;
+              resolve(value);
+            };
+            Alert.alert(
+              'Remove from catalog?',
+              message,
+              [
+                { text: 'Keep', style: 'cancel', onPress: () => settle(false) },
+                { text: 'Remove', style: 'destructive', onPress: () => settle(true) },
+              ],
+              { cancelable: true, onDismiss: () => settle(false) },
+            );
+          });
+    if (!confirmed) return;
+    setRemoving(true);
+    setError(null);
+    try {
+      await meals.reviewCatalogRecipe(recipe.id, 'remove');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove recipe');
+    } finally {
+      setRemoving(false);
+    }
+  }
 
   if (!recipe && (meals.isLoading || detailQuery.isLoading)) {
     return (
@@ -104,20 +163,27 @@ export function RecipeDetailScreen() {
     );
   }
 
+  const baseServings = recipeBaseServings(recipe);
+  const shown = scaleRecipeToServings(recipe, viewServings);
+  const serveCount = viewServings ?? baseServings;
+
   return (
     <ScrollView style={styles.root} contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}>
       <BackLink label={backLabel} onPress={goBack} />
       <View style={[styles.hero, desktop && styles.heroDesktop]}>
         <RecipePhoto uri={recipe.imageUrl} emoji={recipe.emoji} size="fill" radius={0} />
+        {canRemoveFromCatalog ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Remove from catalog"
+            disabled={!meals.online || removing}
+            onPress={() => void removeFromCatalog()}
+            style={[styles.removeCatalog, (!meals.online || removing) && styles.removeCatalogDisabled]}>
+            <Text style={styles.removeCatalogMark}>×</Text>
+          </Pressable>
+        ) : null}
       </View>
       <RecipeImageDisclaimer visible={Boolean(recipe.imageUrl)} style={styles.imageNote} />
-      {meals.isCatalogEditor && !recipe.householdId ? (
-        <CatalogRemoveEditor
-          recipe={recipe}
-          online={meals.online}
-          onReview={(action) => meals.reviewCatalogRecipe(recipe.id, action)}
-        />
-      ) : null}
       <Text style={[styles.title, desktop && styles.titleDesktop]}>
         {recipe.name}
       </Text>
@@ -154,9 +220,35 @@ export function RecipeDetailScreen() {
         </Pressable>
       ) : null}
       <Text style={styles.meta}>
-        {recipe.cuisine ?? 'Recipe'} · {recipe.cookTime ?? '—'} min · {recipe.servings ?? '—'} servings
-        {formatCostPerServe(recipe.cost) ? ` · ${formatCostPerServe(recipe.cost)}` : ''}
+        {recipe.cuisine ?? 'Recipe'} · {recipe.cookTime ?? '—'} min
+        {baseServings ? '' : ` · ${recipe.servings ?? '—'} servings`}
+        {formatCostPerServe(shown.cost) ? ` · ${formatCostPerServe(shown.cost)}` : ''}
       </Text>
+      {baseServings && serveCount ? (
+        <View style={styles.servesRow}>
+          <Text style={styles.meta}>Serves</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Fewer serves"
+            disabled={serveCount <= 1}
+            onPress={() => setViewServings(Math.max(1, serveCount - 1))}
+            style={[styles.servesBtn, serveCount <= 1 && styles.servesBtnDisabled]}>
+            <Text style={styles.servesBtnLabel}>−</Text>
+          </Pressable>
+          <Text style={styles.servesValue}>{serveCount}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="More serves"
+            disabled={serveCount >= 24}
+            onPress={() => setViewServings(Math.min(24, serveCount + 1))}
+            style={[styles.servesBtn, serveCount >= 24 && styles.servesBtnDisabled]}>
+            <Text style={styles.servesBtnLabel}>+</Text>
+          </Pressable>
+          {viewServings != null && viewServings !== baseServings ? (
+            <Text style={styles.meta}>scaled from {baseServings}</Text>
+          ) : null}
+        </View>
+      ) : null}
       <View style={styles.macros}>
         <Macro label="kcal" value={recipe.calories} />
         <Macro label="protein" value={recipe.protein} suffix="g" />
@@ -165,18 +257,18 @@ export function RecipeDetailScreen() {
       </View>
       <Card>
         <Text style={styles.heading}>Approx. cost</Text>
-        {recipe.cost ? (
+        {shown.cost ? (
           <>
-            <Text style={styles.costHero}>{formatCostPerServe(recipe.cost)}</Text>
+            <Text style={styles.costHero}>{formatCostPerServe(shown.cost)}</Text>
             <Text style={styles.meta}>
-              {formatDishCost(recipe.cost)} for {recipe.cost.servingsBasis} servings
+              {formatDishCost(shown.cost)} for {shown.cost.servingsBasis} servings
             </Text>
-            {recipe.cost.coveredIngredients != null && recipe.cost.totalIngredients != null ? (
+            {shown.cost.coveredIngredients != null && shown.cost.totalIngredients != null ? (
               <Text style={styles.meta}>
-                {recipe.cost.coveredIngredients} of {recipe.cost.totalIngredients} ingredients priced
+                {shown.cost.coveredIngredients} of {shown.cost.totalIngredients} ingredients priced
               </Text>
             ) : null}
-            <Text style={styles.hiddenHint}>{formatCostSource(recipe.cost)}</Text>
+            <Text style={styles.hiddenHint}>{formatCostSource(shown.cost)}</Text>
           </>
         ) : (
           <Text style={styles.hiddenHint}>
@@ -201,7 +293,7 @@ export function RecipeDetailScreen() {
           busy={printing}
           onPress={() => {
             setPrinting(true);
-            void printRecipe(recipe)
+            void printRecipe(shown)
               .catch((err) => setError(err instanceof Error ? err.message : 'Print failed'))
               .finally(() => setPrinting(false));
           }}
@@ -281,30 +373,51 @@ export function RecipeDetailScreen() {
       <Card>
         <Text style={styles.heading}>Slots</Text>
         <BodyText>
-          {(recipe.mealSlots ?? []).map((s) => MEAL_SLOTS.find((x) => x.key === s)?.label ?? s).join(' · ') || 'Dinner'}
+          {[
+            recipe.recipeClass ? recipeClassLabel(recipe.recipeClass) : null,
+            ...(recipe.mealSlots ?? []).map((s) => MEAL_SLOTS.find((x) => x.key === s)?.label ?? s),
+          ]
+            .filter(Boolean)
+            .join(' · ') || 'Dinner'}
         </BodyText>
       </Card>
       <View style={desktop ? styles.cols : styles.stack}>
         <View style={desktop ? styles.col : styles.stackCol}>
           <Card>
             <Text style={styles.heading}>Ingredients</Text>
-            {(recipe.ingredients ?? []).length === 0 ? (
+            {(shown.ingredients ?? []).length === 0 ? (
               <BodyText>No ingredients listed.</BodyText>
             ) : (
-              (recipe.ingredients ?? []).map((ing, idx) => {
-                const line = recipe.cost?.breakdown.find(
+              (shown.ingredients ?? []).map((ing, idx) => {
+                const line = shown.cost?.breakdown.find(
                   (item) => item.name.trim().toLowerCase() === ing.name.trim().toLowerCase(),
                 );
+                const linked = linkedRecipeForIngredient(ing.name, meals.recipes, {
+                  explicitId: ing.baseRecipeId,
+                  excludeIds: [recipe.id],
+                });
                 return (
-                  <View key={`${ing.name}-${idx}`} style={styles.ingRow}>
-                    <Text style={[styles.body, cookMode && styles.cookBody, wrapText, styles.ingName]}>
-                      {ing.amount ? `${ing.amount} ` : ''}
-                      {ing.name}
-                    </Text>
-                    {line ? (
-                      <Text style={styles.ingCost}>{formatMoney(line.lineCost, recipe.cost?.currency)}</Text>
-                    ) : null}
-                  </View>
+                  <IngredientSwapSlot key={`${ing.name}-${idx}`} recipe={recipe} index={idx}>
+                    {(button) => (
+                      <View style={styles.ingRow}>
+                        <View style={styles.ingLead}>
+                          <Text style={[styles.body, cookMode && styles.cookBody, wrapText, styles.ingName]}>
+                            {ing.amount ? `${ing.amount} ` : ''}
+                            {ing.name}
+                            {linked ? (
+                              <Text style={styles.ingLink} onPress={() => router.push(recipeHref(linked.id))}>
+                                {`  · ${linked.name}`}
+                              </Text>
+                            ) : null}
+                          </Text>
+                          {button}
+                        </View>
+                        {line ? (
+                          <Text style={styles.ingCost}>{formatMoney(line.lineCost, shown.cost?.currency)}</Text>
+                        ) : null}
+                      </View>
+                    )}
+                  </IngredientSwapSlot>
                 );
               })
             )}
@@ -389,15 +502,33 @@ const styles = StyleSheet.create({
   contentDesktop: { paddingHorizontal: 48, maxWidth: 980, width: '100%', alignSelf: 'center' },
   back: { color: colors.accent, fontWeight: '700' },
   sourceRow: { alignSelf: 'flex-start', marginTop: -4 },
-  hero: { height: 220, borderRadius: radius.lg, overflow: 'hidden' },
+  hero: { height: 220, borderRadius: radius.lg, overflow: 'hidden', position: 'relative' },
   heroDesktop: { height: 320 },
+  removeCatalog: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    zIndex: 2,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(11, 16, 22, 0.72)',
+    borderWidth: 1,
+    borderColor: colors.danger,
+  },
+  removeCatalogDisabled: { opacity: 0.45 },
+  removeCatalogMark: { color: colors.danger, fontSize: 22, fontWeight: '700', lineHeight: 24, marginTop: -1 },
   imageNote: { marginTop: -4 },
   title: { color: colors.text, fontSize: 28, fontWeight: '700' },
   titleDesktop: { fontSize: 40 },
   meta: { color: colors.textMuted },
   costHero: { color: colors.text, fontSize: 22, fontWeight: '800' },
   ingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
-  ingName: { flex: 1, minWidth: 0 },
+  ingLead: { flex: 1, minWidth: 0, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
+  ingName: { flexGrow: 0, flexShrink: 1, minWidth: 0 },
+  ingLink: { color: colors.accent, fontWeight: '700' },
   ingCost: { color: colors.textMuted, fontSize: 13, fontWeight: '700', flexShrink: 0 },
   macros: { flexDirection: 'row', gap: 8 },
   macro: {
@@ -411,6 +542,20 @@ const styles = StyleSheet.create({
   macroVal: { color: colors.text, fontWeight: '800', fontSize: 16 },
   macroLabel: { color: colors.textDim, fontSize: 11, textTransform: 'uppercase' },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  servesRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  servesBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgElevated,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  servesBtnDisabled: { opacity: 0.4 },
+  servesBtnLabel: { color: colors.text, fontSize: 18, fontWeight: '700', lineHeight: 22 },
+  servesValue: { minWidth: 28, textAlign: 'center', color: colors.text, fontSize: 16, fontWeight: '800' },
   hiddenHint: { color: colors.textMuted, fontSize: 13, lineHeight: 19, marginTop: -4 },
   heading: { color: colors.text, fontSize: 18, fontWeight: '700' },
   bodyWrap: { width: '100%', minWidth: 0, flexShrink: 1 },

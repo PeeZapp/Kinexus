@@ -69,7 +69,9 @@ export function ImportRecipeScreen() {
       method: methodRowsFrom(recipe.method ?? []),
       chefTip: recipe.chefTip ?? current.chefTip,
       notes: current.notes,
+      recipeClass: null,
       slots: slots.length ? slots : ['dinner'],
+      imageUrl: recipe.imageUrl ?? '',
     }));
     setSource(nextSource);
     setMissing(null);

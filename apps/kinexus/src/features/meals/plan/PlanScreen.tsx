@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 
@@ -18,12 +19,16 @@ import {
   type Recipe,
 } from '@kinexus/domain';
 
+import { Sheet } from '@/src/features/meals/meals-kit';
 import { PlanDesktop } from '@/src/features/meals/plan/PlanDesktop';
 import { PlanMobile } from '@/src/features/meals/plan/PlanMobile';
+import { SideDishPicker } from '@/src/features/meals/plan/SideDishPicker';
 import {
-  AddMealSheet,
+  AllocateMealSheet,
   dayPlanSlots,
+  EatForSheet,
   familyAddMealSlotOptions,
+  PickMealSheet,
   type PlanPersonFilter,
 } from '@/src/features/meals/plan/PlanShared';
 import { SlotSheet } from '@/src/features/meals/plan/SlotSheet';
@@ -56,10 +61,17 @@ export function PlanScreen() {
   const [sheetDay, setSheetDay] = useState<Day | null>(null);
   const [sheetSlot, setSheetSlot] = useState<MealSlotKey | null>(null);
   const [sheetCellId, setSheetCellId] = useState<string | null>(null);
-  const [addMealDay, setAddMealDay] = useState<Day | null>(null);
-  const [addMealError, setAddMealError] = useState<string | null>(null);
-  const [addMealBusy, setAddMealBusy] = useState(false);
+  const [allocateOpen, setAllocateOpen] = useState(false);
+  const [pickOpen, setPickOpen] = useState(false);
+  const [pendingPick, setPendingPick] = useState<{ slot: MealSlotKey; recipe: Recipe } | null>(null);
+  const [placeError, setPlaceError] = useState<string | null>(null);
+  const [placeBusy, setPlaceBusy] = useState(false);
+  const [sideCellId, setSideCellId] = useState<string | null>(null);
+  const [sideError, setSideError] = useState<string | null>(null);
+  const [sideListToken, setSideListToken] = useState(0);
   const [selectedDay, setSelectedDay] = useState<Day>(() => defaultSelectedDay(meals.weekStart));
+  const [clearingWeek, setClearingWeek] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
   const recentSwaps = useRef(new Map<string, string[]>());
   const userId = user && !user.isDevBypass ? user.id : null;
   const canAssign = canManageMealPlan(role);
@@ -115,32 +127,42 @@ export function PlanScreen() {
     setSheetCellId(null);
   }
 
-  async function confirmAddMeal(slot: MealSlotKey, audiencePersonIds: string[]) {
-    if (!addMealDay || !canAssign) return;
-    const day = addMealDay;
-    setAddMealBusy(true);
-    setAddMealError(null);
+  function familySlotFilled(slot: MealSlotKey) {
+    return meals.slots.some(
+      (item) =>
+        item.day === selectedDay &&
+        item.slotKey === slot &&
+        isHouseholdAudience(item.audiencePersonIds) &&
+        !item.hidden &&
+        Boolean(item.recipeId),
+    );
+  }
+
+  async function placeMeal(slot: MealSlotKey, audiencePersonIds: string[], personId: string | null, recipe?: Recipe) {
+    if (!canAssign) return;
+    const day = selectedDay;
+    setPlaceBusy(true);
+    setPlaceError(null);
     try {
       const audience = normalizeAudiencePersonIds(audiencePersonIds);
       if (audience.length === 0) {
-        // Empty breakfast/lunch/dinner are already on the day — open picker, don't re-sync.
-        if (dayPlanSlots(meals.activeSlots, meals.slotMap, day).visible.includes(slot)) {
-          setAddMealDay(null);
-          openSlot(day, slot);
-          return;
+        if (!dayPlanSlots(meals.activeSlots, meals.slotMap, day).visible.includes(slot)) {
+          await meals.addSlotToDay(day, slot);
         }
-        await meals.addSlotToDay(day, slot);
-        setAddMealDay(null);
-        openSlot(day, slot);
+        if (recipe) await meals.assignSlot(day, slot, recipe, { audiencePersonIds: [] });
+        if (!recipe || personId) await meals.allocateSlot(day, slot, personId, { audiencePersonIds: [] });
         return;
       }
       const created = await meals.createAudienceSlot(day, slot, audience);
-      setAddMealDay(null);
-      openSlot(day, slot, created ?? undefined);
+      const opts = { slotId: created?.id, audiencePersonIds: audience };
+      if (recipe) await meals.assignSlot(day, slot, recipe, opts);
+      if (!recipe || personId) await meals.allocateSlot(day, slot, personId, opts);
     } catch (err) {
-      setAddMealError(messageFromUnknown(err, 'Could not add meal'));
+      const message = messageFromUnknown(err, 'Could not save that meal');
+      setPlaceError(message);
+      throw err instanceof Error ? err : new Error(message);
     } finally {
-      setAddMealBusy(false);
+      setPlaceBusy(false);
     }
   }
 
@@ -212,9 +234,6 @@ export function PlanScreen() {
       }
       onClose={closeSlotSheet}
       onAssign={(recipe) => void assign(recipe)}
-      onAllocate={(personId) => {
-        if (sheetDay && sheetSlot && canAssign) void meals.allocateSlot(sheetDay, sheetSlot, personId, slotOpts);
-      }}
       onClear={() => {
         if (sheetDay && sheetSlot && sheetCanEdit) void meals.clearSlot(sheetDay, sheetSlot, slotOpts);
         closeSlotSheet();
@@ -229,8 +248,15 @@ export function PlanScreen() {
         closeSlotSheet();
       }}
       onShuffle={() => void shuffle()}
-      onOpenRecipe={(id) => openRecipePage(recipeHref(id))}
+      onOpenRecipe={(id, serves) => openRecipePage(recipeHref(id, serves ? { serves } : undefined))}
       onEditRecipe={(id) => openRecipePage(recipeEditHref(id))}
+      onSetSides={
+        sheetSlotRow
+          ? (sideRecipeIds) => {
+              void meals.setSlotSides(sheetSlotRow.id, sideRecipeIds);
+            }
+          : undefined
+      }
     />
   );
 
@@ -242,9 +268,42 @@ export function PlanScreen() {
     return map;
   }, [people]);
   const peopleOptions = useMemo(() => people.map((person) => ({ id: person.id, name: person.name })), [people]);
-  const familySlotOptions = addMealDay
-    ? familyAddMealSlotOptions(meals.activeSlots, meals.slotMap, meals.slots, addMealDay)
-    : [];
+  const familySlotOptions = familyAddMealSlotOptions(meals.activeSlots, meals.slotMap, meals.slots, selectedDay);
+
+  async function confirmClearWeek() {
+    const message =
+      'This empties every meal on this week, brings removed days back, and drops slot changes still waiting to sync. The shopping list is left as it is.';
+    const confirmed =
+      Platform.OS === 'web' && typeof window !== 'undefined'
+        ? window.confirm(`Clear this week?\n\n${message}`)
+        : await new Promise<boolean>((resolve) => {
+            let settled = false;
+            const settle = (value: boolean) => {
+              if (settled) return;
+              settled = true;
+              resolve(value);
+            };
+            Alert.alert(
+              'Clear this week?',
+              message,
+              [
+                { text: 'Keep', style: 'cancel', onPress: () => settle(false) },
+                { text: 'Clear week', style: 'destructive', onPress: () => settle(true) },
+              ],
+              { cancelable: true, onDismiss: () => settle(false) },
+            );
+          });
+    if (!confirmed) return;
+    setClearError(null);
+    setClearingWeek(true);
+    try {
+      await meals.clearWeek();
+    } catch (err) {
+      setClearError(messageFromUnknown(err, 'Could not clear this week'));
+    } finally {
+      setClearingWeek(false);
+    }
+  }
 
   const planProps = {
     meals,
@@ -257,9 +316,13 @@ export function PlanScreen() {
     showGenerate: canAssign,
     canManage: canAssign,
     onOpenSlot: openSlot,
-    onAddMeal: (day: Day) => {
-      setAddMealError(null);
-      setAddMealDay(day);
+    onAllocateMeal: () => {
+      setPlaceError(null);
+      setAllocateOpen(true);
+    },
+    onPickMeal: () => {
+      setPlaceError(null);
+      setPickOpen(true);
     },
     onRemoveDay: (day: Day) => {
       if (!canAssign) return;
@@ -269,23 +332,118 @@ export function PlanScreen() {
       if (!canAssign) return;
       void meals.restoreDay(day);
     },
+    onClearWeek: () => {
+      if (!canAssign || clearingWeek) return;
+      void confirmClearWeek();
+    },
+    clearingWeek,
+    clearError,
     onGenerate: goGenerate,
     onShopping: goShopping,
+    onAddSide: (cell: PlanSlot) => {
+      setSideError(null);
+      setSideCellId(cell.id);
+      setSideListToken((token) => token + 1);
+    },
+    onAllocate: (cell: PlanSlot, personId: string | null) => {
+      if (!canAssign) return;
+      void meals.allocateSlot(cell.day, cell.slotKey, personId, {
+        slotId: cell.id,
+        audiencePersonIds: cell.audiencePersonIds,
+      });
+    },
+    canEditCell: (cell: PlanSlot) =>
+      canEditSlot({
+        role,
+        people,
+        userId,
+        assignedPersonId: cell.assignedPersonId,
+      }),
   };
 
-  const addMealSheet = (
-    <AddMealSheet
-      day={addMealDay}
-      people={peopleOptions}
-      familySlotOptions={familySlotOptions}
-      error={addMealError}
-      busy={addMealBusy}
+  const sideCell = sideCellId ? meals.slots.find((slot) => slot.id === sideCellId) : undefined;
+
+  async function changeSides(ids: string[]) {
+    if (!sideCell) return;
+    setSideError(null);
+    try {
+      await meals.setSlotSides(sideCell.id, ids);
+    } catch (err) {
+      setSideError(messageFromUnknown(err, 'Could not update sides'));
+    }
+  }
+
+  const sideSheet = (
+    <Sheet
+      visible={sideCellId !== null}
+      title="Add side dish"
+      scrollTopToken={sideListToken}
       onClose={() => {
-        setAddMealDay(null);
-        setAddMealError(null);
-      }}
-      onConfirm={(slot, audience) => void confirmAddMeal(slot, audience)}
-    />
+        setSideCellId(null);
+        setSideError(null);
+      }}>
+      {sideCell ? (
+        <SideDishPicker
+          recipes={meals.recipes}
+          selectedIds={sideCell.sideRecipeIds ?? []}
+          excludeIds={sideCell.recipeId ? [sideCell.recipeId] : []}
+          error={sideError}
+          onQueryChange={() => setSideListToken((token) => token + 1)}
+          onAdd={(recipe) => void changeSides([...(sideCell.sideRecipeIds ?? []), recipe.id])}
+          onRemove={(id) => void changeSides((sideCell.sideRecipeIds ?? []).filter((item) => item !== id))}
+        />
+      ) : null}
+    </Sheet>
+  );
+
+  const planModals = (
+    <>
+      <AllocateMealSheet
+        visible={allocateOpen}
+        people={peopleOptions}
+        familySlotOptions={familySlotOptions}
+        error={allocateOpen ? placeError : null}
+        busy={placeBusy}
+        onClose={() => {
+          setAllocateOpen(false);
+          setPlaceError(null);
+        }}
+        onConfirm={async (slot, audience, personId) => {
+          await placeMeal(slot, audience, personId);
+          setAllocateOpen(false);
+        }}
+      />
+      <PickMealSheet
+        visible={pickOpen}
+        recipes={meals.recipes}
+        slotOptions={familySlotOptions}
+        goals={meals.goals ?? FALLBACK_GOALS}
+        activeSlots={meals.activeSlots.length > 0 ? meals.activeSlots : [...CORE_SLOTS]}
+        onClose={() => setPickOpen(false)}
+        onPicked={(slot, recipe) => {
+          setPickOpen(false);
+          setPlaceError(null);
+          setPendingPick({ slot, recipe });
+        }}
+      />
+      <EatForSheet
+        visible={pendingPick !== null}
+        recipeName={pendingPick?.recipe.name ?? ''}
+        people={peopleOptions}
+        familyBlocked={pendingPick ? familySlotFilled(pendingPick.slot) : false}
+        error={pendingPick ? placeError : null}
+        busy={placeBusy}
+        onClose={() => {
+          setPendingPick(null);
+          setPlaceError(null);
+        }}
+        onConfirm={async (audience) => {
+          if (!pendingPick) return;
+          await placeMeal(pendingPick.slot, audience, null, pendingPick.recipe);
+          setPendingPick(null);
+        }}
+      />
+    </>
   );
 
   if (mode === 'desktop') {
@@ -293,7 +451,8 @@ export function PlanScreen() {
       <>
         <PlanDesktop {...planProps} />
         {sheet}
-        {addMealSheet}
+        {sideSheet}
+        {planModals}
       </>
     );
   }
@@ -302,7 +461,8 @@ export function PlanScreen() {
     <>
       <PlanMobile {...planProps} />
       {sheet}
-      {addMealSheet}
+      {sideSheet}
+      {planModals}
     </>
   );
 }

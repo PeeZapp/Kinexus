@@ -50,7 +50,9 @@ export function PicksScreen() {
 
   const pool = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const list = meals.recipes.filter((recipe) => !recipe.removed && !recipe.isComponent);
+    const list = meals.recipes.filter(
+      (recipe) => !recipe.removed && !recipe.isComponent && !(recipe.recipeClass && !(recipe.mealSlots ?? []).length),
+    );
     const filtered = q
       ? list.filter(
           (recipe) =>

@@ -19,7 +19,7 @@ export type SlotOutboxOp = {
   /** Stable row id once known; preferred match key. */
   slotId?: string | null;
   audiencePersonIds?: string[];
-  kind: 'assign' | 'clear' | 'hide' | 'allocate' | 'audience' | 'delete';
+  kind: 'assign' | 'clear' | 'hide' | 'allocate' | 'audience' | 'delete' | 'reset-week';
   recipeId?: string | null;
   recipeName?: string | null;
   emoji?: string | null;
@@ -30,6 +30,13 @@ export type SlotOutboxOp = {
   cookTime?: number | null;
   hidden?: boolean;
   assignedPersonId?: string | null;
+  /** Set on assign when the caller is replacing sides. Omitted leaves the current sides. */
+  sideRecipeIds?: string[];
+  /**
+   * Serves to cook. Set on assign. `null` clears back to the recipe yield.
+   * Omitted leaves the current value.
+   */
+  targetServings?: number | null;
   clientUpdatedAt: string;
 };
 
@@ -79,6 +86,12 @@ export async function enqueueSlotOp(op: Omit<SlotOutboxOp, 'id'>): Promise<SlotO
 export async function removeSlotOps(ids: string[]): Promise<void> {
   const current = await readSlotOutbox();
   await writeSlotOutbox(current.filter((op) => !ids.includes(op.id)));
+}
+
+/** Drop every queued slot change for one household week so a reset is not replayed over. */
+export async function dropHouseholdWeekOutbox(householdId: string, weekStart: string): Promise<void> {
+  const current = await readSlotOutbox();
+  await writeSlotOutbox(current.filter((op) => !(op.householdId === householdId && op.weekStart === weekStart)));
 }
 
 export async function householdOutbox(householdId: string): Promise<SlotOutboxOp[]> {

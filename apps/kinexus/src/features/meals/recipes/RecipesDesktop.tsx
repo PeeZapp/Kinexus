@@ -1,10 +1,19 @@
-import { View } from 'react-native';
+import { View, type ViewStyle } from 'react-native';
 
 import type { Recipe } from '@kinexus/domain';
 
 import { RecipeCard, RecipesChrome } from '@/src/features/meals/recipes/RecipesShared';
 import type { RecipeLibraryFilter, RecipeMealFilter, RecipeSort, SortDir } from '@/src/features/meals/recipes/filters';
 import { EmptyState } from '@/src/features/shell/states';
+
+const recipeGrid = {
+  alignSelf: 'stretch',
+  width: '100%',
+  minWidth: 0,
+  gap: 12,
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+} as ViewStyle;
 
 export function RecipesDesktop(props: {
   query: string;
@@ -64,7 +73,7 @@ export function RecipesDesktop(props: {
           }
         />
       ) : (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+        <View style={recipeGrid}>
           {props.recipes.map((recipe) => (
             <RecipeCard
               key={recipe.id}

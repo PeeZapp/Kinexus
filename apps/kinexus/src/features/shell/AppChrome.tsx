@@ -93,6 +93,7 @@ const styles = StyleSheet.create({
   },
   desktopMain: {
     flex: 1,
+    minWidth: 0,
     zIndex: 1,
   },
   desktopToolbar: {
@@ -102,6 +103,7 @@ const styles = StyleSheet.create({
   },
   desktopContent: {
     flex: 1,
+    minWidth: 0,
   },
   mobileRoot: {
     flex: 1,

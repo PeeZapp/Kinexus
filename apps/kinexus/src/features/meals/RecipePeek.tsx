@@ -105,14 +105,16 @@ export function RecipePeek({
           {ingredients.map((item, index) => (
             <View key={`${item.name}-${index}`} style={styles.ingredient}>
               {item.amount ? <Text style={styles.amount}>{item.amount}</Text> : null}
-              <IngredientSwapSlot recipe={recipe} index={index}>
-                {(button) => (
-                  <View style={styles.ingredientLine}>
-                    <Text style={styles.ingredientName}>{item.name}</Text>
-                    {button}
-                  </View>
-                )}
-              </IngredientSwapSlot>
+              <View style={styles.ingredientSlot}>
+                <IngredientSwapSlot recipe={recipe} index={index}>
+                  {(button) => (
+                    <View style={styles.ingredientLine}>
+                      <Text style={styles.ingredientName}>{item.name}</Text>
+                      {button}
+                    </View>
+                  )}
+                </IngredientSwapSlot>
+              </View>
             </View>
           ))}
         </View>
@@ -208,7 +210,8 @@ const styles = StyleSheet.create({
   },
   ingredient: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   amount: { width: 88, color: colors.textMuted, fontSize: 14, lineHeight: 20, fontWeight: '600' },
-  ingredientLine: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  ingredientSlot: { flex: 1, minWidth: 0 },
+  ingredientLine: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'stretch', minWidth: 0 },
   ingredientName: { flex: 1, color: colors.text, fontSize: 15, lineHeight: 20 },
   step: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   stepNum: { width: 18, color: colors.accent, fontSize: 14, lineHeight: 22, fontWeight: '800' },

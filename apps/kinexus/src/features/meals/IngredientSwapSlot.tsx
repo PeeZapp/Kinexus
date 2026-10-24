@@ -114,7 +114,7 @@ function draftWithIngredients(recipe: Recipe, ingredients: Ingredient[]): Omit<R
 }
 
 const styles = StyleSheet.create({
-  slot: { flex: 1, gap: 6, alignSelf: 'stretch' },
+  slot: { flexShrink: 0, gap: 6, alignSelf: 'stretch', minWidth: 0 },
   logo: {
     width: 22,
     height: 22,

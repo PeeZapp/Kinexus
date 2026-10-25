@@ -152,6 +152,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
     minHeight: 48,
+    minWidth: 0,
+    width: '100%',
   },
   inputMultiline: {
     minHeight: 120,

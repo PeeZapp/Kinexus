@@ -1,28 +1,97 @@
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { recipeForHouseholdView, type Recipe } from '@kinexus/domain';
 
+import { RecipePeek } from '@/src/features/meals/RecipePeek';
+import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
 import { colors, radius } from '@/src/features/shell/theme';
+
+export function AttachedSideDishes({
+  sides,
+  onOpen,
+  onEdit,
+  onRemove,
+  onAdd,
+  style,
+}: {
+  sides: readonly { id: string; name: string }[];
+  onOpen: (id: string) => void;
+  onEdit: (id: string) => void;
+  onRemove: (id: string) => void;
+  onAdd?: () => void;
+  style?: StyleProp<ViewStyle>;
+}) {
+  if (sides.length === 0 && !onAdd) return null;
+  return (
+    <View style={[styles.attached, style]}>
+      {sides.map((side) => (
+        <View key={side.id} style={styles.attachedRow}>
+          <Pressable
+            onPress={() => onOpen(side.id)}
+            style={styles.attachedNameHit}
+            accessibilityRole="button"
+            accessibilityLabel={`View ${side.name}`}>
+            <Text style={styles.attachedName} numberOfLines={1}>
+              {side.name}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => onEdit(side.id)}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel={`Edit ${side.name}`}>
+            <Text style={styles.action}>Edit</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => onRemove(side.id)}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel={`Remove ${side.name}`}>
+            <Text style={styles.action}>Remove</Text>
+          </Pressable>
+        </View>
+      ))}
+      {onAdd ? (
+        <Pressable onPress={onAdd} hitSlop={6} accessibilityRole="button" accessibilityLabel="Add side dish">
+          <Text style={styles.action}>Add side dish</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+export function SideDishRemove({ name, onPress }: { name: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Remove ${name}`}>
+      <Text style={styles.action}>Remove</Text>
+    </Pressable>
+  );
+}
 
 export function SideDishPicker({
   recipes,
   selectedIds,
   excludeIds,
   error,
+  viewServings,
   onAdd,
   onRemove,
+  onEdit,
   onQueryChange,
 }: {
   recipes: readonly Recipe[];
   selectedIds: readonly string[];
   excludeIds?: readonly string[];
   error?: string | null;
+  viewServings?: number | null;
   onAdd: (recipe: Recipe) => void;
   onRemove: (recipeId: string) => void;
+  onEdit?: (recipe: Recipe) => void;
   onQueryChange?: (query: string) => void;
 }) {
   const [query, setQuery] = useState('');
+  const [viewing, setViewing] = useState<Recipe | null>(null);
   const selected = selectedIds.flatMap((id) => {
     const recipe = recipeForHouseholdView(recipes, id);
     return recipe ? [recipe] : [];
@@ -51,15 +120,67 @@ export function SideDishPicker({
   }, [query, recipes, taken]);
   const searching = query.trim().length > 0;
 
+  if (viewing) {
+    const already = selected.some((side) => side.id === viewing.id);
+    return (
+      <RecipePeek
+        recipe={viewing}
+        viewServings={viewServings}
+        useLabel="Add"
+        onUse={
+          already
+            ? undefined
+            : () => {
+                onAdd(viewing);
+                setViewing(null);
+              }
+        }
+        onBack={() => setViewing(null)}
+        onEdit={onEdit ? () => onEdit(viewing) : undefined}
+        belowActions={
+          already ? (
+            <SideDishRemove
+              name={viewing.name}
+              onPress={() => {
+                onRemove(viewing.id);
+                setViewing(null);
+              }}
+            />
+          ) : undefined
+        }
+      />
+    );
+  }
+
   return (
     <View style={styles.stack}>
       {selected.length > 0 ? (
         <View style={styles.selected}>
           {selected.map((side) => (
             <View key={side.id} style={styles.row}>
-              <Text style={styles.name}>{side.name}</Text>
-              <Pressable onPress={() => onRemove(side.id)} hitSlop={6}>
-                <Text style={styles.remove}>Remove</Text>
+              <Pressable
+                onPress={() => setViewing(side)}
+                style={styles.copyRow}
+                accessibilityRole="button"
+                accessibilityLabel={`View ${side.name}`}>
+                <RecipePhoto uri={side.imageUrl} emoji={side.emoji} size={40} />
+                <Text style={styles.name}>{side.name}</Text>
+              </Pressable>
+              {onEdit ? (
+                <Pressable
+                  onPress={() => onEdit(side)}
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Edit ${side.name}`}>
+                  <Text style={styles.action}>Edit</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={() => onRemove(side.id)}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${side.name}`}>
+                <Text style={styles.action}>Remove</Text>
               </Pressable>
             </View>
           ))}
@@ -77,9 +198,6 @@ export function SideDishPicker({
         autoCapitalize="none"
         autoCorrect={false}
       />
-      <Text style={styles.hint}>
-        {searching ? 'Matching dishes' : 'Sides from your recipe book. Search to add any dish.'}
-      </Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {list.length === 0 ? (
         <Text style={styles.empty}>
@@ -87,13 +205,26 @@ export function SideDishPicker({
         </Text>
       ) : (
         list.map((recipe) => (
-          <Pressable key={recipe.id} onPress={() => onAdd(recipe)} style={styles.row}>
-            <View style={styles.copy}>
-              <Text style={styles.name}>{recipe.name}</Text>
-              {recipe.calories != null ? <Text style={styles.meta}>{recipe.calories} kcal</Text> : null}
-            </View>
-            <Text style={styles.add}>Add</Text>
-          </Pressable>
+          <View key={recipe.id} style={styles.row}>
+            <Pressable
+              onPress={() => setViewing(recipe)}
+              style={styles.copyRow}
+              accessibilityRole="button"
+              accessibilityLabel={`View ${recipe.name}`}>
+              <RecipePhoto uri={recipe.imageUrl} emoji={recipe.emoji} size={40} />
+              <View style={styles.copy}>
+                <Text style={styles.name}>{recipe.name}</Text>
+                {recipe.calories != null ? <Text style={styles.meta}>{recipe.calories} kcal</Text> : null}
+              </View>
+            </Pressable>
+            <Pressable
+              onPress={() => onAdd(recipe)}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel={`Add ${recipe.name}`}>
+              <Text style={styles.add}>Add</Text>
+            </Pressable>
+          </View>
         ))
       )}
     </View>
@@ -114,6 +245,20 @@ function searchRank(recipe: Recipe, query: string): number {
 }
 
 const styles = StyleSheet.create({
+  attached: { gap: 8 },
+  attachedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 36,
+    paddingLeft: 10,
+    paddingRight: 8,
+    backgroundColor: colors.bgHover,
+    borderRadius: radius.sm,
+  },
+  attachedNameHit: { flex: 1, minWidth: 0 },
+  attachedName: { color: colors.text, fontSize: 14, fontWeight: '600', lineHeight: 18 },
+  action: { color: colors.accent, fontSize: 12, fontWeight: '700' },
   stack: { gap: 8 },
   selected: { gap: 8, marginBottom: 4 },
   search: {
@@ -127,19 +272,17 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     minHeight: 40,
   },
-  hint: { color: colors.textMuted, fontSize: 12, lineHeight: 16 },
   empty: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
   error: { color: colors.danger, fontSize: 13 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: 10,
     paddingVertical: 8,
   },
+  copyRow: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 10 },
   copy: { flex: 1, minWidth: 0, gap: 2 },
   name: { color: colors.text, fontWeight: '700', fontSize: 15 },
   meta: { color: colors.textDim, fontSize: 12 },
   add: { color: colors.accent, fontWeight: '700', fontSize: 13 },
-  remove: { color: colors.textMuted, fontWeight: '700', fontSize: 13 },
 });

@@ -29,6 +29,8 @@ export type SlotOutboxOp = {
   fat?: number | null;
   cookTime?: number | null;
   hidden?: boolean;
+  /** Hide that also empties the meal. One outbox op per slot, so clear and hide have to travel together. */
+  clearMeal?: boolean;
   assignedPersonId?: string | null;
   /** Set on assign when the caller is replacing sides. Omitted leaves the current sides. */
   sideRecipeIds?: string[];

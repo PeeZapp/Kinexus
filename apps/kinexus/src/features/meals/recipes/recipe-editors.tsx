@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Btn } from '@/src/features/household/ui';
@@ -13,10 +14,15 @@ import { colors, radius } from '@/src/features/shell/theme';
 export function IngredientEditor({
   ingredients,
   setForm,
+  hint = true,
 }: {
   ingredients: RecipeIngredientRow[];
   setForm: (patch: Partial<RecipeFormState>) => void;
+  hint?: boolean;
 }) {
+  const [width, setWidth] = useState(0);
+  const compact = width > 0 && width < 520;
+
   function update(id: string, patch: Partial<RecipeIngredientRow>) {
     setForm({
       ingredients: ingredients.map((row) => (row.id === id ? { ...row, ...patch } : row)),
@@ -24,36 +30,53 @@ export function IngredientEditor({
   }
 
   return (
-    <View style={styles.block}>
+    <View
+      style={styles.block}
+      onLayout={(event) => {
+        const next = Math.round(event.nativeEvent.layout.width);
+        setWidth((current) => (current === next ? current : next));
+      }}>
       <Text style={styles.heading}>Ingredients</Text>
-      <Text style={styles.hint}>One ingredient per row. Amount is optional.</Text>
+      {hint ? <Text style={styles.hint}>One ingredient per row. Amount is optional.</Text> : null}
       {ingredients.length === 0 ? (
         <Text style={styles.empty}>No ingredients yet.</Text>
       ) : (
         ingredients.map((row, index) => (
-          <View key={row.id} style={styles.ingredientRow}>
-            <TextInput
-              value={row.amount}
-              onChangeText={(amount) => update(row.id, { amount })}
-              placeholder="Amount"
-              placeholderTextColor={colors.textDim}
-              style={[styles.input, styles.amount]}
-              autoCorrect={false}
-            />
-            <TextInput
-              value={row.name}
-              onChangeText={(name) => update(row.id, { name })}
-              placeholder="Ingredient"
-              placeholderTextColor={colors.textDim}
-              style={[styles.input, styles.grow]}
-              autoCorrect
-            />
-            <RowActions
-              index={index}
-              count={ingredients.length}
-              onMove={(to) => setForm({ ingredients: moveRow(ingredients, index, to) })}
-              onRemove={() => setForm({ ingredients: ingredients.filter((item) => item.id !== row.id) })}
-            />
+          <View key={row.id} style={styles.item}>
+            <View style={styles.ingredientRow}>
+              <TextInput
+                value={row.amount}
+                onChangeText={(amount) => update(row.id, { amount })}
+                placeholder="Amount"
+                placeholderTextColor={colors.textDim}
+                style={[styles.input, styles.amount]}
+                autoCorrect={false}
+              />
+              <TextInput
+                value={row.name}
+                onChangeText={(name) => update(row.id, { name })}
+                placeholder="Ingredient"
+                placeholderTextColor={colors.textDim}
+                style={[styles.input, styles.grow]}
+                autoCorrect
+              />
+              {compact ? null : (
+                <RowActions
+                  index={index}
+                  count={ingredients.length}
+                  onMove={(to) => setForm({ ingredients: moveRow(ingredients, index, to) })}
+                  onRemove={() => setForm({ ingredients: ingredients.filter((item) => item.id !== row.id) })}
+                />
+              )}
+            </View>
+            {compact ? (
+              <RowActions
+                index={index}
+                count={ingredients.length}
+                onMove={(to) => setForm({ ingredients: moveRow(ingredients, index, to) })}
+                onRemove={() => setForm({ ingredients: ingredients.filter((item) => item.id !== row.id) })}
+              />
+            ) : null}
           </View>
         ))
       )}
@@ -73,9 +96,11 @@ export function IngredientEditor({
 export function MethodEditor({
   method,
   setForm,
+  hint = true,
 }: {
   method: RecipeMethodRow[];
   setForm: (patch: Partial<RecipeFormState>) => void;
+  hint?: boolean;
 }) {
   function update(id: string, text: string) {
     setForm({
@@ -86,7 +111,7 @@ export function MethodEditor({
   return (
     <View style={styles.block}>
       <Text style={styles.heading}>Method</Text>
-      <Text style={styles.hint}>Each step is its own box. Add, remove, or reorder as you go.</Text>
+      {hint ? <Text style={styles.hint}>Each step is its own box. Add, remove, or reorder as you go.</Text> : null}
       {method.length === 0 ? (
         <Text style={styles.empty}>No steps yet.</Text>
       ) : (
@@ -143,6 +168,8 @@ function RowActions({
         onPress={() => onMove(index - 1)}
         disabled={index === 0}
         hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel="Move up"
         style={[styles.iconBtn, index === 0 && styles.iconDisabled]}>
         <Text style={styles.iconLabel}>↑</Text>
       </Pressable>
@@ -150,11 +177,18 @@ function RowActions({
         onPress={() => onMove(index + 1)}
         disabled={index === count - 1}
         hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel="Move down"
         style={[styles.iconBtn, index === count - 1 && styles.iconDisabled]}>
         <Text style={styles.iconLabel}>↓</Text>
       </Pressable>
-      <Pressable onPress={onRemove} hitSlop={6} style={styles.iconBtn}>
-        <Text style={styles.removeLabel}>Remove</Text>
+      <Pressable
+        onPress={onRemove}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel="Remove"
+        style={styles.iconBtn}>
+        <Text style={styles.removeLabel}>×</Text>
       </Pressable>
     </View>
   );
@@ -168,9 +202,9 @@ const styles = StyleSheet.create({
   item: { gap: 6 },
   ingredientRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'center',
     gap: 8,
+    minWidth: 0,
   },
   stepRow: {
     flexDirection: 'row',
@@ -187,8 +221,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
     minHeight: 48,
+    minWidth: 0,
   },
-  amount: { width: 110, flexShrink: 0 },
+  amount: { width: 96, flexGrow: 0, flexShrink: 0 },
   grow: { flex: 1, minWidth: 0 },
   stepNum: {
     color: colors.accent,
@@ -208,17 +243,19 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 4,
+    gap: 2,
+    flexShrink: 0,
   },
   actionsIndent: { paddingLeft: 36 },
   iconBtn: {
-    minHeight: 40,
-    paddingHorizontal: 8,
+    minWidth: 36,
+    minHeight: 36,
+    paddingHorizontal: 6,
+    alignItems: 'center',
     justifyContent: 'center',
   },
   iconDisabled: { opacity: 0.35 },
   iconLabel: { color: colors.text, fontSize: 16, fontWeight: '700' },
-  removeLabel: { color: colors.danger, fontSize: 13, fontWeight: '700' },
+  removeLabel: { color: colors.danger, fontSize: 20, fontWeight: '500', lineHeight: 22 },
 });

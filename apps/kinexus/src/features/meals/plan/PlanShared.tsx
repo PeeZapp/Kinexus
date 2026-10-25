@@ -9,6 +9,7 @@ import {
   hiddenMealSlotKeysForDay,
   isHouseholdAudience,
   MEAL_SLOTS,
+  slotHasMeal,
   normalizeAudiencePersonIds,
   orderedMealSlotKeys,
   recipesForPicker,
@@ -103,14 +104,14 @@ export function planDayMealViews(
           .map((slot) => slot.slotKey);
   const visibleKeys = orderedMealSlotKeys([...visible, ...personalKeys]);
   const cells = visibleKeys.flatMap((slotKey) => planCellsForSlot(slots, day, slotKey, personFilter));
-  const filled = cells.filter((item) => item.cell?.recipeId).length;
+  const filled = cells.filter((item) => slotHasMeal(item.cell)).length;
   const kcal = cells.reduce((sum, item) => sum + (item.cell?.calories ?? 0), 0);
   return { visible: visibleKeys, cells, addable, removed, filled, kcal };
 }
 
-/** Meal boxes that already have a recipe assigned. */
+/** Meal boxes that already have a recipe or a typed title. */
 export function appliedPlanCells(cells: readonly PlanCellView[]): PlanCellView[] {
-  return cells.filter((item) => Boolean(item.cell?.recipeId));
+  return cells.filter((item) => slotHasMeal(item.cell));
 }
 
 /** Filled meals plus blank slots that already exist on the plan. */
@@ -134,7 +135,7 @@ export function familyAddMealSlotOptions(
         isHouseholdAudience(slot.audiencePersonIds) &&
         !slot.hidden,
     );
-    return !household?.recipeId;
+    return !slotHasMeal(household);
   });
   return orderedMealSlotKeys([...emptyVisible, ...addable]);
 }
@@ -463,6 +464,8 @@ export function PickMealSheet({
   activeSlots,
   onClose,
   onPicked,
+  onUseTitle,
+  onSaveManual,
 }: {
   visible: boolean;
   recipes: readonly Recipe[];
@@ -471,6 +474,8 @@ export function PickMealSheet({
   activeSlots: readonly MealSlotKey[];
   onClose: () => void;
   onPicked: (slot: MealSlotKey, recipe: Recipe) => void;
+  onUseTitle?: (slot: MealSlotKey, name: string) => void | Promise<void>;
+  onSaveManual?: (slot: MealSlotKey, draft: Omit<Recipe, 'id' | 'householdId'>) => Promise<void>;
 }) {
   const [slot, setSlot] = useState<MealSlotKey | null>(null);
   const [filters, setFilters] = useState<SwapRecipeFilters>({});
@@ -510,6 +515,9 @@ export function PickMealSheet({
           filters={filters}
           viewing={viewing}
           showRandom={false}
+          manualSlot={onUseTitle && onSaveManual ? slot : undefined}
+          onUseTitle={onUseTitle ? (name) => onUseTitle(slot, name) : undefined}
+          onSaveManual={onSaveManual ? (draft) => onSaveManual(slot, draft) : undefined}
           onChangeFilters={setFilters}
           onView={setViewing}
           onPick={(recipe) => onPicked(slot, recipe)}

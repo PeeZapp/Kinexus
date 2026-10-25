@@ -4,14 +4,11 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { type MealSlotKey, type Recipe } from '@kinexus/domain';
 
 import { recipeHref } from '@/src/features/meals/recipe-href';
-import { ImportDesktop } from '@/src/features/meals/recipes/ImportDesktop';
-import { ImportMobile } from '@/src/features/meals/recipes/ImportMobile';
-import type { ImportFormState } from '@/src/features/meals/recipes/ImportShared';
+import { ImportView, type ImportFormState } from '@/src/features/meals/recipes/ImportShared';
 import { LINK_ONLY_NOTE } from '@/src/features/meals/recipes/link-recipe';
 import { applyNutrition, draftFromForm, EMPTY_RECIPE_FORM, ingredientRowsFrom, methodRowsFrom, patchRecipeForm } from '@/src/features/meals/recipes/recipe-form';
 import { resolveRecipeNutrition } from '@/src/features/meals/recipes/resolve-nutrition';
 import { useMealsSync } from '@/src/features/meals/use-meals-sync';
-import { useExperienceMode } from '@/src/lib/experience-mode';
 import {
   extractRecipeFromText,
   generateRecipeFromName,
@@ -34,7 +31,6 @@ const SLOT_KEYS = new Set<string>([
 
 export function ImportRecipeScreen() {
   const router = useRouter();
-  const { mode } = useExperienceMode();
   const meals = useMealsSync();
   const params = useLocalSearchParams<{ url?: string | string[]; fallback?: string | string[] }>();
   const openedFallback = useRef(false);
@@ -217,7 +213,6 @@ export function ImportRecipeScreen() {
   }
 
   const props = {
-    desktop: mode === 'desktop',
     online: meals.online,
     apiReady: isMealsApiConfigured(),
     tab,
@@ -239,5 +234,5 @@ export function ImportRecipeScreen() {
     onSave,
   };
 
-  return mode === 'desktop' ? <ImportDesktop {...props} /> : <ImportMobile {...props} />;
+  return <ImportView {...props} />;
 }

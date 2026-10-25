@@ -71,6 +71,7 @@ export {
   isHouseholdAudience,
   mealSlotRecordKey,
   normalizeAudiencePersonIds,
+  slotHasMeal,
   slotMatchesPersonFilter,
   slotMatchesPlanPersonFilter,
   addableMealSlotKeys,

@@ -1,6 +1,6 @@
 import { deduplicateIngredients, prefersMetricCountry } from './amounts';
 import { scaleRecipeToServings } from './scale-servings';
-import { shoppingMergeKey } from './ingredient-merge';
+import { shoppingMergeKey, splitShoppingIngredientName } from './ingredient-merge';
 import { linkedRecipeForIngredient } from './recipe-class';
 import { recipeForHouseholdView } from './recipe-versions';
 import {
@@ -261,6 +261,11 @@ export function shoppingFromPlan(input: ShoppingFromPlanInput): DerivedShoppingI
     ownerId: string,
     madeFrom?: ShoppingRecipeSource,
   ) {
+    const names = splitShoppingIngredientName(ing.name);
+    if (names.length > 1) {
+      for (const name of names) pushIngredient({ ...ing, name }, source, ownerId, madeFrom);
+      return;
+    }
     const linked = linkedRecipeForIngredient(ing.name, recipes, {
       explicitId: ing.baseRecipeId,
       excludeIds: [ownerId],
@@ -318,7 +323,7 @@ export function shoppingFromPlan(input: ShoppingFromPlanInput): DerivedShoppingI
 
   const deduped = deduplicateIngredients(
     raw.map(({ name, amount, category }) => ({ name, amount, category })),
-    { preferMetric },
+    { preferMetric, country: input.country },
   );
 
   const linkedByKey = new Map<string, Pick<RawShopLine, 'linkedRecipeId' | 'linkedRecipeName' | 'linkedRecipeClass'>>();

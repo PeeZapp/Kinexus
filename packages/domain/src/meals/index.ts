@@ -62,6 +62,7 @@ export {
   isHouseholdAudience,
   mealSlotRecordKey,
   normalizeAudiencePersonIds,
+  slotHasMeal,
   slotMatchesPersonFilter,
   slotMatchesPlanPersonFilter,
 } from './types';

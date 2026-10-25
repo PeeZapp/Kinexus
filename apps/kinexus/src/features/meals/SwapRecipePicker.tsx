@@ -4,13 +4,16 @@ import {
   filterRecipesForSwap,
   PROTEIN_KINDS,
   proteinKindsInRecipes,
+  recipeNameKey,
   sortRecipesByNutrition,
+  type MealSlotKey,
   type Recipe,
   type RecipeProteinKind,
   type SwapRecipeFilters,
 } from '@kinexus/domain';
 
 import { Chip } from '@/src/features/meals/meals-kit';
+import { ManualMealEntry } from '@/src/features/meals/plan/ManualMealEntry';
 import { RecipePeek } from '@/src/features/meals/RecipePeek';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
 import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/FilterMenu';
@@ -29,6 +32,9 @@ export function SwapRecipePicker({
   onView,
   onPick,
   onRandom,
+  manualSlot,
+  onUseTitle,
+  onSaveManual,
 }: {
   recipes: Recipe[];
   currentId?: string | null;
@@ -42,6 +48,9 @@ export function SwapRecipePicker({
   onView: (recipe: Recipe | null) => void;
   onPick: (recipe: Recipe) => void;
   onRandom: () => void;
+  manualSlot?: MealSlotKey | null;
+  onUseTitle?: (name: string) => void | Promise<void>;
+  onSaveManual?: (draft: Omit<Recipe, 'id' | 'householdId'>) => Promise<void>;
 }) {
   const { openMenu, toggleMenu, pick } = useFilterMenus();
   const kinds = proteinKindsInRecipes(recipes);
@@ -51,6 +60,10 @@ export function SwapRecipePicker({
     protein: current?.protein || target?.protein || null,
   };
   const list = sortRecipesByNutrition(filterRecipesForSwap(recipes, filters), reference);
+  const query = (filters.query ?? '').trim();
+  const typedKey = recipeNameKey(query);
+  const exactMatch = Boolean(typedKey) && recipes.some((recipe) => recipeNameKey(recipe.name) === typedKey);
+  const showManual = Boolean(manualSlot && query && !exactMatch && onUseTitle && onSaveManual);
 
   if (viewing) {
     return (
@@ -70,12 +83,21 @@ export function SwapRecipePicker({
       <TextInput
         value={filters.query ?? ''}
         onChangeText={(query) => onChangeFilters({ ...filters, query })}
-        placeholder="Search name, cuisine, or protein"
+        placeholder={onUseTitle ? 'Search or type a meal' : 'Search name, cuisine, or protein'}
         placeholderTextColor={colors.textDim}
         style={styles.search}
-        autoCapitalize="none"
+        autoCapitalize={onUseTitle ? 'sentences' : 'none'}
         autoCorrect={false}
       />
+      {showManual && manualSlot && onUseTitle && onSaveManual ? (
+        <ManualMealEntry
+          key={typedKey}
+          name={query}
+          slot={manualSlot}
+          onUseTitle={onUseTitle}
+          onSave={onSaveManual}
+        />
+      ) : null}
       {hasVegetarian || kinds.length > 1 || showRandom ? (
         <FilterBar>
           {hasVegetarian ? (
@@ -117,12 +139,14 @@ export function SwapRecipePicker({
           {showRandom ? <Chip label="Random similar" onPress={onRandom} /> : null}
         </FilterBar>
       ) : null}
-      <Text style={styles.count}>
-        {list.length} recipe{list.length === 1 ? '' : 's'} for this slot
-        {reference.calories ? ' · closest nutrition first' : ''}
-      </Text>
+      {list.length === 0 && showManual ? null : (
+        <Text style={styles.count}>
+          {list.length} recipe{list.length === 1 ? '' : 's'} for this slot
+          {reference.calories ? ' · closest nutrition first' : ''}
+        </Text>
+      )}
       {list.length === 0 ? (
-        <Text style={styles.hint}>No matching recipes. Clear a filter or search a different name.</Text>
+        showManual ? null : <Text style={styles.hint}>No matching recipes. Clear a filter or search a different name.</Text>
       ) : (
         list.map((recipe) => (
           <View key={recipe.id} style={styles.row}>

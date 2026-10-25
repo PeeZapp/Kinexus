@@ -5,6 +5,7 @@ import {
   isHouseholdAudience,
   mealSlotRecordKey,
   normalizeAudiencePersonIds,
+  slotHasMeal,
   slotMatchesPersonFilter,
   slotMatchesPlanPersonFilter,
 } from './types';
@@ -58,6 +59,16 @@ describe('slotMatchesPlanPersonFilter', () => {
     expect(slotMatchesPlanPersonFilter({ audiencePersonIds: [] }, 'p1')).toBe(true);
     expect(slotMatchesPlanPersonFilter({ audiencePersonIds: ['p1'] }, 'p1')).toBe(true);
     expect(slotMatchesPlanPersonFilter({ audiencePersonIds: ['p2'] }, 'p1')).toBe(false);
+  });
+});
+
+describe('slotHasMeal', () => {
+  it('counts a recipe or a typed title', () => {
+    expect(slotHasMeal(null)).toBe(false);
+    expect(slotHasMeal({})).toBe(false);
+    expect(slotHasMeal({ recipeName: '   ' })).toBe(false);
+    expect(slotHasMeal({ recipeName: 'Leftovers' })).toBe(true);
+    expect(slotHasMeal({ recipeId: 'r1' })).toBe(true);
   });
 });
 

@@ -20,6 +20,7 @@ export const rpc = {
   ensureNutritionGoals: 'ensure_household_nutrition_goals',
   ensureFinanceBudget: 'ensure_finance_budget',
   claimCatalogEditor: 'claim_catalog_editor',
+  ensureCatalogOwnerAccess: 'ensure_catalog_owner_access',
   reviewCatalogImage: 'review_catalog_image',
   reviewCatalogRecipe: 'review_catalog_recipe',
   claimPlatformStaff: 'claim_platform_staff',

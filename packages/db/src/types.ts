@@ -2385,6 +2385,10 @@ export type Database = {
         Args: Record<string, never>;
         Returns: boolean;
       };
+      ensure_catalog_owner_access: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
       review_catalog_image: {
         Args: { p_recipe_id: string; p_action: string; p_image_url?: string | null };
         Returns: undefined;

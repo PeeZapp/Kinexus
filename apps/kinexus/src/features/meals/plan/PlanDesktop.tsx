@@ -1,6 +1,6 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { DAYS, DAY_LABELS, mondayWeekStart, recipeForHouseholdView, type Day, type MealSlotKey } from '@kinexus/domain';
+import { DAYS, DAY_LABELS, mondayWeekStart, recipeForHouseholdView, slotHasMeal, type Day, type MealSlotKey } from '@kinexus/domain';
 
 import { Btn, ErrorText } from '@/src/features/household/ui';
 import { Chip, OfflineBanner } from '@/src/features/meals/meals-kit';
@@ -144,7 +144,7 @@ export function PlanDesktop({
           )
         ) : null}
       </View>
-      {removed ? null : (
+      {!removed || canManage ? (
         <View style={styles.grid}>
           {applied.map((view) => (
             <View key={view.key} style={styles.tile}>
@@ -168,7 +168,7 @@ export function PlanDesktop({
             </View>
           ) : null}
         </View>
-      )}
+      ) : null}
     </ScrollView>
   );
 }
@@ -197,6 +197,7 @@ function MealCardFromView({
   canEditCell: (cell: PlanSlot) => boolean;
 }) {
   const cell = view.cell;
+  const hasMeal = slotHasMeal(cell);
   const hasRecipe = Boolean(cell?.recipeId);
   const assignee = cell?.assignedPersonId ? personNames.get(cell.assignedPersonId) : null;
   const who = audienceLabel(cell?.audiencePersonIds, personNames);
@@ -213,9 +214,9 @@ function MealCardFromView({
       photoUrl={recipePhotoUrl(meals.recipes, cell?.recipeId)}
       emoji={cell?.emoji}
       blank={!hasRecipe}
-      title={hasRecipe ? (cell?.recipeName ?? 'Meal') : ''}
+      title={hasMeal ? (cell?.recipeName ?? 'Meal') : ''}
       meta={
-        hasRecipe
+        hasMeal
           ? planMealCardMeta({
               assignee: !canManage && assignee ? assignee : null,
               calories: cell?.calories,
@@ -233,7 +234,7 @@ function MealCardFromView({
       onAddSide={cell && cell.id && hasRecipe && canEditCell(cell) ? () => onAddSide(cell) : undefined}
       sides={sides}
       footer={
-        canManage && cell && !hasRecipe ? (
+        canManage && cell && !hasMeal ? (
           <WhoPicksMenu
             people={people}
             assignedPersonId={cell.assignedPersonId}

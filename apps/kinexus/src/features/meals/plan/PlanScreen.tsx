@@ -7,6 +7,7 @@ import {
   CORE_SLOTS,
   isHouseholdAudience,
   mondayWeekStart,
+  slotHasMeal,
   normalizeAudiencePersonIds,
   pickRandomSwapRecipe,
   recipeForHouseholdView,
@@ -63,7 +64,7 @@ export function PlanScreen() {
   const [sheetCellId, setSheetCellId] = useState<string | null>(null);
   const [allocateOpen, setAllocateOpen] = useState(false);
   const [pickOpen, setPickOpen] = useState(false);
-  const [pendingPick, setPendingPick] = useState<{ slot: MealSlotKey; recipe: Recipe } | null>(null);
+  const [pendingPick, setPendingPick] = useState<{ slot: MealSlotKey; recipe?: Recipe; title?: string } | null>(null);
   const [placeError, setPlaceError] = useState<string | null>(null);
   const [placeBusy, setPlaceBusy] = useState(false);
   const [sideCellId, setSideCellId] = useState<string | null>(null);
@@ -134,11 +135,17 @@ export function PlanScreen() {
         item.slotKey === slot &&
         isHouseholdAudience(item.audiencePersonIds) &&
         !item.hidden &&
-        Boolean(item.recipeId),
+        slotHasMeal(item),
     );
   }
 
-  async function placeMeal(slot: MealSlotKey, audiencePersonIds: string[], personId: string | null, recipe?: Recipe) {
+  async function placeMeal(
+    slot: MealSlotKey,
+    audiencePersonIds: string[],
+    personId: string | null,
+    recipe?: Recipe,
+    title?: string,
+  ) {
     if (!canAssign) return;
     const day = selectedDay;
     setPlaceBusy(true);
@@ -150,13 +157,15 @@ export function PlanScreen() {
           await meals.addSlotToDay(day, slot);
         }
         if (recipe) await meals.assignSlot(day, slot, recipe, { audiencePersonIds: [] });
-        if (!recipe || personId) await meals.allocateSlot(day, slot, personId, { audiencePersonIds: [] });
+        else if (title?.trim()) await meals.assignNamedMeal(day, slot, title, { audiencePersonIds: [] });
+        if ((!recipe && !title?.trim()) || personId) await meals.allocateSlot(day, slot, personId, { audiencePersonIds: [] });
         return;
       }
       const created = await meals.createAudienceSlot(day, slot, audience);
       const opts = { slotId: created?.id, audiencePersonIds: audience };
       if (recipe) await meals.assignSlot(day, slot, recipe, opts);
-      if (!recipe || personId) await meals.allocateSlot(day, slot, personId, opts);
+      else if (title?.trim()) await meals.assignNamedMeal(day, slot, title, opts);
+      if ((!recipe && !title?.trim()) || personId) await meals.allocateSlot(day, slot, personId, opts);
     } catch (err) {
       const message = messageFromUnknown(err, 'Could not save that meal');
       setPlaceError(message);
@@ -181,6 +190,20 @@ export function PlanScreen() {
     rememberSwap(sheetDay, sheetSlot, recipe.id, sheetSlotRow?.id);
     await meals.assignSlot(sheetDay, sheetSlot, recipe, slotOpts);
     closeSlotSheet();
+  }
+
+  async function assignTitle(name: string) {
+    if (!sheetDay || !sheetSlot || !sheetCanEdit) return;
+    await meals.assignNamedMeal(sheetDay, sheetSlot, name, slotOpts);
+    closeSlotSheet();
+  }
+
+  async function saveManualRecipe(draft: Omit<Recipe, 'id' | 'householdId'>) {
+    const saved = await meals.saveHouseholdRecipe({
+      ...draft,
+      mealSlots: draft.mealSlots?.length ? draft.mealSlots : sheetSlot ? [sheetSlot] : draft.mealSlots,
+    });
+    await assign(saved);
   }
 
   async function shuffle(): Promise<Recipe | null> {
@@ -257,6 +280,8 @@ export function PlanScreen() {
             }
           : undefined
       }
+      onUseTitle={(name) => assignTitle(name)}
+      onSaveManual={saveManualRecipe}
     />
   );
 
@@ -425,10 +450,24 @@ export function PlanScreen() {
           setPlaceError(null);
           setPendingPick({ slot, recipe });
         }}
+        onUseTitle={(slot, name) => {
+          setPickOpen(false);
+          setPlaceError(null);
+          setPendingPick({ slot, title: name });
+        }}
+        onSaveManual={async (slot, draft) => {
+          const saved = await meals.saveHouseholdRecipe({
+            ...draft,
+            mealSlots: draft.mealSlots?.length ? draft.mealSlots : [slot],
+          });
+          setPickOpen(false);
+          setPlaceError(null);
+          setPendingPick({ slot, recipe: saved });
+        }}
       />
       <EatForSheet
         visible={pendingPick !== null}
-        recipeName={pendingPick?.recipe.name ?? ''}
+        recipeName={pendingPick?.recipe?.name ?? pendingPick?.title ?? ''}
         people={peopleOptions}
         familyBlocked={pendingPick ? familySlotFilled(pendingPick.slot) : false}
         error={pendingPick ? placeError : null}
@@ -439,7 +478,7 @@ export function PlanScreen() {
         }}
         onConfirm={async (audience) => {
           if (!pendingPick) return;
-          await placeMeal(pendingPick.slot, audience, null, pendingPick.recipe);
+          await placeMeal(pendingPick.slot, audience, null, pendingPick.recipe, pendingPick.title);
           setPendingPick(null);
         }}
       />

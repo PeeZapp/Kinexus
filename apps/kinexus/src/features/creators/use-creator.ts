@@ -61,6 +61,8 @@ export function useCreator() {
     queryKey: ['creators', 'me', userId],
     enabled,
     queryFn: async () => {
+      const { error: grantError } = await supabase!.rpc(rpc.ensureCatalogOwnerAccess);
+      if (grantError && grantError.code !== 'PGRST202') throw grantError;
       const { data, error } = await supabase!
         .from('creators')
         .select('*')

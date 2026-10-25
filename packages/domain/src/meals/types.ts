@@ -250,6 +250,14 @@ export function slotMatchesPlanPersonFilter(
   return slotMatchesPersonFilter(slot, personFilter);
 }
 
+/** A plan cell is filled by a catalogue recipe or by a title typed for that day. */
+export function slotHasMeal(
+  slot: { recipeId?: string | null; recipeName?: string | null } | null | undefined,
+): boolean {
+  if (!slot) return false;
+  return Boolean(slot.recipeId) || Boolean(slot.recipeName?.trim());
+}
+
 /**
  * True when this audience conflicts with another non-hidden meal for the same day+slot.
  * Family and personal meals can share a day+slot; only overlapping people conflict.

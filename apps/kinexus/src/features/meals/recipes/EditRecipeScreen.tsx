@@ -151,7 +151,7 @@ export function EditRecipeScreen() {
           You already have a household version of this recipe. Overwrite updates that copy.
         </Text>
       ) : null}
-      <ImportFieldsCard desktop={desktop} form={form} setForm={setForm} />
+      <ImportFieldsCard form={form} setForm={setForm} />
       <ErrorText message={error ?? detailQuery.error?.message ?? null} />
       <Text style={styles.hint}>{overwriteHint}</Text>
       <Text style={styles.hint}>

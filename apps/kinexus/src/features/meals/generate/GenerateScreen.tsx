@@ -44,7 +44,7 @@ import type { GenerateMode } from '@/src/features/meals/generate/controls';
 import { GenerateDesktop } from '@/src/features/meals/generate/GenerateDesktop';
 import { GenerateMobile } from '@/src/features/meals/generate/GenerateMobile';
 import { Sheet } from '@/src/features/meals/meals-kit';
-import { SideDishPicker } from '@/src/features/meals/plan/SideDishPicker';
+import { AttachedSideDishes, SideDishPicker, SideDishRemove } from '@/src/features/meals/plan/SideDishPicker';
 import { canManageMealPlan } from '@/src/features/meals/picker-access';
 import { recipeEditHref } from '@/src/features/meals/recipe-href';
 import { RecipePeek } from '@/src/features/meals/RecipePeek';
@@ -89,7 +89,7 @@ export function GenerateScreen() {
   const [sideFor, setSideFor] = useState<{ day: Day; slot: MealSlotKey } | null>(null);
   const [swapFilters, setSwapFilters] = useState<SwapRecipeFilters>(EMPTY_FILTERS);
   const [swapViewing, setSwapViewing] = useState<Recipe | null>(null);
-  const [peek, setPeek] = useState<{ day: Day; slot: MealSlotKey; recipe: Recipe } | null>(null);
+  const [peek, setPeek] = useState<{ day: Day; slot: MealSlotKey; recipe: Recipe; side?: boolean } | null>(null);
   const [applying, setApplying] = useState(false);
   const [hidingFamily, setHidingFamily] = useState(false);
   const [peekNote, setPeekNote] = useState<string | null>(null);
@@ -396,6 +396,43 @@ export function GenerateScreen() {
     refreshPrepSummary(next);
   }
 
+  function mealAt(day: Day, slot: MealSlotKey): GeneratedSlot | null {
+    return preview?.find((row) => row.day === day && row.slot === slot) ?? null;
+  }
+
+  function openSide(day: Day, slot: MealSlotKey, id: string) {
+    const row = mealAt(day, slot);
+    const recipe = row?.sides?.find((side) => side.id === id) ?? meals.recipes.find((item) => item.id === id);
+    if (!recipe) return;
+    setSwapFor(null);
+    setSideFor(null);
+    setPeekNote(null);
+    setPeek({ day, slot, recipe, side: true });
+  }
+
+  function removeSide(day: Day, slot: MealSlotKey, id: string) {
+    const row = mealAt(day, slot);
+    if (!row) return;
+    previewSides(
+      day,
+      slot,
+      (row.sides ?? []).filter((side) => side.id !== id),
+    );
+    setPeek((current) => {
+      if (!current?.side || current.recipe.id !== id || current.day !== day || current.slot !== slot) return current;
+      return { day, slot, recipe: row.recipe };
+    });
+  }
+
+  function editRecipe(id: string) {
+    setPeek(null);
+    setSideFor(null);
+    setSwapFor(null);
+    setTimeout(() => {
+      router.push(recipeEditHref(id));
+    }, 0);
+  }
+
   function applySwap(recipe: Recipe, at: { day: Day; slot: MealSlotKey }) {
     const target = slotTarget(at.slot, selectedArray, goals);
     remember(at.day, at.slot, recipe.id);
@@ -406,7 +443,9 @@ export function GenerateScreen() {
     );
     setPreview(next);
     refreshPrepSummary(next);
-    setPeek((current) => (current && current.day === at.day && current.slot === at.slot ? { ...current, recipe } : current));
+    setPeek((current) =>
+      current && !current.side && current.day === at.day && current.slot === at.slot ? { ...current, recipe } : current,
+    );
   }
 
   function affordableForSlot(recipes: Recipe[], slot: MealSlotKey): Recipe[] {
@@ -611,7 +650,11 @@ export function GenerateScreen() {
       setPeekNote(null);
       setPeek({ day, slot, recipe });
     },
+    onOpenSide: (id: string, day: Day, slot: MealSlotKey) => openSide(day, slot, id),
+    onRemoveSide: (id: string, day: Day, slot: MealSlotKey) => removeSide(day, slot, id),
   };
+
+  const peekMeal = peek ? mealAt(peek.day, peek.slot) : null;
 
   if (!canManageMealPlan(role)) {
     return <Redirect href="/meals" />;
@@ -626,18 +669,14 @@ export function GenerateScreen() {
             recipes={meals.recipes}
             selectedIds={(sideRow.sides ?? []).map((side) => side.id)}
             excludeIds={[sideRow.recipe.id]}
+            viewServings={targetServings}
             onAdd={(recipe) => {
               const current = sideRow.sides ?? [];
               if (current.some((side) => side.id === recipe.id)) return;
               previewSides(sideRow.day, sideRow.slot, [...current, recipe]);
             }}
-            onRemove={(id) =>
-              previewSides(
-                sideRow.day,
-                sideRow.slot,
-                (sideRow.sides ?? []).filter((side) => side.id !== id),
-              )
-            }
+            onRemove={(id) => removeSide(sideRow.day, sideRow.slot, id)}
+            onEdit={(recipe) => editRecipe(recipe.id)}
           />
         ) : null}
       </Sheet>
@@ -664,40 +703,74 @@ export function GenerateScreen() {
           />
         ) : null}
       </Sheet>
-      <Sheet
-        visible={peek !== null}
-        title="Recipe"
-        onClose={() => setPeek(null)}>
+      <Sheet visible={peek !== null} title={peek?.side ? 'Side dish' : 'Recipe'} onClose={() => setPeek(null)}>
         {peek ? (
           <RecipePeek
             recipe={peek.recipe}
             viewServings={targetServings}
-            target={slotTarget(peek.slot, selectedArray, goals)}
+            target={peek.side ? null : slotTarget(peek.slot, selectedArray, goals)}
             useLabel="Accept"
-            onEdit={() => {
-              const id = peek.recipe.id;
-              setPeek(null);
-              setTimeout(() => {
-                router.push(recipeEditHref(id));
-              }, 0);
-            }}
-            onUse={() => setPeek(null)}
-            onSwap={() => {
-              setPeekNote(null);
-              const at = { day: peek.day, slot: peek.slot };
-              setPeek(null);
-              setSwapFilters(EMPTY_FILTERS);
-              setSwapViewing(null);
-              setSwapFor(at);
-            }}
-            onRandom={() => {
-              setPeekNote(null);
-              const picked = randomAt(peek.day, peek.slot);
-              if (picked) setPeek({ ...peek, recipe: picked });
-            }}
-            onNotForFamily={() => void markNotForFamily({ day: peek.day, slot: peek.slot }, peek.recipe)}
+            onEdit={() => editRecipe(peek.recipe.id)}
+            onUse={peek.side ? undefined : () => setPeek(null)}
+            onBack={
+              peek.side
+                ? () => {
+                    const meal = peekMeal?.recipe;
+                    if (meal) setPeek({ day: peek.day, slot: peek.slot, recipe: meal });
+                    else setPeek(null);
+                  }
+                : undefined
+            }
+            onSwap={
+              peek.side
+                ? undefined
+                : () => {
+                    setPeekNote(null);
+                    const at = { day: peek.day, slot: peek.slot };
+                    setPeek(null);
+                    setSwapFilters(EMPTY_FILTERS);
+                    setSwapViewing(null);
+                    setSwapFor(at);
+                  }
+            }
+            onRandom={
+              peek.side
+                ? undefined
+                : () => {
+                    setPeekNote(null);
+                    const picked = randomAt(peek.day, peek.slot);
+                    if (picked) setPeek({ day: peek.day, slot: peek.slot, recipe: picked });
+                  }
+            }
+            onNotForFamily={
+              peek.side ? undefined : () => void markNotForFamily({ day: peek.day, slot: peek.slot }, peek.recipe)
+            }
             notForFamilyBusy={hidingFamily}
-            note={peekNote}
+            note={peek.side ? null : peekNote}
+            afterIdentity={
+              peek.side ? undefined : (
+                <AttachedSideDishes
+                  sides={peekMeal?.sides ?? []}
+                  onOpen={(id) => openSide(peek.day, peek.slot, id)}
+                  onEdit={editRecipe}
+                  onRemove={(id) => removeSide(peek.day, peek.slot, id)}
+                  onAdd={() => {
+                    const at = { day: peek.day, slot: peek.slot };
+                    setPeek(null);
+                    setSwapFor(null);
+                    setSideFor(at);
+                  }}
+                />
+              )
+            }
+            belowActions={
+              peek.side ? (
+                <SideDishRemove
+                  name={peek.recipe.name}
+                  onPress={() => removeSide(peek.day, peek.slot, peek.recipe.id)}
+                />
+              ) : undefined
+            }
           />
         ) : null}
       </Sheet>

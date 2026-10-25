@@ -14,6 +14,7 @@ import {
 } from '@kinexus/domain';
 
 import { Sheet } from '@/src/features/meals/meals-kit';
+import { ManualMealEntry } from '@/src/features/meals/plan/ManualMealEntry';
 import { SideDishPicker } from '@/src/features/meals/plan/SideDishPicker';
 import { audienceLabel } from '@/src/features/meals/plan/PlanShared';
 import { RecipePeek } from '@/src/features/meals/RecipePeek';
@@ -43,6 +44,8 @@ type Props = {
   onOpenRecipe: (id: string, serves?: number) => void;
   onEditRecipe: (id: string) => void;
   onSetSides?: (sideRecipeIds: string[]) => void;
+  onUseTitle: (name: string) => void | Promise<void>;
+  onSaveManual: (draft: Omit<Recipe, 'id' | 'householdId'>) => Promise<void>;
 };
 
 const EMPTY_FILTERS: SwapRecipeFilters = {};
@@ -67,6 +70,8 @@ export function SlotSheet({
   onOpenRecipe,
   onEditRecipe,
   onSetSides,
+  onUseTitle,
+  onSaveManual,
 }: Props) {
   const { mode } = useExperienceMode();
   const desktop = mode === 'desktop';
@@ -92,8 +97,10 @@ export function SlotSheet({
     const side = recipeForHouseholdView(recipes, id);
     return side ? [side] : [];
   });
+  const titleOnly = Boolean(slot?.recipeName?.trim()) && !slot?.recipeId && !currentRecipe;
+  const allowManual = canEdit && approvedIds == null;
   const showRecipe = Boolean(currentRecipe) && !picking && !viewing && !pickingSide;
-  const showPicker = canEdit && (picking || !currentRecipe);
+  const showPicker = canEdit && (picking || (!currentRecipe && !titleOnly));
   const removeLabel = householdMeal ? 'Remove from day' : 'Remove meal';
 
   useEffect(() => {
@@ -240,6 +247,27 @@ export function SlotSheet({
             {canAssign ? <ActionBtn label="Clear" onPress={onClear} /> : null}
           </View>
         </View>
+      ) : titleOnly && slot && !picking ? (
+        <View style={styles.currentBlock}>
+          {allowManual && slotKey ? (
+            <ManualMealEntry
+              name={slot.recipeName ?? ''}
+              slot={slotKey}
+              allowTitle={false}
+              onUseTitle={onUseTitle}
+              onSave={onSaveManual}
+            />
+          ) : (
+            <Text style={styles.name}>{slot.recipeName}</Text>
+          )}
+          {planActionCount > 0 ? (
+            <View style={styles.actions}>
+              {canEdit ? <ActionBtn label="Swap" onPress={() => setPicking(true)} /> : null}
+              {canEdit ? <ActionBtn label="Random" onPress={() => void Promise.resolve(onShuffle())} /> : null}
+              {canAssign ? <ActionBtn label="Clear" onPress={onClear} /> : null}
+            </View>
+          ) : null}
+        </View>
       ) : (
         hint ? <Text style={styles.hint}>{hint}</Text> : null
       )}
@@ -264,6 +292,9 @@ export function SlotSheet({
       {showPicker ? (
         <SwapRecipePicker
           recipes={pool}
+          manualSlot={allowManual ? slotKey : undefined}
+          onUseTitle={allowManual ? onUseTitle : undefined}
+          onSaveManual={allowManual ? onSaveManual : undefined}
           currentId={slot?.recipeId}
           current={currentRecipe}
           target={target}

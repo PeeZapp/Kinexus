@@ -38,6 +38,27 @@ describe('combineAmounts', () => {
     );
     expect(combineAmounts(['½'], { ingredientName: 'iceberg lettuce' })).toBe('0.5 iceberg lettuce');
   });
+
+  it('turns cups and tablespoons into millilitres, including several measures on one line', () => {
+    expect(combineAmounts(['1/4 cup'])).toBe('60ml');
+    expect(combineAmounts(['3 tbsp'])).toBe('45ml');
+    expect(combineAmounts(['3 tblsp'])).toBe('45ml');
+    expect(combineAmounts(['1/4 cup, 3 tblsp'])).toBe('105ml');
+    expect(combineAmounts(['1 tbsp', '2 tbsp'])).toBe('45ml');
+    expect(combineAmounts(['1/2 cup', '1 tsp'])).toBe('125ml');
+  });
+
+  it('uses Australian cup and tablespoon sizes when the household is in Australia', () => {
+    expect(combineAmounts(['1 tbsp'], { country: 'AU' })).toBe('20ml');
+    expect(combineAmounts(['1/4 cup'], { country: 'AU' })).toBe('60ml');
+    expect(combineAmounts(['1 cup, 2 tbsp'], { country: 'AU' })).toBe('290ml');
+  });
+
+  it('folds imperial weights into grams', () => {
+    expect(combineAmounts(['8 oz'])).toBe('227g');
+    expect(combineAmounts(['1 lb', '100g'])).toBe('554g');
+    expect(combineAmounts(['1500g'])).toBe('1.5kg');
+  });
 });
 
 describe('shoppingMergeKey', () => {
@@ -63,6 +84,36 @@ describe('shoppingMergeKey', () => {
     expect(shoppingMergeKey('red wine vinegar')).not.toBe(shoppingMergeKey('red wine'));
     expect(shoppingMergeKey('balsamic vinegar')).not.toBe(shoppingMergeKey('apple cider vinegar'));
     expect(shoppingMergeKey('dry white wine')).toBe(shoppingMergeKey('white wine'));
+  });
+
+  it('ignores a leading prep or size word when it is the same thing to buy', () => {
+    expect(shoppingMergeKey('large onion')).toBe(shoppingMergeKey('onion'));
+    expect(shoppingMergeKey('large eggs')).toBe(shoppingMergeKey('eggs'));
+    expect(shoppingMergeKey('fresh basil')).toBe(shoppingMergeKey('basil'));
+    expect(shoppingMergeKey('fresh cilantro')).toBe(shoppingMergeKey('coriander'));
+    expect(shoppingMergeKey('dried oregano')).toBe(shoppingMergeKey('oregano'));
+    expect(shoppingMergeKey('extra virgin olive oil')).toBe(shoppingMergeKey('olive oil'));
+    expect(shoppingMergeKey('boneless skinless chicken breast')).toBe(shoppingMergeKey('chicken breasts'));
+    expect(shoppingMergeKey('ground cumin')).toBe(shoppingMergeKey('cumin'));
+    expect(shoppingMergeKey('ripe avocado')).toBe(shoppingMergeKey('avocado'));
+    expect(shoppingMergeKey('all-purpose flour')).toBe(shoppingMergeKey('plain flour'));
+    expect(shoppingMergeKey('green onions')).toBe(shoppingMergeKey('spring onion'));
+    expect(shoppingMergeKey('scallions')).toBe(shoppingMergeKey('spring onion'));
+    expect(shoppingMergeKey('free-range eggs')).toBe(shoppingMergeKey('eggs'));
+    expect(shoppingMergeKey('rolled oats')).toBe(shoppingMergeKey('oats'));
+  });
+
+  it('keeps a real product difference in front of the same noun', () => {
+    expect(shoppingMergeKey('garlic powder')).not.toBe(shoppingMergeKey('garlic'));
+    expect(shoppingMergeKey('brown sugar')).not.toBe(shoppingMergeKey('sugar'));
+    expect(shoppingMergeKey('self-raising flour')).not.toBe(shoppingMergeKey('flour'));
+    expect(shoppingMergeKey('cherry tomatoes')).not.toBe(shoppingMergeKey('tomato'));
+    expect(shoppingMergeKey('dried apricots')).not.toBe(shoppingMergeKey('apricots'));
+    expect(shoppingMergeKey('ground coriander')).not.toBe(shoppingMergeKey('coriander'));
+    expect(shoppingMergeKey('ground ginger')).not.toBe(shoppingMergeKey('fresh ginger'));
+    expect(shoppingMergeKey('chicken breast')).not.toBe(shoppingMergeKey('chicken thigh'));
+    expect(shoppingMergeKey('smoked paprika')).not.toBe(shoppingMergeKey('paprika'));
+    expect(shoppingMergeKey('whole wheat flour')).not.toBe(shoppingMergeKey('flour'));
   });
 });
 
@@ -308,5 +359,46 @@ describe('shoppingFromPlan', () => {
       recipes: [lasagne],
     });
     expect(items.find((item) => item.name === 'Mince')?.amount).toBe('200g');
+  });
+
+  it('buys one line of the same ingredient and shows millilitres', () => {
+    const salad = recipe({
+      id: 'salad',
+      name: 'Salad',
+      mealSlots: ['dinner'],
+      ingredients: [
+        { name: 'fresh basil', amount: '1/4 cup' },
+        { name: 'extra virgin olive oil', amount: '1 tbsp' },
+        { name: 'large onion', amount: '1' },
+      ],
+    });
+    const pasta = recipe({
+      id: 'pasta-night',
+      name: 'Pasta night',
+      mealSlots: ['dinner'],
+      ingredients: [
+        { name: 'basil', amount: '3 tblsp' },
+        { name: 'olive oil', amount: '1/4 cup, 1 tsp' },
+        { name: 'onion', amount: '2 large' },
+      ],
+    });
+    const items = shoppingFromPlan({
+      plan: {
+        activeSlots: ['dinner'],
+        slots: [
+          { day: 'monday', slotKey: 'dinner', recipeId: 'salad' },
+          { day: 'tuesday', slotKey: 'dinner', recipeId: 'pasta-night' },
+        ],
+      },
+      recipes: [salad, pasta],
+      country: 'AU',
+    });
+    const basil = items.find((item) => shoppingMergeKey(item.name) === 'basil');
+    const oil = items.find((item) => shoppingMergeKey(item.name) === 'olive oil');
+    const onion = items.find((item) => shoppingMergeKey(item.name) === 'onion');
+    expect(items.filter((item) => shoppingMergeKey(item.name) === 'basil')).toHaveLength(1);
+    expect(basil?.amount).toBe('120ml');
+    expect(oil?.amount).toBe('85ml');
+    expect(onion?.amount).toBe('3 onions');
   });
 });

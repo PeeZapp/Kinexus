@@ -26,6 +26,7 @@ import {
   WeeklyBudgetField,
   type GenerateMode,
 } from '@/src/features/meals/generate/controls';
+import { GenerateMealFooter } from '@/src/features/meals/generate/GenerateMealFooter';
 import { WeekSwitcher, slotTitle } from '@/src/features/meals/plan/PlanShared';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
 import { isoDayNumber, todayDay, weekApplyLabel, weekDayIso } from '@/src/features/meals/week-labels';
@@ -80,6 +81,8 @@ export type GenerateViewProps = {
   applying: boolean;
   error: string | null;
   onOpenRecipe: (id: string, day: Day, slot: MealSlotKey) => void;
+  onOpenSide: (id: string, day: Day, slot: MealSlotKey) => void;
+  onRemoveSide: (id: string, day: Day, slot: MealSlotKey) => void;
   onAddSide: (day: Day, slot: MealSlotKey) => void;
 };
 
@@ -231,24 +234,16 @@ export function GenerateDesktop(props: GenerateViewProps) {
                                 {row.recipe.name}
                               </Text>
                               <Text style={styles.mealKcal}>{generatedMealFacts(row.recipe, props.serves) || ' '}</Text>
-                              {(row.sides?.length ?? 0) > 0 ? (
-                                <Text style={styles.mealKcal} numberOfLines={2}>
-                                  {row.sides?.map((side) => side.name).join(', ')}
-                                </Text>
-                              ) : null}
                             </View>
                           </Pressable>
-                          <View style={styles.cellActions}>
-                            <Pressable onPress={() => props.onAddSide(day, slot)} hitSlop={6}>
-                              <Text style={styles.swap}>Add side dish</Text>
-                            </Pressable>
-                            <Pressable onPress={() => props.onSwap(day, slot)} hitSlop={6}>
-                              <Text style={styles.swap}>Swap</Text>
-                            </Pressable>
-                            <Pressable onPress={() => props.onRandom(day, slot)} hitSlop={6}>
-                              <Text style={styles.swap}>Random</Text>
-                            </Pressable>
-                          </View>
+                          <GenerateMealFooter
+                            sides={row.sides ?? []}
+                            onOpenSide={(id) => props.onOpenSide(id, day, slot)}
+                            onRemoveSide={(id) => props.onRemoveSide(id, day, slot)}
+                            onAddSide={() => props.onAddSide(day, slot)}
+                            onSwap={() => props.onSwap(day, slot)}
+                            onRandom={() => props.onRandom(day, slot)}
+                          />
                         </>
                       ) : (
                         <View style={styles.mealBody}>
@@ -423,12 +418,4 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   mealKcal: { color: colors.textDim, fontSize: 11, lineHeight: 15, minHeight: 14 },
-  cellActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    paddingHorizontal: 8,
-    paddingBottom: 10,
-  },
-  swap: { color: colors.accent, fontSize: 11, fontWeight: '700' },
 });

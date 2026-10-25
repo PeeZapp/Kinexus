@@ -46,6 +46,10 @@ const UNIT_MAP: Record<string, string> = {
   tbsp: 'tbsp',
   tablespoon: 'tbsp',
   tablespoons: 'tbsp',
+  tblsp: 'tbsp',
+  tbls: 'tbsp',
+  tbs: 'tbsp',
+  tbsps: 'tbsp',
   cup: 'cup',
   cups: 'cup',
   clove: 'clove',
@@ -56,10 +60,29 @@ const WEIGHT_UNITS = new Set(['g', 'kg']);
 const VOLUME_UNITS = new Set(['ml', 'l', 'tsp', 'tbsp', 'cup']);
 const IMPERIAL_WEIGHT = new Set(['oz', 'lb']);
 
+export type VolumeStandards = {
+  tspMl: number;
+  tbspMl: number;
+  cupMl: number;
+};
+
+const DEFAULT_VOLUME: VolumeStandards = { tspMl: 5, tbspMl: 15, cupMl: 240 };
+
+/** Cup and tablespoon sizes. Australia and New Zealand use a 20ml tablespoon and a 250ml cup. */
+export function volumeStandardsForCountry(country?: string | null): VolumeStandards {
+  const code = (country ?? '').toUpperCase();
+  if (code === 'AU' || code === 'NZ') return { tspMl: 5, tbspMl: 20, cupMl: 250 };
+  if (code === 'US') return { tspMl: 5, tbspMl: 15, cupMl: 240 };
+  if (!code) return DEFAULT_VOLUME;
+  return { tspMl: 5, tbspMl: 15, cupMl: 250 };
+}
+
 export type CombineAmountsOptions = {
-  /** When true, prefer g/ml/kg/l over oz/lb where convertible. */
+  /** When true, prefer g/ml/kg/l over oz/lb and over cup/tbsp/tsp. */
   preferMetric?: boolean;
   ingredientName?: string;
+  /** Household country, used for cup and tablespoon millilitres. */
+  country?: string | null;
 };
 
 function normaliseUnit(raw: string): string {
@@ -81,12 +104,12 @@ function toWeightGrams(value: number, unit: string, ingredientName?: string): nu
   return null;
 }
 
-function toVolumeMl(value: number, unit: string): number | null {
+function toVolumeMl(value: number, unit: string, standards: VolumeStandards = DEFAULT_VOLUME): number | null {
   if (unit === 'ml') return value;
   if (unit === 'l') return value * 1000;
-  if (unit === 'tsp') return value * 5;
-  if (unit === 'tbsp') return value * 15;
-  if (unit === 'cup') return value * 240;
+  if (unit === 'tsp') return value * standards.tspMl;
+  if (unit === 'tbsp') return value * standards.tbspMl;
+  if (unit === 'cup') return value * standards.cupMl;
   return null;
 }
 
@@ -97,9 +120,15 @@ function formatBase(value: number, base: string): string {
       : `${Math.round(value)}g`;
   }
   if (base === 'ml') {
-    return value >= 1000
-      ? `${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1).replace(/\.0$/, '')}l`
-      : `${Math.round(value)}ml`;
+    if (value >= 1000) {
+      return `${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1).replace(/\.0$/, '')}l`;
+    }
+    // 62.5ml (a metric 1/4 cup) is shopped as 60ml, not 65ml.
+    const onHalfStep = value >= 30 && Math.abs(value / 5 - Math.floor(value / 5) - 0.5) < 0.001;
+    const rounded = value >= 30
+      ? (onHalfStep ? Math.floor(value / 5) : Math.round(value / 5)) * 5
+      : Math.max(value > 0 ? 1 : 0, Math.round(value));
+    return `${rounded}ml`;
   }
   return `${value}${base}`;
 }
@@ -180,30 +209,107 @@ function normalizeAmountString(raw: string): string {
   return str;
 }
 
-export function parseAmount(raw: string | undefined): ParsedAmount | null {
-  if (!raw || !raw.trim()) return null;
-  const str = normalizeAmountString(raw);
+function isKnownAmountUnit(raw: string): boolean {
+  const lower = raw.toLowerCase();
+  if (UNIT_MAP[lower]) return true;
+  if (COUNT_SIZE_UNITS.has(lower) || COUNT_PREP_UNITS.has(lower)) return true;
+  return (
+    lower === 'leaf' ||
+    lower === 'leaves' ||
+    lower === 'can' ||
+    lower === 'cans' ||
+    lower === 'tin' ||
+    lower === 'tins' ||
+    lower === 'slice' ||
+    lower === 'slices' ||
+    lower === 'sprig' ||
+    lower === 'sprigs' ||
+    lower === 'stick' ||
+    lower === 'sticks' ||
+    lower === 'fillet' ||
+    lower === 'fillets' ||
+    lower === 'rasher' ||
+    lower === 'rashers' ||
+    lower === 'stalk' ||
+    lower === 'stalks' ||
+    lower === 'pinch' ||
+    lower === 'pinches' ||
+    lower === 'handful' ||
+    lower === 'handfuls'
+  );
+}
 
-  const numberMatch = str.match(/(\d+\s*\/\s*\d+|\d*\.?\d+)/);
-  const token = numberMatch?.[1]?.replace(/\s+/g, '');
-  if (!numberMatch || !token) return null;
-
-  let value = 0;
-  if (token.includes('/')) {
-    const [num, den] = token.split('/');
-    const n = Number(num);
-    const d = Number(den);
-    if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) return null;
-    value = n / d;
-  } else {
-    value = Number(token);
+function numberValue(token: string): number | null {
+  const mixed = token.trim().match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/);
+  if (mixed) {
+    const whole = Number(mixed[1]);
+    const numerator = Number(mixed[2]);
+    const denominator = Number(mixed[3]);
+    if (!Number.isFinite(whole) || !Number.isFinite(numerator) || !denominator) return null;
+    return whole + numerator / denominator;
   }
-  if (!Number.isFinite(value)) return null;
+  const fraction = token.trim().match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (fraction) {
+    const numerator = Number(fraction[1]);
+    const denominator = Number(fraction[2]);
+    if (!Number.isFinite(numerator) || !denominator) return null;
+    return numerator / denominator;
+  }
+  const value = Number(token.trim());
+  return Number.isFinite(value) ? value : null;
+}
 
-  const tail = str.slice((numberMatch.index ?? 0) + numberMatch[0].length);
-  const unitTokenMatch = tail.match(/([a-zA-Z]+)/);
-  const unit = normaliseUnit(unitTokenMatch?.[1] ?? '');
-  return { value, unit, raw: str };
+const AMOUNT_NUMBER = String.raw`\d+\s+\d+\s*/\s*\d+|\d+\s*/\s*\d+|\d*\.?\d+`;
+
+/** Turn pack counts, ranges, and parenthetical equivalents into plain measures. */
+function prepareAmountString(raw: string): string {
+  let str = normalizeAmountString(raw);
+  str = str.replace(
+    new RegExp(`(${AMOUNT_NUMBER})\\s*(?:-|–|—|\\bto\\b)\\s*(${AMOUNT_NUMBER})`, 'g'),
+    (_, left: string, right: string) => String(Math.max(numberValue(left) ?? 0, numberValue(right) ?? 0)),
+  );
+  str = str.replace(
+    new RegExp(`(\\d*\\.?\\d+)\\s*[x×]\\s*(${AMOUNT_NUMBER})\\s*([a-z]+)?`, 'g'),
+    (_, count: string, amount: string, unit?: string) => {
+      const total = (numberValue(count) ?? 0) * (numberValue(amount) ?? 0);
+      return unit ? `${total} ${unit}` : String(total);
+    },
+  );
+  str = str.replace(
+    new RegExp(`(\\d*\\.?\\d+)\\s*\\(\\s*(${AMOUNT_NUMBER})\\s*([a-z]+)\\s*\\)`, 'g'),
+    (_, count: string, amount: string, unit: string) => {
+      const total = (numberValue(count) ?? 1) * (numberValue(amount) ?? 0);
+      return `${total} ${unit}`;
+    },
+  );
+  return str.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** Every measure in one amount string. "1/4 cup, 3 tblsp" is two parts, not just the cup. */
+export function parseAmountParts(raw: string | undefined): ParsedAmount[] {
+  if (!raw?.trim()) return [];
+  const str = prepareAmountString(raw);
+  const parts: ParsedAmount[] = [];
+  const re = new RegExp(AMOUNT_NUMBER, 'g');
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(str))) {
+    const token = match[1] ?? match[0];
+    const value = numberValue(token);
+    if (value == null) continue;
+    const after = str.slice(re.lastIndex);
+    const unitMatch = after.match(/^\s*([a-z]+)/);
+    let unit = '';
+    if (unitMatch?.[1] && isKnownAmountUnit(unitMatch[1])) {
+      unit = normaliseUnit(unitMatch[1]);
+      re.lastIndex += unitMatch[0].length;
+    }
+    parts.push({ value, unit, raw: str });
+  }
+  return parts;
+}
+
+export function parseAmount(raw: string | undefined): ParsedAmount | null {
+  return parseAmountParts(raw)[0] ?? null;
 }
 
 /** Convert a parsed amount into a shoppable count when the ingredient supports it. */
@@ -211,6 +317,7 @@ function toShoppingCount(
   parsed: ParsedAmount,
   ingredientName: string,
   def: ShoppingCountDef,
+  standards: VolumeStandards,
 ): number | null {
   const unit = parsed.unit;
   const key = shoppingMergeKey(ingredientName);
@@ -229,7 +336,6 @@ function toShoppingCount(
 
   if (unit === 'leaf' || unit === 'leaves') {
     if (def.label === 'leaf') return parsed.value;
-    // Leaves of lettuce ≠ whole heads — don't force into head counts
     return null;
   }
 
@@ -243,39 +349,46 @@ function toShoppingCount(
     return g / def.gramsPerUnit;
   }
 
+  const ml = toVolumeMl(parsed.value, unit, standards);
+  if (ml != null && def.gramsPerUnit) {
+    return (ml * 0.7) / def.gramsPerUnit;
+  }
+
   return null;
 }
 
 function tryCombineAsShoppingCount(
   amounts: (string | undefined)[],
   ingredientName: string,
+  standards: VolumeStandards,
 ): string | undefined {
   const def = shoppingCountDefFor(ingredientName);
   if (!def) return undefined;
 
-  const rawAmounts = amounts.filter((a): a is string => Boolean(a?.trim()));
+  const rawAmounts = amounts.filter((amount): amount is string => Boolean(amount?.trim()));
   if (rawAmounts.length === 0) return undefined;
 
   const counts: number[] = [];
   for (const raw of rawAmounts) {
-    const parsed = parseAmount(raw);
-    if (!parsed) return undefined;
-    const count = toShoppingCount(parsed, ingredientName, def);
-    if (count == null) return undefined;
-    counts.push(count);
+    const parts = parseAmountParts(raw);
+    if (parts.length === 0) continue;
+    for (const parsed of parts) {
+      const count = toShoppingCount(parsed, ingredientName, def, standards);
+      if (count == null) return undefined;
+      counts.push(count);
+    }
   }
 
-  const total = counts.reduce((s, n) => s + n, 0);
+  if (counts.length === 0) return undefined;
+  const total = counts.reduce((sum, count) => sum + count, 0);
   if (!(total > 0)) return undefined;
 
-  // Garlic: keep grams + approx cloves for the pantry/scale case
   if (def.label === 'clove' || shoppingMergeKey(ingredientName) === 'garlic') {
     return formatGarlicClovesAsGrams(total);
   }
 
-  // Round near-integers (e.g. 150g+150g onion → 2) but keep real halves
-  const rounded =
-    Math.abs(total - Math.round(total)) < 0.08 ? Math.round(total) : parseFloat(total.toFixed(2));
+  const nearestHalf = Math.round(total * 2) / 2;
+  const rounded = nearestHalf === 0 ? 0.5 : nearestHalf;
 
   return formatShoppingCountLabel(rounded, ingredientName, def.label);
 }
@@ -284,22 +397,26 @@ export function combineAmounts(
   amounts: (string | undefined)[],
   options: CombineAmountsOptions = {},
 ): string | undefined {
-  const { preferMetric = true, ingredientName } = options;
+  const { preferMetric = true, ingredientName, country } = options;
+  const standards = volumeStandardsForCountry(country);
 
   if (ingredientName) {
-    const asCount = tryCombineAsShoppingCount(amounts, ingredientName);
+    const asCount = tryCombineAsShoppingCount(amounts, ingredientName, standards);
     if (asCount) return asCount;
   }
 
-  const parsed = amounts.map(parseAmount).filter((p): p is ParsedAmount => p !== null);
+  const parsed = amounts.flatMap((amount) => parseAmountParts(amount));
+  if (parsed.length === 0) {
+    const raw = [...new Set(amounts.map((amount) => amount?.trim()).filter((amount): amount is string => Boolean(amount)))];
+    return raw.length > 0 ? raw.join(' + ') : undefined;
+  }
 
-  if (parsed.length === 0) return undefined;
+  const units = [...new Set(parsed.map((part) => part.unit))];
+  const weightOnly = units.every((unit) => WEIGHT_UNITS.has(unit) || IMPERIAL_WEIGHT.has(unit));
+  const volumeOnly = units.every((unit) => VOLUME_UNITS.has(unit));
 
-  const units = [...new Set(parsed.map((p) => p.unit))];
-
-  // Garlic cloves → grams + approx note (fallback when count path did not run)
   if (units.length === 1 && units[0] === 'clove') {
-    const total = parsed.reduce((s, p) => s + p.value, 0);
+    const total = parsed.reduce((sum, part) => sum + part.value, 0);
     const name = (ingredientName ?? '').toLowerCase();
     if (!name || name.includes('garlic') || shoppingMergeKey(name) === 'garlic') {
       return formatGarlicClovesAsGrams(total);
@@ -307,26 +424,15 @@ export function combineAmounts(
     return formatNice(total, 'clove');
   }
 
-  if (units.length === 1) {
-    const unit = units[0] ?? '';
-    const total = parsed.reduce((s, p) => s + p.value, 0);
-    if (preferMetric && IMPERIAL_WEIGHT.has(unit)) {
-      const totalG = parsed.reduce((s, p) => s + (toWeightGrams(p.value, p.unit) ?? 0), 0);
-      return formatBase(totalG, 'g');
-    }
-    return formatNice(total, unit);
-  }
-
-  // Cloves mixed with weight → grams + approx cloves from clove portion
-  const cloveParts = parsed.filter((p) => p.unit === 'clove');
-  const weightParts = parsed.filter((p) => WEIGHT_UNITS.has(p.unit) || IMPERIAL_WEIGHT.has(p.unit));
+  const cloveParts = parsed.filter((part) => part.unit === 'clove');
+  const weightParts = parsed.filter((part) => WEIGHT_UNITS.has(part.unit) || IMPERIAL_WEIGHT.has(part.unit));
   if (
     cloveParts.length > 0 &&
     weightParts.length + cloveParts.length === parsed.length &&
     (shoppingMergeKey(ingredientName ?? '') === 'garlic' || (ingredientName ?? '').toLowerCase().includes('garlic'))
   ) {
-    const cloveCount = cloveParts.reduce((s, p) => s + p.value, 0);
-    const weightG = weightParts.reduce((s, p) => s + (toWeightGrams(p.value, p.unit) ?? 0), 0);
+    const cloveCount = cloveParts.reduce((sum, part) => sum + part.value, 0);
+    const weightG = weightParts.reduce((sum, part) => sum + (toWeightGrams(part.value, part.unit) ?? 0), 0);
     const totalG = weightG + cloveCount * GARLIC_CLOVE_GRAMS;
     const approxCloves = cloveCount + weightG / GARLIC_CLOVE_GRAMS;
     const grams = Math.round(totalG);
@@ -336,19 +442,23 @@ export function combineAmounts(
     return `${grams}g (approx ${approx} cloves)`;
   }
 
-  if (units.every((u) => WEIGHT_UNITS.has(u) || IMPERIAL_WEIGHT.has(u))) {
-    const totalG = parsed.reduce((s, p) => s + (toWeightGrams(p.value, p.unit) ?? 0), 0);
+  if (weightOnly) {
+    const totalG = parsed.reduce((sum, part) => sum + (toWeightGrams(part.value, part.unit) ?? 0), 0);
     return formatBase(totalG, 'g');
   }
 
-  if (units.every((u) => VOLUME_UNITS.has(u))) {
-    // Keep natural kitchen unit when all the same — already handled above.
-    // Mixed volume → ml for metric consistency.
-    const totalMl = parsed.reduce((s, p) => s + (toVolumeMl(p.value, p.unit) ?? 0), 0);
+  if (volumeOnly && (preferMetric || units.length > 1)) {
+    const totalMl = parsed.reduce((sum, part) => sum + (toVolumeMl(part.value, part.unit, standards) ?? 0), 0);
     return formatBase(totalMl, 'ml');
   }
 
-  const distinct = [...new Set(amounts.filter((a): a is string => Boolean(a)))];
+  if (units.length === 1) {
+    const unit = units[0] ?? '';
+    const total = parsed.reduce((sum, part) => sum + part.value, 0);
+    return formatNice(total, unit);
+  }
+
+  const distinct = [...new Set(amounts.map((amount) => amount?.trim()).filter((amount): amount is string => Boolean(amount)))];
   return distinct.join(' + ');
 }
 
@@ -362,6 +472,7 @@ export type FlatIngredient = {
 
 export type DeduplicateOptions = {
   preferMetric?: boolean;
+  country?: string | null;
 };
 
 export function deduplicateIngredients(
@@ -369,6 +480,7 @@ export function deduplicateIngredients(
   options: DeduplicateOptions = {},
 ): FlatIngredient[] {
   const preferMetric = options.preferMetric ?? true;
+  const standards = volumeStandardsForCountry(options.country);
   const map = new Map<string, FlatIngredient[]>();
 
   for (const ing of all) {
@@ -384,7 +496,7 @@ export function deduplicateIngredients(
     const representative = group.find((g) => g.name === representativeName) ?? group[0];
     if (!representative) continue;
 
-    const parsed = group.map((g) => parseAmount(g.amount)).filter((p): p is ParsedAmount => p !== null);
+    const parsed = group.flatMap((item) => parseAmountParts(item.amount));
     const units = [...new Set(parsed.map((p) => p.unit))];
     const hasWeight = units.some((u) => WEIGHT_UNITS.has(u) || IMPERIAL_WEIGHT.has(u) || u === 'clove');
     const hasVolume = units.some((u) => VOLUME_UNITS.has(u));
@@ -395,7 +507,7 @@ export function deduplicateIngredients(
     if (parsed.length > 0 && hasWeight && hasVolume) {
       if (liquid) {
         const totalMl = parsed.reduce((sum, p) => {
-          const ml = toVolumeMl(p.value, p.unit);
+          const ml = toVolumeMl(p.value, p.unit, standards);
           if (ml !== null) return sum + ml;
           const g = toWeightGrams(p.value, p.unit, representativeName);
           return sum + (g !== null ? g / Math.max(density, 0.01) : 0);
@@ -405,7 +517,7 @@ export function deduplicateIngredients(
         const totalG = parsed.reduce((sum, p) => {
           const g = toWeightGrams(p.value, p.unit, representativeName);
           if (g !== null) return sum + g;
-          const ml = toVolumeMl(p.value, p.unit);
+          const ml = toVolumeMl(p.value, p.unit, standards);
           return sum + (ml !== null ? ml * density : 0);
         }, 0);
         const cloveCount = parsed.filter((p) => p.unit === 'clove').reduce((s, p) => s + p.value, 0);
@@ -420,7 +532,7 @@ export function deduplicateIngredients(
     } else {
       combined = combineAmounts(
         group.map((g) => g.amount),
-        { preferMetric, ingredientName: representativeName },
+        { preferMetric, ingredientName: representativeName, country: options.country },
       );
     }
 

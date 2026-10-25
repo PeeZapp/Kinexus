@@ -15,6 +15,7 @@ import {
   WeeklyBudgetField,
 } from '@/src/features/meals/generate/controls';
 import { generatedMealFacts, type GenerateViewProps } from '@/src/features/meals/generate/GenerateDesktop';
+import { GenerateMealFooter } from '@/src/features/meals/generate/GenerateMealFooter';
 import { WeekSwitcher } from '@/src/features/meals/plan/PlanShared';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
 import { weekApplyLabel } from '@/src/features/meals/week-labels';
@@ -105,33 +106,29 @@ export function GenerateMobile(props: GenerateViewProps) {
                   const facts = generatedMealFacts(row.recipe, props.serves);
                   return (
                     <View key={row.slot} style={styles.row}>
-                      <RecipePhoto uri={row.recipe.imageUrl} emoji={row.recipe.emoji} size={48} />
-                      <View style={styles.rowBody}>
-                        <Text style={styles.slotKey}>{MEAL_SLOTS.find((s) => s.key === row.slot)?.label}</Text>
-                        <Text style={styles.recipe} numberOfLines={2}>
-                          {row.recipe.name}
-                        </Text>
-                        {facts ? <Text style={styles.facts}>{facts}</Text> : null}
-                        {(row.sides?.length ?? 0) > 0 ? (
-                          <Text style={styles.facts} numberOfLines={2}>
-                            {row.sides?.map((side) => side.name).join(', ')}
+                      <Pressable
+                        onPress={() => props.onOpenRecipe(row.recipe.id, row.day, row.slot)}
+                        style={styles.rowTop}
+                        accessibilityRole="button"
+                        accessibilityLabel={`View ${row.recipe.name}`}>
+                        <RecipePhoto uri={row.recipe.imageUrl} emoji={row.recipe.emoji} size={48} />
+                        <View style={styles.rowBody}>
+                          <Text style={styles.slotKey}>{MEAL_SLOTS.find((s) => s.key === row.slot)?.label}</Text>
+                          <Text style={styles.recipe} numberOfLines={2}>
+                            {row.recipe.name}
                           </Text>
-                        ) : null}
-                        <View style={styles.cellActions}>
-                          <Pressable onPress={() => props.onAddSide(row.day, row.slot)}>
-                            <Text style={styles.swap}>Add side dish</Text>
-                          </Pressable>
-                          <Pressable onPress={() => props.onOpenRecipe(row.recipe.id, row.day, row.slot)}>
-                            <Text style={styles.swap}>View</Text>
-                          </Pressable>
-                          <Pressable onPress={() => props.onSwap(row.day, row.slot)}>
-                            <Text style={styles.swap}>Swap</Text>
-                          </Pressable>
-                          <Pressable onPress={() => props.onRandom(row.day, row.slot)}>
-                            <Text style={styles.swap}>Random</Text>
-                          </Pressable>
+                          {facts ? <Text style={styles.facts}>{facts}</Text> : null}
                         </View>
-                      </View>
+                      </Pressable>
+                      <GenerateMealFooter
+                        roomy
+                        sides={row.sides ?? []}
+                        onOpenSide={(id) => props.onOpenSide(id, row.day, row.slot)}
+                        onRemoveSide={(id) => props.onRemoveSide(id, row.day, row.slot)}
+                        onAddSide={() => props.onAddSide(row.day, row.slot)}
+                        onSwap={() => props.onSwap(row.day, row.slot)}
+                        onRandom={() => props.onRandom(row.day, row.slot)}
+                      />
                     </View>
                   );
                 })}
@@ -211,14 +208,17 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: colors.bgCard,
     borderRadius: radius.md,
-    padding: 10,
     borderWidth: 1,
     borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  rowTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: 10,
+    padding: 10,
   },
   rowBody: { flex: 1, minWidth: 0, gap: 2 },
   slotKey: {
@@ -229,6 +229,4 @@ const styles = StyleSheet.create({
   },
   recipe: { color: colors.text, fontWeight: '700', fontSize: 14 },
   facts: { color: colors.textDim, fontSize: 12, lineHeight: 16 },
-  cellActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 4 },
-  swap: { color: colors.accent, fontWeight: '700', fontSize: 12 },
 });

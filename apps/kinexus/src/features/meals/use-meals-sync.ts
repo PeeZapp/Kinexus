@@ -247,11 +247,14 @@ async function flushOne(op: SlotOutboxOp): Promise<void> {
   }
 
   const assignedPersonId =
-    op.kind === 'allocate' ? (op.assignedPersonId ?? null) : (op.assignedPersonId ?? existing?.assigned_person_id ?? null);
+    op.kind === 'allocate' || op.clearMeal === true
+      ? (op.assignedPersonId ?? null)
+      : (op.assignedPersonId ?? existing?.assigned_person_id ?? null);
 
   const nextAudience =
     op.kind === 'audience' ? audiencePersonIds : normalizeAudiencePersonIds(existing?.audience_person_ids ?? audiencePersonIds);
 
+  const clearsMeal = op.kind === 'clear' || op.clearMeal === true;
   const denorm =
     op.kind === 'assign'
       ? {
@@ -264,9 +267,9 @@ async function flushOne(op: SlotOutboxOp): Promise<void> {
           fat: op.fat ?? null,
           cook_time: op.cookTime ?? null,
         }
-      : op.kind === 'clear'
+      : clearsMeal
         ? denormFromRecipe(null)
-          : {
+        : {
             recipe_id: existing?.recipe_id ?? null,
             recipe_name: existing?.recipe_name ?? null,
             emoji: existing?.emoji ?? null,
@@ -277,9 +280,14 @@ async function flushOne(op: SlotOutboxOp): Promise<void> {
             cook_time: existing?.cook_time ?? null,
           };
 
-  const sidePatch = op.kind === 'assign' && op.sideRecipeIds != null ? { side_recipe_ids: op.sideRecipeIds } : {};
+  const sidePatch =
+    op.clearMeal === true
+      ? { side_recipe_ids: [] as string[] }
+      : op.kind === 'assign' && op.sideRecipeIds != null
+        ? { side_recipe_ids: op.sideRecipeIds }
+        : {};
   const targetServings =
-    op.kind === 'clear'
+    clearsMeal
       ? null
       : op.targetServings !== undefined
         ? op.targetServings
@@ -602,6 +610,13 @@ export function useMealsSync() {
         }
         const existing = findPlanSlot(list, op);
         const idx = existing ? list.indexOf(existing) : -1;
+        const clearsMeal = op.kind === 'clear' || op.clearMeal === true;
+        const replacingMeal = op.kind === 'assign';
+        const mealField = <T,>(incoming: T | null | undefined, previous: T | undefined): T | undefined => {
+          if (clearsMeal) return undefined;
+          if (replacingMeal) return incoming ?? undefined;
+          return incoming ?? previous;
+        };
         const audiencePersonIds =
           op.kind === 'audience'
             ? normalizeAudiencePersonIds(op.audiencePersonIds)
@@ -610,14 +625,14 @@ export function useMealsSync() {
           id: existing?.id ?? op.slotId ?? op.id,
           day: op.day,
           slotKey: op.slotKey,
-          recipeId: op.kind === 'clear' ? undefined : (op.recipeId ?? existing?.recipeId),
-          recipeName: op.kind === 'clear' ? undefined : (op.recipeName ?? existing?.recipeName),
-          emoji: op.kind === 'clear' ? undefined : (op.emoji ?? existing?.emoji),
-          protein: op.kind === 'clear' ? undefined : (op.protein ?? existing?.protein),
-          calories: op.kind === 'clear' ? undefined : (op.calories ?? existing?.calories),
-          carbs: op.kind === 'clear' ? undefined : (op.carbs ?? existing?.carbs),
-          fat: op.kind === 'clear' ? undefined : (op.fat ?? existing?.fat),
-          cookTime: op.kind === 'clear' ? undefined : (op.cookTime ?? existing?.cookTime),
+          recipeId: mealField(op.recipeId, existing?.recipeId),
+          recipeName: mealField(op.recipeName, existing?.recipeName),
+          emoji: mealField(op.emoji, existing?.emoji),
+          protein: mealField(op.protein, existing?.protein),
+          calories: mealField(op.calories, existing?.calories),
+          carbs: mealField(op.carbs, existing?.carbs),
+          fat: mealField(op.fat, existing?.fat),
+          cookTime: mealField(op.cookTime, existing?.cookTime),
           hidden:
             op.kind === 'hide'
               ? Boolean(op.hidden)
@@ -625,18 +640,21 @@ export function useMealsSync() {
                 ? false
                 : existing?.hidden,
           assignedPersonId:
-            op.kind === 'allocate'
+            op.kind === 'allocate' || op.clearMeal === true
               ? (op.assignedPersonId ?? undefined)
               : (op.assignedPersonId ?? existing?.assignedPersonId),
           audiencePersonIds,
           sideRecipeIds:
-            op.kind === 'assign' && op.sideRecipeIds != null ? op.sideRecipeIds : existing?.sideRecipeIds,
-          targetServings:
-            op.kind === 'clear'
-              ? undefined
-              : op.targetServings !== undefined
-                ? (op.targetServings ?? undefined)
-                : existing?.targetServings,
+            op.clearMeal === true
+              ? []
+              : op.kind === 'assign' && op.sideRecipeIds != null
+                ? op.sideRecipeIds
+                : existing?.sideRecipeIds,
+          targetServings: clearsMeal
+            ? undefined
+            : op.targetServings !== undefined
+              ? (op.targetServings ?? undefined)
+              : existing?.targetServings,
           updatedAt: op.clientUpdatedAt,
         };
         if (idx >= 0) {
@@ -729,6 +747,38 @@ export function useMealsSync() {
         carbs: recipe.carbs ?? null,
         fat: recipe.fat ?? null,
         cookTime: recipe.cookTime ?? null,
+        assignedPersonId: current?.assignedPersonId ?? null,
+      });
+    },
+    [mutateSlot, resolveSlot],
+  );
+
+  const assignNamedMeal = useCallback(
+    async (
+      day: Day,
+      slotKey: MealSlotKey,
+      name: string,
+      opts?: { slotId?: string | null; audiencePersonIds?: readonly string[] | null },
+    ) => {
+      const title = name.trim();
+      if (!title) throw new Error('Enter a meal name');
+      const current = resolveSlot(day, slotKey, opts);
+      await mutateSlot({
+        kind: 'assign',
+        day,
+        slotKey,
+        slotId: opts?.slotId ?? current?.id,
+        audiencePersonIds: normalizeAudiencePersonIds(opts?.audiencePersonIds ?? current?.audiencePersonIds),
+        recipeId: null,
+        recipeName: title,
+        emoji: null,
+        protein: null,
+        calories: null,
+        carbs: null,
+        fat: null,
+        cookTime: null,
+        sideRecipeIds: [],
+        targetServings: null,
         assignedPersonId: current?.assignedPersonId ?? null,
       });
     },
@@ -943,7 +993,8 @@ export function useMealsSync() {
             slotId: household?.id,
             audiencePersonIds: [],
             hidden: true,
-            assignedPersonId: household?.assignedPersonId ?? null,
+            clearMeal: true,
+            assignedPersonId: null,
           },
           { flushNow: false },
         );
@@ -1756,6 +1807,7 @@ export function useMealsSync() {
       goalsQuery.error?.message ??
       null,
     assignSlot,
+    assignNamedMeal,
     allocateSlot,
     clearSlot,
     clearWeek,

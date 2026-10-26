@@ -26,6 +26,8 @@ export function ShoppingList({
   onSetPurchase,
   editDisabled,
   itemPrices,
+  onChooseProduct,
+  pricesBusy,
 }: {
   title: string;
   items: ShoppingListItem[];
@@ -35,7 +37,9 @@ export function ShoppingList({
   onRecipe: (id: string) => void;
   onSetPurchase?: (recipeId: string, mode: 'buy' | 'make') => void;
   editDisabled: boolean;
-  itemPrices?: Readonly<Record<string, ShoppingItemPrice>>;
+  itemPrices?: Readonly<Record<string, readonly ShoppingItemPrice[]>>;
+  onChooseProduct?: (item: ShoppingListItem) => void;
+  pricesBusy?: boolean;
 }) {
   const [detail, setDetail] = useState<DetailSheet>(null);
   const [editing, setEditing] = useState<ShoppingListItem | null>(null);
@@ -123,13 +127,11 @@ export function ShoppingList({
                       {item.amount}
                     </Text>
                   ) : null}
-                  {itemPrices?.[item.id] ? (
-                    <Text style={styles.price} numberOfLines={2}>
-                      {itemPrices[item.id].shop} {itemPrices[item.id].priceLabel}
-                      {' · '}
-                      {itemPrices[item.id].product}
-                    </Text>
-                  ) : null}
+                  <ProductMatch
+                    lines={itemPrices?.[item.id]}
+                    busy={pricesBusy}
+                    onPress={onChooseProduct ? () => onChooseProduct(item) : undefined}
+                  />
                   <View style={styles.noteRow}>
                     {item.mergedFrom.length > 0 ? (
                       <Pressable onPress={() => setDetail({ kind: 'merged', item })} hitSlop={6}>
@@ -211,6 +213,39 @@ export function ShoppingList({
         onSave={onEdit}
       />
     </View>
+  );
+}
+
+function ProductMatch({
+  lines,
+  busy,
+  onPress,
+}: {
+  lines: readonly ShoppingItemPrice[] | undefined;
+  busy?: boolean;
+  onPress?: () => void;
+}) {
+  if (lines && lines.length > 0) {
+    const body = lines.map((line) => (
+      <Text key={line.chainId} style={styles.price} numberOfLines={2}>
+        {line.shop} {line.priceLabel}
+        {' · '}
+        {line.product}
+      </Text>
+    ));
+    if (!onPress) return <View style={styles.priceBlock}>{body}</View>;
+    return (
+      <Pressable onPress={onPress} style={styles.priceBlock} hitSlop={4}>
+        {body}
+        <Text style={styles.edit}>Change</Text>
+      </Pressable>
+    );
+  }
+  if (!onPress || busy) return null;
+  return (
+    <Pressable onPress={onPress} hitSlop={6}>
+      <Text style={styles.edit}>Choose product</Text>
+    </Pressable>
   );
 }
 
@@ -468,6 +503,7 @@ const styles = StyleSheet.create({
   },
   makeBannerText: { color: colors.text, fontSize: 14, fontWeight: '700', flex: 1 },
   meta: { color: colors.textDim, fontSize: 12 },
+  priceBlock: { alignItems: 'flex-start', gap: 2 },
   price: { color: colors.accent, fontSize: 12, fontWeight: '700' },
   link: { color: colors.accent, fontSize: 12 },
   noteLink: { color: colors.textMuted, fontSize: 12, textDecorationLine: 'underline' },

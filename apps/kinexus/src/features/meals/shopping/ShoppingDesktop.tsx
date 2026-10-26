@@ -33,7 +33,9 @@ export function ShoppingDesktop(props: {
   costEstimate: ShoppingCostEstimate | null;
   stores: readonly string[];
   shopPicker?: ReactNode;
-  itemPrices?: Readonly<Record<string, ShoppingItemPrice>>;
+  itemPrices?: Readonly<Record<string, readonly ShoppingItemPrice[]>>;
+  onChooseProduct?: (item: ShoppingListItem) => void;
+  pricesBusy?: boolean;
 }) {
   const chrome = {
     weekStart: props.weekStart,
@@ -76,6 +78,8 @@ export function ShoppingDesktop(props: {
               onSetPurchase={props.onSetPurchase}
               editDisabled={!props.online}
               itemPrices={props.itemPrices}
+              onChooseProduct={props.onChooseProduct}
+              pricesBusy={props.pricesBusy}
             />
           </View>
           <View style={styles.col}>

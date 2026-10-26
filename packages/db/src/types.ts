@@ -310,6 +310,7 @@ export type Database = {
           country: string | null;
           currency: string | null;
           timezone: string | null;
+          preferred_grocery_chain: string | null;
           created_by: string | null;
           created_at: string;
           updated_at: string;
@@ -320,6 +321,7 @@ export type Database = {
           country?: string | null;
           currency?: string | null;
           timezone?: string | null;
+          preferred_grocery_chain?: string | null;
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -329,6 +331,7 @@ export type Database = {
           country?: string | null;
           currency?: string | null;
           timezone?: string | null;
+          preferred_grocery_chain?: string | null;
         };
         Relationships: [];
       };
@@ -2303,6 +2306,13 @@ export type Database = {
           p_timezone?: string | null;
         };
         Returns: string;
+      };
+      set_preferred_grocery_chain: {
+        Args: {
+          p_household_id: string;
+          p_chain: string | null;
+        };
+        Returns: undefined;
       };
       create_household_invite: {
         Args: {

@@ -208,7 +208,21 @@ function groceryQuoteFromJson(value: Json | null): StoredGroceryQuote | null {
       packs: quote.packs,
     });
   }
-  return { name: rec.name, amount: typeof rec.amount === 'string' ? rec.amount : null, quotes };
+  const pins: { chainId: string; productId: string }[] = [];
+  if (Array.isArray(rec.pins)) {
+    for (const pin of rec.pins) {
+      if (!pin || typeof pin !== 'object' || Array.isArray(pin)) continue;
+      const row = pin as Record<string, Json | undefined>;
+      if (typeof row.chainId !== 'string' || typeof row.productId !== 'string') continue;
+      pins.push({ chainId: row.chainId, productId: row.productId });
+    }
+  }
+  return {
+    name: rec.name,
+    amount: typeof rec.amount === 'string' ? rec.amount : null,
+    quotes,
+    pins: pins.length > 0 ? pins : undefined,
+  };
 }
 
 export function recipeToInsert(householdId: string, recipe: Omit<Recipe, 'id' | 'householdId'>): Database['public']['Tables']['recipes']['Insert'] {

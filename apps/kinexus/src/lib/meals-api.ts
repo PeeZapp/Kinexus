@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 
-import type { GroceryComparison } from '@kinexus/domain';
+import type { CatalogueChoice, GroceryComparison } from '@kinexus/domain';
 
 import { supabase } from '@/src/lib/supabase';
 
@@ -152,9 +152,54 @@ export async function importRecipeFromUrl(url: string): Promise<ImportResult> {
 export async function compareGroceryPrices(input: {
   country: string | null;
   fresh?: boolean;
-  items: { id: string; name: string; amount: string | null }[];
+  items: { id: string; name: string; amount: string | null; pins?: { chainId: string; productId: string }[] }[];
 }): Promise<{ comparison: GroceryComparison; warnings: { chainId: string; message: string }[] }> {
   return post('/grocery/compare', input);
+}
+
+export async function searchGroceryCatalog(input: {
+  country: string | null;
+  name: string;
+  amount: string | null;
+  query?: string;
+}): Promise<{ query: string; chains: { chainId: string; chainName: string; choices: CatalogueChoice[]; unavailable?: boolean }[] }> {
+  return post('/grocery/catalog', input);
+}
+
+export type GroceryConnector = {
+  id: string;
+  label: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+};
+
+export async function createGroceryConnector(householdId: string): Promise<{ token: string; mcpUrl: string; connector: GroceryConnector }> {
+  return post('/grocery/connectors', { householdId, label: 'Grok' });
+}
+
+export async function listGroceryConnectors(householdId: string): Promise<{ connectors: GroceryConnector[] }> {
+  const res = await fetch(`${apiBase()}/grocery/connectors?householdId=${encodeURIComponent(householdId)}`, {
+    headers: await authHeader(),
+  });
+  const data = (await res.json().catch(() => ({}))) as { connectors?: GroceryConnector[]; error?: string };
+  if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
+  return { connectors: data.connectors ?? [] };
+}
+
+export async function revokeGroceryConnector(connectorId: string): Promise<void> {
+  await post('/grocery/connectors/revoke', { connectorId });
+}
+
+export async function createGroceryHandoff(input: {
+  householdId: string;
+  weekStart: string;
+}): Promise<{
+  reviewUrl: string;
+  shopUrl: string;
+  order: { chainId: string; chainName: string; lines: { name: string; productName: string; packs: number }[]; skipped: { name: string }[] };
+}> {
+  return post('/grocery/handoff', input);
 }
 
 function isSocialVideoUrl(url: string): boolean {

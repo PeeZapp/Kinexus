@@ -4,6 +4,7 @@ import {
   comparisonFromLineQuotes,
   formatMoney,
   lookupChainsForCountry,
+  quotesWithPins,
   storedGroceryQuoteMatches,
   type GroceryComparison,
   type StoredGroceryQuote,
@@ -12,6 +13,7 @@ import {
 import { compareGroceryPrices } from '@/src/lib/meals-api';
 
 export type ShoppingItemPrice = {
+  chainId: string;
   shop: string;
   priceLabel: string;
   product: string;
@@ -91,18 +93,30 @@ export function useGroceryPrices(input: {
       void compareGroceryPrices({
         country: input.country ?? null,
         fresh,
-        items: targets.map((item) => ({ id: item.id, name: item.name, amount: item.amount })),
+        items: targets.map((item) => ({
+          id: item.id,
+          name: item.name,
+          amount: item.amount,
+          pins: storedGroceryQuoteMatches(item, item.quote) ? item.quote?.pins : undefined,
+        })),
       })
         .then(async (result) => {
           if (cancel) return;
-          const rows = targets.map((item) => ({
-            id: item.id,
-            quote: {
-              name: item.name,
-              amount: item.amount,
-              quotes: result.comparison.items.find((row) => row.itemId === item.id)?.quotes ?? [],
-            },
-          }));
+          const latest = itemsRef.current;
+          const rows = targets.map((item) => {
+            const current = latest.find((row) => row.id === item.id) ?? item;
+            const pins = storedGroceryQuoteMatches(current, current.quote) ? current.quote?.pins : undefined;
+            const fresh = result.comparison.items.find((row) => row.itemId === item.id)?.quotes ?? [];
+            return {
+              id: item.id,
+              quote: {
+                name: item.name,
+                amount: item.amount,
+                quotes: quotesWithPins(fresh, current.quote?.quotes ?? [], pins),
+                pins: pins && pins.length > 0 ? pins : undefined,
+              },
+            };
+          });
           await saveRef.current(rows);
           if (cancel) return;
           for (const item of targets) failedRef.current.delete(itemSignature(item));
@@ -128,16 +142,16 @@ export function useGroceryPrices(input: {
   }, [chainKey, force, input.country, input.online, pendingKey]);
 
   const itemPrices = useMemo(() => {
-    const map: Record<string, ShoppingItemPrice> = {};
+    const map: Record<string, ShoppingItemPrice[]> = {};
     if (!comparison) return map;
     for (const item of comparison.items) {
-      const quote = item.quotes.find((row) => row.chainId === item.cheapestChainId) ?? item.quotes[0];
-      if (!quote) continue;
-      map[item.itemId] = {
+      if (item.quotes.length === 0) continue;
+      map[item.itemId] = item.quotes.map((quote) => ({
+        chainId: quote.chainId,
         shop: quote.chainName,
         priceLabel: formatMoney(quote.price, comparison.currency),
         product: quote.packs > 1 ? `${quote.packs} × ${quote.productName}` : quote.productName,
-      };
+      }));
     }
     return map;
   }, [comparison]);

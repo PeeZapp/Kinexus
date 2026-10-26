@@ -123,6 +123,22 @@ const CONFLICTS = new Set([
   'nugget',
   'nuggets',
   'kiev',
+  'kyiv',
+  'goujon',
+  'popcorn',
+  'karaage',
+  'parmigiana',
+  'parmi',
+  'cordon',
+  'patty',
+  'meatball',
+  'tender',
+  'dinosaur',
+  'bite',
+  'sausage',
+  'rissole',
+  'kebab',
+  'skewer',
   'burger',
   'spray',
   'mayonnaise',
@@ -277,14 +293,65 @@ function oversized(offer: CatalogueOffer): boolean {
   return false;
 }
 
+export type CatalogueChoice = {
+  productId: string;
+  productName: string;
+  brand: string | null;
+  /** What you pay to cover the list amount. */
+  price: number;
+  packs: number;
+  shelfPrice: number;
+  /** True when the name looks like the ingredient rather than a ready meal. */
+  matches: boolean;
+};
+
+/** Every in-stock search hit, with ingredient matches before other products. */
+export function catalogueChoices(
+  ingredientName: string,
+  amount: string | null | undefined,
+  offers: readonly CatalogueOffer[],
+): CatalogueChoice[] {
+  const need = needFor(ingredientName, amount);
+  const seen = new Set<string>();
+  const rows: CatalogueChoice[] = [];
+  for (const offer of offers) {
+    if (seen.has(offer.productId)) continue;
+    const cost = lineCost(offer, need);
+    if (!cost) continue;
+    seen.add(offer.productId);
+    rows.push({
+      productId: offer.productId,
+      productName: offer.name,
+      brand: offer.brand,
+      price: cost.price,
+      packs: cost.packs,
+      shelfPrice: offer.shelfPrice,
+      matches: offerMatchesIngredient(ingredientName, offer.name),
+    });
+  }
+  rows.sort(
+    (a, b) =>
+      Number(b.matches) - Number(a.matches) || a.price - b.price || a.productName.localeCompare(b.productName),
+  );
+  return rows;
+}
+
 export function pickCatalogueOffer(
   ingredientName: string,
   amount: string | null | undefined,
   offers: readonly CatalogueOffer[],
+  preferredProductId?: string | null,
 ): { offer: CatalogueOffer; price: number; packs: number } | null {
+  const need = needFor(ingredientName, amount);
+  if (preferredProductId) {
+    const chosen = offers.find((offer) => offer.productId === preferredProductId);
+    if (chosen) {
+      const cost = lineCost(chosen, need);
+      if (cost && cost.price > 0) return { offer: chosen, ...cost };
+    }
+  }
   const matching = offers.filter((offer) => offer.inStock && offerMatchesIngredient(ingredientName, offer.name));
   if (matching.length === 0) return null;
-  const need = needFor(ingredientName, amount);
   const pool = !need && matching.some((offer) => !oversized(offer))
     ? matching.filter((offer) => !oversized(offer))
     : matching;
@@ -300,11 +367,54 @@ export function pickCatalogueOffer(
 }
 
 /** Price saved on a shopping row. Valid only for the name and amount it was looked up with. */
+export type GroceryProductPin = {
+  chainId: string;
+  productId: string;
+};
+
 export type StoredGroceryQuote = {
   name: string;
   amount: string | null;
   quotes: GroceryLineQuote[];
+  /** Product the household chose for a chain. Kept across price re-checks. */
+  pins?: GroceryProductPin[];
 };
+
+/** Replace one chain's product and remember that choice. */
+export function applyCataloguePick(
+  quote: StoredGroceryQuote | null | undefined,
+  item: { name: string; amount?: string | null },
+  picked: GroceryLineQuote,
+): StoredGroceryQuote {
+  const current = quote && storedGroceryQuoteMatches(item, quote) ? quote : null;
+  const quotes = (current?.quotes ?? []).filter((row) => row.chainId !== picked.chainId);
+  quotes.push(picked);
+  const pins = (current?.pins ?? []).filter((pin) => pin.chainId !== picked.chainId);
+  pins.push({ chainId: picked.chainId, productId: picked.productId });
+  return { name: item.name, amount: item.amount ?? null, quotes, pins };
+}
+
+/**
+ * A re-check should refresh prices, but a pinned product stays even when the
+ * new search would have auto-picked something else.
+ */
+export function quotesWithPins(
+  fresh: readonly GroceryLineQuote[],
+  previous: readonly GroceryLineQuote[],
+  pins: readonly GroceryProductPin[] | null | undefined,
+): GroceryLineQuote[] {
+  if (!pins || pins.length === 0) return [...fresh];
+  const merged = [...fresh];
+  for (const pin of pins) {
+    if (merged.some((row) => row.chainId === pin.chainId && row.productId === pin.productId)) continue;
+    const kept = previous.find((row) => row.chainId === pin.chainId && row.productId === pin.productId);
+    if (!kept) continue;
+    const index = merged.findIndex((row) => row.chainId === pin.chainId);
+    if (index >= 0) merged[index] = kept;
+    else merged.push(kept);
+  }
+  return merged;
+}
 
 export function storedGroceryQuoteMatches(
   item: { name: string; amount?: string | null },
@@ -363,7 +473,12 @@ export function comparisonFromLineQuotes(input: {
 
 export function compareShoppingList(input: {
   currency: string;
-  items: readonly { id: string; name: string; amount?: string | null }[];
+  items: readonly {
+    id: string;
+    name: string;
+    amount?: string | null;
+    pins?: readonly GroceryProductPin[] | null;
+  }[];
   shops: readonly GroceryShopOffers[];
 }): GroceryComparison {
   return comparisonFromLineQuotes({
@@ -371,7 +486,8 @@ export function compareShoppingList(input: {
     items: input.items.map((item) => {
       const quotes: GroceryLineQuote[] = [];
       for (const shop of input.shops) {
-        const picked = pickCatalogueOffer(item.name, item.amount, shop.offersByItemId[item.id] ?? []);
+        const preferred = item.pins?.find((pin) => pin.chainId === shop.chainId)?.productId;
+        const picked = pickCatalogueOffer(item.name, item.amount, shop.offersByItemId[item.id] ?? [], preferred);
         if (!picked) continue;
         quotes.push({
           chainId: shop.chainId,

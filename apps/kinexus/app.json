@@ -9,7 +9,10 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.peezapp.kinexus"
+      "bundleIdentifier": "com.peezapp.kinexus",
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": ["grok"]
+      }
     },
     "android": {
       "package": "com.peezapp.kinexus",
@@ -45,6 +48,7 @@
         }
       ],
       "expo-secure-store",
+      "./plugins/with-grok-queries",
       [
         "expo-share-intent",
         {

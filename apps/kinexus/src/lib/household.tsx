@@ -71,6 +71,7 @@ type HouseholdContextValue = {
   createHousehold: (input: CreateHouseholdInput) => Promise<string>;
   renameHousehold: (name: string) => Promise<void>;
   updateHouseholdLocation: (input: { country: string; currency: string }) => Promise<void>;
+  updatePreferredGroceryChain: (chainId: string | null) => Promise<void>;
   createInvite: (role: Exclude<HouseholdRole, 'owner'>) => Promise<CreatedInvite>;
   revokeInvite: (inviteId: string) => Promise<void>;
   peekInvite: (token: string) => Promise<PeekedInvite | null>;
@@ -423,6 +424,20 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
           .update({ country: input.country, currency: input.currency })
           .eq('id', activeHousehold.id);
         if (updateError) throw updateError;
+        if (user) await load(user.id, activeHousehold.id);
+      },
+      updatePreferredGroceryChain: async (chainId) => {
+        if (!supabase || !activeHousehold) throw new Error('No household selected');
+        const { error: updateError } = await supabase.rpc('set_preferred_grocery_chain', {
+          p_household_id: activeHousehold.id,
+          p_chain: chainId,
+        });
+        if (updateError) {
+          if (/preferred_grocery_chain|schema cache/i.test(updateError.message)) {
+            throw new Error('Choosing a shop needs the latest database migration.');
+          }
+          throw updateError;
+        }
         if (user) await load(user.id, activeHousehold.id);
       },
       createInvite: async (inviteRole) => {

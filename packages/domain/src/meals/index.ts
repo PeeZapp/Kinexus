@@ -193,10 +193,15 @@ export {
 } from './markets';
 export type { GroceryMarket } from './markets';
 
+export { trolleyOrder, trolleyShopUrl } from './trolley-order';
+export type { TrolleyLine, TrolleyOrder, TrolleySkip } from './trolley-order';
+
 export { GROCERY_CHAINS, groceryChainById, lookupChainsForCountry } from './grocery-chains';
 export type { GroceryChain } from './grocery-chains';
 
 export {
+  applyCataloguePick,
+  catalogueChoices,
   catalogueQuery,
   compareShoppingList,
   comparisonFromLineQuotes,
@@ -204,13 +209,16 @@ export {
   parsePackSize,
   parseUnitPrice,
   pickCatalogueOffer,
+  quotesWithPins,
   storedGroceryQuoteMatches,
 } from './grocery-compare';
 export type {
+  CatalogueChoice,
   CatalogueOffer,
   GroceryComparison,
   GroceryItemComparison,
   GroceryLineQuote,
+  GroceryProductPin,
   GroceryShopOffers,
   GroceryShopTotal,
   StoredGroceryQuote,

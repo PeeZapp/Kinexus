@@ -7,6 +7,7 @@ export type Household = {
   country: string | null;
   currency: string | null;
   timezone: string | null;
+  preferredGroceryChain: string | null;
   createdAt: string;
 };
 

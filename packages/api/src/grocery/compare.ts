@@ -1,9 +1,12 @@
 import {
+  catalogueChoices,
   catalogueQuery,
   compareShoppingList,
   lookupChainsForCountry,
+  type CatalogueChoice,
   type CatalogueOffer,
   type GroceryComparison,
+  type GroceryProductPin,
   type GroceryShopOffers,
 } from '@kinexus/domain';
 
@@ -24,21 +27,51 @@ export type GroceryCompareRequest = {
   fresh?: unknown;
 };
 
+export type GroceryCatalogRequest = {
+  country?: unknown;
+  name?: unknown;
+  amount?: unknown;
+  query?: unknown;
+};
+
+export type GroceryCatalogChain = {
+  chainId: string;
+  chainName: string;
+  choices: CatalogueChoice[];
+  unavailable?: boolean;
+};
+
 function asText(value: unknown, max: number): string {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
 }
 
-function parseCompareInput(body: GroceryCompareRequest): { country: string; items: { id: string; name: string; amount: string | null }[] } | null {
+function parsePins(value: unknown): GroceryProductPin[] {
+  if (!Array.isArray(value)) return [];
+  const pins: GroceryProductPin[] = [];
+  for (const row of value.slice(0, 6)) {
+    const rec = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+    const chainId = asText(rec.chainId, 40);
+    const productId = asText(rec.productId, 80);
+    if (!chainId || !productId) continue;
+    pins.push({ chainId, productId });
+  }
+  return pins;
+}
+
+function parseCompareInput(body: GroceryCompareRequest): {
+  country: string;
+  items: { id: string; name: string; amount: string | null; pins: GroceryProductPin[] }[];
+} | null {
   if (!Array.isArray(body.items)) return null;
   const country = asText(body.country, 2).toUpperCase();
-  const items: { id: string; name: string; amount: string | null }[] = [];
+  const items: { id: string; name: string; amount: string | null; pins: GroceryProductPin[] }[] = [];
   for (const row of body.items.slice(0, MAX_ITEMS)) {
     const rec = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
     const id = asText(rec.id, 80);
     const name = asText(rec.name, 80);
     const amount = asText(rec.amount, 40);
     if (!id || !name) continue;
-    items.push({ id, name, amount: amount || null });
+    items.push({ id, name, amount: amount || null, pins: parsePins(rec.pins) });
   }
   if (items.length === 0) return null;
   return { country, items };
@@ -129,4 +162,27 @@ export async function compareGroceryList(body: GroceryCompareRequest): Promise<
     warnings,
     comparison: compareShoppingList({ currency, items: parsed.items, shops }),
   };
+}
+
+export async function searchGroceryCatalog(body: GroceryCatalogRequest): Promise<
+  | { ok: true; query: string; chains: GroceryCatalogChain[] }
+  | { ok: false; error: string }
+> {
+  const name = asText(body.name, 80);
+  const amount = asText(body.amount, 40) || null;
+  const query = asText(body.query, 60) || catalogueQuery(name);
+  if (!name || !query) return { ok: false, error: 'Name a product to search for.' };
+  const country = asText(body.country, 2).toUpperCase();
+  const chains = lookupChainsForCountry(country);
+  const results = await Promise.all(
+    chains.map(async (chain) => {
+      try {
+        const offers = await productsFor(chain.id, query, false);
+        return { chainId: chain.id, chainName: chain.name, choices: catalogueChoices(name, amount, offers) };
+      } catch {
+        return { chainId: chain.id, chainName: chain.name, choices: [] as CatalogueChoice[], unavailable: true };
+      }
+    }),
+  );
+  return { ok: true, query, chains: results };
 }

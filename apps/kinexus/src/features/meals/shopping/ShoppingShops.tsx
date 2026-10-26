@@ -41,7 +41,7 @@ export function ShoppingShops({
       {chains.length > 0 ? (
         <View style={styles.recheck}>
           <Text style={styles.hint}>
-            Prices are saved with this list. Each line uses the cheapest matching pack.
+            Prices stay on this list.
           </Text>
           <Btn label="Re-check prices" variant="secondary" disabled={!online || busy} busy={busy} onPress={onRecheck} />
         </View>

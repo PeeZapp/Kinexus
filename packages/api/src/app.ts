@@ -50,8 +50,16 @@ import {
 import { handleVerifyCreatorLinks } from './creators/verify-links.js';
 import { handleOverviewNews, handleOverviewPlaces, handleOverviewWeather } from './overview.js';
 import { handleOverviewWordle } from './wordle.js';
-import { handleGroceryCompare } from './grocery/handlers.js';
-import type { GroceryCompareRequest } from './grocery/compare.js';
+import { handleGroceryCatalog, handleGroceryCompare } from './grocery/handlers.js';
+import type { GroceryCatalogRequest, GroceryCompareRequest } from './grocery/compare.js';
+import {
+  handleCreateGroceryConnector,
+  handleCreateGroceryHandoff,
+  handleListGroceryConnectors,
+  handleReadGroceryHandoff,
+  handleRevokeGroceryConnector,
+  handleShoppingMcp,
+} from './grocery/bot-handlers.js';
 
 function registerMealsRoutes(router: Hono) {
   router.get('/health', (c) => c.json({ ok: true }));
@@ -153,6 +161,72 @@ function registerMealsRoutes(router: Hono) {
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
     const result = await handleGroceryCompare(body as GroceryCompareRequest);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/grocery/catalog', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleGroceryCatalog(body as GroceryCatalogRequest);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/grocery/connectors', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleCreateGroceryConnector(authed.user.id, body as { householdId?: unknown; label?: unknown }, c.req.raw);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/grocery/connectors', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const result = await handleListGroceryConnectors(authed.user.id, c.req.query('householdId') ?? '');
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/grocery/connectors/revoke', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = (await c.req.json().catch(() => ({}))) as { connectorId?: unknown };
+    const result = await handleRevokeGroceryConnector(authed.user.id, typeof body.connectorId === 'string' ? body.connectorId : '');
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/grocery/handoff', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleCreateGroceryHandoff(authed.user.id, body as { householdId?: unknown; weekStart?: unknown }, c.req.raw);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/grocery/handoff', async (c) => {
+    const result = await handleReadGroceryHandoff(c.req.query('token') ?? '');
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.on(['GET', 'DELETE'], '/mcp', (c) => {
+    c.header('Allow', 'POST');
+    return c.json(
+      { jsonrpc: '2.0', id: null, error: { code: -32000, message: 'This MCP server is stateless. POST each JSON-RPC request.' } },
+      405,
+    );
+  });
+
+  router.post('/mcp', async (c) => {
+    const result = await handleShoppingMcp(c.req.raw);
+    if (result.status === 202) return c.body(null, 202);
+    const accept = c.req.header('accept') ?? '';
+    const sseOnly = accept.includes('text/event-stream') && !accept.includes('application/json');
+    if (sseOnly && result.status === 200) {
+      return c.body(`event: message\ndata: ${JSON.stringify(result.body)}\n\n`, 200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+      });
+    }
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 

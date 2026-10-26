@@ -3,14 +3,18 @@ import { describe, expect, it } from 'vitest';
 import { lookupChainsForCountry } from './grocery-chains';
 import {
   catalogueQuery,
+  applyCataloguePick,
+  catalogueChoices,
   compareShoppingList,
   comparisonFromLineQuotes,
   offerMatchesIngredient,
+  quotesWithPins,
   storedGroceryQuoteMatches,
   parsePackSize,
   parseUnitPrice,
   pickCatalogueOffer,
   type CatalogueOffer,
+  type GroceryLineQuote,
 } from './grocery-compare';
 
 function offer(overrides: Partial<CatalogueOffer> & Pick<CatalogueOffer, 'name' | 'shelfPrice'>): CatalogueOffer {
@@ -46,6 +50,8 @@ describe('catalogue parsing', () => {
     expect(offerMatchesIngredient('milk', 'Almond Milk 1L')).toBe(false);
     expect(offerMatchesIngredient('milk', 'Woolworths Whole Milk 2L')).toBe(true);
     expect(offerMatchesIngredient('chicken breast', 'Crumbed Chicken Schnitzel')).toBe(false);
+    expect(offerMatchesIngredient('chicken breast', 'Inghams Chicken Breast Kyiv 700g')).toBe(false);
+    expect(offerMatchesIngredient('chicken breast', 'Chicken Breast Fillets 500g')).toBe(true);
   });
 });
 
@@ -81,6 +87,37 @@ describe('pickCatalogueOffer', () => {
       }),
     ]);
     expect(picked?.price).toBe(0.78);
+  });
+
+  it('skips a ready meal when the list asks for the cut', () => {
+    const picked = pickCatalogueOffer('chicken breast', '500g', [
+      offer({ name: 'Inghams Chicken Breast Kyiv 700g', productId: 'kyiv', shelfPrice: 6, packGrams: 700 }),
+      offer({ name: 'Chicken Breast Fillets 500g', productId: 'fillet', shelfPrice: 11, packGrams: 500 }),
+    ]);
+    expect(picked?.offer.productId).toBe('fillet');
+  });
+
+  it('keeps a product the household already chose', () => {
+    const picked = pickCatalogueOffer(
+      'chicken breast',
+      '500g',
+      [
+        offer({ name: 'Chicken Breast Fillets 500g', productId: 'fillet', shelfPrice: 11, packGrams: 500 }),
+        offer({ name: 'Inghams Chicken Kyiv 700g', productId: 'kyiv', shelfPrice: 6, packGrams: 700 }),
+      ],
+      'kyiv',
+    );
+    expect(picked?.offer.productId).toBe('kyiv');
+  });
+
+  it('lists ingredient matches ahead of other catalogue hits', () => {
+    const choices = catalogueChoices('chicken breast', '500g', [
+      offer({ name: 'Inghams Chicken Breast Kyiv 700g', productId: 'kyiv', shelfPrice: 6, packGrams: 700 }),
+      offer({ name: 'Chicken Breast Fillets 500g', productId: 'fillet', shelfPrice: 11, packGrams: 500 }),
+    ]);
+    expect(choices.map((choice) => choice.productId)).toEqual(['fillet', 'kyiv']);
+    expect(choices[0]?.matches).toBe(true);
+    expect(choices[1]?.matches).toBe(false);
   });
 
   it('skips a bulk bag when the list has no amount', () => {
@@ -192,6 +229,40 @@ describe('saved quotes', () => {
     expect(comparison.items.find((item) => item.itemId === 'milk')?.cheapestChainId).toBe('woolworths');
     expect(comparison.cheapestShop?.chainId).toBe('coles');
     expect(comparison.cheapestShop?.pricedCount).toBe(2);
+  });
+});
+
+describe('catalogue picks', () => {
+  const fillet: GroceryLineQuote = {
+    chainId: 'woolworths',
+    chainName: 'Woolworths',
+    storeId: 'woolworths',
+    storeName: 'Woolworths',
+    productId: 'fillet',
+    productName: 'Chicken Breast Fillets 500g',
+    price: 11,
+    packs: 1,
+  };
+  const kyiv: GroceryLineQuote = {
+    ...fillet,
+    productId: 'kyiv',
+    productName: 'Chicken Breast Kyiv 700g',
+    price: 6,
+  };
+
+  it('replaces one chain and remembers the product', () => {
+    const next = applyCataloguePick(
+      { name: 'chicken breast', amount: '500g', quotes: [kyiv] },
+      { name: 'chicken breast', amount: '500g' },
+      fillet,
+    );
+    expect(next.quotes.map((row) => row.productId)).toEqual(['fillet']);
+    expect(next.pins).toEqual([{ chainId: 'woolworths', productId: 'fillet' }]);
+  });
+
+  it('keeps a pinned product when a re-check would pick another', () => {
+    const quotes = quotesWithPins([kyiv], [fillet], [{ chainId: 'woolworths', productId: 'fillet' }]);
+    expect(quotes.map((row) => row.productId)).toEqual(['fillet']);
   });
 });
 

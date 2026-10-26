@@ -1,6 +1,7 @@
 import { Linking, Platform } from 'react-native';
 
-const GROK_WEB = 'https://grok.com/connectors';
+const GROK_BOT_APP = 'grokbot://';
+const GROK_BOT_INSTALL = 'https://x.ai/bot';
 
 function isPublicHttps(value: string): boolean {
   try {
@@ -37,18 +38,32 @@ export function connectorIsPublic(address: string): boolean {
   }
 }
 
-export async function openGrokConnectors(): Promise<void> {
+export function grokBotConnectMessage(address: string): string {
+  return `Add a custom MCP server called Kinexus at ${address} using streamable HTTP.`;
+}
+
+function openGrokBotWeb(): void {
+  if (typeof document === 'undefined') return;
+  const link = document.createElement('a');
+  link.href = GROK_BOT_APP;
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+export async function openGrokBot(): Promise<void> {
   if (Platform.OS === 'web') {
-    if (typeof window !== 'undefined') window.open(GROK_WEB, '_blank', 'noopener,noreferrer');
+    openGrokBotWeb();
     return;
   }
   try {
-    if (await Linking.canOpenURL('grok://connectors')) {
-      await Linking.openURL('grok://connectors');
+    if (await Linking.canOpenURL(GROK_BOT_APP)) {
+      await Linking.openURL(GROK_BOT_APP);
       return;
     }
   } catch {
-    // A store build lists the grok scheme so this check can succeed.
+    // A store build lists the grokbot scheme so this check can succeed.
   }
-  await Linking.openURL(GROK_WEB);
+  await Linking.openURL(GROK_BOT_INSTALL);
 }

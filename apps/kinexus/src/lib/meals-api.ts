@@ -175,7 +175,7 @@ export type GroceryConnector = {
 };
 
 export async function createGroceryConnector(householdId: string): Promise<{ token: string; mcpUrl: string; connector: GroceryConnector }> {
-  return post('/grocery/connectors', { householdId, label: 'Grok' });
+  return post('/grocery/connectors', { householdId, label: 'Grok Bot' });
 }
 
 export async function listGroceryConnectors(householdId: string): Promise<{ connectors: GroceryConnector[] }> {

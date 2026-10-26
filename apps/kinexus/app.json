@@ -11,7 +11,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.peezapp.kinexus",
       "infoPlist": {
-        "LSApplicationQueriesSchemes": ["grok"]
+        "LSApplicationQueriesSchemes": ["grokbot"]
       }
     },
     "android": {

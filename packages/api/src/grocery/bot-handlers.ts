@@ -105,11 +105,11 @@ export async function handleShoppingMcp(request: Request): Promise<{ status: num
   if (!connector) {
     return {
       status: 401,
-      body: { jsonrpc: '2.0', id: message?.id ?? null, error: { code: -32001, message: 'Connect Grok with a Kinexus token.' } },
+      body: { jsonrpc: '2.0', id: message?.id ?? null, error: { code: -32001, message: 'Connect Grok Bot with a Kinexus token.' } },
     };
   }
   return mcpResult(payload, SHOPPING_MCP_TOOLS, async (name, args) => {
-    if (!connector) throw new Error('Connect Grok with a Kinexus token.');
+    if (!connector) throw new Error('Connect Grok Bot with a Kinexus token.');
     const weekStart = asWeekStart(args.weekStart);
     if (name === 'get_shopping_order') {
       const order = await loadTrolleyOrder(connector.householdId, weekStart);

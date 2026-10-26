@@ -12,7 +12,7 @@ import {
   type GroceryConnector,
 } from '@/src/lib/meals-api';
 import { colors, radius } from '@/src/features/shell/theme';
-import { connectorAddress, connectorIsPublic, openGrokConnectors } from '@/src/lib/grok-connect';
+import { connectorAddress, connectorIsPublic, grokBotConnectMessage, openGrokBot } from '@/src/lib/grok-connect';
 
 export function ShoppingBot({
   householdId,
@@ -72,18 +72,14 @@ export function ShoppingBot({
     setError(null);
     setBusy('connect');
     setConnectOpen(true);
-    const grok =
-      Platform.OS === 'web' && typeof window !== 'undefined'
-        ? window.open('https://grok.com/connectors', '_blank', 'noopener,noreferrer')
-        : null;
     try {
       const created = await createGroceryConnector(householdId);
       const address = connectorAddress(created.mcpUrl, created.token);
       setIssued({ address, token: created.token });
-      await Clipboard.setStringAsync(address);
-      if (!grok) await openGrokConnectors();
+      await Clipboard.setStringAsync(grokBotConnectMessage(address));
+      await openGrokBot();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not connect Grok.');
+      setError(err instanceof Error ? err.message : 'Could not connect Grok Bot.');
     } finally {
       setBusy(null);
     }
@@ -107,7 +103,7 @@ export function ShoppingBot({
       </View>
       <View style={styles.actions}>
         <Btn label="Fill trolley" variant="secondary" disabled={!online || !preferredChainId || busy != null} busy={busy === 'trolley'} onPress={() => void fill()} />
-        <Btn label="Connect Grok" variant="ghost" disabled={!online || busy != null} busy={busy === 'connect'} onPress={() => void connect()} />
+        <Btn label="Connect Grok Bot" variant="ghost" disabled={!online || busy != null} busy={busy === 'connect'} onPress={() => void connect()} />
       </View>
       {note ? <Text style={styles.note}>{note}</Text> : null}
       <ErrorText message={error} />
@@ -154,15 +150,17 @@ function ConnectSheet({
   }, [householdId, visible, issued?.token]);
 
   return (
-    <Sheet visible={visible} title="Connect Grok" onClose={onClose}>
+    <Sheet visible={visible} title="Connect Grok Bot" onClose={onClose}>
       <View style={styles.sheet}>
         <ErrorText message={error ?? localError} />
         {issued ? (
           <View style={styles.secret}>
-            <CopyRow label="Address" value={issued.address} />
-            <CopyRow label="Token" value={issued.token} />
+            <CopyRow label="Message" value={grokBotConnectMessage(issued.address)} />
+            <Pressable onPress={() => void openGrokBot()}>
+              <Text style={styles.shopText}>Open Grok Bot</Text>
+            </Pressable>
             {connectorIsPublic(issued.address) ? null : (
-              <Text style={styles.note}>Grok needs the deployed https address. This one only works on this computer.</Text>
+              <Text style={styles.note}>Grok Bot needs the deployed https address. This one only works on this computer.</Text>
             )}
           </View>
         ) : null}

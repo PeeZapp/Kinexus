@@ -89,20 +89,27 @@ type HouseholdContextValue = {
 
 const HouseholdContext = createContext<HouseholdContextValue | null>(null);
 
-function mapHousehold(row: {
-  id: string;
-  name: string;
-  country: string | null;
-  currency: string | null;
-  timezone: string | null;
-  created_at: string;
-}): Household {
+function mapHousehold(
+  row: {
+    id: string;
+    name: string;
+    country: string | null;
+    currency: string | null;
+    timezone: string | null;
+    created_at: string;
+    preferred_grocery_chain?: string | null;
+  },
+  fallbackChain: string | null = null,
+): Household {
+  const preferredGroceryChain =
+    'preferred_grocery_chain' in row ? (row.preferred_grocery_chain ?? null) : fallbackChain;
   return {
     id: row.id,
     name: row.name,
     country: row.country,
     currency: row.currency,
     timezone: row.timezone,
+    preferredGroceryChain,
     createdAt: row.created_at,
   };
 }
@@ -179,24 +186,27 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
 
     if (membershipError) throw membershipError;
 
-    const nextMemberships = (data ?? []).flatMap((row) => {
+    const nextRows = (data ?? []).flatMap((row) => {
       const householdRow = row.households;
       if (!householdRow || Array.isArray(householdRow)) return [];
-      return [
-        {
-          role: row.role,
-          joinedAt: row.joined_at,
-          household: mapHousehold(householdRow),
-        },
-      ];
+      return [{ role: row.role, joinedAt: row.joined_at, householdRow }];
     });
 
-    setMemberships(nextMemberships);
+    setMemberships((current) =>
+      nextRows.map((row) => {
+        const previous = current.find((item) => item.household.id === row.householdRow.id)?.household.preferredGroceryChain ?? null;
+        return {
+          role: row.role,
+          joinedAt: row.joinedAt,
+          household: mapHousehold(row.householdRow, previous),
+        };
+      }),
+    );
 
     const storedId = preferredHouseholdId ?? (await readActiveHouseholdId());
     const resolvedId =
-      nextMemberships.find((m) => m.household.id === storedId)?.household.id ??
-      nextMemberships[0]?.household.id ??
+      nextRows.find((row) => row.householdRow.id === storedId)?.householdRow.id ??
+      nextRows[0]?.householdRow.id ??
       null;
 
     setActiveId(resolvedId);
@@ -433,11 +443,18 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
           p_chain: chainId,
         });
         if (updateError) {
-          if (/preferred_grocery_chain|schema cache/i.test(updateError.message)) {
+          if (/preferred_grocery_chain|schema cache|could not find the function/i.test(updateError.message)) {
             throw new Error('Choosing a shop needs the latest database migration.');
           }
           throw updateError;
         }
+        setMemberships((current) =>
+          current.map((membership) =>
+            membership.household.id === activeHousehold.id
+              ? { ...membership, household: { ...membership.household, preferredGroceryChain: chainId } }
+              : membership,
+          ),
+        );
         if (user) await load(user.id, activeHousehold.id);
       },
       createInvite: async (inviteRole) => {

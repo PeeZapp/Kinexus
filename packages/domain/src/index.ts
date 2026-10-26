@@ -140,6 +140,7 @@ export {
   GROCERY_CHAINS,
   groceryChainById,
   lookupChainsForCountry,
+  shopCartUrl,
   trolleyOrder,
   trolleyShopUrl,
   applyCataloguePick,

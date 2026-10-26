@@ -1,13 +1,25 @@
-const STORAGE_KEY = 'kinexus-trolley';
+const STORAGE_KEY = 'kinexus-trolley-lines';
 const COLES_KEY = 'eae83861d1cd4de6bb9cd8a2cd6f041e';
+
+function decodeLines(value) {
+  try {
+    const pad = value.length % 4 === 0 ? '' : '='.repeat(4 - (value.length % 4));
+    const rows = JSON.parse(atob(value.replace(/-/g, '+').replace(/_/g, '/') + pad));
+    if (!Array.isArray(rows)) return [];
+    return rows
+      .map((row) => ({ productId: String(row[0] ?? ''), packs: Number(row[1]) }))
+      .filter((row) => row.productId && row.packs > 0);
+  } catch {
+    return [];
+  }
+}
 
 function capture() {
   const raw = location.hash.startsWith('#') ? location.hash.slice(1) : '';
   const params = new URLSearchParams(raw);
-  const token = params.get('kinexus_handoff');
-  const api = params.get('kinexus_api');
-  if (!token || !api) return;
-  sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ token, api }));
+  const lines = decodeLines(params.get('kinexus_lines') ?? '');
+  if (!lines.length) return;
+  sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ lines }));
   history.replaceState(null, '', location.pathname + location.search);
 }
 
@@ -40,6 +52,7 @@ async function addWoolworths(lines) {
       })),
     }),
   });
+  if (response.status === 401 || response.status === 403) throw new Error('Sign in to Woolworths, then refresh this cart.');
   if (!response.ok) throw new Error('Woolworths did not take the trolley update.');
 }
 
@@ -55,26 +68,18 @@ async function addColes(lines) {
       items: lines.map((line) => ({ productId: String(line.productId), quantity: line.packs })),
     }),
   });
-  if (response.status === 401 || response.status === 403) throw new Error('Sign in to Coles, then open the trolley link again.');
+  if (response.status === 401 || response.status === 403) throw new Error('Sign in to Coles, then refresh this cart.');
   if (!response.ok) throw new Error('Coles did not take the trolley update.');
 }
 
 async function run(job) {
-  const api = String(job.api).replace(/\/$/, '');
-  const response = await fetch(`${api}/grocery/handoff?token=${encodeURIComponent(job.token)}`);
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || 'Could not read the shopping list.');
-  const lines = Array.isArray(body.lines) ? body.lines : [];
-  if (lines.length === 0) throw new Error('Nothing matched to add.');
+  const lines = Array.isArray(job.lines) ? job.lines : [];
+  if (lines.length === 0) throw new Error('Open Fill trolley again from Kinexus.');
   const host = location.hostname;
   if (host.endsWith('woolworths.com.au')) await addWoolworths(lines);
   else if (host.endsWith('coles.com.au')) await addColes(lines);
   else throw new Error('Open this link on Coles or Woolworths.');
-  const skipped = Array.isArray(body.skipped) ? body.skipped.map((row) => row.name).filter(Boolean) : [];
-  overlay(
-    `Added ${lines.length} to your trolley`,
-    skipped.length ? [`Still to match: ${skipped.join(', ')}`, 'Checkout stays on this site.'] : ['Checkout stays on this site.'],
-  );
+  overlay(`Added ${lines.length} to your trolley`, ['Checkout stays on this site.']);
 }
 
 capture();
@@ -83,8 +88,9 @@ if (saved) {
   sessionStorage.removeItem(STORAGE_KEY);
   const start = () => {
     run(JSON.parse(saved)).catch((err) => {
-      sessionStorage.setItem(STORAGE_KEY, saved);
-      overlay('Trolley not filled', [err instanceof Error ? err.message : 'Could not add those products.']);
+      const message = err instanceof Error ? err.message : 'Could not add those products.';
+      if (message !== 'Open Fill trolley again from Kinexus.') sessionStorage.setItem(STORAGE_KEY, saved);
+      overlay('Trolley not filled', [message]);
     });
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);

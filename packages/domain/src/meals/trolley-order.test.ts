@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { trolleyOrder } from './trolley-order';
+import { shopCartUrl, trolleyLinesParam, trolleyOrder, trolleyShopUrl } from './trolley-order';
 import type { StoredGroceryQuote } from './grocery-compare';
 
 function quote(chainId: string, productId: string, productName: string): StoredGroceryQuote {
@@ -21,6 +21,19 @@ function quote(chainId: string, productId: string, productName: string): StoredG
     ],
   };
 }
+
+describe('shopCartUrl', () => {
+  it('opens the Coles or Woolworths cart', () => {
+    expect(shopCartUrl('coles')).toBe('https://www.coles.com.au/checkout');
+    expect(shopCartUrl('woolworths')).toBe('https://www.woolworths.com.au/shop/cart');
+  });
+
+  it('carries the products in the shop link', () => {
+    const url = trolleyShopUrl('woolworths', 'tok', 'https://kinexus.example', [{ productId: '123', packs: 2 }]);
+    const lines = new URLSearchParams(new URL(url).hash.slice(1)).get('kinexus_lines');
+    expect(lines).toBe(trolleyLinesParam([{ productId: '123', packs: 2 }]));
+  });
+});
 
 describe('trolleyOrder', () => {
   const breast = {

@@ -3,6 +3,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CreatorPanel } from '@/src/features/creators/CreatorPanel';
 import { GoogleCalendarPanel } from '@/src/features/household/GoogleCalendarPanel';
+import { GrokBotSettings } from '@/src/features/household/GrokBotSettings';
 import { RecipeImageUploadLink } from '@/src/features/household/RecipeImageUploadLink';
 import { RolePreviewCard } from '@/src/features/household/RolePreview';
 import {
@@ -67,6 +68,7 @@ export function SettingsMobile() {
       <RecipeImageUploadLink />
       <HouseholdSwitcher />
       <GoogleCalendarPanel />
+      <GrokBotSettings />
       <LocationPanel />
       <InvitePanel />
       <MembersList members={members} />

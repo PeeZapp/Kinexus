@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 
-import { groceryChainById, trolleyShopUrl } from '@kinexus/domain';
+import { groceryChainById, shopCartUrl, trolleyShopUrl } from '@kinexus/domain';
 
+import { stageShopFill } from '@/src/features/meals/shopping/shop-fill';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
 type Handoff = {
   chainId: string;
-  lines: { itemId: string; name: string; productName: string; packs: number }[];
+  lines: { itemId: string; name: string; productName: string; productId?: string; packs: number }[];
   skipped: { itemId: string; name: string }[];
 };
 
@@ -20,6 +21,7 @@ function shoppingApiBase(): string {
 }
 
 export default function TrolleyHandoffScreen() {
+  const router = useRouter();
   const params = useLocalSearchParams<{ token?: string }>();
   const token = typeof params.token === 'string' ? params.token : '';
   const [handoff, setHandoff] = useState<Handoff | null>(null);
@@ -51,9 +53,25 @@ export default function TrolleyHandoffScreen() {
 
   function openShop() {
     if (!handoff || !token || !api) return;
-    const url = trolleyShopUrl(handoff.chainId, token, api);
-    if (Platform.OS === 'web') window.open(url, '_blank', 'noopener');
-    else void Linking.openURL(url);
+    const lines = handoff.lines.filter((line) => line.productId && line.packs > 0);
+    const url = lines.length ? trolleyShopUrl(handoff.chainId, token, api, lines) : shopCartUrl(handoff.chainId);
+    if (lines.length) {
+      stageShopFill({
+        chainId: handoff.chainId,
+        chainName: shop,
+        lines: lines.map((line) => ({
+          productId: line.productId ?? '',
+          productName: line.productName,
+          packs: line.packs,
+        })),
+        skipped: handoff.skipped.map((row) => row.name),
+        shopUrl: url,
+      });
+      if (Platform.OS === 'web') window.open(url, 'kinexus-shop');
+      router.push('/shop' as Href);
+      return;
+    }
+    if (Platform.OS === 'web') window.open(url, 'kinexus-shop');
   }
 
   return (

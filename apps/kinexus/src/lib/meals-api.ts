@@ -197,7 +197,12 @@ export async function createGroceryHandoff(input: {
 }): Promise<{
   reviewUrl: string;
   shopUrl: string;
-  order: { chainId: string; chainName: string; lines: { name: string; productName: string; packs: number }[]; skipped: { name: string }[] };
+  order: {
+    chainId: string;
+    chainName: string;
+    lines: { name: string; productName: string; productId: string; packs: number }[];
+    skipped: { name: string }[];
+  };
 }> {
   return post('/grocery/handoff', input);
 }

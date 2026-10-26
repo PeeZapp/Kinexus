@@ -15,7 +15,12 @@ import { useAuth } from '@/src/lib/auth';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 
 export function AppChrome({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const { mode, previewSurface, previewEnabled } = useExperienceMode();
+
+  if (pathname === '/shop') {
+    return <View style={styles.shopRoot}>{children}</View>;
+  }
 
   if (previewSurface === 'phone' || previewSurface === 'tablet') {
     const framed =
@@ -86,6 +91,10 @@ function MobileShell({ children }: { children: ReactNode }) {
 }
 
 const styles = StyleSheet.create({
+  shopRoot: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
   desktopRoot: {
     flex: 1,
     flexDirection: 'row',

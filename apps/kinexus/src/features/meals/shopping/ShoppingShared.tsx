@@ -8,7 +8,6 @@ import type { ShoppingListItem } from '@/src/features/meals/mappers';
 import type { ShoppingItemPrice } from '@/src/features/meals/shopping/use-grocery-prices';
 import { OfflineBanner, Sheet } from '@/src/features/meals/meals-kit';
 import { WeekSwitcher } from '@/src/features/meals/plan/PlanShared';
-import { weekPlanPhrase } from '@/src/features/meals/week-labels';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
 type DetailSheet =
@@ -415,7 +414,6 @@ export function ShoppingChrome({
     <ScrollView style={styles.root} contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}>
       <Text style={[styles.title, desktop && styles.titleDesktop]}>Shopping</Text>
       <WeekSwitcher weekStart={weekStart} onPrev={onPrevWeek} onNext={onNextWeek} />
-      <Text style={styles.lede}>Built from {weekPlanPhrase(weekStart)}. Check-off needs a connection.</Text>
       <OfflineBanner online={online} pendingCount={pendingCount} extra={importBlockedReason} />
       <ErrorText message={error} />
       <ErrorText message={shoppingError} />
@@ -444,7 +442,6 @@ const styles = StyleSheet.create({
   contentDesktop: { paddingHorizontal: 48, paddingTop: 8, maxWidth: 1100 },
   title: { color: colors.text, fontSize: 28, fontWeight: '700' },
   titleDesktop: { fontSize: 40 },
-  lede: { color: colors.textMuted, fontSize: 15 },
   toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
   toolbarDesktop: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'center' },
   totalCard: {

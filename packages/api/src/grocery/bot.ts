@@ -23,8 +23,13 @@ export function hashGroceryToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-export function shopPageUrl(chainId: string, token: string, apiOrigin: string): string {
-  return trolleyShopUrl(chainId, token, apiOrigin);
+export function shopPageUrl(
+  chainId: string,
+  token: string,
+  apiOrigin: string,
+  lines: readonly { productId: string; packs: number }[] = [],
+): string {
+  return trolleyShopUrl(chainId, token, apiOrigin, lines);
 }
 
 export function reviewPageUrl(token: string, siteOrigin?: string): string {
@@ -209,7 +214,12 @@ async function insertHandoff(
     expires_at: new Date(Date.now() + HANDOFF_MS).toISOString(),
   });
   if (error) return { ok: false, error: error.message, status: 400 };
-  return { ok: true, reviewUrl: reviewPageUrl(token, apiOrigin), shopUrl: shopPageUrl(order.chainId, token, apiOrigin), order };
+  return {
+    ok: true,
+    reviewUrl: reviewPageUrl(token, apiOrigin),
+    shopUrl: shopPageUrl(order.chainId, token, apiOrigin, order.lines),
+    order,
+  };
 }
 
 export async function createGroceryHandoff(

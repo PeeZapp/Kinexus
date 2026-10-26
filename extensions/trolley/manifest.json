@@ -14,7 +14,8 @@
     {
       "matches": ["https://www.woolworths.com.au/*", "https://www.coles.com.au/*"],
       "js": ["fill.js"],
-      "run_at": "document_start"
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ]
 }

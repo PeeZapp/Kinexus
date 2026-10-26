@@ -58,12 +58,28 @@ export function trolleyOrder(items: readonly OrderItem[], chainId: string): Trol
   return { chainId: chain.id, chainName: chain.name, lines, skipped };
 }
 
+/** Shop cart page. The app loads this inside Kinexus and adds the matched products there. */
+export function shopCartUrl(chainId: string): string {
+  return chainId === 'coles' ? 'https://www.coles.com.au/checkout' : 'https://www.woolworths.com.au/shop/cart';
+}
+
+/** Compact product list carried in the shop link. The helper reads it and does not call Kinexus. */
+export function trolleyLinesParam(lines: readonly { productId: string; packs: number }[]): string {
+  const json = JSON.stringify(lines.map((line) => [String(line.productId), line.packs]));
+  return btoa(json).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
 /** Opens the shop with a handoff the browser helper can read. The hash stays in the browser. */
-export function trolleyShopUrl(chainId: string, token: string, apiOrigin: string): string {
-  const page = chainId === 'coles' ? 'https://www.coles.com.au/checkout' : 'https://www.woolworths.com.au/shop/cart';
+export function trolleyShopUrl(
+  chainId: string,
+  token: string,
+  apiOrigin: string,
+  lines: readonly { productId: string; packs: number }[] = [],
+): string {
   const hash = new URLSearchParams({
     kinexus_handoff: token,
     kinexus_api: apiOrigin.replace(/\/$/, ''),
   });
-  return `${page}#${hash.toString()}`;
+  if (lines.length) hash.set('kinexus_lines', trolleyLinesParam(lines));
+  return `${shopCartUrl(chainId)}#${hash.toString()}`;
 }

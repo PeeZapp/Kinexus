@@ -193,7 +193,7 @@ export {
 } from './markets';
 export type { GroceryMarket } from './markets';
 
-export { trolleyOrder, trolleyShopUrl } from './trolley-order';
+export { shopCartUrl, trolleyOrder, trolleyShopUrl } from './trolley-order';
 export type { TrolleyLine, TrolleyOrder, TrolleySkip } from './trolley-order';
 
 export { GROCERY_CHAINS, groceryChainById, lookupChainsForCountry } from './grocery-chains';

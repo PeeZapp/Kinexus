@@ -39,12 +39,7 @@ export function ShoppingShops({
         <Text style={styles.hint}>No confident price for these items.</Text>
       ) : null}
       {chains.length > 0 ? (
-        <View style={styles.recheck}>
-          <Text style={styles.hint}>
-            Prices stay on this list.
-          </Text>
-          <Btn label="Re-check prices" variant="secondary" disabled={!online || busy} busy={busy} onPress={onRecheck} />
-        </View>
+        <Btn label="Re-check prices" variant="secondary" disabled={!online || busy} busy={busy} onPress={onRecheck} />
       ) : null}
     </View>
   );
@@ -73,7 +68,6 @@ function ShopTotals({ comparison }: { comparison: GroceryComparison }) {
 
 const styles = StyleSheet.create({
   wrap: { gap: 10 },
-  recheck: { gap: 8 },
   hint: { color: colors.textMuted, fontSize: 12 },
   total: {
     flexDirection: 'row',

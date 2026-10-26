@@ -22,14 +22,21 @@ export const ShopBrowser = forwardRef<
   }
 >(function ShopBrowser({ cartUrl, lines, onResult, onStart }, ref) {
   const webview = useRef<WebView>(null);
-  const auto = useRef(false);
+  const filled = useRef(false);
+  const inflight = useRef(false);
   const script = shopFillScript(lines);
 
-  function add() {
+  function add(force = false) {
+    if (filled.current) return;
+    if (inflight.current && !force) return;
+    inflight.current = true;
+    onStart?.();
     webview.current?.injectJavaScript(script);
   }
 
-  useImperativeHandle(ref, () => ({ add }));
+  useImperativeHandle(ref, () => ({
+    add: () => add(true),
+  }));
 
   return (
     <WebView
@@ -43,17 +50,16 @@ export const ShopBrowser = forwardRef<
       javaScriptEnabled
       setSupportMultipleWindows
       onLoadEnd={(event) => {
-        const url = event.nativeEvent.url;
-        if (auto.current || !isShopCart(url)) return;
-        auto.current = true;
-        onStart?.();
-        add();
+        if (isShopCart(event.nativeEvent.url)) add();
       }}
       onMessage={(event: WebViewMessageEvent) => {
+        inflight.current = false;
         try {
           const body = JSON.parse(event.nativeEvent.data) as { ok?: boolean; added?: number; error?: string };
-          if (body.ok) onResult({ ok: true, added: body.added ?? lines.length });
-          else onResult({ ok: false, error: body.error || 'The shop did not take the trolley.' });
+          if (body.ok) {
+            filled.current = true;
+            onResult({ ok: true, added: body.added ?? lines.length });
+          } else onResult({ ok: false, error: body.error || 'The shop did not take the trolley.' });
         } catch {
           onResult({ ok: false, error: 'The shop did not take the trolley.' });
         }

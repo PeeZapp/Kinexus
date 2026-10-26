@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 export const MOBILE_SHELL_MAX_WIDTH = 900;
 
 /** iPhone-class viewport used by the dev phone frame. */
@@ -21,6 +23,13 @@ export function isStandalonePwa(): boolean {
     window.matchMedia('(display-mode: fullscreen)').matches ||
     window.matchMedia('(display-mode: minimal-ui)').matches
   );
+}
+
+/** Phone and tablet browsers cannot add to a shop trolley. Desktop web can, and the installed app can. */
+export function canFillTrolley(): boolean {
+  if (Platform.OS === 'ios' || Platform.OS === 'android') return true;
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
+  return getPwaInstallPlatform() === 'other';
 }
 
 export function getPwaInstallPlatform(): PwaInstallPlatform {

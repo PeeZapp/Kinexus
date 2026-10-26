@@ -7,6 +7,7 @@ import { shopCartUrl } from '@kinexus/domain';
 import { Btn, ErrorText } from '@/src/features/household/ui';
 import { stageShopFill } from '@/src/features/meals/shopping/shop-fill';
 import { createGroceryHandoff } from '@/src/lib/meals-api';
+import { canFillTrolley } from '@/src/lib/pwa';
 import { colors, radius } from '@/src/features/shell/theme';
 
 export function ShoppingBot({
@@ -90,12 +91,14 @@ export function ShoppingBot({
           );
         })}
       </View>
-      <Btn
-        label="Fill trolley"
-        disabled={!online || !preferredChainId || busy != null}
-        busy={busy === 'trolley'}
-        onPress={() => void fill()}
-      />
+      {canFillTrolley() ? (
+        <Btn
+          label="Fill trolley"
+          disabled={!online || !preferredChainId || busy != null}
+          busy={busy === 'trolley'}
+          onPress={() => void fill()}
+        />
+      ) : null}
       <ErrorText message={error} />
     </View>
   );

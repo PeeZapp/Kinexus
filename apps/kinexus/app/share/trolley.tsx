@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { groceryChainById, shopCartUrl, trolleyShopUrl } from '@kinexus/domain';
 
 import { stageShopFill } from '@/src/features/meals/shopping/shop-fill';
+import { canFillTrolley } from '@/src/lib/pwa';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
 type Handoff = {
@@ -80,9 +81,11 @@ export default function TrolleyHandoffScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {handoff ? (
         <>
-          <Pressable onPress={openShop} style={styles.button}>
-            <Text style={styles.buttonText}>Add to trolley</Text>
-          </Pressable>
+          {canFillTrolley() ? (
+            <Pressable onPress={openShop} style={styles.button}>
+              <Text style={styles.buttonText}>Add to trolley</Text>
+            </Pressable>
+          ) : null}
           {handoff.lines.map((line) => (
             <View key={line.itemId} style={styles.row}>
               <Text style={styles.name}>{line.productName}</Text>

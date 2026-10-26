@@ -12,6 +12,13 @@ type Handoff = {
   skipped: { itemId: string; name: string }[];
 };
 
+function shoppingApiBase(): string {
+  const configured = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
+  if (configured) return configured;
+  if (Platform.OS === 'web' && typeof window !== 'undefined') return window.location.origin;
+  return '';
+}
+
 export default function TrolleyHandoffScreen() {
   const params = useLocalSearchParams<{ token?: string }>();
   const token = typeof params.token === 'string' ? params.token : '';
@@ -19,7 +26,7 @@ export default function TrolleyHandoffScreen() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const api = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
+    const api = shoppingApiBase();
     if (!token || !api) {
       setError(token ? 'The shopping API is not configured.' : 'This trolley link is missing.');
       return;
@@ -40,7 +47,7 @@ export default function TrolleyHandoffScreen() {
   }, [token]);
 
   const shop = handoff ? groceryChainById(handoff.chainId)?.name ?? 'Shop' : 'Trolley';
-  const api = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
+  const api = shoppingApiBase();
 
   function openShop() {
     if (!handoff || !token || !api) return;

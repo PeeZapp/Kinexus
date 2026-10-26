@@ -1,3 +1,5 @@
+import { fetchViaResidentialProxy, residentialProxyConfigured } from '../scrape/residential-proxy.js';
+
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
@@ -56,16 +58,51 @@ export async function catalogueFetch(origin: string, url: string, init: RequestI
   return response;
 }
 
-export async function catalogueJson<T>(origin: string, url: string, init: RequestInit = {}): Promise<T> {
-  let response = await catalogueFetch(origin, url, init);
-  let body = await response.text();
-  if (catalogueLooksBlocked(response, body)) {
-    jars.delete(origin);
-    response = await catalogueFetch(origin, url, init);
-    body = await response.text();
-  }
+function forwardHeaders(init: RequestInit): Record<string, string> {
+  const headers: Record<string, string> = {};
+  new Headers(init.headers).forEach((value, key) => {
+    headers[key] = value;
+  });
+  headers['user-agent'] = USER_AGENT;
+  headers.accept = headers.accept ?? 'application/json';
+  delete headers.cookie;
+  return headers;
+}
+
+async function catalogueViaProxy(origin: string, url: string, init: RequestInit): Promise<Response | null> {
+  if (!residentialProxyConfigured()) return null;
+  return fetchViaResidentialProxy({
+    url,
+    method: init.method,
+    headers: forwardHeaders(init),
+    body: typeof init.body === 'string' ? init.body : '',
+    cookieFrom: origin,
+  });
+}
+
+function catalogueResult<T>(response: Response, body: string): T {
   if (!response.ok || catalogueLooksBlocked(response, body)) {
     throw new Error(`Catalogue did not return prices (${response.status})`);
   }
   return JSON.parse(body) as T;
+}
+
+export async function catalogueJson<T>(origin: string, url: string, init: RequestInit = {}): Promise<T> {
+  if (process.env.VERCEL === '1' && residentialProxyConfigured()) {
+    const proxied = await catalogueViaProxy(origin, url, init);
+    if (!proxied) throw new Error('Catalogue did not return prices (502)');
+    return catalogueResult(proxied, await proxied.text());
+  }
+
+  let response = await catalogueFetch(origin, url, init);
+  let body = await response.text();
+  if (catalogueLooksBlocked(response, body)) {
+    jars.delete(origin);
+    const proxied = await catalogueViaProxy(origin, url, init);
+    if (proxied) {
+      response = proxied;
+      body = await proxied.text();
+    }
+  }
+  return catalogueResult(response, body);
 }

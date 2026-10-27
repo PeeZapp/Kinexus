@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
 
-import { approvedRecipeIdsForLibraryFilter } from '@kinexus/domain';
+import { approvedRecipeIdsForLibraryFilter, recipeForHouseholdView } from '@kinexus/domain';
 
 import { RecipesDesktop } from '@/src/features/meals/recipes/RecipesDesktop';
 import { RecipesMobile } from '@/src/features/meals/recipes/RecipesMobile';
@@ -50,10 +50,17 @@ export function RecipesScreen() {
   const userId = user && !user.isDevBypass ? user.id : null;
   const restricted = isRestrictedPicker({ role, people, userId });
   const linked = linkedPersonForUser(people, userId);
-  const allowedIds =
-    restricted && linked
-      ? approvedRecipeIdsForLibraryFilter(meals.slotApprovals, linked.id, allowlistKey(meal))
-      : null;
+  const allowedIds = useMemo(() => {
+    if (!restricted || !linked) return null;
+    const raw = approvedRecipeIdsForLibraryFilter(meals.slotApprovals, linked.id, allowlistKey(meal));
+    const resolved = new Set<string>();
+    for (const id of raw) {
+      resolved.add(id);
+      const visible = recipeForHouseholdView(meals.recipes, id);
+      if (visible) resolved.add(visible.id);
+    }
+    return resolved;
+  }, [linked, meal, meals.recipes, meals.slotApprovals, restricted]);
 
   useEffect(() => {
     setRecipesListUiState({ query, meal, library, showNotForFamily, sort, sortDir });

@@ -2293,6 +2293,343 @@ export type Database = {
         };
         Relationships: [];
       };
+      exercises: {
+        Row: {
+          id: string;
+          canonical_key: string;
+          name: string;
+          body_part: string;
+          equipment: string;
+          target_muscle: string;
+          secondary_muscles: string[];
+          instructions: string[];
+          media_url: string | null;
+          media_urls: string[];
+          media_kind: 'gif' | 'image' | null;
+          source: 'exercisedb' | 'public_domain' | 'wger';
+          license: string;
+          license_author: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          canonical_key: string;
+          name: string;
+          body_part?: string;
+          equipment?: string;
+          target_muscle?: string;
+          secondary_muscles?: string[];
+          instructions?: string[];
+          media_url?: string | null;
+          media_urls?: string[];
+          media_kind?: 'gif' | 'image' | null;
+          source: 'exercisedb' | 'public_domain' | 'wger';
+          license: string;
+          license_author?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          name?: string;
+          body_part?: string;
+          equipment?: string;
+          target_muscle?: string;
+          instructions?: string[];
+          media_url?: string | null;
+          media_urls?: string[];
+        };
+        Relationships: [];
+      };
+      workouts: {
+        Row: {
+          id: string;
+          household_id: string;
+          created_by: string | null;
+          name: string;
+          visibility: 'private' | 'household' | 'people';
+          split_id: string | null;
+          duration_min: number | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          household_id: string;
+          created_by?: string | null;
+          name: string;
+          visibility?: 'private' | 'household' | 'people';
+          split_id?: string | null;
+          duration_min?: number | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          name?: string;
+          visibility?: 'private' | 'household' | 'people';
+          split_id?: string | null;
+          duration_min?: number | null;
+        };
+        Relationships: [];
+      };
+      workout_exercises: {
+        Row: {
+          id: string;
+          workout_id: string;
+          household_id: string;
+          exercise_id: string | null;
+          name: string;
+          position: number;
+          target_sets: number;
+          target_reps: string;
+          superset_id: string | null;
+          target_weight: string;
+          note: string;
+        };
+        Insert: {
+          id?: string;
+          workout_id: string;
+          household_id: string;
+          exercise_id?: string | null;
+          name: string;
+          position: number;
+          target_sets?: number;
+          target_reps?: string;
+          superset_id?: string | null;
+          target_weight?: string;
+          note?: string;
+        };
+        Update: {
+          name?: string;
+          exercise_id?: string | null;
+          position?: number;
+          target_sets?: number;
+          target_reps?: string;
+          superset_id?: string | null;
+          target_weight?: string;
+          note?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'workout_exercises_workout_id_fkey';
+            columns: ['workout_id'];
+            isOneToOne: false;
+            referencedRelation: 'workouts';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      workout_people: {
+        Row: {
+          workout_id: string;
+          person_id: string;
+          household_id: string;
+        };
+        Insert: {
+          workout_id: string;
+          person_id: string;
+          household_id: string;
+        };
+        Update: {
+          person_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'workout_people_workout_id_fkey';
+            columns: ['workout_id'];
+            isOneToOne: false;
+            referencedRelation: 'workouts';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      workout_ratings: {
+        Row: {
+          workout_id: string;
+          user_id: string;
+          household_id: string;
+          score: number;
+          updated_at: string;
+        };
+        Insert: {
+          workout_id: string;
+          user_id: string;
+          household_id: string;
+          score: number;
+          updated_at?: string;
+        };
+        Update: {
+          score?: number;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'workout_ratings_workout_id_fkey';
+            columns: ['workout_id'];
+            isOneToOne: false;
+            referencedRelation: 'workouts';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      workout_user_notes: {
+        Row: {
+          workout_id: string;
+          user_id: string;
+          household_id: string;
+          exercise_position: number;
+          body: string;
+          updated_at: string;
+        };
+        Insert: {
+          workout_id: string;
+          user_id: string;
+          household_id: string;
+          exercise_position?: number;
+          body?: string;
+          updated_at?: string;
+        };
+        Update: {
+          body?: string;
+          exercise_position?: number;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'workout_user_notes_workout_id_fkey';
+            columns: ['workout_id'];
+            isOneToOne: false;
+            referencedRelation: 'workouts';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      workout_sessions: {
+        Row: {
+          id: string;
+          household_id: string;
+          user_id: string;
+          workout_id: string | null;
+          name: string;
+          remix_spec: string | null;
+          duration_min: number | null;
+          started_at: string;
+          finished_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          household_id: string;
+          user_id: string;
+          workout_id?: string | null;
+          name: string;
+          remix_spec?: string | null;
+          duration_min?: number | null;
+          started_at?: string;
+          finished_at?: string | null;
+        };
+        Update: {
+          name?: string;
+          workout_id?: string | null;
+          finished_at?: string | null;
+        };
+        Relationships: [];
+      };
+      workout_sets: {
+        Row: {
+          id: string;
+          session_id: string;
+          household_id: string;
+          user_id: string;
+          exercise_id: string | null;
+          exercise_name: string;
+          position: number;
+          set_index: number;
+          weight: string;
+          reps: string;
+          done: boolean;
+        };
+        Insert: {
+          id?: string;
+          session_id: string;
+          household_id: string;
+          user_id: string;
+          exercise_id?: string | null;
+          exercise_name: string;
+          position: number;
+          set_index: number;
+          weight?: string;
+          reps?: string;
+          done?: boolean;
+        };
+        Update: {
+          weight?: string;
+          reps?: string;
+          done?: boolean;
+          exercise_id?: string | null;
+          exercise_name?: string;
+        };
+        Relationships: [];
+      };
+      exercise_records: {
+        Row: {
+          user_id: string;
+          exercise_id: string;
+          last_weight: string;
+          last_reps: string;
+          best_weight: string;
+          best_reps: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          exercise_id: string;
+          last_weight?: string;
+          last_reps?: string;
+          best_weight?: string;
+          best_reps?: string;
+          updated_at?: string;
+        };
+        Update: {
+          last_weight?: string;
+          last_reps?: string;
+          best_weight?: string;
+          best_reps?: string;
+        };
+        Relationships: [];
+      };
+      rest_game_scores: {
+        Row: {
+          user_id: string;
+          game: string;
+          rest_seconds: number;
+          best_score: number;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          game: string;
+          rest_seconds: number;
+          best_score: number;
+          updated_at?: string;
+        };
+        Update: {
+          best_score?: number;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      user_train_prefs: {
+        Row: {
+          user_id: string;
+          rest_extra: 'off' | 'quiz' | 'memory';
+        };
+        Insert: {
+          user_id: string;
+          rest_extra?: 'off' | 'quiz' | 'memory';
+        };
+        Update: {
+          rest_extra?: 'off' | 'quiz' | 'memory';
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;
@@ -2458,6 +2795,14 @@ export type Database = {
       unpublish_creator_recipe: {
         Args: { p_recipe_id: string };
         Returns: undefined;
+      };
+      rest_game_tops: {
+        Args: Record<string, never>;
+        Returns: {
+          game: string;
+          rest_seconds: number;
+          best_score: number;
+        }[];
       };
       staff_creator_content_digest: {
         Args: { p_day?: string };

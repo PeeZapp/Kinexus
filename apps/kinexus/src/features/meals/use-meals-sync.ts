@@ -9,6 +9,7 @@ import {
   creatorPublishError,
   DAYS,
   dayIsRemovedFromPlan,
+  favouriteIdsForLibrary,
   findReplacingRecipe,
   hideReplacedCatalogRecipes,
   householdHideSlotMap,
@@ -1295,17 +1296,27 @@ export function useMealsSync() {
       if (!userId || !supabase) throw new Error('Sign in required');
       if (!online) throw new Error('Favourites need a connection');
       const current = favQuery.data ?? [];
-      const isFav = current.includes(recipeId);
-      queryClient.setQueryData<string[]>(favKey(userId), isFav ? current.filter((id) => id !== recipeId) : [...current, recipeId]);
+      const related = new Set<string>([recipeId]);
+      for (const recipe of recipesQuery.data ?? []) {
+        if (recipe.id === recipeId && recipe.creatorSourceRecipeId) related.add(recipe.creatorSourceRecipeId);
+        if (recipe.creatorSourceRecipeId === recipeId) related.add(recipe.id);
+        if (recipe.id === recipeId && recipe.replacesSource && recipe.sourcedFromRecipeId) related.add(recipe.sourcedFromRecipeId);
+        if (recipe.replacesSource && recipe.sourcedFromRecipeId === recipeId) related.add(recipe.id);
+      }
+      const isFav = [...related].some((id) => current.includes(id));
+      queryClient.setQueryData<string[]>(
+        favKey(userId),
+        isFav ? current.filter((id) => !related.has(id)) : [...current, recipeId],
+      );
       if (isFav) {
-        const { error } = await supabase.from('recipe_favourites').delete().eq('user_id', userId).eq('recipe_id', recipeId);
+        const { error } = await supabase.from('recipe_favourites').delete().eq('user_id', userId).in('recipe_id', [...related]);
         if (error) throw error;
       } else {
         const { error } = await supabase.from('recipe_favourites').insert({ user_id: userId, recipe_id: recipeId });
         if (error) throw error;
       }
     },
-    [favQuery.data, online, queryClient, userId],
+    [favQuery.data, online, queryClient, recipesQuery.data, userId],
   );
 
   const toggleNotForFamily = useCallback(
@@ -1763,6 +1774,10 @@ export function useMealsSync() {
     () => hideReplacedCatalogRecipes(overlayHiddenRecipes(recipesQuery.data ?? [], hiddenQuery.data ?? [])),
     [hiddenQuery.data, recipesQuery.data],
   );
+  const favouriteIds = useMemo(
+    () => favouriteIdsForLibrary(recipes, favQuery.data ?? []),
+    [favQuery.data, recipes],
+  );
   /** Household hide flags for week structure (dayPlanSlots / generate reserved days). */
   const slotMap = useMemo(() => householdHideSlotMap(slots), [slots]);
 
@@ -1794,7 +1809,7 @@ export function useMealsSync() {
     goals: goalsQuery.data,
     shoppingItems: shoppingQuery.data ?? [],
     shoppingCount: shoppingQuery.data?.length ?? 0,
-    favouriteIds: new Set(favQuery.data ?? []),
+    favouriteIds,
     isCatalogEditor: Boolean(editorQuery.data),
     catalogCount: recipes.filter((r) => r.householdId === null && !r.removed).length,
     isLoading: Boolean(householdId && online && (recipesQuery.isLoading || slotsQuery.isLoading)),

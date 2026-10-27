@@ -62,11 +62,11 @@ export function RecipeDetailScreen() {
   const [viewServings, setViewServings] = useState<number | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [removing, setRemoving] = useState(false);
-  const publishedCatalog = recipe
-    ? meals.recipes.find(
-        (r) => !r.householdId && !r.removed && r.creatorSourceRecipeId === recipe.id,
-      )
-    : undefined;
+  const publishedCatalog = Boolean(
+    recipe &&
+      (recipe.publishedCatalogId ||
+        meals.recipes.some((r) => !r.householdId && !r.removed && r.creatorSourceRecipeId === recipe.id)),
+  );
   const isOwnCreatorCatalog = Boolean(
     recipe &&
       !recipe.householdId &&

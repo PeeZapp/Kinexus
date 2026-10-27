@@ -69,7 +69,7 @@ export const MODULES: readonly AppModule[] = [
 
 export function visibleModules(role: HouseholdRole | null): readonly AppModule[] {
   return MODULES.filter((mod) => {
-    if (mod.key === 'nutrition' || mod.key === 'train') return false;
+    if (mod.key === 'nutrition') return false;
     if (mod.key === 'finances') return canViewFinances(role);
     return true;
   });

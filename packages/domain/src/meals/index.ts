@@ -174,7 +174,12 @@ export {
 export type { DietaryOption } from './dietary';
 
 export { recipePrintHtml } from './print-recipe';
-export { findReplacingRecipe, hideReplacedCatalogRecipes, recipeForHouseholdView } from './recipe-versions';
+export {
+  favouriteIdsForLibrary,
+  findReplacingRecipe,
+  hideReplacedCatalogRecipes,
+  recipeForHouseholdView,
+} from './recipe-versions';
 export {
   estimateRecipeNutrition,
   nutritionCoverageLow,

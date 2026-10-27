@@ -8,7 +8,7 @@ type WakeLockSentinelLike = {
 
 const KEEP_AWAKE_TAG = 'kinexus-cook';
 
-export function useWakeLock(active: boolean): void {
+export function useWakeLock(active: boolean, tag = KEEP_AWAKE_TAG): void {
   useEffect(() => {
     if (!active) return;
 
@@ -18,7 +18,7 @@ export function useWakeLock(active: boolean): void {
         try {
           const keepAwake = await import('expo-keep-awake');
           if (cancelled) return;
-          await keepAwake.activateKeepAwakeAsync(KEEP_AWAKE_TAG);
+          await keepAwake.activateKeepAwakeAsync(tag);
         } catch {
           // Keep-awake is optional on native builds that omit the module.
         }
@@ -26,7 +26,7 @@ export function useWakeLock(active: boolean): void {
       return () => {
         cancelled = true;
         void import('expo-keep-awake')
-          .then((keepAwake) => keepAwake.deactivateKeepAwake(KEEP_AWAKE_TAG))
+          .then((keepAwake) => keepAwake.deactivateKeepAwake(tag))
           .catch(() => undefined);
       };
     }
@@ -63,5 +63,5 @@ export function useWakeLock(active: boolean): void {
       }
       sentinel = null;
     };
-  }, [active]);
+  }, [active, tag]);
 }

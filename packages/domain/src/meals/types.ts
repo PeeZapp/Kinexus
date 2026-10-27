@@ -121,6 +121,11 @@ export type Recipe = {
   creatorPublishedAt?: string;
   /** Household recipe this catalog row was published from. */
   creatorSourceRecipeId?: string;
+  /**
+   * Library view only. Set when this household recipe was published and then edited,
+   * so the book can still treat the catalog row as already published.
+   */
+  publishedCatalogId?: string;
 };
 
 export type NutritionGoals = {

@@ -44,6 +44,7 @@
     { "source": "/watchlist/discover", "destination": "/api?__path=/watchlist/discover" },
     { "source": "/watchlist/people", "destination": "/api?__path=/watchlist/people" },
     { "source": "/watchlist/person", "destination": "/api?__path=/watchlist/person" },
+    { "source": "/watchlist/cast", "destination": "/api?__path=/watchlist/cast" },
     { "source": "/overview/places", "destination": "/api?__path=/overview/places" },
     { "source": "/overview/weather", "destination": "/api?__path=/overview/weather" },
     { "source": "/overview/news", "destination": "/api?__path=/overview/news" },

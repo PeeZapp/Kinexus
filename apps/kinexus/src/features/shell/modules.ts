@@ -76,14 +76,28 @@ export function visibleModules(role: HouseholdRole | null): readonly AppModule[]
 }
 
 export function moduleFromPath(pathname: string): AppModule | undefined {
+  // URL import / cook / share-intent sit outside /meals but belong to Meals nav.
+  if (
+    pathname.startsWith('/import') ||
+    pathname === '/recipes' ||
+    pathname.startsWith('/recipes/') ||
+    pathname.startsWith('/shareintent')
+  ) {
+    return MODULES.find((mod) => mod.key === 'meals');
+  }
   return MODULES.find((mod) => pathname === mod.href || pathname.startsWith(`${mod.href}/`));
+}
+
+export function isModulePathActive(mod: AppModule, pathname: string): boolean {
+  return moduleFromPath(pathname)?.key === mod.key;
 }
 
 export function titleFromPath(pathname: string): string {
   if (pathname === SETTINGS_PATH || pathname.startsWith(`${SETTINGS_PATH}/`)) return 'Settings';
   if (pathname.startsWith('/invite')) return 'Invite';
-  if (pathname.startsWith('/import')) return 'Import';
-  if (pathname === '/recipes' || pathname.startsWith('/recipes/')) return 'Cook';
+  if (pathname.startsWith('/import') || pathname.startsWith('/shareintent')) return 'Import';
+  if (pathname === '/recipes') return 'My Recipes';
+  if (pathname.startsWith('/recipes/')) return 'Cook';
   if (pathname === '/calendar' || pathname.startsWith('/calendar/')) return 'Calendar';
   if (pathname.startsWith('/lists/wishlists')) return 'Wishlists';
   if (pathname.startsWith('/lists/watchlist')) return 'Watchlist';

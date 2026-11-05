@@ -1,4 +1,5 @@
-import { View, type ViewStyle } from 'react-native';
+import { createElement, type CSSProperties, type ReactNode } from 'react';
+import { Platform, StyleSheet, View } from 'react-native';
 
 import type { Recipe } from '@kinexus/domain';
 
@@ -6,14 +7,21 @@ import { RecipeCard, RecipesChrome } from '@/src/features/meals/recipes/RecipesS
 import type { RecipeLibraryFilter, RecipeMealFilter, RecipeSort, SortDir } from '@/src/features/meals/recipes/filters';
 import { EmptyState } from '@/src/features/shell/states';
 
-const recipeGrid = {
+const webGrid: CSSProperties = {
   alignSelf: 'stretch',
   width: '100%',
   minWidth: 0,
   gap: 12,
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-} as ViewStyle;
+};
+
+function RecipeGrid({ children }: { children: ReactNode }) {
+  if (Platform.OS === 'web') {
+    return createElement('div', { style: webGrid }, children);
+  }
+  return <View style={styles.nativeGrid}>{children}</View>;
+}
 
 export function RecipesDesktop(props: {
   query: string;
@@ -73,7 +81,7 @@ export function RecipesDesktop(props: {
           }
         />
       ) : (
-        <View style={recipeGrid}>
+        <RecipeGrid>
           {props.recipes.map((recipe) => (
             <RecipeCard
               key={recipe.id}
@@ -84,8 +92,17 @@ export function RecipesDesktop(props: {
               onPress={() => props.onOpen(recipe.id)}
             />
           ))}
-        </View>
+        </RecipeGrid>
       )}
     </RecipesChrome>
   );
 }
+
+const styles = StyleSheet.create({
+  nativeGrid: {
+    alignSelf: 'stretch',
+    width: '100%',
+    minWidth: 0,
+    gap: 12,
+  },
+});

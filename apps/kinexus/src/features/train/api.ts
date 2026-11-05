@@ -1,5 +1,5 @@
-import type { CatalogExercise, ExerciseRecord, LoggedSet, RestExtra } from '@kinexus/domain';
-import { applyLoggedSets } from '@kinexus/domain';
+import type { CatalogExercise, EffortLevel, ExerciseRecord, LoggedSet, RestExtra, WeightUnit } from '@kinexus/domain';
+import { applyLoggedSets, effortLevelFrom, formatWeight, parseWeight, toStoredKg } from '@kinexus/domain';
 
 import type { Database } from '@kinexus/db';
 
@@ -25,10 +25,39 @@ export type WorkoutExercise = {
   position: number;
   targetSets: number;
   targetReps: string;
-  targetWeight: string;
+  /** Stored kg. */
+  targetWeight: number | null;
+  targetEffort: EffortLevel | null;
+  targetRpe: number | null;
   note: string;
   supersetId: string | null;
 };
+
+export type WorkoutExerciseInput = {
+  exerciseId: string | null;
+  name: string;
+  targetSets: number;
+  targetReps: string;
+  targetWeight?: number | null;
+  targetEffort?: EffortLevel | null;
+  targetRpe?: number | null;
+  note?: string;
+  supersetId?: string | null;
+};
+
+/** Format a stored kg value for display in the user's unit. */
+export function displayWeight(kg: string | number | null | undefined, unit: WeightUnit): string {
+  if (kg == null || kg === '') return '';
+  const value = typeof kg === 'number' ? kg : parseWeight(String(kg));
+  if (value == null) return '';
+  return String(formatWeight(value, unit));
+}
+
+/** Format stored kg with unit label, e.g. "100 kg" / "220 lb". */
+export function weightLabel(kg: string | number | null | undefined, unit: WeightUnit): string {
+  const value = displayWeight(kg, unit);
+  return value ? `${value} ${unit}` : '';
+}
 
 export type WorkoutRating = {
   userId: string;
@@ -64,6 +93,11 @@ export type SessionSet = LoggedSet & {
 function db() {
   if (!supabase) throw new Error('Supabase is not configured');
   return supabase;
+}
+
+function rpeFromDb(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  return value;
 }
 
 function mapExercise(row: ExerciseRow): LibraryExercise {
@@ -141,7 +175,9 @@ export async function loadWorkouts(householdId: string): Promise<WorkoutDraft[]>
         position: exercise.position,
         targetSets: exercise.target_sets,
         targetReps: exercise.target_reps,
-        targetWeight: exercise.target_weight ?? '',
+        targetWeight: exercise.target_weight,
+        targetEffort: effortLevelFrom(exercise.target_effort),
+        targetRpe: rpeFromDb(exercise.target_rpe),
         note: exercise.note ?? '',
         supersetId: exercise.superset_id ?? null,
       })),
@@ -156,7 +192,7 @@ export async function createWorkout(input: {
   splitId: string | null;
   durationMin: number | null;
   personIds: string[];
-  exercises: { exerciseId: string; name: string; targetSets: number; targetReps: string; targetWeight?: string; note?: string; supersetId?: string | null }[];
+  exercises: (WorkoutExerciseInput & { exerciseId: string })[];
 }): Promise<string> {
   const { data, error } = await db()
     .from('workouts')
@@ -184,7 +220,7 @@ export async function saveWorkout(
     splitId: string | null;
     durationMin: number | null;
     personIds: string[];
-    exercises: { exerciseId: string | null; name: string; targetSets: number; targetReps: string; targetWeight?: string; note?: string; supersetId?: string | null }[];
+    exercises: WorkoutExerciseInput[];
   },
 ): Promise<void> {
   const { error } = await db()
@@ -205,7 +241,7 @@ async function replaceWorkoutChildren(
   householdId: string,
   visibility: WorkoutRow['visibility'],
   personIds: string[],
-  exercises: { exerciseId: string | null; name: string; targetSets: number; targetReps: string; targetWeight?: string; note?: string; supersetId?: string | null }[],
+  exercises: WorkoutExerciseInput[],
 ) {
   const { error: deleteExercises } = await db().from('workout_exercises').delete().eq('workout_id', workoutId);
   if (deleteExercises) throw deleteExercises;
@@ -221,7 +257,9 @@ async function replaceWorkoutChildren(
           position,
           target_sets: exercise.targetSets,
           target_reps: exercise.targetReps,
-          target_weight: exercise.targetWeight?.trim() ?? '',
+          target_weight: exercise.targetWeight ?? null,
+          target_effort: exercise.targetEffort ?? null,
+          target_rpe: exercise.targetRpe ?? null,
           note: (exercise.note ?? '').trim().slice(0, 160),
           superset_id: exercise.supersetId ?? null,
         })),
@@ -381,8 +419,12 @@ export async function openSession(input: {
       position: exercise.position,
       set_index: setIndex,
       weight: exercise.exerciseId
-        ? input.records[exercise.exerciseId]?.lastWeight || exercise.targetWeight || ''
-        : exercise.targetWeight || '',
+        ? input.records[exercise.exerciseId]?.lastWeight ||
+          (exercise.targetWeight != null ? String(exercise.targetWeight) : '') ||
+          ''
+        : exercise.targetWeight != null
+          ? String(exercise.targetWeight)
+          : '',
       reps: exercise.targetReps,
       done: false,
     })),
@@ -493,8 +535,24 @@ async function loadSets(sessionId: string): Promise<SessionSet[]> {
   }));
 }
 
-export async function updateSet(setId: string, patch: { weight?: string; reps?: string; done?: boolean }): Promise<void> {
-  const { error } = await db().from('workout_sets').update(patch).eq('id', setId);
+/** Persist a set. `weight` is in `weightUnit` and stored as kg. */
+export async function updateSet(
+  setId: string,
+  patch: { weight?: string; reps?: string; done?: boolean },
+  weightUnit: WeightUnit = 'kg',
+): Promise<void> {
+  const row: { weight?: string; reps?: string; done?: boolean } = {};
+  if (patch.reps !== undefined) row.reps = patch.reps;
+  if (patch.done !== undefined) row.done = patch.done;
+  if (patch.weight !== undefined) {
+    const trimmed = patch.weight.trim();
+    if (!trimmed) row.weight = '';
+    else {
+      const parsed = parseWeight(trimmed);
+      row.weight = parsed == null ? trimmed : String(toStoredKg(parsed, weightUnit));
+    }
+  }
+  const { error } = await db().from('workout_sets').update(row).eq('id', setId);
   if (error) throw error;
 }
 

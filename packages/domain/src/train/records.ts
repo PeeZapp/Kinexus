@@ -1,10 +1,12 @@
 import type { ExerciseRecord, LoggedSet, RecordUpdate } from './types';
 
-export function parseWeight(value: string): number {
-  const match = value.match(/\d+(?:\.\d+)?/);
-  if (!match) return 0;
-  const parsed = Number.parseFloat(match[0]);
-  return Number.isFinite(parsed) ? parsed : 0;
+/** Parse a weight field. Non-numeric text returns null (never a bogus 0). */
+export function parseWeight(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^\d+(?:\.\d+)?$/.test(trimmed)) return null;
+  const parsed = Number.parseFloat(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function applyLoggedSets(current: ExerciseRecord | null, sets: readonly LoggedSet[]): RecordUpdate | null {
@@ -16,8 +18,9 @@ export function applyLoggedSets(current: ExerciseRecord | null, sets: readonly L
   let isPr = false;
   for (const set of done) {
     const next = parseWeight(set.weight);
-    if (next <= 0) continue;
-    if (next > parseWeight(bestWeight)) {
+    if (next == null || next <= 0) continue;
+    const currentBest = parseWeight(bestWeight) ?? 0;
+    if (next > currentBest) {
       bestWeight = set.weight.trim();
       bestReps = set.reps.trim();
       isPr = true;

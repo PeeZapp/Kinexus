@@ -7,12 +7,12 @@ import {
   canViewAudience,
   tmdbImageUrl,
   type WatchlistAudience,
-  type WatchlistGlobalReview,
   type WatchlistMediaType,
   type WatchlistTitle,
 } from '@kinexus/domain';
 
 import { Btn, Pill } from '@/src/features/household/ui';
+import { PublicName } from '@/src/features/shell/PublicName';
 import { EmptyState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { Sheet } from '@/src/features/meals/meals-kit';
@@ -24,6 +24,8 @@ import {
   rateGlobalList,
   voteGlobalReview,
   type GlobalSharedListCard,
+  type PublicSocialUser,
+  type WatchlistSocialReview,
 } from '@/src/features/stash/watchlist-social';
 import { watchlistTitleFromRow } from '@/src/features/stash/watchlist-mappers';
 import { WatchlistSocialProfileSheet } from '@/src/features/stash/watchlist/WatchlistSocialProfile';
@@ -67,10 +69,14 @@ function SharedListCard({
           {` · ${audienceLabel(card.audience as WatchlistAudience)}`}
           {card.blurb ? ` · ${card.blurb}` : ''}
         </Text>
-        <Pressable onPress={onOpenAuthor}>
-          <Text style={styles.includes} numberOfLines={1}>
-            by {card.alias}
-          </Text>
+        <Pressable onPress={onOpenAuthor} style={styles.byAuthor}>
+          <Text style={styles.byPrefix}>by </Text>
+          <PublicName
+            user={card.author}
+            style={styles.byName}
+            primaryStyle={styles.includes}
+            secondaryStyle={styles.byHandle}
+          />
         </Pressable>
       </View>
     </Pressable>
@@ -91,7 +97,7 @@ export function GlobalListsSection({
   const [cards, setCards] = useState<GlobalSharedListCard[]>([]);
   const [filter, setFilter] = useState<ShelfFilter>('all');
   const [error, setError] = useState<string | null>(null);
-  const [profile, setProfile] = useState<{ userId: string; alias: string } | null>(null);
+  const [profile, setProfile] = useState<{ userId: string; author: PublicSocialUser } | null>(null);
 
   const reload = useCallback(async () => {
     const rows = await fetchGlobalSharedCards({ viewerId });
@@ -126,7 +132,7 @@ export function GlobalListsSection({
       <View style={styles.heading}>
         <Text style={styles.kicker}>Shared with everyone</Text>
         <Text style={styles.blurb}>
-          Lists other people published for everyone. Age limits still apply. Tap a funny name to see more from them.
+          Lists other people published for everyone. Age limits still apply. Tap a handle to see more from them.
         </Text>
       </View>
       <View style={styles.wrap}>
@@ -157,7 +163,7 @@ export function GlobalListsSection({
               onPress={() => onOpen(card.id)}
               onOpenAuthor={() => {
                 if (!card.createdBy) return;
-                setProfile({ userId: card.createdBy, alias: card.alias });
+                setProfile({ userId: card.createdBy, author: card.author });
               }}
             />
           ))}
@@ -166,7 +172,7 @@ export function GlobalListsSection({
       <WatchlistSocialProfileSheet
         visible={Boolean(profile)}
         userId={profile?.userId ?? null}
-        aliasHint={profile?.alias}
+        authorHint={profile?.author}
         viewerId={viewerId}
         allowedAudience={allowedAudience}
         onClose={() => setProfile(null)}
@@ -204,7 +210,7 @@ export function GlobalListSheet({
 }) {
   const [name, setName] = useState('Shared list');
   const [blurb, setBlurb] = useState<string | null>(null);
-  const [alias, setAlias] = useState<string | null>(null);
+  const [author, setAuthor] = useState<PublicSocialUser | null>(null);
   const [authorId, setAuthorId] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [averageScore, setAverageScore] = useState<number | null>(null);
@@ -223,7 +229,7 @@ export function GlobalListSheet({
     const card = cards.find((row) => row.id === listId) ?? null;
     setName(bundle.list.name);
     setBlurb(bundle.list.blurb);
-    setAlias(card?.alias ?? null);
+    setAuthor(card?.author ?? null);
     setAuthorId(card?.createdBy ?? bundle.list.created_by ?? null);
     setAverageScore(card?.averageScore ?? null);
     setMyScore(card?.myScore ?? null);
@@ -258,9 +264,15 @@ export function GlobalListSheet({
             {titles.length} titles
             {averageScore != null ? ` · ${averageScore}/10` : ''}
           </Text>
-          {alias && authorId ? (
-            <Pressable onPress={() => setProfileOpen(true)}>
-              <Text style={styles.includes}>by {alias}</Text>
+          {author && authorId ? (
+            <Pressable onPress={() => setProfileOpen(true)} style={styles.byAuthor}>
+              <Text style={styles.byPrefix}>by </Text>
+              <PublicName
+                user={author}
+                style={styles.byName}
+                primaryStyle={styles.includes}
+                secondaryStyle={styles.byHandle}
+              />
             </Pressable>
           ) : null}
         </View>
@@ -324,7 +336,7 @@ export function GlobalListSheet({
         <WatchlistSocialProfileSheet
           visible={profileOpen}
           userId={authorId}
-          aliasHint={alias}
+          authorHint={author}
           viewerId={viewerId}
           allowedAudience={allowedAudience}
           onClose={() => setProfileOpen(false)}
@@ -365,8 +377,8 @@ export function GlobalReviewsBlock({
   onOwnReview?: (review: { score: number; body: string | null; updatedAt: string } | null) => void;
 }) {
   const [average, setAverage] = useState<number | null>(null);
-  const [reviews, setReviews] = useState<WatchlistGlobalReview[]>([]);
-  const [profile, setProfile] = useState<{ userId: string; alias: string } | null>(null);
+  const [reviews, setReviews] = useState<WatchlistSocialReview[]>([]);
+  const [profile, setProfile] = useState<{ userId: string; author: PublicSocialUser } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function reload() {
@@ -416,12 +428,15 @@ export function GlobalReviewsBlock({
       {reviews.map((review) => (
         <View key={review.id} style={styles.publicRow}>
           <Pressable
-            onPress={() => setProfile({ userId: review.userId, alias: review.alias })}
+            onPress={() => setProfile({ userId: review.userId, author: review.author })}
             accessibilityRole="button"
             style={styles.publicPerson}>
-            <Text style={styles.publicAlias} numberOfLines={1}>
-              {review.alias}
-            </Text>
+            <PublicName
+              user={review.author}
+              style={styles.publicAlias}
+              primaryStyle={styles.publicAliasText}
+              secondaryStyle={styles.byHandle}
+            />
             <Text style={styles.publicScore}>{review.score}</Text>
           </Pressable>
           {review.body ? (
@@ -468,7 +483,7 @@ export function GlobalReviewsBlock({
       <WatchlistSocialProfileSheet
         visible={Boolean(profile)}
         userId={profile?.userId ?? null}
-        aliasHint={profile?.alias}
+        authorHint={profile?.author}
         viewerId={userId}
         allowedAudience={allowedAudience}
         onClose={() => setProfile(null)}
@@ -503,6 +518,10 @@ const styles = StyleSheet.create({
   cardTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
   cardMeta: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
   includes: { color: colors.accent, fontSize: 13, fontWeight: '700' },
+  byAuthor: { flexDirection: 'row', alignItems: 'flex-start', flexWrap: 'wrap', gap: 0 },
+  byPrefix: { color: colors.accent, fontSize: 13, fontWeight: '700', lineHeight: 18 },
+  byName: { flexShrink: 1, minWidth: 0 },
+  byHandle: { color: colors.textMuted, fontSize: 12, lineHeight: 16 },
   stack: { gap: 12, paddingBottom: space.lg },
   preview: { gap: 10 },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -541,7 +560,8 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   publicPerson: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 28 },
-  publicAlias: { flex: 1, minWidth: 0, color: colors.text, fontSize: 15, fontWeight: '600' },
+  publicAlias: { flex: 1, minWidth: 0 },
+  publicAliasText: { color: colors.text, fontSize: 15, fontWeight: '600' },
   publicScore: {
     color: colors.accent,
     fontSize: 15,

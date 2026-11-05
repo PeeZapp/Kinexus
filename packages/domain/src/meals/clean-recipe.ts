@@ -148,7 +148,7 @@ export type CleanRecipe = {
   chefTip?: string;
   cuisine?: string;
   vegetarian?: boolean;
-  /** Hint for save → household meal slots; default dinner. */
+  /** Hint for save → household meal slots when the source provides them. */
   mealSlots?: MealSlotKey[];
   extraction: RecipeExtractionMeta;
 };
@@ -239,10 +239,37 @@ export function cleanRecipeToHouseholdDraft(
     ingredients: cleanIngredientsToRecipeIngredients(recipe.ingredients),
     method: methodBlocksToStrings(recipe.method),
     chefTip: recipe.chefTip,
-    mealSlots: recipe.mealSlots?.length ? recipe.mealSlots : ['dinner'],
+    mealSlots: recipe.mealSlots?.length ? [...recipe.mealSlots] : [],
     sourceUrl: recipe.attribution.sourceUrl,
     imageUrl: recipe.imageUrl,
   };
+}
+
+const MEAL_SLOT_TITLE_HINTS: readonly { slot: MealSlotKey; words: readonly string[] }[] = [
+  { slot: 'breakfast', words: ['pancake', 'waffle', 'omelette', 'omelet', 'cereal', 'porridge', 'granola', 'smoothie', 'breakfast', 'brunch'] },
+  { slot: 'morning_snack', words: ['morning tea', 'elevenses'] },
+  { slot: 'lunch', words: ['sandwich', 'wrap', 'lunch'] },
+  { slot: 'afternoon_snack', words: ['afternoon tea'] },
+  { slot: 'dinner', words: ['dinner', 'supper', 'roast dinner'] },
+  { slot: 'night_snack', words: ['midnight snack', 'late night'] },
+  { slot: 'dessert', words: ['cake', 'cookie', 'brownie', 'dessert', 'ice cream', 'pudding', 'cupcake', 'muffin'] },
+];
+
+function titleHasKeyword(hay: string, word: string): boolean {
+  if (word.includes(' ')) return hay.includes(word);
+  // Token prefix so "pancake" hits "pancakes", but "cake" does not.
+  return hay.split(/[^a-z0-9]+/).some((token) => token === word || token.startsWith(word));
+}
+
+/** Keyword hints from a recipe title. Never auto-applied — UI may offer chips. */
+export function suggestMealSlotsFromTitle(title: string): MealSlotKey[] {
+  const hay = title.trim().toLowerCase();
+  if (!hay) return [];
+  const hits: MealSlotKey[] = [];
+  for (const { slot, words } of MEAL_SLOT_TITLE_HINTS) {
+    if (words.some((word) => titleHasKeyword(hay, word))) hits.push(slot);
+  }
+  return hits;
 }
 
 const COMPACT_UNITS = new Set(['g', 'kg', 'ml', 'l', 'oz', 'lb']);

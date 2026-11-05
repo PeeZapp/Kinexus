@@ -147,6 +147,8 @@ export function WorkoutsScreen() {
                 targetSets: exercise.targetSets,
                 targetReps: exercise.targetReps,
                 targetWeight: exercise.targetWeight,
+                targetEffort: exercise.targetEffort,
+                targetRpe: exercise.targetRpe,
                 note: exercise.note,
                 supersetId: exercise.supersetId,
               },

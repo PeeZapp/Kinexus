@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { EFFORT_COLOR, EFFORT_LABEL, type EffortLevel } from '@kinexus/domain';
+
 import { instructionSteps } from '@/src/features/train/format';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
@@ -364,6 +366,15 @@ export function Badge({ label }: { label: string }) {
   );
 }
 
+export function EffortBadge({ effort }: { effort: EffortLevel }) {
+  const color = EFFORT_COLOR[effort];
+  return (
+    <View style={[styles.effortBadge, { backgroundColor: `${color}22` }]}>
+      <Text style={[styles.effortBadgeLabel, { color }]}>{EFFORT_LABEL[effort]}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: space.md, paddingTop: space.sm, paddingBottom: space.sm },
   column: { flex: 1, width: '100%', gap: space.sm },
@@ -537,6 +548,12 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   badgeLabel: { color: colors.accent, fontSize: 11, fontWeight: '800', letterSpacing: 0.4 },
+  effortBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  effortBadgeLabel: { fontSize: 11, fontWeight: '800' },
   noteEdit: {
     flexDirection: 'row',
     alignItems: 'center',

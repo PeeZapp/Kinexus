@@ -5,7 +5,7 @@ import type { Href } from 'expo-router';
 
 import { RecipeUrlError, normalizeRecipeUrl } from '@kinexus/domain';
 
-import { CookChrome } from '@/src/features/cook/CookChrome';
+import { CookShell } from '@/src/features/cook/CookShell';
 import { Btn, Field } from '@/src/features/household/ui';
 import { recipeParam } from '@/src/features/meals/recipe-href';
 import { ErrorBanner } from '@/src/features/shell/states';
@@ -71,7 +71,7 @@ export function ImportScreen() {
   }, [submit, urlParam]);
 
   return (
-    <CookChrome title="Import">
+    <CookShell title="Import">
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}
@@ -110,7 +110,7 @@ export function ImportScreen() {
         />
         <Btn label="My Recipes" variant="secondary" onPress={() => router.push('/recipes' as Href)} />
       </ScrollView>
-    </CookChrome>
+    </CookShell>
   );
 }
 

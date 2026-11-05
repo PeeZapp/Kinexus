@@ -61,7 +61,7 @@ export const EMPTY_RECIPE_FORM: RecipeFormState = {
   method: [],
   chefTip: '',
   notes: '',
-  slots: ['dinner'],
+  slots: [],
   recipeClass: null,
   imageUrl: '',
 };
@@ -110,7 +110,7 @@ export function formFromRecipe(recipe: Recipe): RecipeFormState {
     chefTip: recipe.chefTip ?? '',
     notes: recipe.notes ?? '',
     recipeClass: recipe.recipeClass ?? null,
-    slots: slots.length ? slots : recipe.recipeClass ? [] : ['dinner'],
+    slots,
     imageUrl: recipe.imageUrl ?? '',
   };
 }
@@ -139,7 +139,7 @@ export function draftFromForm(
     chefTip: form.chefTip.trim() || undefined,
     notes: form.notes.trim() || undefined,
     recipeClass: form.recipeClass ?? undefined,
-    mealSlots: form.slots.length ? form.slots : form.recipeClass ? [] : ['dinner'],
+    mealSlots: form.slots,
     sourceUrl: form.url.trim() || undefined,
     imageUrl: form.imageUrl.trim() || undefined,
     ...extras,

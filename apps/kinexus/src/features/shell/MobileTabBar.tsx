@@ -4,7 +4,7 @@ import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ModuleGlyph } from '@/src/features/shell/ModuleGlyph';
-import { SETTINGS_HREF, SETTINGS_PATH, visibleModules } from '@/src/features/shell/modules';
+import { isModulePathActive, SETTINGS_HREF, SETTINGS_PATH, visibleModules } from '@/src/features/shell/modules';
 import { colors } from '@/src/features/shell/theme';
 import { useHousehold } from '@/src/lib/household';
 
@@ -17,7 +17,7 @@ export function MobileTabBar() {
   return (
     <View style={StyleSheet.flatten([styles.bar, { paddingBottom: Math.max(insets.bottom, 10) }])}>
       {visibleModules(role).map((mod) => {
-        const active = pathname === mod.href || pathname.startsWith(`${mod.href}/`);
+        const active = isModulePathActive(mod, pathname);
         return (
           <Link
             key={mod.key}

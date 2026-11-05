@@ -66,7 +66,7 @@ export function ImportRecipeScreen() {
       chefTip: recipe.chefTip ?? current.chefTip,
       notes: current.notes,
       recipeClass: null,
-      slots: slots.length ? slots : ['dinner'],
+      slots,
       imageUrl: recipe.imageUrl ?? '',
     }));
     setSource(nextSource);
@@ -140,6 +140,10 @@ export function ImportRecipeScreen() {
       setError(meals.importBlockedReason);
       return;
     }
+    if (!form.slots.length && !form.recipeClass) {
+      setError('Pick at least one meal slot');
+      return;
+    }
     const name = missing.dishName.trim() || 'Linked recipe';
     setBusy(true);
     setError(null);
@@ -149,7 +153,8 @@ export function ImportRecipeScreen() {
         emoji: '🔗',
         ingredients: [],
         method: [],
-        mealSlots: ['dinner'],
+        mealSlots: form.slots,
+        recipeClass: form.recipeClass ?? undefined,
         notes: LINK_ONLY_NOTE,
         sourceUrl: missing.recipeUrl,
         excludedFromAuto: true,
@@ -179,6 +184,10 @@ export function ImportRecipeScreen() {
     }
     if (!form.name.trim()) {
       setError('Name is required');
+      return;
+    }
+    if (!form.slots.length && !form.recipeClass) {
+      setError('Pick at least one meal slot');
       return;
     }
     setBusy(true);

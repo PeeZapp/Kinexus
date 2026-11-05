@@ -5,17 +5,19 @@ import {
   mediaTypeLabel,
   tmdbImageUrl,
   type WatchlistAudience,
-  type WatchlistGlobalReview,
   type WatchlistPublicWatched,
 } from '@kinexus/domain';
 
+import { PublicName, publicPrimaryName } from '@/src/features/shell/PublicName';
 import { EmptyState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { Sheet } from '@/src/features/meals/meals-kit';
 import {
   fetchWatchlistSocialProfile,
   type GlobalSharedListCard,
+  type PublicSocialUser,
   type WatchlistSocialProfile,
+  type WatchlistSocialReview,
 } from '@/src/features/stash/watchlist-social';
 
 function PosterRow({
@@ -81,7 +83,7 @@ function ListCard({ card, onPress }: { card: GlobalSharedListCard; onPress: () =
 export function WatchlistSocialProfileSheet({
   visible,
   userId,
-  aliasHint,
+  authorHint,
   viewerId,
   allowedAudience,
   onClose,
@@ -89,7 +91,7 @@ export function WatchlistSocialProfileSheet({
 }: {
   visible: boolean;
   userId: string | null;
-  aliasHint?: string | null;
+  authorHint?: PublicSocialUser | null;
   viewerId: string | null;
   allowedAudience: WatchlistAudience;
   onClose: () => void;
@@ -116,17 +118,16 @@ export function WatchlistSocialProfileSheet({
     };
   }, [allowedAudience, userId, viewerId, visible]);
 
-  const alias = profile?.alias ?? aliasHint ?? 'Profile';
+  const author = profile?.author ?? authorHint ?? null;
+  const title = author ? publicPrimaryName(author) : 'Profile';
   const watched = profile?.watched ?? [];
   const lists = profile?.lists ?? [];
   const reviews = profile?.reviews ?? [];
 
   return (
-    <Sheet visible={visible} title={alias} onClose={onClose} wide>
+    <Sheet visible={visible} title={title} onClose={onClose} wide>
       <View style={styles.stack}>
-        <Text style={styles.blurb}>
-          Public watchlist profile. Funny names are assigned once and never change — real names stay hidden.
-        </Text>
+        {author ? <PublicName user={author} primaryStyle={styles.profilePrimary} secondaryStyle={styles.profileHandle} /> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <Text style={styles.kicker}>Watched</Text>
@@ -165,7 +166,7 @@ export function WatchlistSocialProfileSheet({
         {reviews.length === 0 ? (
           <EmptyState title="No reviews yet" body="Public reviews they write will show up here." />
         ) : (
-          reviews.map((review: WatchlistGlobalReview) => (
+          reviews.map((review: WatchlistSocialReview) => (
             <View key={review.id} style={styles.reviewBlock}>
               <PosterRow
                 title={review.title?.trim() || (review.mediaType === 'tv' ? 'Series' : 'Movie')}
@@ -185,7 +186,8 @@ export function WatchlistSocialProfileSheet({
 
 const styles = StyleSheet.create({
   stack: { gap: 12, paddingBottom: space.lg },
-  blurb: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
+  profilePrimary: { color: colors.text, fontSize: 18, fontWeight: '800' },
+  profileHandle: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
   kicker: { color: colors.text, fontSize: 16, fontWeight: '800', marginTop: 8 },
   error: { color: colors.danger, fontSize: 13 },
   row: {
@@ -215,4 +217,3 @@ const styles = StyleSheet.create({
   reviewBlock: { gap: 6 },
   reviewBody: { color: colors.textMuted, fontSize: 13, lineHeight: 18, paddingHorizontal: 4 },
 });
-

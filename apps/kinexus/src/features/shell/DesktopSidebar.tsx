@@ -6,7 +6,7 @@ import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { RolePreviewSwitcher } from '@/src/features/household/RolePreview';
 import { AppMark } from '@/src/features/shell/AppMark';
 import { ModuleGlyph, type ModuleGlyphName } from '@/src/features/shell/ModuleGlyph';
-import { SETTINGS_HREF, SETTINGS_PATH, visibleModules } from '@/src/features/shell/modules';
+import { isModulePathActive, SETTINGS_HREF, SETTINGS_PATH, visibleModules } from '@/src/features/shell/modules';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
@@ -143,7 +143,7 @@ export function DesktopSidebar() {
 
       <View style={styles.nav}>
         {visibleModules(role).map((mod) => {
-          const active = pathname === mod.href || pathname.startsWith(`${mod.href}/`);
+          const active = isModulePathActive(mod, pathname);
           return (
             <SidebarLink
               key={mod.key}

@@ -9,7 +9,9 @@ import {
   generateFromCategoryMix,
   nextSimilarExercise,
   parseRemixSplit,
+  parseWeight,
   shuffledRestQuiz,
+  toStoredKg,
   type RestExtra,
 } from '@kinexus/domain';
 
@@ -18,6 +20,7 @@ import { Sheet } from '@/src/features/meals/meals-kit';
 import { AppModal } from '@/src/features/shell/AppModal';
 import {
   createWorkout,
+  displayWeight,
   finishSession,
   linkSessionWorkout,
   loadLibrary,
@@ -34,6 +37,7 @@ import {
   saveWorkoutRating,
   saveWorkoutUserNotes,
   updateSet,
+  weightLabel,
   type LibraryExercise,
   type LiveSession,
   type RestGame,
@@ -43,11 +47,12 @@ import {
   type WorkoutExercise,
 } from '@/src/features/train/api';
 import { clock, exerciseFacts, exerciseTitle } from '@/src/features/train/format';
-import { Badge, Choice, ExerciseSteps, Field, MediaGallery, NoteLine, Pill, Segmented, TrainButton, TrainPage } from '@/src/features/train/ui';
+import { Badge, Choice, EffortBadge, ExerciseSteps, Field, MediaGallery, NoteLine, Pill, Segmented, TrainButton, TrainPage } from '@/src/features/train/ui';
 import { ErrorBanner } from '@/src/features/shell/states';
 import { colors, radius } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
+import { useUnits } from '@/src/lib/use-units';
 
 const REST_TIMES = [60, 90, 120] as const;
 
@@ -109,7 +114,9 @@ function draftFromLive(live: LiveSession, userId: string): WorkoutDraft {
         position,
         targetSets: group.length,
         targetReps: group[0]?.reps || '10',
-        targetWeight: '',
+        targetWeight: null,
+        targetEffort: null,
+        targetRpe: null,
         note: '',
         supersetId: null,
       })),
@@ -120,9 +127,15 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
   const router = useRouter();
   const { user } = useAuth();
   const { activeHousehold, people, role } = useHousehold();
+  const { weightUnit } = useUnits();
   const userId = user && !user.isDevBypass ? user.id : null;
   const canSave = canCreateShared(role);
   const [sets, setSets] = useState<SessionSet[]>([]);
+  const [weightDraft, setWeightDraft] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setWeightDraft({});
+  }, [weightUnit]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [workout, setWorkout] = useState<WorkoutDraft | null>(null);
   const [savedSignature, setSavedSignature] = useState<string | null>(null);
@@ -286,10 +299,29 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
     if (userId && (game === 'quiz' || game === 'memory') && score > 0) void rememberScore(userId, game, seconds, score);
   };
 
-  async function patch(set: SessionSet, next: Partial<SessionSet>) {
-    const updated = { ...set, ...next };
+  async function patch(set: SessionSet, next: Partial<SessionSet>, weightDisplay?: string) {
+    let weight = next.weight ?? set.weight;
+    if (weightDisplay !== undefined) {
+      setWeightDraft((current) => ({ ...current, [set.id]: weightDisplay }));
+      const trimmed = weightDisplay.trim();
+      if (!trimmed) weight = '';
+      else {
+        const parsed = parseWeight(trimmed);
+        if (parsed == null) return;
+        weight = String(toStoredKg(parsed, weightUnit));
+      }
+    }
+    const updated = { ...set, ...next, weight };
     setSets((current) => current.map((item) => (item.id === set.id ? updated : item)));
-    await updateSet(set.id, { weight: updated.weight, reps: updated.reps, done: updated.done });
+    await updateSet(
+      set.id,
+      {
+        weight: weightDisplay !== undefined ? weightDisplay : updated.weight,
+        reps: updated.reps,
+        done: updated.done,
+      },
+      weightDisplay !== undefined ? weightUnit : 'kg',
+    );
   }
 
   async function markExercise(group: SessionSet[], done: boolean) {
@@ -457,7 +489,9 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
           position,
           targetSets: group.length,
           targetReps: group[0]?.reps || '10',
-          targetWeight: '',
+          targetWeight: null,
+          targetEffort: null,
+          targetRpe: null,
           note: '',
           supersetId: null,
         },
@@ -472,6 +506,9 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
               name: exercise.name,
               targetSets: exercise.targetSets,
               targetReps: exercise.targetReps,
+              targetWeight: exercise.targetWeight,
+              targetEffort: exercise.targetEffort,
+              targetRpe: exercise.targetRpe,
             },
           ]
         : [],
@@ -641,9 +678,11 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
                 </View>
               );
             }
-            const meta = [part, `${doneCount}/${group.length}`, plan?.targetWeight ? `${plan.targetWeight} kg` : '', record?.lastWeight ? `Last ${record.lastWeight}` : '']
-              .filter(Boolean)
-              .join(' · ');
+            const targetLabel = weightLabel(plan?.targetWeight, weightUnit);
+            const lastLabel = weightLabel(record?.lastWeight, weightUnit);
+            const metaBits = [part, `${doneCount}/${group.length}`, plan?.targetRpe != null ? `RPE ${plan.targetRpe}` : '', targetLabel, lastLabel ? `Last ${lastLabel}` : ''].filter(
+              Boolean,
+            );
             return (
               <View key={position} style={styles.exercise}>
                 <View style={styles.exerciseHead}>
@@ -654,7 +693,10 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
                     }}
                     style={styles.exerciseCopy}>
                     <Text style={styles.exerciseName}>{exerciseTitle(name)}</Text>
-                    <Text style={styles.exerciseMeta}>{meta}</Text>
+                    <View style={styles.exerciseMetaRow}>
+                      {plan?.targetEffort ? <EffortBadge effort={plan.targetEffort} /> : null}
+                      {metaBits.length > 0 ? <Text style={styles.exerciseMeta}>{metaBits.join(' · ')}</Text> : null}
+                    </View>
                   </Pressable>
                   {progress?.isPr ? <Badge label="PR" /> : null}
                   <Pressable accessibilityRole="button" onPress={() => void swapSlot(position, group)} hitSlop={8}>
@@ -676,11 +718,11 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
                     <View key={set.id} style={[styles.setRow, set.done && styles.setRowDone]}>
                       <Text style={styles.setIndex}>{index + 1}</Text>
                       <View style={styles.setField}>
-                        <Text style={styles.setFieldLabel}>kg</Text>
+                        <Text style={styles.setFieldLabel}>{weightUnit}</Text>
                         <TextInput
-                          value={set.weight}
+                          value={weightDraft[set.id] ?? displayWeight(set.weight, weightUnit)}
                           keyboardType="decimal-pad"
-                          onChangeText={(weight) => void patch(set, { weight })}
+                          onChangeText={(weight) => void patch(set, {}, weight)}
                           style={styles.setInput}
                         />
                       </View>
@@ -1037,6 +1079,7 @@ const styles = StyleSheet.create({
   exerciseHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   exerciseCopy: { flex: 1, gap: 1 },
   exerciseName: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  exerciseMetaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
   exerciseMeta: { color: colors.textMuted, fontSize: 12 },
   swap: { color: colors.accent, fontSize: 13, fontWeight: '700' },
   sets: { gap: 4 },

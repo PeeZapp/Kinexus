@@ -144,15 +144,27 @@ function asErrorMessage(err: unknown, fallback: string): string {
 
 async function ensureProfile(user: AuthUser): Promise<void> {
   if (!supabase || user.isDevBypass) return;
-  const { error } = await supabase.from('profiles').upsert(
-    {
-      id: user.id,
-      display_name: user.displayName,
-      avatar_url: user.avatarUrl ?? null,
-      email: user.email ?? null,
-    },
-    { onConflict: 'id' },
-  );
+  const { data: existing, error: readError } = await supabase
+    .from('profiles')
+    .select('id, display_name, avatar_url, email')
+    .eq('id', user.id)
+    .maybeSingle();
+  if (readError) throw readError;
+
+  // Profile rows are created by handle_new_user (with global_handle). Only fill blanks.
+  if (!existing) return;
+
+  const patch: {
+    display_name?: string;
+    avatar_url?: string | null;
+    email?: string | null;
+  } = {};
+  if (!existing.display_name && user.displayName) patch.display_name = user.displayName;
+  if (!existing.avatar_url && user.avatarUrl) patch.avatar_url = user.avatarUrl;
+  if (!existing.email && user.email) patch.email = user.email;
+  if (Object.keys(patch).length === 0) return;
+
+  const { error } = await supabase.from('profiles').update(patch).eq('id', user.id);
   if (error) throw error;
 }
 

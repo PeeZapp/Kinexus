@@ -1,12 +1,11 @@
 import type { Href } from 'expo-router';
 
+type RecipeDetailParams = { id: string; from?: string; serves?: string };
+
 export function recipeHref(id: string, opts?: { from?: 'shopping'; serves?: number }): Href {
-  const params: Record<string, string> = { id };
+  const params: RecipeDetailParams = { id };
   if (opts?.from === 'shopping') params.from = 'shopping';
   if (opts?.serves != null && opts.serves > 0) params.serves = String(Math.round(opts.serves));
-  if (Object.keys(params).length === 1) {
-    return { pathname: '/meals/recipes/[id]', params: { id } };
-  }
   return { pathname: '/meals/recipes/[id]', params };
 }
 

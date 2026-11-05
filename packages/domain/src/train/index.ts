@@ -1,10 +1,13 @@
 export type {
+  BuiltExercise,
   CatalogExercise,
   ExerciseRecord,
   LoggedSet,
   RecordUpdate,
   RemixPick,
   RestExtra,
+  WorkoutBuilderSeed,
+  WorkoutExercise,
 } from './types';
 export {
   REMIX_CATEGORIES,
@@ -32,3 +35,21 @@ export { estimateWorkout } from './estimate';
 export type { EstimateExercise, WorkoutEstimate } from './estimate';
 export { clusterExercises, linkSuperset, normalizeSupersets, unlinkSuperset } from './supersets';
 export type { ExerciseCluster, SupersetMember } from './supersets';
+export {
+  EFFORT_COLOR,
+  EFFORT_LABEL,
+  EFFORT_LEVELS,
+  effortLevelFrom,
+} from './effort';
+export type { EffortLevel } from './effort';
+export {
+  defaultsForRegion,
+  formatWeight,
+  kgToLb,
+  lbToKg,
+  measurementSystemFrom,
+  roundWeight,
+  toStoredKg,
+  weightUnitFrom,
+} from './units';
+export type { MeasurementSystem, WeightUnit } from './units';

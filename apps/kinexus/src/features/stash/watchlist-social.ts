@@ -1,37 +1,82 @@
 import {
   canViewAudience,
   familyReviewAverage,
-  funnyAliasFromSeed,
   type WatchlistAudience,
   type WatchlistGlobalReview,
   type WatchlistMediaType,
   type WatchlistPublicWatched,
 } from '@kinexus/domain';
 
+import { publicPrimaryName, type PublicNameUser } from '@/src/features/shell/PublicName';
 import { watchlistListFromRow } from '@/src/features/stash/watchlist-mappers';
 import { supabase } from '@/src/lib/supabase';
+
+// watchlist_social_aliases is deprecated — superseded by profiles.global_handle /
+// public_profile() / public_profiles(). Table left in place; do not read or write it.
 
 function throwIfError(error: { message: string } | null): void {
   if (error) throw new Error(error.message);
 }
 
+/** @deprecated No-op. Handles live on profiles.global_handle; do not touch watchlist_social_aliases. */
 export async function ensureSocialAlias(userId: string): Promise<string> {
-  if (!supabase) throw new Error('Not ready');
-  const { data: existing, error } = await supabase
-    .from('watchlist_social_aliases')
-    .select('alias')
-    .eq('user_id', userId)
-    .maybeSingle();
+  const authors = await fetchPublicProfilesByIds([userId]);
+  return authors.get(userId)?.globalHandle ?? 'Unknown';
+}
+
+export type PublicSocialUser = PublicNameUser & {
+  id: string;
+  avatarUrl: string | null;
+};
+
+type PublicProfileRow = {
+  id: string;
+  global_handle: string;
+  username: string | null;
+  avatar_url: string | null;
+  is_verified_creator: boolean;
+};
+
+function mapPublicProfile(row: PublicProfileRow): PublicSocialUser {
+  return {
+    id: row.id,
+    globalHandle: row.global_handle,
+    username: row.username,
+    avatarUrl: row.avatar_url,
+    isVerifiedCreator: row.is_verified_creator,
+  };
+}
+
+function fallbackPublicUser(userId: string): PublicSocialUser {
+  return {
+    id: userId,
+    globalHandle: 'Unknown',
+    username: null,
+    avatarUrl: null,
+    isVerifiedCreator: false,
+  };
+}
+
+/** Resolve public identity fields only (never display_name / email). */
+export async function fetchPublicProfilesByIds(userIds: string[]): Promise<Map<string, PublicSocialUser>> {
+  const unique = [...new Set(userIds.filter(Boolean))];
+  if (!supabase || unique.length === 0) return new Map();
+  const { data, error } = await supabase.rpc('public_profiles' as never, { p_ids: unique } as never);
   throwIfError(error);
-  if (existing?.alias) return existing.alias;
-  const alias = funnyAliasFromSeed(userId);
-  const { error: insertError } = await supabase.from('watchlist_social_aliases').insert({ user_id: userId, alias });
-  if (insertError) {
-    const again = await supabase.from('watchlist_social_aliases').select('alias').eq('user_id', userId).maybeSingle();
-    if (again.data?.alias) return again.data.alias;
-    throw new Error(insertError.message);
-  }
-  return alias;
+  const rows = (data ?? []) as PublicProfileRow[];
+  return new Map(rows.map((row) => [row.id, mapPublicProfile(row)]));
+}
+
+export async function fetchPublicProfileByHandle(handleOrUsername: string): Promise<PublicSocialUser | null> {
+  if (!supabase) return null;
+  const key = handleOrUsername.trim();
+  if (!key) return null;
+  const { data, error } = await supabase.rpc('public_profile' as never, {
+    handle_or_username: key,
+  } as never);
+  throwIfError(error);
+  const row = Array.isArray(data) ? (data[0] as PublicProfileRow | undefined) : (data as PublicProfileRow | null);
+  return row ? mapPublicProfile(row) : null;
 }
 
 export type GlobalSharedListCard = {
@@ -42,6 +87,8 @@ export type GlobalSharedListCard = {
   samplePosterPaths: string[];
   itemCount: number;
   createdBy: string | null;
+  author: PublicSocialUser;
+  /** @deprecated use author + PublicName; kept as primary public label */
   alias: string;
   averageScore: number | null;
   ratingCount: number;
@@ -95,21 +142,21 @@ export async function fetchGlobalSharedCards(input: {
   if (rows.length === 0) return [];
   const listIds = rows.map((row) => row.id);
   const userIds = [...new Set(rows.map((row) => row.created_by).filter((id): id is string => Boolean(id)))];
-  const [{ data: items }, { data: aliases }, ratings] = await Promise.all([
+  const [{ data: items }, authors, ratings] = await Promise.all([
     supabase.from('watchlist_items').select('list_id').in('list_id', listIds),
-    userIds.length
-      ? supabase.from('watchlist_social_aliases').select('user_id, alias').in('user_id', userIds)
-      : Promise.resolve({ data: [] as { user_id: string; alias: string }[] }),
+    fetchPublicProfilesByIds(userIds),
     listRatingsSummary(listIds, input.viewerId),
   ]);
   const countByList = new Map<string, number>();
   for (const item of items ?? []) {
     countByList.set(item.list_id, (countByList.get(item.list_id) ?? 0) + 1);
   }
-  const aliasByUser = new Map((aliases ?? []).map((row) => [row.user_id, row.alias]));
   return rows.map((row) => {
     const list = watchlistListFromRow(row);
     const rating = ratings.get(row.id);
+    const author = list.createdBy
+      ? (authors.get(list.createdBy) ?? fallbackPublicUser(list.createdBy))
+      : fallbackPublicUser('unknown');
     return {
       id: list.id,
       name: list.name,
@@ -118,9 +165,8 @@ export async function fetchGlobalSharedCards(input: {
       samplePosterPaths: list.samplePosterPaths,
       itemCount: countByList.get(list.id) ?? 0,
       createdBy: list.createdBy,
-      alias: list.createdBy
-        ? (aliasByUser.get(list.createdBy) ?? funnyAliasFromSeed(list.createdBy))
-        : 'Mystery Viewer',
+      author,
+      alias: publicPrimaryName(author),
       averageScore: rating?.average ?? null,
       ratingCount: rating?.count ?? 0,
       myScore: rating?.mine ?? null,
@@ -130,7 +176,6 @@ export async function fetchGlobalSharedCards(input: {
 
 export async function rateGlobalList(input: { listId: string; userId: string; score: number }): Promise<void> {
   if (!supabase) throw new Error('Not ready');
-  await ensureSocialAlias(input.userId);
   const { error } = await supabase.from('watchlist_global_list_ratings').upsert(
     { list_id: input.listId, user_id: input.userId, score: input.score },
     { onConflict: 'list_id,user_id' },
@@ -164,51 +209,9 @@ export async function fetchGlobalListBundle(listId: string) {
   return { list, items: items ?? [], titles: titles ?? [] };
 }
 
-export async function fetchGlobalReviewsForTitle(
-  tmdbId: number,
-  mediaType: WatchlistMediaType,
-  viewerId: string | null,
-): Promise<{ average: number | null; reviews: WatchlistGlobalReview[] }> {
-  if (!supabase) return { average: null, reviews: [] };
-  const { data: rows, error } = await supabase
-    .from('watchlist_global_reviews')
-    .select('*')
-    .eq('tmdb_id', tmdbId)
-    .eq('media_type', mediaType)
-    .order('updated_at', { ascending: false })
-    .limit(80);
-  throwIfError(error);
-  const reviews = rows ?? [];
-  if (reviews.length === 0) return { average: null, reviews: [] };
-  const userIds = [...new Set(reviews.map((row) => row.user_id))];
-  const { data: aliases } = await supabase.from('watchlist_social_aliases').select('user_id, alias').in('user_id', userIds);
-  const aliasByUser = new Map((aliases ?? []).map((row) => [row.user_id, row.alias]));
-  const reviewIds = reviews.map((row) => row.id);
-  const { data: votes } = await supabase.from('watchlist_global_review_votes').select('*').in('review_id', reviewIds);
-  const voteRows = votes ?? [];
-  const mapped: WatchlistGlobalReview[] = reviews.map((row) => {
-    const forReview = voteRows.filter((vote) => vote.review_id === row.id);
-    const mine = viewerId ? forReview.find((vote) => vote.user_id === viewerId) : null;
-    return {
-      id: row.id,
-      userId: row.user_id,
-      alias: aliasByUser.get(row.user_id) ?? funnyAliasFromSeed(row.user_id),
-      tmdbId: row.tmdb_id,
-      mediaType: row.media_type,
-      title: row.title,
-      year: row.year,
-      posterPath: row.poster_path,
-      score: row.score,
-      body: row.body,
-      upvotes: forReview.filter((vote) => vote.vote === 1).length,
-      downvotes: forReview.filter((vote) => vote.vote === -1).length,
-      myVote: mine?.vote === 1 ? 1 : mine?.vote === -1 ? -1 : 0,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  });
-  return { average: familyReviewAverage(mapped.map((review) => review.score)), reviews: mapped };
-}
+export type WatchlistSocialReview = WatchlistGlobalReview & {
+  author: PublicSocialUser;
+};
 
 function mapReviewRow(
   row: {
@@ -224,16 +227,17 @@ function mapReviewRow(
     created_at: string;
     updated_at: string;
   },
-  alias: string,
+  author: PublicSocialUser,
   voteRows: { review_id: string; user_id: string; vote: number }[],
   viewerId: string | null,
-): WatchlistGlobalReview {
+): WatchlistSocialReview {
   const forReview = voteRows.filter((vote) => vote.review_id === row.id);
   const mine = viewerId ? forReview.find((vote) => vote.user_id === viewerId) : null;
   return {
     id: row.id,
     userId: row.user_id,
-    alias,
+    author,
+    alias: publicPrimaryName(author),
     tmdbId: row.tmdb_id,
     mediaType: row.media_type,
     title: row.title,
@@ -249,7 +253,34 @@ function mapReviewRow(
   };
 }
 
-export async function fetchGlobalReviewsByUser(userId: string, viewerId: string | null): Promise<WatchlistGlobalReview[]> {
+export async function fetchGlobalReviewsForTitle(
+  tmdbId: number,
+  mediaType: WatchlistMediaType,
+  viewerId: string | null,
+): Promise<{ average: number | null; reviews: WatchlistSocialReview[] }> {
+  if (!supabase) return { average: null, reviews: [] };
+  const { data: rows, error } = await supabase
+    .from('watchlist_global_reviews')
+    .select('*')
+    .eq('tmdb_id', tmdbId)
+    .eq('media_type', mediaType)
+    .order('updated_at', { ascending: false })
+    .limit(80);
+  throwIfError(error);
+  const reviews = rows ?? [];
+  if (reviews.length === 0) return { average: null, reviews: [] };
+  const userIds = [...new Set(reviews.map((row) => row.user_id))];
+  const authors = await fetchPublicProfilesByIds(userIds);
+  const reviewIds = reviews.map((row) => row.id);
+  const { data: votes } = await supabase.from('watchlist_global_review_votes').select('*').in('review_id', reviewIds);
+  const voteRows = votes ?? [];
+  const mapped = reviews.map((row) =>
+    mapReviewRow(row, authors.get(row.user_id) ?? fallbackPublicUser(row.user_id), voteRows, viewerId),
+  );
+  return { average: familyReviewAverage(mapped.map((review) => review.score)), reviews: mapped };
+}
+
+export async function fetchGlobalReviewsByUser(userId: string, viewerId: string | null): Promise<WatchlistSocialReview[]> {
   if (!supabase) return [];
   const { data: rows, error } = await supabase
     .from('watchlist_global_reviews')
@@ -260,12 +291,12 @@ export async function fetchGlobalReviewsByUser(userId: string, viewerId: string 
   throwIfError(error);
   const reviews = rows ?? [];
   if (reviews.length === 0) return [];
-  const { data: aliasRow } = await supabase.from('watchlist_social_aliases').select('alias').eq('user_id', userId).maybeSingle();
-  const alias = aliasRow?.alias ?? funnyAliasFromSeed(userId);
+  const authors = await fetchPublicProfilesByIds([userId]);
+  const author = authors.get(userId) ?? fallbackPublicUser(userId);
   const reviewIds = reviews.map((row) => row.id);
   const { data: votes } = await supabase.from('watchlist_global_review_votes').select('*').in('review_id', reviewIds);
   const voteRows = votes ?? [];
-  return reviews.map((row) => mapReviewRow(row, alias, voteRows, viewerId));
+  return reviews.map((row) => mapReviewRow(row, author, voteRows, viewerId));
 }
 
 export async function upsertPublicWatched(input: {
@@ -278,7 +309,6 @@ export async function upsertPublicWatched(input: {
   score?: number | null;
 }): Promise<void> {
   if (!supabase) throw new Error('Not ready');
-  await ensureSocialAlias(input.userId);
   const { error } = await supabase.from('watchlist_public_watched').upsert(
     {
       user_id: input.userId,
@@ -326,10 +356,12 @@ export async function removePublicWatched(input: {
 
 export type WatchlistSocialProfile = {
   userId: string;
+  author: PublicSocialUser;
+  /** @deprecated use author + PublicName */
   alias: string;
   lists: GlobalSharedListCard[];
   watched: WatchlistPublicWatched[];
-  reviews: WatchlistGlobalReview[];
+  reviews: WatchlistSocialReview[];
 };
 
 export async function fetchWatchlistSocialProfile(input: {
@@ -337,11 +369,12 @@ export async function fetchWatchlistSocialProfile(input: {
   viewerId: string | null;
   allowedAudience: WatchlistAudience;
 }): Promise<WatchlistSocialProfile> {
+  const emptyAuthor = fallbackPublicUser(input.userId);
   if (!supabase) {
-    return { userId: input.userId, alias: funnyAliasFromSeed(input.userId), lists: [], watched: [], reviews: [] };
+    return { userId: input.userId, author: emptyAuthor, alias: publicPrimaryName(emptyAuthor), lists: [], watched: [], reviews: [] };
   }
-  const [{ data: aliasRow }, lists, reviews, { data: watchedRows, error: watchedError }] = await Promise.all([
-    supabase.from('watchlist_social_aliases').select('alias').eq('user_id', input.userId).maybeSingle(),
+  const [authors, lists, reviews, { data: watchedRows, error: watchedError }] = await Promise.all([
+    fetchPublicProfilesByIds([input.userId]),
     fetchGlobalSharedCards({ viewerId: input.viewerId, createdBy: input.userId }),
     fetchGlobalReviewsByUser(input.userId, input.viewerId),
     supabase
@@ -352,6 +385,7 @@ export async function fetchWatchlistSocialProfile(input: {
       .limit(100),
   ]);
   throwIfError(watchedError);
+  const author = authors.get(input.userId) ?? lists[0]?.author ?? emptyAuthor;
   const watched: WatchlistPublicWatched[] = (watchedRows ?? []).map((row) => ({
     id: row.id,
     userId: row.user_id,
@@ -365,7 +399,8 @@ export async function fetchWatchlistSocialProfile(input: {
   }));
   return {
     userId: input.userId,
-    alias: aliasRow?.alias ?? lists[0]?.alias ?? funnyAliasFromSeed(input.userId),
+    author,
+    alias: publicPrimaryName(author),
     lists: lists.filter((list) => canViewAudience(input.allowedAudience, list.audience as WatchlistAudience)),
     watched,
     reviews,
@@ -383,7 +418,6 @@ export async function saveGlobalReview(input: {
   posterPath?: string | null;
 }): Promise<void> {
   if (!supabase) throw new Error('Not ready');
-  await ensureSocialAlias(input.userId);
   const body = input.body.trim() || null;
   const title = input.title?.trim() || null;
   const patch = {

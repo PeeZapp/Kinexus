@@ -3,8 +3,11 @@ import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindow
 
 import {
   clusterExercises,
+  EFFORT_LEVELS,
+  EFFORT_LABEL,
   linkSuperset,
   normalizeSupersets,
+  parseWeight,
   REMIX_CATEGORIES,
   REMIX_CATEGORY_COLOR,
   exerciseMatchesRemixCategory,
@@ -12,8 +15,11 @@ import {
   estimateWorkout,
   getRemixDefaultsForCategory,
   remixCategoryOf,
+  toStoredKg,
   unlinkSuperset,
+  type EffortLevel,
   type RemixCategory,
+  type WeightUnit,
 } from '@kinexus/domain';
 
 import { AppModal } from '@/src/features/shell/AppModal';
@@ -21,7 +27,8 @@ import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/
 import { ErrorBanner, LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
-import { loadLibrary, type LibraryExercise, type WorkoutDraft } from '@/src/features/train/api';
+import { useUnits } from '@/src/lib/use-units';
+import { displayWeight, loadLibrary, type LibraryExercise, type WorkoutDraft } from '@/src/features/train/api';
 import { exerciseFacts, exerciseTitle, prettyLabel } from '@/src/features/train/format';
 import {
   Choice,
@@ -54,7 +61,10 @@ export type WorkoutBuilderSeed = {
     name: string;
     targetSets: number;
     targetReps: string;
-    targetWeight?: string;
+    /** Stored kg. */
+    targetWeight?: number | null;
+    targetEffort?: EffortLevel | null;
+    targetRpe?: number | null;
     note?: string;
     supersetId?: string | null;
   }[];
@@ -79,7 +89,10 @@ type BuiltExercise = {
   category: RemixCategory | null;
   targetSets: number;
   targetReps: string;
-  targetWeight: string;
+  /** Stored kg. */
+  targetWeight: number | null;
+  targetEffort: EffortLevel | null;
+  targetRpe: number | null;
   note: string;
   personalNote: string;
   supersetId: string | null;
@@ -125,7 +138,9 @@ function toSelected(seed: WorkoutBuilderSeed): BuiltExercise[] {
     category: null,
     targetSets: exercise.targetSets,
     targetReps: exercise.targetReps,
-    targetWeight: exercise.targetWeight ?? '',
+    targetWeight: exercise.targetWeight ?? null,
+    targetEffort: exercise.targetEffort ?? null,
+    targetRpe: exercise.targetRpe ?? null,
     note: exercise.note ?? '',
     personalNote: seed.notes?.find((note) => note.position === index)?.body ?? '',
     supersetId: exercise.supersetId ?? null,
@@ -173,6 +188,12 @@ export function WorkoutBuilder({
   const [mobilePane, setMobilePane] = useState<'workout' | 'library'>(seed.exercises.length > 0 ? 'workout' : 'library');
   const { openMenu, toggleMenu, pick } = useFilterMenus();
   const split = useExperienceMode().mode === 'desktop';
+  const { weightUnit } = useUnits();
+  const [weightDraft, setWeightDraft] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setWeightDraft({});
+  }, [weightUnit]);
 
   useEffect(() => {
     if (cachedLibrary) return;
@@ -274,7 +295,9 @@ export function WorkoutBuilder({
           category: nextCategory,
           targetSets: defaults.sets,
           targetReps: defaults.reps,
-          targetWeight: '',
+          targetWeight: null,
+          targetEffort: null,
+          targetRpe: null,
           note: '',
           personalNote: '',
           supersetId: null,
@@ -356,7 +379,9 @@ export function WorkoutBuilder({
           name: exercise.name,
           targetSets: exercise.targetSets,
           targetReps: exercise.targetReps.trim() || '10',
-          targetWeight: exercise.targetWeight.trim(),
+          targetWeight: exercise.targetWeight,
+          targetEffort: exercise.targetEffort,
+          targetRpe: exercise.targetRpe,
           note: exercise.note.trim().slice(0, 160),
           supersetId: exercise.supersetId,
         })),
@@ -515,6 +540,8 @@ export function WorkoutBuilder({
                       onCancelPair={() => setPairFrom(null)}
                       onPair={() => pairWith(exercise.key)}
                       onUnlink={() => unlink(exercise.key)}
+                      weightUnit={weightUnit}
+                      weightDraft={weightDraft[exercise.key]}
                       onSets={(value) => {
                         const targetSets = Math.max(1, Math.min(20, Number.parseInt(value, 10) || 1));
                         setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetSets } : row)));
@@ -522,8 +549,23 @@ export function WorkoutBuilder({
                       onReps={(targetReps) => {
                         setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetReps } : row)));
                       }}
-                      onWeight={(targetWeight) => {
+                      onWeight={(text) => {
+                        setWeightDraft((current) => ({ ...current, [exercise.key]: text }));
+                        const trimmed = text.trim();
+                        if (!trimmed) {
+                          setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetWeight: null } : row)));
+                          return;
+                        }
+                        const parsed = parseWeight(trimmed);
+                        if (parsed == null) return;
+                        const targetWeight = toStoredKg(parsed, weightUnit);
                         setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetWeight } : row)));
+                      }}
+                      onEffort={(targetEffort) => {
+                        setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetEffort } : row)));
+                      }}
+                      onRpe={(targetRpe) => {
+                        setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetRpe } : row)));
                       }}
                       onNote={(note) => {
                         setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, note: note.slice(0, 160) } : row)));
@@ -671,15 +713,19 @@ function BuilderModal({ children, onClose }: { children: ReactNode; onClose: () 
   const { mode } = useExperienceMode();
   const desktop = mode === 'desktop';
   const { height, width } = useWindowDimensions();
-  const cardHeight = desktop ? Math.round(height * 0.9) : Math.round(height * 0.94);
-  const cardWidth = desktop ? width - 48 : width;
+  // Mobile sheets portal into the phone frame in preview — size to the host, not the desktop window.
   return (
     <AppModal visible transparent animationType={desktop ? 'fade' : 'slide'} onRequestClose={onClose}>
       <Pressable style={[styles.backdrop, desktop && styles.backdropDesktop]} onPress={onClose}>
         <Pressable
           accessibilityViewIsModal
           onPress={() => undefined}
-          style={[styles.card, { width: cardWidth, height: cardHeight }, desktop ? styles.cardDesktop : styles.cardMobile]}>
+          style={[
+            styles.card,
+            desktop
+              ? [styles.cardDesktop, { width: width - 48, height: Math.round(height * 0.9) }]
+              : styles.cardMobile,
+          ]}>
           {children}
         </Pressable>
       </Pressable>
@@ -805,6 +851,8 @@ function SelectedExercise({
   isSource,
   editable,
   canPair,
+  weightUnit,
+  weightDraft,
   onRemove,
   onSuperset,
   onCancelPair,
@@ -815,6 +863,8 @@ function SelectedExercise({
   onSets,
   onReps,
   onWeight,
+  onEffort,
+  onRpe,
   onNote,
   onPersonalNote,
 }: {
@@ -824,6 +874,8 @@ function SelectedExercise({
   isSource: boolean;
   editable: boolean;
   canPair: boolean;
+  weightUnit: WeightUnit;
+  weightDraft?: string;
   onRemove: () => void;
   onSuperset: () => void;
   onCancelPair: () => void;
@@ -834,9 +886,12 @@ function SelectedExercise({
   onSets: (value: string) => void;
   onReps: (value: string) => void;
   onWeight: (value: string) => void;
+  onEffort: (value: EffortLevel | null) => void;
+  onRpe: (value: number | null) => void;
   onNote: (value: string) => void;
   onPersonalNote?: (value: string) => void;
 }) {
+  const weightValue = weightDraft ?? displayWeight(exercise.targetWeight, weightUnit);
   return (
     <View style={[styles.selectedRow, isSource && styles.selectedRowActive]}>
       <View style={styles.selectedTop}>
@@ -868,7 +923,60 @@ function SelectedExercise({
         <LabeledSlot label="Sets" editable={editable} keyboard="decimal-pad" value={String(exercise.targetSets)} onChangeText={onSets} width={78} />
         <Text style={styles.times}>×</Text>
         <LabeledSlot label="Reps" editable={editable} value={exercise.targetReps ?? ''} onChangeText={onReps} width={78} />
-        <LabeledSlot label="kg" editable={editable} value={exercise.targetWeight ?? ''} onChangeText={onWeight} width={72} />
+      </View>
+      <View style={styles.loadGuide}>
+        <Text style={styles.loadGuideLabel}>Load guide</Text>
+        <View style={styles.effortRow}>
+          {EFFORT_LEVELS.map((level) => (
+            <Choice
+              key={level}
+              label={EFFORT_LABEL[level]}
+              active={exercise.targetEffort === level}
+              onPress={() => {
+                if (!editable) return;
+                onEffort(exercise.targetEffort === level ? null : level);
+              }}
+            />
+          ))}
+        </View>
+        <View style={styles.loadGuideRow}>
+          <View style={styles.rpeStepper}>
+            <Text style={styles.slotLabel}>RPE</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Decrease RPE"
+              disabled={!editable}
+              onPress={() => {
+                if (!editable) return;
+                if (exercise.targetRpe == null) return;
+                onRpe(exercise.targetRpe <= 1 ? null : exercise.targetRpe - 1);
+              }}
+              style={({ pressed }) => [styles.stepBtn, pressed && editable && styles.pressed]}>
+              <Text style={styles.stepGlyph}>−</Text>
+            </Pressable>
+            <Text style={styles.rpeValue}>{exercise.targetRpe ?? '–'}</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Increase RPE"
+              disabled={!editable}
+              onPress={() => {
+                if (!editable) return;
+                if (exercise.targetRpe == null) onRpe(1);
+                else if (exercise.targetRpe < 10) onRpe(exercise.targetRpe + 1);
+              }}
+              style={({ pressed }) => [styles.stepBtn, pressed && editable && styles.pressed]}>
+              <Text style={styles.stepGlyph}>+</Text>
+            </Pressable>
+          </View>
+          <LabeledSlot
+            label={weightUnit}
+            editable={editable}
+            keyboard="decimal-pad"
+            value={weightValue}
+            onChangeText={onWeight}
+            width={96}
+          />
+        </View>
       </View>
       <NoteLine label="Note" value={exercise.note} editable={editable} onSave={onNote} />
       {onPersonalNote ? <NoteLine label="Mine" value={exercise.personalNote} editable maxLength={280} onSave={onPersonalNote} /> : null}
@@ -891,11 +999,17 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   cardDesktop: { borderRadius: radius.lg },
-  cardMobile: { borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl },
-  column: { flex: 1, minHeight: 0, gap: 10 },
-  columnModal: { paddingHorizontal: space.md, paddingTop: space.md, paddingBottom: space.md },
+  cardMobile: {
+    width: '100%',
+    height: '94%',
+    alignSelf: 'stretch',
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+  },
+  column: { flex: 1, minWidth: 0, minHeight: 0, gap: 10 },
+  columnModal: { paddingHorizontal: space.md, paddingTop: space.md, paddingBottom: space.md, maxWidth: '100%' },
   split: { flex: 1, flexDirection: 'row', minHeight: 0, gap: 20 },
-  stack: { flex: 1, minHeight: 0, gap: 10 },
+  stack: { flex: 1, minWidth: 0, minHeight: 0, gap: 10 },
   pane: { flex: 1, minWidth: 0, minHeight: 0, gap: 10 },
   paneStacked: { flexGrow: 0, flexShrink: 1, gap: 10 },
   paneLeft: { borderRightWidth: 1, borderRightColor: colors.border, paddingRight: 16 },
@@ -920,6 +1034,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 6,
     gap: 4,
+    minWidth: 0,
+    maxWidth: '100%',
   },
   selectedRowActive: { borderColor: colors.accent },
   superset: {
@@ -936,6 +1052,29 @@ const styles = StyleSheet.create({
   selectedName: { flexGrow: 0, flexBasis: 'auto' },
   selectedSub: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   targets: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  loadGuide: { gap: 6, minWidth: 0, maxWidth: '100%' },
+  loadGuideLabel: { color: colors.textDim, fontSize: 11, fontWeight: '700' },
+  effortRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, minWidth: 0 },
+  loadGuideRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, minWidth: 0 },
+  rpeStepper: {
+    height: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.bg,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 8,
+  },
+  stepBtn: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepGlyph: { color: colors.textMuted, fontSize: 16, fontWeight: '700', lineHeight: 18 },
+  rpeValue: { minWidth: 18, color: colors.text, fontSize: 14, fontWeight: '700', textAlign: 'center', fontVariant: ['tabular-nums'] },
   times: { color: colors.textDim, fontSize: 14, fontWeight: '700' },
   slot: {
     height: 32,

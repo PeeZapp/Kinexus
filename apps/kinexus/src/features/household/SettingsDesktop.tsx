@@ -13,6 +13,7 @@ import {
   MembersList,
   PeoplePanel,
 } from '@/src/features/household/sections';
+import { UnitsSettings } from '@/src/features/household/UnitsSettings';
 import { ErrorText } from '@/src/features/household/ui';
 import { StaffSettingsLink } from '@/src/features/staff/StaffSettingsLink';
 import { NewsTopicsLink } from '@/src/features/today/NewsTopicsScreen';
@@ -42,6 +43,7 @@ export function SettingsDesktop() {
         </Text>
         <ErrorText message={error} />
         <View style={styles.narrow}>
+          <UnitsSettings />
           <StaffSettingsLink />
           <NewsTopicsLink />
           <RecipeImageUploadLink />
@@ -63,6 +65,7 @@ export function SettingsDesktop() {
       <ErrorText message={error} />
       <View style={styles.grid}>
         <View style={styles.col}>
+          <UnitsSettings />
           <RolePreviewCard />
           <StaffSettingsLink />
           <NewsTopicsLink />

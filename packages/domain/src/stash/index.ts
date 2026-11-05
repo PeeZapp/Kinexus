@@ -207,4 +207,11 @@ export {
 } from './ratings';
 export type { WatchlistAudience } from './ratings';
 
-export { funnyAliasFromSeed, isFunnyAlias } from './aliases';
+export {
+  funnyAliasFromSeed,
+  formatPermanentHandle,
+  generatePermanentHandle,
+  isFunnyAlias,
+  isPermanentHandle,
+} from './aliases';
+export type { GeneratePermanentHandleOptions, HandleTakenCheck } from './aliases';

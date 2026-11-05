@@ -2,9 +2,10 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 
-import { CookChrome } from '@/src/features/cook/CookChrome';
+import { CookShell } from '@/src/features/cook/CookShell';
 import { useCookSave } from '@/src/features/cook/use-cook-save';
 import { Btn } from '@/src/features/household/ui';
+import { recipeHref } from '@/src/features/meals/recipe-href';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
 import { EmptyState, LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
@@ -17,10 +18,11 @@ export function MyRecipesScreen() {
   const { user, householdReady, householdId, savedRecipes, savedLoading, savedError } = useCookSave(undefined);
 
   return (
-    <CookChrome title="My Recipes">
+    <CookShell title="My Recipes">
       <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}>
         <Text style={styles.lede}>Recipes you saved from a URL import, with the original source still attached.</Text>
         <Btn label="Import a recipe" onPress={() => router.push('/import' as Href)} />
+        <Btn label="Meals library" variant="secondary" onPress={() => router.push('/meals/recipes' as Href)} />
 
         {!householdReady || (user && householdId && savedLoading) ? (
           <LoadingState label="Loading saved recipes…" />
@@ -51,7 +53,7 @@ export function MyRecipesScreen() {
             {savedRecipes.map((recipe) => (
               <Pressable
                 key={recipe.id}
-                onPress={() => router.push({ pathname: '/recipes/[id]', params: { id: recipe.id } } as Href)}
+                onPress={() => router.push(recipeHref(recipe.id))}
                 style={styles.card}>
                 <View style={styles.thumb}>
                   <RecipePhoto uri={recipe.imageUrl} emoji={recipe.emoji} size="fill" radius={0} />
@@ -70,7 +72,7 @@ export function MyRecipesScreen() {
           </View>
         )}
       </ScrollView>
-    </CookChrome>
+    </CookShell>
   );
 }
 

@@ -2,6 +2,17 @@
  * Pure TypeScript domain package (no React / React Native).
  */
 
+export {
+  checkDisplayText,
+  containsImpersonation,
+  containsProfanity,
+  IMPERSONATION_TERMS,
+  isBlockedDisplayText,
+  normalizeProfanityCandidates,
+  normalizeProfanityInput,
+} from './moderation/index';
+export type { DisplayTextCheck } from './moderation/index';
+
 export type {
   CreatedInvite,
   Household,
@@ -260,6 +271,7 @@ export {
   methodBlocksToStrings,
   rotatingProgressMessage,
   scaledQuantityLabel,
+  suggestMealSlotsFromTitle,
   userErrorFromCode,
   recipeBaseServings,
   scaleRecipeToServings,
@@ -419,8 +431,12 @@ export {
   maxAudience,
   viewerAudience,
   funnyAliasFromSeed,
+  formatPermanentHandle,
+  generatePermanentHandle,
   isFunnyAlias,
+  isPermanentHandle,
 } from './stash/index';
+export type { GeneratePermanentHandleOptions, HandleTakenCheck } from './stash/index';
 
 export type {
   ChecklistItemPosition,
@@ -919,23 +935,33 @@ export type {
 } from './creators/index';
 
 export {
+  EFFORT_COLOR,
+  EFFORT_LABEL,
+  EFFORT_LEVELS,
   REMIX_CATEGORIES,
   REMIX_CATEGORY_COLOR,
   REMIX_DURATIONS,
   REST_EXTRAS,
   applyLoggedSets,
   buildRemixWorkoutLabel,
+  defaultsForRegion,
+  effortLevelFrom,
   encodeRemixSplit,
   exerciseMatchesRemixCategory,
   exerciseSearchScore,
   estimateWorkout,
+  formatWeight,
   generateFromCategoryMix,
   getRemixDefaultsForCategory,
+  kgToLb,
+  lbToKg,
+  measurementSystemFrom,
   memoryPairs,
   normalizeRemixSliderWeights,
   parseRemixSplit,
   parseWeight,
   quizForRest,
+  roundWeight,
   shuffledRestQuiz,
   remixCategoryOf,
   remixExerciseCount,
@@ -945,18 +971,26 @@ export {
   normalizeSupersets,
   swapSimilarExercises,
   nextSimilarExercise,
+  toStoredKg,
   unlinkSuperset,
+  weightUnitFrom,
 } from './train/index';
 export type {
+  BuiltExercise,
   CatalogExercise,
+  EffortLevel,
   ExerciseCluster,
   ExerciseRecord,
   LoggedSet,
+  MeasurementSystem,
   QuizQuestion,
   RecordUpdate,
   RemixCategory,
   RemixPick,
   RestExtra,
   SupersetMember,
+  WeightUnit,
+  WorkoutBuilderSeed,
   WorkoutEstimate,
+  WorkoutExercise,
 } from './train/index';

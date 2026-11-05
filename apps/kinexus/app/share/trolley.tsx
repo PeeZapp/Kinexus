@@ -54,17 +54,17 @@ export default function TrolleyHandoffScreen() {
 
   function openShop() {
     if (!handoff || !token || !api) return;
-    const lines = handoff.lines.filter((line) => line.productId && line.packs > 0);
+    const lines = handoff.lines.flatMap((line) =>
+      line.productId && line.packs > 0
+        ? [{ productId: line.productId, productName: line.productName, packs: line.packs }]
+        : [],
+    );
     const url = lines.length ? trolleyShopUrl(handoff.chainId, token, api, lines) : shopCartUrl(handoff.chainId);
     if (lines.length) {
       stageShopFill({
         chainId: handoff.chainId,
         chainName: shop,
-        lines: lines.map((line) => ({
-          productId: line.productId ?? '',
-          productName: line.productName,
-          packs: line.packs,
-        })),
+        lines,
         skipped: handoff.skipped.map((row) => row.name),
         shopUrl: url,
       });

@@ -14,6 +14,8 @@ export type Database = {
           display_name: string | null;
           avatar_url: string | null;
           email: string | null;
+          weight_unit: 'kg' | 'lb' | null;
+          measurement_system: 'metric' | 'imperial' | null;
           created_at: string;
           updated_at: string;
         };
@@ -22,6 +24,8 @@ export type Database = {
           display_name?: string | null;
           avatar_url?: string | null;
           email?: string | null;
+          weight_unit?: 'kg' | 'lb' | null;
+          measurement_system?: 'metric' | 'imperial' | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -29,6 +33,8 @@ export type Database = {
           display_name?: string | null;
           avatar_url?: string | null;
           email?: string | null;
+          weight_unit?: 'kg' | 'lb' | null;
+          measurement_system?: 'metric' | 'imperial' | null;
           updated_at?: string;
         };
         Relationships: [];
@@ -2381,7 +2387,9 @@ export type Database = {
           target_sets: number;
           target_reps: string;
           superset_id: string | null;
-          target_weight: string;
+          target_weight: number | null;
+          target_effort: 'light' | 'moderate' | 'heavy' | 'max' | null;
+          target_rpe: number | null;
           note: string;
         };
         Insert: {
@@ -2394,7 +2402,9 @@ export type Database = {
           target_sets?: number;
           target_reps?: string;
           superset_id?: string | null;
-          target_weight?: string;
+          target_weight?: number | null;
+          target_effort?: 'light' | 'moderate' | 'heavy' | 'max' | null;
+          target_rpe?: number | null;
           note?: string;
         };
         Update: {
@@ -2404,7 +2414,9 @@ export type Database = {
           target_sets?: number;
           target_reps?: string;
           superset_id?: string | null;
-          target_weight?: string;
+          target_weight?: number | null;
+          target_effort?: 'light' | 'moderate' | 'heavy' | 'max' | null;
+          target_rpe?: number | null;
           note?: string;
         };
         Relationships: [

@@ -47,6 +47,7 @@ export {
   methodBlocksToStrings,
   rotatingProgressMessage,
   scaledQuantityLabel,
+  suggestMealSlotsFromTitle,
   userErrorFromCode,
 } from './clean-recipe';
 export { recipeBaseServings, scaleRecipeToServings } from './scale-servings';

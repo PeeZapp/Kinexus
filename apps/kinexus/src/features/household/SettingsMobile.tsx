@@ -14,6 +14,7 @@ import {
   MembersList,
   PeoplePanel,
 } from '@/src/features/household/sections';
+import { UnitsSettings } from '@/src/features/household/UnitsSettings';
 import { ErrorText } from '@/src/features/household/ui';
 import { StaffSettingsLink } from '@/src/features/staff/StaffSettingsLink';
 import { NewsTopicsLink } from '@/src/features/today/NewsTopicsScreen';
@@ -44,6 +45,7 @@ export function SettingsMobile() {
           Create a household or paste an invite. Meals and the other modules unlock after you join.
         </Text>
         <ErrorText message={error} />
+        <UnitsSettings />
         <StaffSettingsLink />
         <NewsTopicsLink />
         <RecipeImageUploadLink />
@@ -62,6 +64,7 @@ export function SettingsMobile() {
       </Text>
       <Text style={styles.title}>{activeHousehold.name}</Text>
       <ErrorText message={error} />
+      <UnitsSettings />
       <RolePreviewCard />
       <StaffSettingsLink />
       <NewsTopicsLink />

@@ -6,7 +6,6 @@ import type { Href } from 'expo-router';
 
 import { PwaInstallHint } from '@/src/features/shell/PwaInstallHint';
 import { colors, space } from '@/src/features/shell/theme';
-import { useAuth } from '@/src/lib/auth';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 
 export function CookChrome({
@@ -20,7 +19,6 @@ export function CookChrome({
 }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user } = useAuth();
   const { mode } = useExperienceMode();
   const desktop = mode === 'desktop';
 
@@ -38,15 +36,9 @@ export function CookChrome({
           <Pressable onPress={() => router.push('/recipes' as Href)} hitSlop={8}>
             <Text style={styles.navLink}>My Recipes</Text>
           </Pressable>
-          {user ? (
-            <Pressable onPress={() => router.push('/meals/recipes' as Href)} hitSlop={8}>
-              <Text style={styles.navLink}>Library</Text>
-            </Pressable>
-          ) : (
-            <Pressable onPress={() => router.push('/sign-in' as Href)} hitSlop={8}>
-              <Text style={styles.navLink}>Sign in</Text>
-            </Pressable>
-          )}
+          <Pressable onPress={() => router.push('/sign-in' as Href)} hitSlop={8}>
+            <Text style={styles.navLink}>Sign in</Text>
+          </Pressable>
         </View>
       </View>
       <View style={[styles.body, desktop && styles.bodyDesktop]}>{children}</View>

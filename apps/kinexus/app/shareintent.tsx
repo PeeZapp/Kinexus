@@ -6,6 +6,7 @@ import { useShareIntentContext } from 'expo-share-intent';
 
 import { extractRecipeUrlFromShare } from '@kinexus/domain';
 
+import { CookShell } from '@/src/features/cook/CookShell';
 import { colors, space } from '@/src/features/shell/theme';
 
 /**
@@ -47,10 +48,12 @@ export default function ShareIntentRoute() {
   }, [hasShareIntent, isReady, resetShareIntent, router, shareIntent.meta?.title, shareIntent.text, shareIntent.webUrl]);
 
   return (
-    <View style={styles.root}>
-      <ActivityIndicator color={colors.accent} />
-      <Text style={styles.label}>Opening shared recipe…</Text>
-    </View>
+    <CookShell title="Import" showInstall={false}>
+      <View style={styles.root}>
+        <ActivityIndicator color={colors.accent} />
+        <Text style={styles.label}>Opening shared recipe…</Text>
+      </View>
+    </CookShell>
   );
 }
 

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { funnyAliasFromSeed } from './aliases';
+import { containsProfanity, isBlockedDisplayText } from '../moderation/profanity';
+import {
+  funnyAliasFromSeed,
+  generatePermanentHandle,
+  isPermanentHandle,
+} from './aliases';
 import {
   audienceForBirthday,
   audienceFromCertification,
@@ -41,5 +46,44 @@ describe('funny aliases', () => {
     expect(a).toBe(b);
     expect(a).toMatch(/^[A-Za-z]+ [A-Za-z]+ \d{2}$/);
     expect(funnyAliasFromSeed('user-2')).not.toBe(a);
+  });
+});
+
+describe('permanent handles', () => {
+  it('formats Adjective-Noun-#### and retries on collision', async () => {
+    const taken = new Set<string>();
+    const handle = await generatePermanentHandle((h) => taken.has(h), {
+      random: (() => {
+        let i = 0;
+        const seq = [0, 0, 0.48, 0.1, 0.2, 0.48];
+        return () => seq[i++] ?? Math.random();
+      })(),
+    });
+    expect(isPermanentHandle(handle)).toBe(true);
+    expect(handle).toMatch(/^[A-Za-z]+-[A-Za-z]+-\d{4}$/);
+
+    taken.add(handle);
+    let attempts = 0;
+    const second = await generatePermanentHandle(
+      (h) => {
+        attempts += 1;
+        return taken.has(h);
+      },
+      { maxAttempts: 8 },
+    );
+    expect(second).not.toBe(handle);
+    expect(attempts).toBeGreaterThanOrEqual(1);
+  });
+
+  it('generates many handles that all pass the profanity filter', async () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i += 1) {
+      const handle = await generatePermanentHandle((h) => seen.has(h));
+      seen.add(handle);
+      expect(isPermanentHandle(handle)).toBe(true);
+      expect(containsProfanity(handle)).toBe(false);
+      expect(isBlockedDisplayText(handle)).toBe(false);
+    }
+    expect(seen.size).toBe(200);
   });
 });

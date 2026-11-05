@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 
 import { householdRecipeToClean, isCompleteCleanRecipe, type CleanRecipe } from '@kinexus/domain';
 
-import { CookChrome } from '@/src/features/cook/CookChrome';
 import { CookError } from '@/src/features/cook/CookError';
 import { CookLoading } from '@/src/features/cook/CookLoading';
+import { CookShell } from '@/src/features/cook/CookShell';
 import { CookView } from '@/src/features/cook/CookView';
 import { cacheCookRecipe, readCachedCookRecipe } from '@/src/features/cook/cook-storage';
 import { recipeParam } from '@/src/features/meals/recipe-href';
@@ -17,6 +17,14 @@ import { useOnline } from '@/src/lib/online';
 import { getRecipeImport, isImportInProgress, postRecipeImport, RecipeImportApiError } from '@/src/lib/recipe-import-api';
 
 export function CookRouteScreen() {
+  return (
+    <CookShell title="Cook" showInstall={false}>
+      <CookRouteBody />
+    </CookShell>
+  );
+}
+
+function CookRouteBody(): ReactNode {
   const router = useRouter();
   const online = useOnline();
   const { id } = useLocalSearchParams<{ id: string | string[] }>();
@@ -92,63 +100,41 @@ export function CookRouteScreen() {
 
   if (!importId) {
     return (
-      <CookChrome title="Cook" showInstall={false}>
-        <CookError errorCode="invalid_url" hint="That cook link is missing a recipe id." onRetry={() => router.replace('/import' as Href)} />
-      </CookChrome>
+      <CookError errorCode="invalid_url" hint="That cook link is missing a recipe id." onRetry={() => router.replace('/import' as Href)} />
     );
   }
 
   if (jobRecipe || cached) {
-    return (
-      <CookChrome title="Cook" showInstall={false}>
-        <CookView importId={importId} recipe={jobRecipe ?? cached!} />
-      </CookChrome>
-    );
+    return <CookView importId={importId} recipe={jobRecipe ?? cached!} />;
   }
 
   if (isImportInProgress(job) || jobQuery.isLoading || retrying) {
-    return (
-      <CookChrome title="Cook" showInstall={false}>
-        <CookLoading job={job} onCancel={() => router.replace('/import' as Href)} />
-      </CookChrome>
-    );
+    return <CookLoading job={job} onCancel={() => router.replace('/import' as Href)} />;
   }
 
   if (job?.status === 'failed') {
     return (
-      <CookChrome title="Cook" showInstall={false}>
-        <CookError
-          errorCode={job.errorCode}
-          hint={retryError ?? job.errorMessage}
-          onRetry={() => void retry()}
-          sourceUrl={job.canonicalUrl || job.inputUrl}
-        />
-      </CookChrome>
+      <CookError
+        errorCode={job.errorCode}
+        hint={retryError ?? job.errorMessage}
+        onRetry={() => void retry()}
+        sourceUrl={job.canonicalUrl || job.inputUrl}
+      />
     );
   }
 
   if (job?.status === 'succeeded' && !jobRecipe) {
     return (
-      <CookChrome title="Cook" showInstall={false}>
-        <CookError errorCode="extraction_failed" hint={job.errorMessage} sourceUrl={job.canonicalUrl || job.inputUrl} onRetry={() => void retry()} />
-      </CookChrome>
+      <CookError errorCode="extraction_failed" hint={job.errorMessage} sourceUrl={job.canonicalUrl || job.inputUrl} onRetry={() => void retry()} />
     );
   }
 
   if (householdRecipe && isCompleteCleanRecipe(householdRecipe)) {
-    return (
-      <CookChrome title="Cook" showInstall={false}>
-        <CookView importId={importId} recipe={householdRecipe} />
-      </CookChrome>
-    );
+    return <CookView importId={importId} recipe={householdRecipe} />;
   }
 
   if (householdQuery.isLoading) {
-    return (
-      <CookChrome title="Cook" showInstall={false}>
-        <LoadingState label="Loading recipe…" />
-      </CookChrome>
-    );
+    return <LoadingState label="Loading recipe…" />;
   }
 
   const apiError = jobQuery.error;
@@ -160,12 +146,10 @@ export function CookRouteScreen() {
         : 'timeout';
 
   return (
-    <CookChrome title="Cook" showInstall={false}>
-      <CookError
-        errorCode={code}
-        hint={retryError ?? (apiError instanceof Error ? apiError.message : null)}
-        onRetry={() => void (job?.inputUrl || job?.canonicalUrl ? retry() : jobQuery.refetch())}
-      />
-    </CookChrome>
+    <CookError
+      errorCode={code}
+      hint={retryError ?? (apiError instanceof Error ? apiError.message : null)}
+      onRetry={() => void (job?.inputUrl || job?.canonicalUrl ? retry() : jobQuery.refetch())}
+    />
   );
 }

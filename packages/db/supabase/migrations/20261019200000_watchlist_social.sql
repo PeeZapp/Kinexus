@@ -116,6 +116,8 @@ create policy watchlist_titles_select on public.watchlist_titles
 
 -- ---------------------------------------------------------------------------
 -- Funny aliases (stable per user; never show real names on global reviews)
+-- DEPRECATED: superseded by profiles.global_handle / public_profile().
+-- Table kept in place for history; app code must not read or write it.
 -- ---------------------------------------------------------------------------
 
 create table if not exists public.watchlist_social_aliases (

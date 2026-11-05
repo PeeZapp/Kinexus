@@ -1,8 +1,25 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyLoggedSets } from './records';
+import { applyLoggedSets, parseWeight } from './records';
 import { memoryPairs, quizForRest } from './quiz';
 import { restExtraFrom } from './rest';
+
+describe('parseWeight', () => {
+  it('parses plain numeric weights', () => {
+    expect(parseWeight('55')).toBe(55);
+    expect(parseWeight(' 60.5 ')).toBe(60.5);
+  });
+
+  it('never returns a bogus 0 from effort or other text', () => {
+    expect(parseWeight('light')).toBeNull();
+    expect(parseWeight('moderate')).toBeNull();
+    expect(parseWeight('heavy')).toBeNull();
+    expect(parseWeight('max')).toBeNull();
+    expect(parseWeight('bodyweight')).toBeNull();
+    expect(parseWeight('RPE 8')).toBeNull();
+    expect(parseWeight('')).toBeNull();
+  });
+});
 
 describe('applyLoggedSets', () => {
   it('marks a heavier done set as a personal record', () => {
@@ -20,6 +37,15 @@ describe('applyLoggedSets', () => {
 
   it('ignores sets that are not checked off', () => {
     expect(applyLoggedSets(null, [{ weight: '100', reps: '1', done: false }])).toBeNull();
+  });
+
+  it('does not treat effort text as a zero-weight PR baseline', () => {
+    const update = applyLoggedSets(
+      { lastWeight: 'light', lastReps: '', bestWeight: 'light', bestReps: '' },
+      [{ weight: '40', reps: '8', done: true }],
+    );
+    expect(update?.isPr).toBe(true);
+    expect(update?.bestWeight).toBe('40');
   });
 });
 

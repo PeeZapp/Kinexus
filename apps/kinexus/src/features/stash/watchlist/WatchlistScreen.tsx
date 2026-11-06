@@ -29,9 +29,8 @@ import {
 
 import { ErrorText } from '@/src/features/household/ui';
 import { LoadingState } from '@/src/features/shell/states';
-import { LinkShareSheet } from '@/src/features/share/LinkShareSheet';
 import { buildShareUrl } from '@/src/features/share/share-url';
-import { disableEntityShare, enableEntityShare, resetEntityShare, sharePreview } from '@/src/features/share/link-share';
+import { sharePreview } from '@/src/features/share/link-share';
 import { WatchlistDesktop, type WatchlistLayoutProps } from '@/src/features/stash/watchlist/WatchlistDesktop';
 import { WatchlistMobile } from '@/src/features/stash/watchlist/WatchlistMobile';
 import type { WatchlistCardReview, WatchlistListCardModel } from '@/src/features/stash/watchlist/WatchlistShared';
@@ -144,7 +143,6 @@ export function WatchlistScreen() {
   const [renameValue, setRenameValue] = useState('');
   const [renameShare, setRenameShare] = useState<ListShareDraft>({ visibility: 'household', personIds: [] });
   const [renamePublish, setRenamePublish] = useState({ blurb: '', samplePosterPaths: [] as string[] });
-  const [linkShareId, setLinkShareId] = useState<string | null>(null);
   const [linkShareBusy, setLinkShareBusy] = useState(false);
   const [linkShareError, setLinkShareError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -814,6 +812,7 @@ export function WatchlistScreen() {
     onAddTitle: () => setAddTitle(true),
     onImport: () => setImportOpen(true),
     onExport: selectedListId ? () => setExportOpen(true) : undefined,
+    exportLabel: 'Share',
     onWhatNext: () => setIdeasMode('next'),
     onSurprise: () => setIdeasMode('surprise'),
     onLikeThis: () => setIdeasMode('like'),
@@ -976,14 +975,6 @@ export function WatchlistScreen() {
           );
           if (ok) setRenameId(null);
         }}
-        onOpenLinkShare={
-          renameId
-            ? () => {
-                setLinkShareError(null);
-                setLinkShareId(renameId);
-              }
-            : undefined
-        }
         onDelete={
           renameId
             ? async () => {
@@ -995,58 +986,6 @@ export function WatchlistScreen() {
               }
             : undefined
         }
-      />
-      <LinkShareSheet
-        visible={Boolean(linkShareId)}
-        title="Share watchlist"
-        preview={(() => {
-          const list = watchlist.lists.find((item) => item.id === linkShareId);
-          if (!list) return '';
-          const count = watchlist.items.filter((item) => item.listId === list.id).length;
-          return sharePreview([
-            `${selfName}'s ${list.name}`,
-            `${count} title${count === 1 ? '' : 's'}`,
-          ]);
-        })()}
-        state={(() => {
-          const list = watchlist.lists.find((item) => item.id === linkShareId);
-          return {
-            isShared: Boolean(list?.isShared),
-            shareToken: list?.shareToken ?? null,
-            url: list?.isShared && list.shareToken ? buildShareUrl('watchlist', list.shareToken) : null,
-          };
-        })()}
-        busy={linkShareBusy}
-        error={linkShareError}
-        onClose={() => setLinkShareId(null)}
-        onToggle={async (enabled) => {
-          if (!linkShareId) return null;
-          setLinkShareBusy(true);
-          setLinkShareError(null);
-          try {
-            return enabled
-              ? await watchlist.enableLinkShare(linkShareId)
-              : await watchlist.disableLinkShare(linkShareId);
-          } catch (err) {
-            setLinkShareError(err instanceof Error ? err.message : 'Could not update share link');
-            throw err;
-          } finally {
-            setLinkShareBusy(false);
-          }
-        }}
-        onReset={async () => {
-          if (!linkShareId) return null;
-          setLinkShareBusy(true);
-          setLinkShareError(null);
-          try {
-            return await watchlist.resetLinkShare(linkShareId);
-          } catch (err) {
-            setLinkShareError(err instanceof Error ? err.message : 'Could not reset share link');
-            throw err;
-          } finally {
-            setLinkShareBusy(false);
-          }
-        }}
       />
       <TitleSheet
         visible={Boolean(openEntry)}
@@ -1284,7 +1223,56 @@ export function WatchlistScreen() {
               )
             : null
         }
-        onClose={() => setExportOpen(false)}
+        linkShare={
+          selectedList && !isWatchedList(selectedList) && canSettings(selectedList.id)
+            ? {
+                preview: sharePreview([
+                  `${selfName}'s ${selectedList.name}`,
+                  `${entries.filter((entry) => entry.list.id === selectedList.id).length} titles`,
+                ]),
+                state: {
+                  isShared: selectedList.isShared,
+                  shareToken: selectedList.shareToken,
+                  url:
+                    selectedList.isShared && selectedList.shareToken
+                      ? buildShareUrl('watchlist', selectedList.shareToken)
+                      : null,
+                },
+                busy: linkShareBusy,
+                error: linkShareError,
+                onToggle: async (enabled) => {
+                  setLinkShareBusy(true);
+                  setLinkShareError(null);
+                  try {
+                    return enabled
+                      ? await watchlist.enableLinkShare(selectedList.id)
+                      : await watchlist.disableLinkShare(selectedList.id);
+                  } catch (err) {
+                    setLinkShareError(err instanceof Error ? err.message : 'Could not update share link');
+                    throw err;
+                  } finally {
+                    setLinkShareBusy(false);
+                  }
+                },
+                onReset: async () => {
+                  setLinkShareBusy(true);
+                  setLinkShareError(null);
+                  try {
+                    return await watchlist.resetLinkShare(selectedList.id);
+                  } catch (err) {
+                    setLinkShareError(err instanceof Error ? err.message : 'Could not reset share link');
+                    throw err;
+                  } finally {
+                    setLinkShareBusy(false);
+                  }
+                },
+              }
+            : null
+        }
+        onClose={() => {
+          setExportOpen(false);
+          setLinkShareError(null);
+        }}
       />
       <ListImportWizard
         visible={importOpen}

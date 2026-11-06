@@ -43,6 +43,7 @@ export function WatchlistMobile(props: WatchlistLayoutProps) {
           onExtra={props.onAddTitle}
           onImport={props.onImport}
           onExport={props.onExport}
+          exportLabel={props.exportLabel}
           disabled={!props.online}
         />
         <WatchlistIdeaActions
@@ -128,6 +129,7 @@ export function WatchlistMobile(props: WatchlistLayoutProps) {
         onAdd={props.onAddTitle}
         onImport={props.onImport}
         onExport={props.onExport}
+        exportLabel={props.exportLabel}
         disabled={!props.online}
       />
 

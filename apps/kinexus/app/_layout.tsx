@@ -36,11 +36,7 @@ export default function RootLayout() {
                   <Stack.Screen name="(staff)" />
                   <Stack.Screen name="auth/callback" />
                   <Stack.Screen name="invite/[token]" />
-                  <Stack.Screen name="share/list/[token]" />
-                  <Stack.Screen name="share/workout/[token]" />
-                  <Stack.Screen name="share/watchlist/[token]" />
-                  <Stack.Screen name="share/recipe" />
-                  <Stack.Screen name="share/trolley" />
+                  <Stack.Screen name="share" />
                   <Stack.Screen name="shareintent" />
                   <Stack.Screen name="import" />
                   <Stack.Screen name="recipes" />

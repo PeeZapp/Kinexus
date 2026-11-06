@@ -86,6 +86,7 @@ export type WatchlistLayoutProps = {
   onAddTitle: () => void;
   onImport?: () => void;
   onExport?: () => void;
+  exportLabel?: string;
   onWhatNext: () => void;
   onSurprise: () => void;
   onLikeThis: () => void;
@@ -145,6 +146,7 @@ export function WatchlistDesktop(props: WatchlistLayoutProps) {
           onExtra={props.onAddTitle}
           onImport={props.onImport}
           onExport={props.onExport}
+          exportLabel={props.exportLabel}
           disabled={!props.online}
         />
         <WatchlistIdeaActions
@@ -234,6 +236,7 @@ export function WatchlistDesktop(props: WatchlistLayoutProps) {
         onAdd={props.onAddTitle}
         onImport={props.onImport}
         onExport={props.onExport}
+        exportLabel={props.exportLabel}
         disabled={!props.online}
       />
 

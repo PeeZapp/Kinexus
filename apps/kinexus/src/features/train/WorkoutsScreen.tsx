@@ -12,6 +12,8 @@ import {
   workoutWeightToKg,
   type ListImportWriters,
 } from '@/src/features/lists/list-io-adapters';
+import { buildShareUrl } from '@/src/features/share/share-url';
+import { disableEntityShare, enableEntityShare, resetEntityShare, sharePreview } from '@/src/features/share/link-share';
 import { clearOpenSession, createWorkout, loadOpenWorkoutIds, loadWorkouts, saveWorkout, saveWorkoutRating, type WorkoutDraft } from '@/src/features/train/api';
 import { EMPTY_WORKOUT_SEED, WorkoutBuilder, type WorkoutBuilderResult } from '@/src/features/train/WorkoutBuilder';
 import { SearchField, TrainButton, TrainPage } from '@/src/features/train/ui';
@@ -58,10 +60,19 @@ export function WorkoutsScreen() {
   const [clearingId, setClearingId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [exportWorkout, setExportWorkout] = useState<WorkoutDraft | null>(null);
+  const [linkShareBusy, setLinkShareBusy] = useState(false);
+  const [linkShareError, setLinkShareError] = useState<string | null>(null);
   const { weightUnit } = useUnits();
   const userId = user && !user.isDevBypass ? user.id : null;
   const canCreate = canCreateShared(role);
   const wide = mode === 'desktop';
+
+  async function refreshWorkouts() {
+    if (!activeHousehold) return;
+    const rows = await loadWorkouts(activeHousehold.id);
+    setWorkouts(rows);
+    setExportWorkout((current) => (current ? rows.find((row) => row.id === current.id) ?? current : null));
+  }
 
   useFocusEffect(
     useCallback(() => {
@@ -273,7 +284,7 @@ export function WorkoutsScreen() {
                         ) : null}
                       </Pressable>
                       <View style={styles.actions}>
-                        <TrainButton label="Export" tone="ghost" onPress={() => setExportWorkout(workout)} />
+                        <TrainButton label="Share" tone="ghost" onPress={() => setExportWorkout(workout)} />
                         {open ? (
                           <TrainButton label="Clear" tone="ghost" disabled={clearingId === workout.id} onPress={() => void clearWorkout(workout.id)} />
                         ) : null}
@@ -336,7 +347,61 @@ export function WorkoutsScreen() {
       <ListExportSheet
         visible={Boolean(exportWorkout)}
         input={exportWorkout ? workoutExportInput(exportWorkout, weightUnit) : null}
-        onClose={() => setExportWorkout(null)}
+        linkShare={
+          exportWorkout
+            ? {
+                preview: sharePreview([
+                  `${user?.displayName?.trim() || 'Workout'}'s ${exportWorkout.name}`,
+                  `${exportWorkout.exercises.length} exercise${exportWorkout.exercises.length === 1 ? '' : 's'}`,
+                  exportWorkout.durationMin ? `${exportWorkout.durationMin} min` : null,
+                ]),
+                state: {
+                  isShared: exportWorkout.isShared,
+                  shareToken: exportWorkout.shareToken,
+                  url:
+                    exportWorkout.isShared && exportWorkout.shareToken
+                      ? buildShareUrl('workout', exportWorkout.shareToken)
+                      : null,
+                },
+                busy: linkShareBusy,
+                error: linkShareError,
+                onToggle: async (enabled) => {
+                  setLinkShareBusy(true);
+                  setLinkShareError(null);
+                  try {
+                    const url = enabled
+                      ? await enableEntityShare('workout', exportWorkout.id, exportWorkout.shareToken)
+                      : await disableEntityShare('workout', exportWorkout.id);
+                    await refreshWorkouts();
+                    return url;
+                  } catch (err) {
+                    setLinkShareError(err instanceof Error ? err.message : 'Could not update share link');
+                    throw err;
+                  } finally {
+                    setLinkShareBusy(false);
+                  }
+                },
+                onReset: async () => {
+                  setLinkShareBusy(true);
+                  setLinkShareError(null);
+                  try {
+                    const url = await resetEntityShare('workout', exportWorkout.id);
+                    await refreshWorkouts();
+                    return url;
+                  } catch (err) {
+                    setLinkShareError(err instanceof Error ? err.message : 'Could not reset share link');
+                    throw err;
+                  } finally {
+                    setLinkShareBusy(false);
+                  }
+                },
+              }
+            : null
+        }
+        onClose={() => {
+          setExportWorkout(null);
+          setLinkShareError(null);
+        }}
       />
       <ListImportWizard
         visible={importOpen}

@@ -4,20 +4,23 @@ import { useRouter, type Href } from 'expo-router';
 
 import { canEditShared } from '@kinexus/domain';
 
+import { ListExportSheet } from '@/src/features/lists/ListExportSheet';
+import { workoutExportInput } from '@/src/features/lists/list-io-adapters';
+import { buildShareUrl } from '@/src/features/share/share-url';
+import { disableEntityShare, enableEntityShare, resetEntityShare, sharePreview } from '@/src/features/share/link-share';
 import { deleteWorkout, loadWorkouts, saveWorkout, saveWorkoutUserNotes, type WorkoutDraft } from '@/src/features/train/api';
 import { WorkoutBuilder, type WorkoutBuilderResult } from '@/src/features/train/WorkoutBuilder';
 import { TrainButton, TrainPage } from '@/src/features/train/ui';
-import { LinkShareSheet } from '@/src/features/share/LinkShareSheet';
-import { buildShareUrl } from '@/src/features/share/share-url';
-import { disableEntityShare, enableEntityShare, resetEntityShare, sharePreview } from '@/src/features/share/link-share';
 import { ErrorBanner, LoadingState } from '@/src/features/shell/states';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
+import { useUnits } from '@/src/lib/use-units';
 
 export function WorkoutEditor({ workoutId }: { workoutId: string }) {
   const router = useRouter();
   const { user } = useAuth();
   const { activeHousehold, people, role } = useHousehold();
+  const { weightUnit } = useUnits();
   const [workout, setWorkout] = useState<WorkoutDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
@@ -116,43 +119,6 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
     if (match) setWorkout(match);
   }
 
-  async function toggleShare(enabled: boolean) {
-    if (!workout) return null;
-    setShareBusy(true);
-    setShareError(null);
-    try {
-      if (!enabled) {
-        await disableEntityShare('workout', workout.id);
-        await refreshWorkout();
-        return null;
-      }
-      const url = await enableEntityShare('workout', workout.id, workout.shareToken);
-      await refreshWorkout();
-      return url;
-    } catch (err) {
-      setShareError(err instanceof Error ? err.message : 'Could not update share link');
-      throw err;
-    } finally {
-      setShareBusy(false);
-    }
-  }
-
-  async function resetShare() {
-    if (!workout) return null;
-    setShareBusy(true);
-    setShareError(null);
-    try {
-      const url = await resetEntityShare('workout', workout.id);
-      await refreshWorkout();
-      return url;
-    } catch (err) {
-      setShareError(err instanceof Error ? err.message : 'Could not reset share link');
-      throw err;
-    } finally {
-      setShareBusy(false);
-    }
-  }
-
   if (!workout) {
     return (
       <TrainPage>
@@ -195,20 +161,53 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
         onShare={editable ? () => setShareOpen(true) : undefined}
         onSubmit={submit}
       />
-      <LinkShareSheet
+      <ListExportSheet
         visible={shareOpen}
-        title="Share workout"
-        preview={preview}
-        state={{
-          isShared: workout.isShared,
-          shareToken: workout.shareToken,
-          url: workout.isShared && workout.shareToken ? buildShareUrl('workout', workout.shareToken) : null,
+        input={workoutExportInput(workout, weightUnit)}
+        linkShare={{
+          preview,
+          state: {
+            isShared: workout.isShared,
+            shareToken: workout.shareToken,
+            url: workout.isShared && workout.shareToken ? buildShareUrl('workout', workout.shareToken) : null,
+          },
+          busy: shareBusy,
+          error: shareError,
+          onToggle: async (enabled) => {
+            setShareBusy(true);
+            setShareError(null);
+            try {
+              const url = enabled
+                ? await enableEntityShare('workout', workout.id, workout.shareToken)
+                : await disableEntityShare('workout', workout.id);
+              await refreshWorkout();
+              return url;
+            } catch (err) {
+              setShareError(err instanceof Error ? err.message : 'Could not update share link');
+              throw err;
+            } finally {
+              setShareBusy(false);
+            }
+          },
+          onReset: async () => {
+            setShareBusy(true);
+            setShareError(null);
+            try {
+              const url = await resetEntityShare('workout', workout.id);
+              await refreshWorkout();
+              return url;
+            } catch (err) {
+              setShareError(err instanceof Error ? err.message : 'Could not reset share link');
+              throw err;
+            } finally {
+              setShareBusy(false);
+            }
+          },
         }}
-        busy={shareBusy}
-        error={shareError}
-        onClose={() => setShareOpen(false)}
-        onToggle={toggleShare}
-        onReset={resetShare}
+        onClose={() => {
+          setShareOpen(false);
+          setShareError(null);
+        }}
       />
     </>
   );

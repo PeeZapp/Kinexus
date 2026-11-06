@@ -154,7 +154,6 @@ export function WatchlistSettingsSheet({
   onClose,
   onSave,
   onDelete,
-  onOpenLinkShare,
   busy,
   error,
 }: {
@@ -170,7 +169,6 @@ export function WatchlistSettingsSheet({
   onClose: () => void;
   onSave: () => Promise<void>;
   onDelete?: () => Promise<void>;
-  onOpenLinkShare?: () => void;
   busy?: boolean;
   error?: string | null;
 }) {
@@ -189,7 +187,6 @@ export function WatchlistSettingsSheet({
         ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Btn label="Save" onPress={() => void onSave()} busy={busy} disabled={!name.trim() || !globalReady} />
-        {onOpenLinkShare ? <Btn label="Share link" variant="secondary" onPress={onOpenLinkShare} /> : null}
         {onDelete ? <Btn label="Delete list" variant="danger" onPress={() => void onDelete()} /> : null}
       </View>
     </Sheet>

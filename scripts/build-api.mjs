@@ -16,6 +16,9 @@ mkdirSync(dirname(outfile), { recursive: true });
 
 const external = [
   'impit',
+  // CJS deps pulled via @kinexus/domain list import; must stay out of the ESM bundle
+  // or Node fails at cold start with: Dynamic require of "url" is not supported.
+  'mammoth',
   'playwright-core',
   'playwright-extra',
   'puppeteer-extra-plugin-stealth',

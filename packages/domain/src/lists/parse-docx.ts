@@ -1,5 +1,3 @@
-import mammoth from 'mammoth';
-
 import { parsePlainTextList } from './parse-text';
 import type { ImportRow } from './types';
 
@@ -53,6 +51,9 @@ function toArrayBuffer(bytes: ArrayBuffer | Uint8Array): ArrayBuffer {
 }
 
 export async function parseDocxBytes(bytes: ArrayBuffer | Uint8Array): Promise<ImportRow[]> {
+  // Lazy-load: a static mammoth import breaks the Vercel ESM API bundle
+  // (Dynamic require of "url" is not supported) and takes down every route.
+  const mammoth = (await import('mammoth')).default;
   // mammoth's runtime accepts `buffer` as ArrayBuffer (not only Node Buffer).
   const buffer = toArrayBuffer(bytes) as unknown as Buffer;
   const htmlResult = await mammoth.convertToHtml({ buffer });

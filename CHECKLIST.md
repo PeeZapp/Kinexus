@@ -4,6 +4,14 @@ Source: [SUITE_REWRITE_PLAN.md](./SUITE_REWRITE_PLAN.md) §13. Product work for 
 
 No ads, monetization, or notifications were added.
 
+## Pending ops (before leaving Google Testing)
+
+Do this **after the next development push**, before moving Google Cloud OAuth consent out of Testing:
+
+1. **Publish Google OAuth consent** (Cloud Console → OAuth consent screen → move from Testing to Production / External as appropriate). Testing limits test users and expires refresh tokens (~7 days).
+2. **Fix Google Calendar OAuth** for affected accounts: disconnect + reconnect each Google account in Kinexus Calendar so they re-consent with full `calendar` scopes. Clear `insufficient authentication scopes` failures first (ensure that Google account is still a Test user until publish completes).
+3. Confirm avatar Google photo path on production after Vercel rewrite for `/profile/avatar/google/*` ships.
+
 | # | Criterion | Status | Notes |
 |---|-----------|--------|-------|
 | 1 | Google sign-in on web | Done | PKCE, `/auth/callback`, session persistence. |

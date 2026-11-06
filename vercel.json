@@ -50,6 +50,8 @@
     { "source": "/overview/news", "destination": "/api?__path=/overview/news" },
     { "source": "/overview/wordle", "destination": "/api?__path=/overview/wordle" },
     { "source": "/calendar/observances", "destination": "/api?__path=/calendar/observances" },
+    { "source": "/profile/avatar/google/intent", "destination": "/api?__path=/profile/avatar/google/intent" },
+    { "source": "/profile/avatar/google/complete", "destination": "/api?__path=/profile/avatar/google/complete" },
     { "source": "/calendar/google/connect", "destination": "/api?__path=/calendar/google/connect" },
     { "source": "/calendar/google/callback", "destination": "/api?__path=/calendar/google/callback" },
     { "source": "/calendar/google/status", "destination": "/api?__path=/calendar/google/status" },

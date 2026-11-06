@@ -2,6 +2,7 @@ import { makeRedirectUri } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 
+import { FACEBOOK_AVATAR_SCOPES } from '@/src/lib/oauth-facebook-scopes';
 import {
   facebookIdentityAlreadyLinkedElsewhere,
   type FacebookAvatarReauthFn,
@@ -10,15 +11,14 @@ import {
 import type { GoogleAvatarReauthFn } from '@/src/lib/profile-avatar-google-flow';
 import { supabase } from '@/src/lib/supabase';
 
+export { FACEBOOK_AVATAR_SCOPES } from '@/src/lib/oauth-facebook-scopes';
+
 if (typeof window !== 'undefined') {
   WebBrowser.maybeCompleteAuthSession();
 }
 
 /** Profile-photo re-auth only — never Calendar scopes. */
 const GOOGLE_AVATAR_SCOPES = 'openid email profile';
-
-/** Facebook avatar link / re-auth only — public_profile, never extra permissions. */
-const FACEBOOK_AVATAR_SCOPES = 'public_profile';
 
 export function getAuthRedirectUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {

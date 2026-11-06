@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { FACEBOOK_AVATAR_SCOPES } from './oauth-facebook-scopes';
 import {
   clearFacebookAvatarIntent,
   facebookIdentityAlreadyLinkedElsewhere,
@@ -8,6 +9,14 @@ import {
   storeFacebookAvatarIntent,
   takeFacebookAvatarIntent,
 } from './profile-avatar-facebook-flow';
+
+describe('facebook avatar oauth scopes', () => {
+  it('requests only public_profile from the client (never email)', () => {
+    expect(FACEBOOK_AVATAR_SCOPES).toBe('public_profile');
+    expect(FACEBOOK_AVATAR_SCOPES.split(/[,\s]+/).filter(Boolean)).toEqual(['public_profile']);
+    expect(FACEBOOK_AVATAR_SCOPES).not.toMatch(/\bemail\b/);
+  });
+});
 
 describe('linked Facebook identity detection', () => {
   it('detects facebook provider only', () => {

@@ -39,6 +39,20 @@ export function resolveAvatarPresetId(stored: string | null | undefined): Avatar
   return DEFAULT_AVATAR_PRESET;
 }
 
+/** Display choice for ProfileAvatar — Google URL when opted in, else preset fallback. */
+export function resolveAvatarDisplay(input: {
+  avatarUrl?: string | null;
+  avatarSource?: 'preset' | 'google' | null;
+  avatarGoogleUrl?: string | null;
+}): { kind: 'google'; uri: string; preset: AvatarPresetId } | { kind: 'preset'; preset: AvatarPresetId } {
+  const preset = resolveAvatarPresetId(input.avatarUrl);
+  const uri = input.avatarGoogleUrl;
+  if (input.avatarSource === 'google' && typeof uri === 'string' && uri.startsWith('https://')) {
+    return { kind: 'google', uri, preset };
+  }
+  return { kind: 'preset', preset };
+}
+
 export function normalizeAvatarPresetWrite(value: string | null | undefined): AvatarPresetId | null {
   if (value == null) return null;
   const trimmed = value.trim();

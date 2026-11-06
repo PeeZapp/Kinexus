@@ -2,7 +2,9 @@ import { rpc } from '@kinexus/db';
 import { containsProfanity } from '@kinexus/domain';
 
 import {
-  OWN_IDENTITY_SELECT,
+  OWN_IDENTITY_SELECT_BASE,
+  OWN_IDENTITY_SELECT_WITH_GOOGLE,
+  isMissingColumnError,
   mapOwnIdentity,
   type OwnIdentity,
   type ProfileIdentityRow,
@@ -16,6 +18,7 @@ export {
   DEFAULT_AVATAR_PRESET,
   isAvatarPresetId,
   normalizeAvatarPresetWrite,
+  resolveAvatarDisplay,
   resolveAvatarPresetId,
   type AvatarPresetId,
 } from '@/src/lib/identity-avatar';
@@ -24,7 +27,10 @@ export { updateOwnProfileFields } from '@/src/lib/identity-profile';
 
 export {
   OWN_IDENTITY_SELECT,
+  OWN_IDENTITY_SELECT_BASE,
+  OWN_IDENTITY_SELECT_WITH_GOOGLE,
   mapOwnIdentity,
+  type AvatarSource,
   type OwnIdentity,
 } from '@/src/lib/identity-own';
 
@@ -133,14 +139,31 @@ export function usernameReasonMessage(
 
 export async function fetchOwnIdentity(userId: string): Promise<OwnIdentity | null> {
   if (!supabase) return null;
-  const { data, error } = await supabase
+
+  const withGoogle = await supabase
     .from('profiles')
-    .select(OWN_IDENTITY_SELECT as never)
+    .select(OWN_IDENTITY_SELECT_WITH_GOOGLE as never)
     .eq('id', userId)
     .maybeSingle();
-  throwIfError(error);
-  if (!data) return null;
-  return mapOwnIdentity(data as unknown as ProfileIdentityRow);
+
+  if (!withGoogle.error) {
+    if (!withGoogle.data) return null;
+    return mapOwnIdentity(withGoogle.data as unknown as ProfileIdentityRow);
+  }
+
+  // Google columns not migrated yet — fall back so profile/household stay loadable.
+  if (!isMissingColumnError(withGoogle.error)) {
+    throwIfError(withGoogle.error);
+  }
+
+  const base = await supabase
+    .from('profiles')
+    .select(OWN_IDENTITY_SELECT_BASE as never)
+    .eq('id', userId)
+    .maybeSingle();
+  throwIfError(base.error);
+  if (!base.data) return null;
+  return mapOwnIdentity(base.data as unknown as ProfileIdentityRow);
 }
 
 export async function checkUsernameAvailable(username: string): Promise<UsernameCheckResult> {

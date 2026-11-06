@@ -47,6 +47,10 @@ import {
   handleGoogleSettings,
   handleGoogleStatus,
 } from './google-calendar.js';
+import {
+  handleCompleteGoogleAvatarIntent,
+  handleCreateGoogleAvatarIntent,
+} from './profile-avatar-google.js';
 import { handleVerifyCreatorLinks } from './creators/verify-links.js';
 import { handleOverviewNews, handleOverviewPlaces, handleOverviewWeather } from './overview.js';
 import { handleOverviewWordle } from './wordle.js';
@@ -391,6 +395,25 @@ function registerMealsRoutes(router: Hono) {
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
     const result = await handleCalendarObservances(body as { country?: unknown; from?: unknown; to?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  // Optional Google profile photo (backend only). Distinct from Calendar OAuth.
+  router.post('/profile/avatar/google/intent', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const result = await handleCreateGoogleAvatarIntent(authed.user.id);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/profile/avatar/google/complete', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleCompleteGoogleAvatarIntent(
+      authed.user.id,
+      body as { intentId?: unknown; googleAccessToken?: unknown },
+    );
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 

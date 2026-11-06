@@ -30,6 +30,11 @@ import {
   type OwnIdentity,
   type UsernameCheckResult,
 } from '@/src/lib/identity';
+import { reauthGoogleForAvatar } from '@/src/lib/oauth';
+import {
+  currentUserHasLinkedGoogleIdentity,
+  runGoogleAvatarOptIn,
+} from '@/src/lib/profile-avatar-google';
 
 const CHECK_DEBOUNCE_MS = 400;
 
@@ -299,17 +304,26 @@ function UsernameEditor({
   );
 }
 
+type AvatarChoice = AvatarPresetId | 'google';
+
+function savedAvatarChoice(identity: OwnIdentity): AvatarChoice {
+  if (identity.avatarSource === 'google' && identity.avatarGoogleUrl) return 'google';
+  return resolveAvatarPresetId(identity.avatarUrl);
+}
+
 function AvatarPresetPicker({
   value,
+  googleSelected,
   onChange,
 }: {
   value: AvatarPresetId;
+  googleSelected: boolean;
   onChange: (id: AvatarPresetId) => void;
 }) {
   return (
     <View style={styles.presetGrid}>
       {AVATAR_PRESETS.map((preset) => {
-        const active = preset.id === value;
+        const active = !googleSelected && preset.id === value;
         return (
           <Pressable
             key={preset.id}
@@ -329,15 +343,42 @@ function AvatarPresetPicker({
 export function ProfileSection() {
   const { user, identity, loading, error, reload, setIdentity } = useOwnIdentity();
   const [displayName, setDisplayName] = useState('');
-  const [avatarPreset, setAvatarPreset] = useState<AvatarPresetId>(resolveAvatarPresetId(null));
+  const [avatarChoice, setAvatarChoice] = useState<AvatarChoice>(resolveAvatarPresetId(null));
+  const [hasGoogleLinked, setHasGoogleLinked] = useState(false);
   const [profileBusy, setProfileBusy] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileNotice, setProfileNotice] = useState<string | null>(null);
 
   useEffect(() => {
     setDisplayName(identity?.displayName ?? user?.displayName ?? '');
-    setAvatarPreset(resolveAvatarPresetId(identity?.avatarUrl));
-  }, [identity?.displayName, identity?.avatarUrl, identity?.id, user?.displayName]);
+    if (identity) setAvatarChoice(savedAvatarChoice(identity));
+  }, [
+    identity?.displayName,
+    identity?.avatarUrl,
+    identity?.avatarSource,
+    identity?.avatarGoogleUrl,
+    identity?.id,
+    user?.displayName,
+  ]);
+
+  useEffect(() => {
+    if (!user || user.isDevBypass) {
+      setHasGoogleLinked(false);
+      return;
+    }
+    let cancelled = false;
+    void currentUserHasLinkedGoogleIdentity()
+      .then((linked) => {
+        if (!cancelled) setHasGoogleLinked(linked);
+      })
+      .catch(() => {
+        if (!cancelled) setHasGoogleLinked(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   if (!user) return null;
 
@@ -369,9 +410,41 @@ export function ProfileSection() {
     );
   }
 
-  const savedPreset = resolveAvatarPresetId(identity.avatarUrl);
+  const savedChoice = savedAvatarChoice(identity);
   const displayDirty = displayName.trim() !== (identity.displayName ?? '').trim();
-  const avatarDirty = avatarPreset !== savedPreset;
+  const avatarDirty = avatarChoice !== savedChoice;
+  const googleSelected = avatarChoice === 'google';
+  const presetValue = googleSelected
+    ? resolveAvatarPresetId(identity.avatarUrl)
+    : (avatarChoice as AvatarPresetId);
+
+  async function optInGooglePhoto() {
+    if (!hasGoogleLinked || googleBusy) return;
+    setGoogleBusy(true);
+    setProfileError(null);
+    setProfileNotice(null);
+    const result = await runGoogleAvatarOptIn({
+      expectedUserId: identity!.id,
+      reauth: reauthGoogleForAvatar,
+    });
+    try {
+      const current = await fetchOwnIdentity(identity!.id);
+      if (current) {
+        setIdentity(current);
+        setAvatarChoice(savedAvatarChoice(current));
+      } else {
+        setAvatarChoice(resolveAvatarPresetId(identity!.avatarUrl));
+      }
+    } catch {
+      setAvatarChoice(resolveAvatarPresetId(identity!.avatarUrl));
+    }
+    if (!result.ok) {
+      setProfileError(result.error);
+    } else {
+      setProfileNotice('Saved');
+    }
+    setGoogleBusy(false);
+  }
 
   async function saveProfileFields() {
     setProfileBusy(true);
@@ -383,11 +456,14 @@ export function ProfileSection() {
           displayName: displayName.trim() || null,
         });
       }
-      if (avatarDirty) {
-        await saveOwnAvatarPreset(identity!.id, avatarPreset);
+      if (avatarDirty && avatarChoice !== 'google') {
+        await saveOwnAvatarPreset(identity!.id, avatarChoice);
       }
       const next = await fetchOwnIdentity(identity!.id);
-      if (next) setIdentity(next);
+      if (next) {
+        setIdentity(next);
+        setAvatarChoice(savedAvatarChoice(next));
+      }
       setProfileNotice('Saved');
     } catch (err) {
       setProfileError(err instanceof Error ? err.message : 'Could not save profile');
@@ -395,10 +471,10 @@ export function ProfileSection() {
         const current = await fetchOwnIdentity(identity!.id);
         if (current) {
           setIdentity(current);
-          setAvatarPreset(resolveAvatarPresetId(current.avatarUrl));
+          setAvatarChoice(savedAvatarChoice(current));
         }
       } catch {
-        // ignore
+        // ignore — never block household/profile recovery
       }
     } finally {
       setProfileBusy(false);
@@ -409,7 +485,12 @@ export function ProfileSection() {
     <Card>
       <Text style={styles.heading}>Profile</Text>
       <View style={styles.previewRow}>
-        <ProfileAvatar avatarUrl={avatarPreset} size={56} />
+        <ProfileAvatar
+          avatarUrl={presetValue}
+          avatarSource={googleSelected ? 'google' : 'preset'}
+          avatarGoogleUrl={googleSelected ? identity.avatarGoogleUrl : null}
+          size={56}
+        />
         <View style={styles.previewText}>
           <PublicName
             user={{
@@ -443,7 +524,37 @@ export function ProfileSection() {
       />
 
       <Text style={styles.fieldLabel}>Avatar</Text>
-      <AvatarPresetPicker value={avatarPreset} onChange={setAvatarPreset} />
+      <AvatarPresetPicker
+        value={presetValue}
+        googleSelected={googleSelected}
+        onChange={setAvatarChoice}
+      />
+      <Pressable
+        onPress={() => void optInGooglePhoto()}
+        disabled={!hasGoogleLinked || googleBusy || googleSelected}
+        accessibilityRole="button"
+        accessibilityState={{
+          selected: googleSelected,
+          disabled: !hasGoogleLinked || googleBusy || googleSelected,
+        }}
+        accessibilityLabel="Use my Google photo"
+        style={[
+          styles.googleOption,
+          googleSelected && styles.presetCellActive,
+          (!hasGoogleLinked || googleBusy) && styles.googleOptionDisabled,
+        ]}>
+        {googleBusy ? (
+          <ActivityIndicator color={colors.accent} />
+        ) : (
+          <Text
+            style={[
+              styles.googleOptionLabel,
+              !hasGoogleLinked && styles.googleOptionLabelDisabled,
+            ]}>
+            Use my Google photo
+          </Text>
+        )}
+      </Pressable>
 
       <Btn
         label="Save profile"
@@ -597,5 +708,28 @@ const styles = StyleSheet.create({
   presetImage: {
     width: 28,
     height: 28,
+  },
+  googleOption: {
+    marginTop: 4,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgElevated,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  googleOptionDisabled: {
+    opacity: 0.45,
+  },
+  googleOptionLabel: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  googleOptionLabelDisabled: {
+    color: colors.textMuted,
   },
 });

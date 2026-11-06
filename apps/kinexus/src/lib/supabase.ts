@@ -7,6 +7,8 @@ import { AppState, Platform } from 'react-native';
 
 import type { Database } from '@kinexus/db';
 
+import { wrapAuthStorageWithoutProviderTokens } from '@/src/lib/auth-session-storage';
+
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -21,9 +23,9 @@ const memoryStorage: SupportedStorage = {
 function authStorage(): SupportedStorage {
   // Expo web static/SSR runs this module in Node, where AsyncStorage touches `window`.
   if (Platform.OS === 'web' && typeof window === 'undefined') {
-    return memoryStorage;
+    return wrapAuthStorageWithoutProviderTokens(memoryStorage);
   }
-  return AsyncStorage;
+  return wrapAuthStorageWithoutProviderTokens(AsyncStorage);
 }
 
 export const supabase: SupabaseClient<Database> | null = isSupabaseConfigured

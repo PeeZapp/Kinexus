@@ -24,9 +24,17 @@ export function buildEnsureProfilePatch(
   return patch;
 }
 
-/** Preset/username profile read — no Google-only columns (avatar_source / avatar_google_url). */
-export const OWN_IDENTITY_SELECT =
+/** Base profile read — safe when Google avatar columns are not migrated yet. */
+export const OWN_IDENTITY_SELECT_BASE =
   'id, global_handle, username, username_changed_at, display_name, avatar_url, is_verified_creator';
+
+/** Includes optional Google photo columns (20261106140000). */
+export const OWN_IDENTITY_SELECT_WITH_GOOGLE = `${OWN_IDENTITY_SELECT_BASE}, avatar_source, avatar_google_url`;
+
+/** @deprecated Prefer OWN_IDENTITY_SELECT_BASE / fetchOwnIdentity resilient path. */
+export const OWN_IDENTITY_SELECT = OWN_IDENTITY_SELECT_BASE;
+
+export type AvatarSource = 'preset' | 'google';
 
 export type OwnIdentity = {
   id: string;
@@ -36,6 +44,10 @@ export type OwnIdentity = {
   displayName: string | null;
   /** Stored profiles.avatar_url: allowlisted preset id, legacy URL, or null. */
   avatarUrl: string | null;
+  /** Server-managed; absent/unknown → preset. */
+  avatarSource: AvatarSource;
+  /** Server-managed Google photo URL when avatarSource is google. */
+  avatarGoogleUrl: string | null;
   isVerifiedCreator: boolean;
 };
 
@@ -46,10 +58,21 @@ export type ProfileIdentityRow = {
   username_changed_at: string | null;
   display_name: string | null;
   avatar_url: string | null;
+  avatar_source?: string | null;
+  avatar_google_url?: string | null;
   is_verified_creator: boolean | null;
 };
 
+export function mapAvatarSource(value: string | null | undefined): AvatarSource {
+  return value === 'google' ? 'google' : 'preset';
+}
+
 export function mapOwnIdentity(row: ProfileIdentityRow): OwnIdentity {
+  const avatarSource = mapAvatarSource(row.avatar_source);
+  const googleUrl =
+    typeof row.avatar_google_url === 'string' && row.avatar_google_url.startsWith('https://')
+      ? row.avatar_google_url
+      : null;
   return {
     id: row.id,
     globalHandle: row.global_handle,
@@ -57,6 +80,15 @@ export function mapOwnIdentity(row: ProfileIdentityRow): OwnIdentity {
     usernameChangedAt: row.username_changed_at,
     displayName: row.display_name,
     avatarUrl: row.avatar_url,
+    avatarSource: avatarSource === 'google' && googleUrl ? 'google' : 'preset',
+    avatarGoogleUrl: avatarSource === 'google' ? googleUrl : null,
     isVerifiedCreator: Boolean(row.is_verified_creator),
   };
+}
+
+export function isMissingColumnError(error: { message?: string; code?: string } | null | undefined): boolean {
+  if (!error) return false;
+  if (error.code === '42703') return true;
+  const message = error.message ?? '';
+  return /avatar_source|avatar_google_url|column .* does not exist/i.test(message);
 }

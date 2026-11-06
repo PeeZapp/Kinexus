@@ -53,15 +53,15 @@ describe('ensureProfile under preset restrictions', () => {
   });
 });
 
-describe('own identity without Google-only schema', () => {
-  it('does not select avatar_source or avatar_google_url', () => {
+describe('own identity with optional Google columns', () => {
+  it('keeps a base select without Google columns for missing-migration fallback', () => {
     expect(OWN_IDENTITY_SELECT).toContain('global_handle');
     expect(OWN_IDENTITY_SELECT).toContain('avatar_url');
     expect(OWN_IDENTITY_SELECT).not.toMatch(/avatar_source/);
     expect(OWN_IDENTITY_SELECT).not.toMatch(/avatar_google_url/);
   });
 
-  it('maps a preset-era profile row without Google columns', () => {
+  it('maps a preset-era profile row without Google columns to preset defaults', () => {
     const identity = mapOwnIdentity({
       id: '11111111-1111-1111-1111-111111111111',
       global_handle: 'Swift-Oak-42',
@@ -73,8 +73,8 @@ describe('own identity without Google-only schema', () => {
     });
     expect(identity.globalHandle).toBe('Swift-Oak-42');
     expect(identity.avatarUrl).toBe('preset:meals');
-    expect(identity).not.toHaveProperty('avatarSource');
-    expect(identity).not.toHaveProperty('avatarGoogleUrl');
+    expect(identity.avatarSource).toBe('preset');
+    expect(identity.avatarGoogleUrl).toBeNull();
   });
 });
 

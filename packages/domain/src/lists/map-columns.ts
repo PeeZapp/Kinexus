@@ -1,5 +1,5 @@
 import { headerKey } from '../csv';
-import type { ColumnMapping, ImportField, ImportRow, KinexusListKind } from './types';
+import { emptyImportRow, type ColumnMapping, type ImportField, type ImportRow, type KinexusListKind } from './types';
 
 const FIELD_ALIASES: Record<ImportField, string[]> = {
   title: ['title', 'name', 'item', 'product', 'movie', 'show', 'exercise', 'task', 'ingredient', 'film'],
@@ -13,6 +13,10 @@ const FIELD_ALIASES: Record<ImportField, string[]> = {
   weight: ['weight', 'kg', 'lb', 'lbs', 'target weight', 'target_weight'],
   tmdbId: ['tmdb', 'tmdb id', 'tmdb_id', 'tmdbid'],
   mediaType: ['media', 'media type', 'media_type', 'type', 'kind'],
+  imdbId: ['imdb', 'imdb id', 'imdb_id', 'imdbid', 'const', 'tconst'],
+  rating: ['rating', 'score', 'your rating', 'rating10'],
+  watchedDate: ['watched date', 'watcheddate', 'date watched', 'date rated', 'watched'],
+  itemStatus: ['status', 'item status', 'item_status', 'watch status'],
   skip: [],
 };
 
@@ -67,26 +71,8 @@ function asFloat(raw: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function emptyRow(): ImportRow {
-  return {
-    title: '',
-    year: null,
-    quantity: null,
-    notes: null,
-    url: null,
-    price: null,
-    sets: null,
-    reps: null,
-    weight: null,
-    tmdbId: null,
-    mediaType: null,
-    status: 'invalid',
-    note: null,
-  };
-}
-
 export function rowFromCells(cells: readonly string[], mapping: ColumnMapping): ImportRow {
-  const row = emptyRow();
+  const row = emptyImportRow();
   for (const [indexRaw, field] of Object.entries(mapping)) {
     const index = Number(indexRaw);
     const value = (cells[index] ?? '').trim();
@@ -122,6 +108,34 @@ export function rowFromCells(cells: readonly string[], mapping: ColumnMapping): 
       case 'tmdbId':
         row.tmdbId = asInt(value);
         break;
+      case 'imdbId': {
+        const match = value.match(/^(tt)?(\d{5,10})$/i);
+        row.imdbId = match ? `tt${match[2]}` : value;
+        break;
+      }
+      case 'rating': {
+        const n = Number(value.replace(/,/g, ''));
+        if (!Number.isFinite(n) || n <= 0) break;
+        if (n <= 5) row.rating = Math.round(n * 2);
+        else row.rating = Math.round(n);
+        if (row.rating != null && (row.rating < 1 || row.rating > 10)) row.rating = null;
+        break;
+      }
+      case 'watchedDate': {
+        const iso = value.match(/^(\d{4}-\d{2}-\d{2})/);
+        row.watchedDate = iso?.[1] ?? value.slice(0, 10);
+        break;
+      }
+      case 'itemStatus': {
+        const lower = value.toLowerCase();
+        row.itemStatus =
+          lower === 'watched' || lower === 'watching' || lower === 'want'
+            ? lower
+            : lower === 'seen' || lower === 'completed'
+              ? 'watched'
+              : null;
+        break;
+      }
       case 'mediaType': {
         const lower = value.toLowerCase();
         row.mediaType = lower === 'tv' || lower === 'show' || lower === 'series' ? 'tv' : lower === 'movie' || lower === 'film' ? 'movie' : null;

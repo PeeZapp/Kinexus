@@ -1220,6 +1220,13 @@ export function WatchlistScreen() {
                 selectedList.name,
                 selectedList.id,
                 entries.filter((entry) => entry.list.id === selectedList.id),
+                {
+                  ratingsByTitleId: new Map(
+                    (watchlist.reviews ?? [])
+                      .filter((review) => selfId && review.personId === selfId)
+                      .map((review) => [review.titleId, review.score] as const),
+                  ),
+                },
               )
             : null
         }
@@ -1277,6 +1284,7 @@ export function WatchlistScreen() {
       <ListImportWizard
         visible={importOpen}
         kind="watchlist"
+        country={watchlist.country}
         existingLists={customLists.map((list) => ({ id: list.id, name: list.name }))}
         existingItems={watchlistDedupe(entries)}
         writers={
@@ -1287,9 +1295,21 @@ export function WatchlistScreen() {
             },
             writeRow: async (listId, row) => {
               if (!listId || row.tmdbId == null) return;
-              await watchlist.addTitleToList(listId, asWatchlistHit({ ...row, tmdbId: row.tmdbId }), {
+              const mediaType = row.mediaType ?? 'movie';
+              await watchlist.addTitleToList(listId, asWatchlistHit({ ...row, tmdbId: row.tmdbId, mediaType }), {
                 sourceUrl: row.url,
+                status: row.itemStatus ?? 'want',
               });
+              if (row.rating != null && selfId && supabase && activeHousehold) {
+                const { data } = await supabase
+                  .from('watchlist_titles')
+                  .select('id')
+                  .eq('household_id', activeHousehold.id)
+                  .eq('tmdb_id', row.tmdbId)
+                  .eq('media_type', mediaType)
+                  .maybeSingle();
+                if (data?.id) await watchlist.saveReview(data.id, selfId, row.rating, '');
+              }
             },
           } satisfies ListImportWriters
         }

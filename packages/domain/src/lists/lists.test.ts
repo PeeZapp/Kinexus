@@ -53,8 +53,14 @@ function readyRows(items: KinexusExportItem[]): ImportRow[] {
     weight: item.weight ?? null,
     tmdbId: item.tmdbId ?? null,
     mediaType: item.mediaType ?? null,
+    imdbId: item.imdbId ?? null,
+    itemStatus: item.itemStatus ?? null,
+    rating: item.rating ?? null,
+    watchedDate: item.watchedDate ?? null,
     status: 'ready' as const,
     note: null,
+    matchConfidence: null,
+    candidates: null,
   }));
 }
 
@@ -261,7 +267,27 @@ describe('summarizeImportRows', () => {
       { ...readyRows(CHECKLIST_ITEMS)[0]!, status: 'ready' },
       { ...readyRows(CHECKLIST_ITEMS)[0]!, status: 'duplicate' },
       { ...readyRows(WATCHLIST_ITEMS)[0]!, status: 'needsMatch', tmdbId: null },
-      { title: '', year: null, quantity: null, notes: null, url: null, price: null, sets: null, reps: null, weight: null, tmdbId: null, mediaType: null, status: 'invalid', note: 'Missing title' },
+      {
+        title: '',
+        year: null,
+        quantity: null,
+        notes: null,
+        url: null,
+        price: null,
+        sets: null,
+        reps: null,
+        weight: null,
+        tmdbId: null,
+        mediaType: null,
+        imdbId: null,
+        itemStatus: null,
+        rating: null,
+        watchedDate: null,
+        status: 'invalid',
+        note: 'Missing title',
+        matchConfidence: null,
+        candidates: null,
+      },
     ]);
     expect(summary).toEqual({
       imported: 1,

@@ -13,7 +13,12 @@ import { workoutWeightToKg, type ListImportWriters } from '@/src/features/lists/
 import type { ShoppingListItem } from '@/src/features/meals/mappers';
 import type { WorkoutDraft } from '@/src/features/train/api';
 
-export function watchlistExportInput(listName: string, listId: string | null, entries: readonly WatchlistEntry[]): ExportListInput {
+export function watchlistExportInput(
+  listName: string,
+  listId: string | null,
+  entries: readonly WatchlistEntry[],
+  opts?: { ratingsByTitleId?: ReadonlyMap<string, number> },
+): ExportListInput {
   return {
     kind: 'watchlist',
     listName,
@@ -24,6 +29,9 @@ export function watchlistExportInput(listName: string, listId: string | null, en
         year: entry.title.year,
         tmdbId: entry.title.tmdbId,
         mediaType: entry.title.mediaType,
+        imdbId: entry.title.imdbId,
+        itemStatus: entry.item.status,
+        rating: opts?.ratingsByTitleId?.get(entry.title.id) ?? null,
         notes: entry.item.notes,
         url: entry.title.sourceUrl,
       }),
@@ -102,7 +110,13 @@ export function shoppingDedupe(items: readonly ShoppingListItem[]): ExistingDedu
   return items.map((item) => ({ title: item.name }));
 }
 
-export function asWatchlistHit(row: { title: string; year: number | null; tmdbId: number; mediaType: 'movie' | 'tv' | null }): WatchlistSearchHit {
+export function asWatchlistHit(row: {
+  title: string;
+  year: number | null;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv' | null;
+  imdbId?: string | null;
+}): WatchlistSearchHit {
   return {
     tmdbId: row.tmdbId,
     mediaType: row.mediaType ?? 'movie',
@@ -111,7 +125,7 @@ export function asWatchlistHit(row: { title: string; year: number | null; tmdbId
     overview: null,
     posterPath: null,
     backdropPath: null,
-    imdbId: null,
+    imdbId: row.imdbId ?? null,
   };
 }
 

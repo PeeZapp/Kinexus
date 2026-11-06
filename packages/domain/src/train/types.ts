@@ -52,8 +52,9 @@ export type WorkoutExercise = {
 
 export type WorkoutBuilderSeed = {
   name: string;
-  visibility: 'private' | 'household' | 'people' | 'global';
+  visibility: 'private' | 'household' | 'people' | 'buddies' | 'buddies_selected' | 'global';
   personIds: string[];
+  buddyUserIds?: string[];
   splitId: string | null;
   durationMin: number | null;
   exercises: {

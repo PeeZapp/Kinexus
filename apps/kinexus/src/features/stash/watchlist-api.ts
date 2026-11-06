@@ -98,6 +98,33 @@ export async function searchWatchlistCatalog(query: string, country: string): Pr
   return payload.results ?? [];
 }
 
+export type WatchlistImportMatchRequestRow = {
+  key: string;
+  imdbId?: string | null;
+  title?: string | null;
+  year?: number | null;
+};
+
+export type WatchlistImportMatchCandidate = WatchlistSearchHit & { confidence: number };
+
+export type WatchlistImportMatchResult = {
+  key: string;
+  confidence: number;
+  match: WatchlistSearchHit | null;
+  candidates: WatchlistImportMatchCandidate[];
+};
+
+export async function matchWatchlistImport(
+  rows: readonly WatchlistImportMatchRequestRow[],
+  country: string,
+): Promise<WatchlistImportMatchResult[]> {
+  const payload = await post<{ results?: WatchlistImportMatchResult[] }>('/watchlist/import/match', {
+    rows,
+    country,
+  });
+  return payload.results ?? [];
+}
+
 export type WatchlistSearchHitWithRole = WatchlistSearchHit & {
   role?: string | null;
 };

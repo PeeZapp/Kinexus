@@ -125,6 +125,41 @@ export function Segmented<T extends string>({
   );
 }
 
+export function VisibilityPicker<T extends string>({
+  value,
+  options,
+  onChange,
+  editable = true,
+}: {
+  value: T;
+  options: { value: T; label: string; icon: string }[];
+  onChange: (value: T) => void;
+  editable?: boolean;
+}) {
+  return (
+    <View style={styles.visibilityRow}>
+      {options.map((option) => {
+        const active = option.value === value;
+        return (
+          <Pressable
+            key={option.value}
+            disabled={!editable}
+            onPress={() => onChange(option.value)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active, disabled: !editable }}
+            accessibilityLabel={option.label}
+            style={[styles.visibilityChip, active && styles.visibilityChipOn, !editable && styles.disabled]}>
+            <Text style={[styles.visibilityIcon, active && styles.visibilityIconOn]}>{option.icon}</Text>
+            <Text style={[styles.visibilityLabel, active && styles.visibilityLabelOn]} numberOfLines={1}>
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export function Field({
   value,
   onChangeText,
@@ -252,6 +287,30 @@ export function Check({ on, onPress }: { on: boolean; onPress: () => void }) {
       hitSlop={6}
       style={[styles.check, on && styles.checkOn]}>
       <Text style={[styles.checkMark, on && styles.checkMarkOn]}>{on ? '✓' : ''}</Text>
+    </Pressable>
+  );
+}
+
+export function Toggle({
+  label,
+  on,
+  onPress,
+  disabled = false,
+}: {
+  label: string;
+  on: boolean;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityState={{ checked: on, disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[styles.toggle, on && styles.toggleOn, disabled && styles.disabled]}>
+      <View style={[styles.toggleKnob, on && styles.toggleKnobOn]} />
+      <Text style={[styles.toggleLabel, on && styles.toggleLabelOn]}>{label}</Text>
     </Pressable>
   );
 }
@@ -541,6 +600,29 @@ const styles = StyleSheet.create({
   checkOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   checkMark: { fontSize: 16, fontWeight: '700', color: 'transparent' },
   checkMarkOn: { color: colors.bg },
+  toggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgElevated,
+    borderRadius: radius.md,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  toggleOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+  toggleKnob: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgHover,
+  },
+  toggleKnobOn: { borderColor: colors.accent, backgroundColor: colors.accent },
+  toggleLabel: { flex: 1, color: colors.textMuted, fontSize: 15, fontWeight: '600' },
+  toggleLabelOn: { color: colors.accent },
   badge: {
     backgroundColor: colors.accentSoft,
     borderRadius: 999,
@@ -582,4 +664,21 @@ const styles = StyleSheet.create({
   noteIcon: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   notePencil: { color: colors.accent, fontSize: 16, fontWeight: '700' },
   noteSave: { color: colors.accent, fontSize: 16, fontWeight: '800' },
+  visibilityRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  visibilityChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgElevated,
+    borderRadius: radius.md,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  visibilityChipOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+  visibilityIcon: { color: colors.textMuted, fontSize: 12, fontWeight: '800' },
+  visibilityIconOn: { color: colors.accent },
+  visibilityLabel: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
+  visibilityLabelOn: { color: colors.accent },
 });

@@ -1,6 +1,7 @@
 import { serializeCsv } from '../csv';
 import type { WeightUnit } from '../train/units';
 import { formatWeight } from '../train/units';
+import { scoreToLetterboxdRating } from './match-confidence';
 import { defaultHeadersForKind } from './map-columns';
 import { buildXlsxBytes } from './parse-xlsx';
 import {
@@ -104,8 +105,43 @@ function textFor(input: ExportListInput): string {
     .join('\n');
 }
 
+/**
+ * Letterboxd-import-compatible CSV.
+ * Columns per https://letterboxd.com/about/importing-data/ (Title, Year, imdbID, Rating, WatchedDate).
+ * Rating is Letterboxd’s 0.5–5 scale; WatchedDate is YYYY-MM-DD when known.
+ */
+export function buildLetterboxdImportCsv(input: ExportListInput): BuiltExport {
+  if (input.kind !== 'watchlist') {
+    throw new Error('Letterboxd CSV export is only available for watchlists');
+  }
+  const headers = ['Title', 'Year', 'imdbID', 'Rating', 'WatchedDate'];
+  const rows = displayItems(input).map((item) => {
+    const rating = item.rating != null ? scoreToLetterboxdRating(item.rating) : null;
+    const watchedDate =
+      item.watchedDate ??
+      (item.itemStatus === 'watched' ? null : null);
+    return [
+      item.title ?? '',
+      item.year != null ? String(item.year) : '',
+      item.imdbId ?? '',
+      rating != null ? String(rating) : '',
+      watchedDate ?? '',
+    ];
+  });
+  const base = safeFileBase(input.listName);
+  return {
+    fileName: `${base}-letterboxd.csv`,
+    mimeType: 'text/csv',
+    text: `${serializeCsv([headers, ...rows])}\n`,
+    bytes: null,
+  };
+}
+
 export function buildListExport(input: ExportListInput, format: ListExportFormat): BuiltExport {
   const base = safeFileBase(input.listName);
+  if (format === 'letterboxd-csv') {
+    return buildLetterboxdImportCsv(input);
+  }
   if (format === 'json') {
     const payload = buildKinexusExport(input);
     return {

@@ -2,13 +2,22 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Platform } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 
-import { canEditShared } from '@kinexus/domain';
+import { canCopySharedWorkout, canEditShared, defaultTrainBuddyPermissions } from '@kinexus/domain';
 
 import { ListExportSheet } from '@/src/features/lists/ListExportSheet';
 import { workoutExportInput } from '@/src/features/lists/list-io-adapters';
 import { buildShareUrl } from '@/src/features/share/share-url';
 import { disableEntityShare, enableEntityShare, resetEntityShare, sharePreview } from '@/src/features/share/link-share';
-import { deleteWorkout, loadWorkouts, saveWorkout, saveWorkoutUserNotes, type WorkoutDraft } from '@/src/features/train/api';
+import {
+  copyWorkoutToMyLibrary,
+  deleteWorkout,
+  loadWorkoutById,
+  loadWorkouts,
+  saveWorkout,
+  saveWorkoutUserNotes,
+  type WorkoutDraft,
+} from '@/src/features/train/api';
+import { loadTrainBuddies } from '@/src/features/train/buddies-api';
 import { WorkoutBuilder, type WorkoutBuilderResult } from '@/src/features/train/WorkoutBuilder';
 import { TrainButton, TrainPage } from '@/src/features/train/ui';
 import { ErrorBanner, LoadingState } from '@/src/features/shell/states';
@@ -26,28 +35,73 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
   const [shareOpen, setShareOpen] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [buddies, setBuddies] = useState<{ id: string; name: string }[]>([]);
+  const [buddyCopyOk, setBuddyCopyOk] = useState(false);
+  const [busy, setBusy] = useState(false);
   const userId = user && !user.isDevBypass ? user.id : null;
   const personId = people.find((person) => person.userId === userId)?.id ?? null;
 
   useEffect(() => {
-    if (!activeHousehold) return;
     let cancelled = false;
     setWorkout(null);
     setError(null);
-    loadWorkouts(activeHousehold.id)
-      .then((rows) => {
-        if (cancelled) return;
-        const match = rows.find((row) => row.id === workoutId) ?? null;
-        setWorkout(match);
-        if (!match) setError('Could not open workout');
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not open workout');
-      });
+    async function load() {
+      const byId = await loadWorkoutById(workoutId);
+      if (cancelled) return;
+      if (byId) {
+        setWorkout(byId);
+        return;
+      }
+      if (!activeHousehold) {
+        setError('Could not open workout');
+        return;
+      }
+      const rows = await loadWorkouts(activeHousehold.id);
+      if (cancelled) return;
+      const match = rows.find((row) => row.id === workoutId) ?? null;
+      setWorkout(match);
+      if (!match) setError('Could not open workout');
+    }
+    load().catch((err: unknown) => {
+      if (!cancelled) setError(err instanceof Error ? err.message : 'Could not open workout');
+    });
     return () => {
       cancelled = true;
     };
   }, [activeHousehold, workoutId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    loadTrainBuddies(userId)
+      .then((rows) => {
+        if (cancelled) return;
+        const accepted = rows.filter((row) => row.status === 'accepted');
+        setBuddies(
+          accepted.map((row) => ({
+            id: row.otherUserId,
+            name: row.profile.username || row.profile.globalHandle || 'Buddy',
+          })),
+        );
+        if (workout?.createdBy && workout.createdBy !== userId) {
+          const link = accepted.find((row) => row.otherUserId === workout.createdBy);
+          setBuddyCopyOk(
+            canCopySharedWorkout({
+              buddyStatus: link?.status ?? null,
+              buddyPermissions: link?.permissions ?? defaultTrainBuddyPermissions(),
+            }),
+          );
+        } else {
+          setBuddyCopyOk(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setBuddies([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, workout?.createdBy]);
 
   const editable = workout
     ? canEditShared({
@@ -105,14 +159,41 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
         visibility: result.visibility,
         splitId: result.splitId,
         durationMin: result.durationMin,
+        level: result.level,
+        goal: result.goal,
+        equipment: result.equipment,
         personIds: result.personIds,
+        buddyUserIds: result.buddyUserIds,
         exercises: result.exercises,
       });
     }
     if (result.start) router.push(`/train/session/${workout.id}` as Href);
   }
 
+  async function copyShared() {
+    if (!workout || !activeHousehold || !userId || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const id = await copyWorkoutToMyLibrary({
+        source: workout,
+        householdId: activeHousehold.id,
+        userId,
+      });
+      router.push(`/train/${id}` as Href);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not copy workout');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function refreshWorkout() {
+    const byId = await loadWorkoutById(workoutId);
+    if (byId) {
+      setWorkout(byId);
+      return;
+    }
     if (!activeHousehold) return;
     const rows = await loadWorkouts(activeHousehold.id);
     const match = rows.find((row) => row.id === workoutId) ?? null;
@@ -137,12 +218,17 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
           name: workout.name,
           visibility: workout.visibility,
           personIds: workout.personIds,
+          buddyUserIds: workout.buddyUserIds,
+          level: workout.level,
+          goal: workout.goal,
+          equipment: workout.equipment,
           splitId: workout.splitId,
           durationMin: workout.durationMin,
           exercises: workout.exercises,
           notes: workout.notes,
         }}
         people={people}
+        buddies={buddies}
         editable={editable}
         onClose={() => router.replace('/train' as Href)}
         onPersonalNotes={
@@ -159,6 +245,7 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
         }
         onDelete={editable ? confirmDelete : undefined}
         onShare={editable ? () => setShareOpen(true) : undefined}
+        onCopy={!editable && buddyCopyOk ? copyShared : undefined}
         onSubmit={submit}
       />
       <ListExportSheet

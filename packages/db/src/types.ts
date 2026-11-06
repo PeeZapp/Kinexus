@@ -2408,11 +2408,16 @@ export type Database = {
           household_id: string;
           created_by: string | null;
           name: string;
-          visibility: 'private' | 'household' | 'people' | 'global';
+          visibility: 'private' | 'household' | 'people' | 'buddies' | 'buddies_selected' | 'global';
           split_id: string | null;
           duration_min: number | null;
           share_token: string | null;
           is_shared: boolean;
+          level: 'beginner' | 'intermediate' | 'advanced' | null;
+          goal: 'strength' | 'hypertrophy' | 'conditioning' | 'mobility' | 'fat_loss' | null;
+          equipment: string[];
+          source_workout_id: string | null;
+          source_creator_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -2421,21 +2426,31 @@ export type Database = {
           household_id: string;
           created_by?: string | null;
           name: string;
-          visibility?: 'private' | 'household' | 'people' | 'global';
+          visibility?: 'private' | 'household' | 'people' | 'buddies' | 'buddies_selected' | 'global';
           split_id?: string | null;
           duration_min?: number | null;
           share_token?: string | null;
           is_shared?: boolean;
+          level?: 'beginner' | 'intermediate' | 'advanced' | null;
+          goal?: 'strength' | 'hypertrophy' | 'conditioning' | 'mobility' | 'fat_loss' | null;
+          equipment?: string[];
+          source_workout_id?: string | null;
+          source_creator_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           name?: string;
-          visibility?: 'private' | 'household' | 'people' | 'global';
+          visibility?: 'private' | 'household' | 'people' | 'buddies' | 'buddies_selected' | 'global';
           split_id?: string | null;
           duration_min?: number | null;
           share_token?: string | null;
           is_shared?: boolean;
+          level?: 'beginner' | 'intermediate' | 'advanced' | null;
+          goal?: 'strength' | 'hypertrophy' | 'conditioning' | 'mobility' | 'fat_loss' | null;
+          equipment?: string[];
+          source_workout_id?: string | null;
+          source_creator_id?: string | null;
         };
         Relationships: [];
       };
@@ -2695,15 +2710,416 @@ export type Database = {
         Row: {
           user_id: string;
           rest_extra: 'off' | 'quiz' | 'memory';
+          default_workout_visibility:
+            | 'private'
+            | 'household'
+            | 'people'
+            | 'buddies'
+            | 'buddies_selected'
+            | 'global';
+          family_plan_share: 'off' | 'plan' | 'plan_activity';
         };
         Insert: {
           user_id: string;
           rest_extra?: 'off' | 'quiz' | 'memory';
+          default_workout_visibility?:
+            | 'private'
+            | 'household'
+            | 'people'
+            | 'buddies'
+            | 'buddies_selected'
+            | 'global';
+          family_plan_share?: 'off' | 'plan' | 'plan_activity';
         };
         Update: {
           rest_extra?: 'off' | 'quiz' | 'memory';
+          default_workout_visibility?:
+            | 'private'
+            | 'household'
+            | 'people'
+            | 'buddies'
+            | 'buddies_selected'
+            | 'global';
+          family_plan_share?: 'off' | 'plan' | 'plan_activity';
         };
         Relationships: [];
+      };
+      workout_buddy_shares: {
+        Row: {
+          workout_id: string;
+          buddy_user_id: string;
+          household_id: string;
+        };
+        Insert: {
+          workout_id: string;
+          buddy_user_id: string;
+          household_id: string;
+        };
+        Update: {
+          buddy_user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'workout_buddy_shares_workout_id_fkey';
+            columns: ['workout_id'];
+            isOneToOne: false;
+            referencedRelation: 'workouts';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      train_plans: {
+        Row: {
+          id: string;
+          household_id: string;
+          user_id: string;
+          name: string;
+          visibility: 'private' | 'household' | 'people' | 'buddies' | 'buddies_selected' | 'global';
+          level: 'beginner' | 'intermediate' | 'advanced' | null;
+          goal: 'strength' | 'hypertrophy' | 'conditioning' | 'mobility' | 'fat_loss' | null;
+          equipment: string[];
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          household_id: string;
+          user_id: string;
+          name?: string;
+          visibility?: 'private' | 'household' | 'people' | 'buddies' | 'buddies_selected' | 'global';
+          level?: 'beginner' | 'intermediate' | 'advanced' | null;
+          goal?: 'strength' | 'hypertrophy' | 'conditioning' | 'mobility' | 'fat_loss' | null;
+          equipment?: string[];
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          name?: string;
+          visibility?: 'private' | 'household' | 'people' | 'buddies' | 'buddies_selected' | 'global';
+          level?: 'beginner' | 'intermediate' | 'advanced' | null;
+          goal?: 'strength' | 'hypertrophy' | 'conditioning' | 'mobility' | 'fat_loss' | null;
+          equipment?: string[];
+        };
+        Relationships: [];
+      };
+      train_plan_days: {
+        Row: {
+          plan_id: string;
+          weekday: number;
+          position: number;
+          workout_id: string | null;
+          label: string;
+        };
+        Insert: {
+          plan_id: string;
+          weekday: number;
+          position?: number;
+          workout_id?: string | null;
+          label?: string;
+        };
+        Update: {
+          weekday?: number;
+          position?: number;
+          workout_id?: string | null;
+          label?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'train_plan_days_plan_id_fkey';
+            columns: ['plan_id'];
+            isOneToOne: false;
+            referencedRelation: 'train_plans';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      train_plan_people: {
+        Row: {
+          plan_id: string;
+          person_id: string;
+          household_id: string;
+        };
+        Insert: {
+          plan_id: string;
+          person_id: string;
+          household_id: string;
+        };
+        Update: {
+          person_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'train_plan_people_plan_id_fkey';
+            columns: ['plan_id'];
+            isOneToOne: false;
+            referencedRelation: 'train_plans';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      train_plan_buddy_shares: {
+        Row: {
+          plan_id: string;
+          buddy_user_id: string;
+          household_id: string;
+        };
+        Insert: {
+          plan_id: string;
+          buddy_user_id: string;
+          household_id: string;
+        };
+        Update: {
+          buddy_user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'train_plan_buddy_shares_plan_id_fkey';
+            columns: ['plan_id'];
+            isOneToOne: false;
+            referencedRelation: 'train_plans';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      train_buddies: {
+        Row: {
+          id: string;
+          requester_id: string;
+          addressee_id: string;
+          status: 'pending' | 'accepted' | 'blocked';
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          requester_id: string;
+          addressee_id: string;
+          status?: 'pending' | 'accepted' | 'blocked';
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          requester_id?: string;
+          addressee_id?: string;
+          status?: 'pending' | 'accepted' | 'blocked';
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'train_buddies_requester_id_fkey';
+            columns: ['requester_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'train_buddies_addressee_id_fkey';
+            columns: ['addressee_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      train_buddy_permissions: {
+        Row: {
+          owner_id: string;
+          buddy_id: string;
+          can_view_plan: boolean;
+          can_view_workouts: boolean;
+          can_copy_workouts: boolean;
+          can_view_sessions: boolean;
+          can_view_prs: boolean;
+          can_coedit_shared: boolean;
+          updated_at: string;
+        };
+        Insert: {
+          owner_id: string;
+          buddy_id: string;
+          can_view_plan?: boolean;
+          can_view_workouts?: boolean;
+          can_copy_workouts?: boolean;
+          can_view_sessions?: boolean;
+          can_view_prs?: boolean;
+          can_coedit_shared?: boolean;
+          updated_at?: string;
+        };
+        Update: {
+          can_view_plan?: boolean;
+          can_view_workouts?: boolean;
+          can_copy_workouts?: boolean;
+          can_view_sessions?: boolean;
+          can_view_prs?: boolean;
+          can_coedit_shared?: boolean;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'train_buddy_permissions_owner_id_fkey';
+            columns: ['owner_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'train_buddy_permissions_buddy_id_fkey';
+            columns: ['buddy_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      train_buddy_invites: {
+        Row: {
+          id: string;
+          token_hash: string;
+          created_by: string;
+          expires_at: string;
+          accepted_at: string | null;
+          accepted_by: string | null;
+          revoked_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          token_hash: string;
+          created_by: string;
+          expires_at: string;
+          accepted_at?: string | null;
+          accepted_by?: string | null;
+          revoked_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          accepted_at?: string | null;
+          accepted_by?: string | null;
+          revoked_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'train_buddy_invites_created_by_fkey';
+            columns: ['created_by'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      train_together_invites: {
+        Row: {
+          id: string;
+          workout_id: string;
+          inviter_id: string;
+          invitee_id: string;
+          household_id: string;
+          scheduled_at: string | null;
+          status: 'pending' | 'accepted' | 'declined' | 'cancelled';
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          workout_id: string;
+          inviter_id: string;
+          invitee_id: string;
+          household_id: string;
+          scheduled_at?: string | null;
+          status?: 'pending' | 'accepted' | 'declined' | 'cancelled';
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          scheduled_at?: string | null;
+          status?: 'pending' | 'accepted' | 'declined' | 'cancelled';
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'train_together_invites_workout_id_fkey';
+            columns: ['workout_id'];
+            isOneToOne: false;
+            referencedRelation: 'workouts';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      train_buddy_events: {
+        Row: {
+          id: string;
+          actor_id: string;
+          event_type: 'completed_workout' | 'new_pr' | 'shared_workout';
+          workout_id: string | null;
+          session_id: string | null;
+          exercise_id: string | null;
+          title: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          actor_id: string;
+          event_type: 'completed_workout' | 'new_pr' | 'shared_workout';
+          workout_id?: string | null;
+          session_id?: string | null;
+          exercise_id?: string | null;
+          title?: string;
+          created_at?: string;
+        };
+        Update: {
+          title?: string;
+        };
+        Relationships: [];
+      };
+      train_buddy_event_high_fives: {
+        Row: {
+          event_id: string;
+          user_id: string;
+          created_at: string;
+        };
+        Insert: {
+          event_id: string;
+          user_id: string;
+          created_at?: string;
+        };
+        Update: {
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'train_buddy_event_high_fives_event_id_fkey';
+            columns: ['event_id'];
+            isOneToOne: false;
+            referencedRelation: 'train_buddy_events';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      train_global_workout_ratings: {
+        Row: {
+          workout_id: string;
+          user_id: string;
+          score: number;
+          updated_at: string;
+        };
+        Insert: {
+          workout_id: string;
+          user_id: string;
+          score: number;
+          updated_at?: string;
+        };
+        Update: {
+          score?: number;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'train_global_workout_ratings_workout_id_fkey';
+            columns: ['workout_id'];
+            isOneToOne: false;
+            referencedRelation: 'workouts';
+            referencedColumns: ['id'];
+          },
+        ];
       };
     };
     Views: {
@@ -2886,6 +3302,116 @@ export type Database = {
           rest_seconds: number;
           best_score: number;
         }[];
+      };
+      are_train_buddies: {
+        Args: { _user_a: string; _user_b: string };
+        Returns: boolean;
+      };
+      buddy_can: {
+        Args: { _owner: string; _viewer: string; _permission: string };
+        Returns: boolean;
+      };
+      can_view_workout: {
+        Args: { _workout_id: string };
+        Returns: boolean;
+      };
+      can_edit_workout: {
+        Args: { _workout_id: string };
+        Returns: boolean;
+      };
+      can_view_train_plan: {
+        Args: { _plan_id: string };
+        Returns: boolean;
+      };
+      can_edit_train_plan: {
+        Args: { _plan_id: string };
+        Returns: boolean;
+      };
+      can_view_session: {
+        Args: { _session_id: string };
+        Returns: boolean;
+      };
+      can_view_exercise_records: {
+        Args: { _owner: string };
+        Returns: boolean;
+      };
+      family_train_overview: {
+        Args: { _household_id: string };
+        Returns: {
+          user_id: string;
+          display_name: string;
+          family_plan_share: string;
+          plan_id: string | null;
+          plan_name: string | null;
+          today_workout_id: string | null;
+          today_workout_name: string | null;
+          recent_completions: Json;
+        }[];
+      };
+      request_train_buddy_by_username: {
+        Args: { p_username: string };
+        Returns: string;
+      };
+      respond_train_buddy_request: {
+        Args: { p_connection_id: string; p_accept: boolean };
+        Returns: undefined;
+      };
+      remove_train_buddy: {
+        Args: { p_other_user_id: string };
+        Returns: undefined;
+      };
+      block_train_buddy: {
+        Args: { p_other_user_id: string };
+        Returns: undefined;
+      };
+      create_train_buddy_invite: {
+        Args: { p_ttl_hours?: number };
+        Returns: { invite_id: string; token: string; expires_at: string }[];
+      };
+      peek_train_buddy_invite: {
+        Args: { p_token: string };
+        Returns: {
+          inviter_id: string;
+          inviter_username: string | null;
+          inviter_global_handle: string;
+          expires_at: string;
+        }[];
+      };
+      accept_train_buddy_invite: {
+        Args: { p_token: string };
+        Returns: string;
+      };
+      revoke_train_buddy_invite: {
+        Args: { p_invite_id: string };
+        Returns: undefined;
+      };
+      invite_train_together: {
+        Args: { p_workout_id: string; p_invitee_ids: string[]; p_scheduled_at?: string | null };
+        Returns: string[];
+      };
+      respond_train_together: {
+        Args: { p_invite_id: string; p_accept: boolean };
+        Returns: undefined;
+      };
+      cancel_train_together: {
+        Args: { p_invite_id: string };
+        Returns: undefined;
+      };
+      high_five_train_buddy_event: {
+        Args: { p_event_id: string };
+        Returns: undefined;
+      };
+      can_view_train_buddy_event: {
+        Args: { _event_id: string };
+        Returns: boolean;
+      };
+      can_view_train_together_invite: {
+        Args: { _invite_id: string };
+        Returns: boolean;
+      };
+      train_global_workout_score: {
+        Args: { _workout_id: string };
+        Returns: number;
       };
       staff_creator_content_digest: {
         Args: { p_day?: string };

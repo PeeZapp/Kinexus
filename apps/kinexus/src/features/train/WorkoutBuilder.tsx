@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 
 import {
+  canPublishTrainGlobal,
   clusterExercises,
   EFFORT_LEVELS,
   EFFORT_LABEL,
   linkSuperset,
   normalizeSupersets,
+  normalizeTrainShare,
   parseWeight,
   REMIX_CATEGORIES,
   REMIX_CATEGORY_COLOR,
@@ -16,9 +18,20 @@ import {
   getRemixDefaultsForCategory,
   remixCategoryOf,
   toStoredKg,
+  TRAIN_GLOBAL_EQUIPMENT,
+  TRAIN_GLOBAL_GOALS,
+  TRAIN_GLOBAL_LEVELS,
+  trainGlobalEquipmentLabel,
+  trainGlobalGoalLabel,
+  trainGlobalLevelLabel,
+  trainVisibilityOptions,
   unlinkSuperset,
   type EffortLevel,
   type RemixCategory,
+  type TrainGlobalEquipment,
+  type TrainGlobalGoal,
+  type TrainGlobalLevel,
+  type TrainVisibility,
   type WeightUnit,
 } from '@kinexus/domain';
 
@@ -43,18 +56,17 @@ import {
   TextAction,
   TrainButton,
   TrainPage,
+  VisibilityPicker,
 } from '@/src/features/train/ui';
-
-const BASE_VISIBILITY = [
-  { value: 'private', label: 'Only me' },
-  { value: 'household', label: 'Household' },
-  { value: 'people', label: 'People' },
-] as const;
 
 export type WorkoutBuilderSeed = {
   name: string;
   visibility: WorkoutDraft['visibility'];
   personIds: string[];
+  buddyUserIds?: string[];
+  level?: TrainGlobalLevel | null;
+  goal?: TrainGlobalGoal | null;
+  equipment?: TrainGlobalEquipment[];
   splitId: string | null;
   durationMin: number | null;
   exercises: {
@@ -78,6 +90,10 @@ export const EMPTY_WORKOUT_SEED: WorkoutBuilderSeed = {
   name: '',
   visibility: 'private',
   personIds: [],
+  buddyUserIds: [],
+  level: null,
+  goal: null,
+  equipment: [],
   splitId: null,
   durationMin: null,
   exercises: [],
@@ -156,39 +172,48 @@ export function WorkoutBuilder({
   presentation,
   seed,
   people,
+  buddies = [],
   editable,
   onClose,
   onDelete,
   onShare,
+  onCopy,
   onSubmit,
   onPersonalNotes,
 }: {
   presentation: 'modal' | 'page';
   seed: WorkoutBuilderSeed;
   people: { id: string; name: string }[];
+  buddies?: { id: string; name: string }[];
   editable: boolean;
   onClose?: () => void;
   onDelete?: () => void | Promise<void>;
   onShare?: () => void;
+  onCopy?: () => void | Promise<void>;
   onSubmit: (result: WorkoutBuilderResult) => Promise<void>;
   onPersonalNotes?: (notes: { position: number; body: string }[]) => Promise<void>;
 }) {
   const creator = useCreator();
   const visibilityOptions = useMemo(
     () =>
-      creator.isApprovedCreator
-        ? ([...BASE_VISIBILITY, { value: 'global', label: 'Everyone' }] as const)
-        : BASE_VISIBILITY,
-    [creator.isApprovedCreator],
+      trainVisibilityOptions({
+        isApprovedCreator: creator.isApprovedCreator,
+        current: seed.visibility as TrainVisibility,
+      }),
+    [creator.isApprovedCreator, seed.visibility],
   );
   const [meta] = useState({ splitId: seed.splitId, durationMin: seed.durationMin });
   const [name, setName] = useState(seed.name);
   const [visibility, setVisibility] = useState(seed.visibility);
   const [personIds, setPersonIds] = useState(seed.personIds);
+  const [buddyUserIds, setBuddyUserIds] = useState(seed.buddyUserIds ?? []);
+  const [level, setLevel] = useState<TrainGlobalLevel | null>(seed.level ?? null);
+  const [goal, setGoal] = useState<TrainGlobalGoal | null>(seed.goal ?? null);
+  const [equipment, setEquipment] = useState<TrainGlobalEquipment[]>(seed.equipment ?? []);
 
   useEffect(() => {
     if (visibility === 'global' && !creator.isApprovedCreator) {
-      setVisibility('household');
+      setVisibility('private');
     }
   }, [creator.isApprovedCreator, visibility]);
   const [selected, setSelected] = useState<BuiltExercise[]>(() => toSelected(seed));
@@ -295,7 +320,9 @@ export function WorkoutBuilder({
     [selected],
   );
 
-  const canSubmit = name.trim().length > 0 && selected.length > 0 && !busy;
+  const globalReady =
+    visibility !== 'global' || canPublishTrainGlobal({ level, goal, equipment });
+  const canSubmit = name.trim().length > 0 && selected.length > 0 && globalReady && !busy;
 
   function addExercise(exercise: LibraryExercise) {
     if (!editable) return;
@@ -385,10 +412,15 @@ export function WorkoutBuilder({
     setBusy(true);
     setError(null);
     try {
+      const share = normalizeTrainShare(visibility as TrainVisibility, personIds, buddyUserIds);
       await onSubmit({
         name: name.trim(),
-        visibility,
-        personIds: visibility === 'people' ? personIds : [],
+        visibility: share.visibility,
+        personIds: share.personIds,
+        buddyUserIds: share.buddyUserIds,
+        level,
+        goal,
+        equipment,
         splitId: meta.splitId,
         durationMin: estimate.minutes > 0 ? estimate.minutes : meta.durationMin,
         exercises: selected.map((exercise) => ({
@@ -411,6 +443,103 @@ export function WorkoutBuilder({
     }
   }
 
+  const visibilityControls = (
+    <>
+      <VisibilityPicker
+        value={visibility}
+        options={visibilityOptions}
+        editable={editable}
+        onChange={(next) => {
+          if (editable) setVisibility(next);
+        }}
+      />
+      {visibility === 'people' ? (
+        <View style={styles.people}>
+          {people.map((person) => {
+            const on = personIds.includes(person.id);
+            return (
+              <Choice
+                key={person.id}
+                label={person.name}
+                active={on}
+                onPress={() => {
+                  if (!editable) return;
+                  setPersonIds((current) => (on ? current.filter((id) => id !== person.id) : [...current, person.id]));
+                }}
+              />
+            );
+          })}
+        </View>
+      ) : null}
+      {visibility === 'buddies_selected' ? (
+        <View style={styles.people}>
+          {buddies.map((buddy) => {
+            const on = buddyUserIds.includes(buddy.id);
+            return (
+              <Choice
+                key={buddy.id}
+                label={buddy.name}
+                active={on}
+                onPress={() => {
+                  if (!editable) return;
+                  setBuddyUserIds((current) => (on ? current.filter((id) => id !== buddy.id) : [...current, buddy.id]));
+                }}
+              />
+            );
+          })}
+        </View>
+      ) : null}
+      {visibility === 'global' ? (
+        <View style={styles.globalTags}>
+          <View style={styles.people}>
+            {TRAIN_GLOBAL_LEVELS.map((value) => (
+              <Choice
+                key={value}
+                label={trainGlobalLevelLabel(value)}
+                active={level === value}
+                onPress={() => {
+                  if (!editable) return;
+                  setLevel(value);
+                }}
+              />
+            ))}
+          </View>
+          <View style={styles.people}>
+            {TRAIN_GLOBAL_GOALS.map((value) => (
+              <Choice
+                key={value}
+                label={trainGlobalGoalLabel(value)}
+                active={goal === value}
+                onPress={() => {
+                  if (!editable) return;
+                  setGoal(value);
+                }}
+              />
+            ))}
+          </View>
+          <View style={styles.people}>
+            {TRAIN_GLOBAL_EQUIPMENT.map((value) => {
+              const on = equipment.includes(value);
+              return (
+                <Choice
+                  key={value}
+                  label={trainGlobalEquipmentLabel(value)}
+                  active={on}
+                  onPress={() => {
+                    if (!editable) return;
+                    setEquipment((current) =>
+                      on ? current.filter((item) => item !== value) : [...current, value],
+                    );
+                  }}
+                />
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+    </>
+  );
+
   const body = (
     <View style={[styles.column, presentation === 'modal' && styles.columnModal]}>
       {onClose ? (
@@ -431,31 +560,7 @@ export function WorkoutBuilder({
       {!split ? (
         <>
           <Field value={name} onChangeText={setName} placeholder="Workout name" editable={editable} />
-          <Segmented
-            value={visibility}
-            options={visibilityOptions.map((item) => ({ value: item.value, label: item.label }))}
-            onChange={(next) => {
-              if (editable) setVisibility(next);
-            }}
-          />
-          {visibility === 'people' ? (
-            <View style={styles.people}>
-              {people.map((person) => {
-                const on = personIds.includes(person.id);
-                return (
-                  <Choice
-                    key={person.id}
-                    label={person.name}
-                    active={on}
-                    onPress={() => {
-                      if (!editable) return;
-                      setPersonIds((current) => (on ? current.filter((id) => id !== person.id) : [...current, person.id]));
-                    }}
-                  />
-                );
-              })}
-            </View>
-          ) : null}
+          {visibilityControls}
           <Segmented
             value={mobilePane}
             options={[
@@ -472,31 +577,7 @@ export function WorkoutBuilder({
           {split ? (
             <>
               <Field value={name} onChangeText={setName} placeholder="Workout name" editable={editable} />
-              <Segmented
-                value={visibility}
-                options={visibilityOptions.map((item) => ({ value: item.value, label: item.label }))}
-                onChange={(next) => {
-                  if (editable) setVisibility(next);
-                }}
-              />
-              {visibility === 'people' ? (
-                <View style={styles.people}>
-                  {people.map((person) => {
-                    const on = personIds.includes(person.id);
-                    return (
-                      <Choice
-                        key={person.id}
-                        label={person.name}
-                        active={on}
-                        onPress={() => {
-                          if (!editable) return;
-                          setPersonIds((current) => (on ? current.filter((id) => id !== person.id) : [...current, person.id]));
-                        }}
-                      />
-                    );
-                  })}
-                </View>
-              ) : null}
+              {visibilityControls}
             </>
           ) : null}
           <View style={[styles.selectedBlock, styles.selectedBlockSplit]}>
@@ -711,6 +792,18 @@ export function WorkoutBuilder({
       <View style={styles.footer}>
         {onDelete ? <TrainButton label="Delete" tone="danger" onPress={() => void removeWorkout()} disabled={busy} /> : null}
         {onShare ? <TrainButton label="Share" tone="ghost" onPress={onShare} disabled={busy} /> : null}
+        {onCopy ? (
+          <TrainButton
+            label="Copy to my workouts"
+            tone="ghost"
+            onPress={() => {
+              void Promise.resolve(onCopy()).catch((err: unknown) => {
+                setError(err instanceof Error ? err.message : 'Could not copy workout');
+              });
+            }}
+            disabled={busy}
+          />
+        ) : null}
         <View style={styles.footerActions}>
           {onClose ? (
             <TrainButton label={presentation === 'modal' ? 'Cancel' : 'Back'} tone="ghost" fill onPress={onClose} disabled={busy} />
@@ -1035,6 +1128,7 @@ const styles = StyleSheet.create({
   title: { flex: 1, color: colors.text, fontSize: 18, fontWeight: '700' },
   close: { color: colors.accent, fontWeight: '700', fontSize: 15 },
   people: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  globalTags: { gap: 8 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   filters: { zIndex: 20 },
   section: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },

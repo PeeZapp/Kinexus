@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   watchlistEntries,
   type ExistingDedupeItem,
+  type HistoryDedupeItem,
   type KinexusListKind,
   type WatchlistSearchHit,
 } from '@kinexus/domain';
@@ -19,6 +20,9 @@ import { useStashSync } from '@/src/features/stash/use-stash-sync';
 import { useWatchlistSync } from '@/src/features/stash/use-watchlist-sync';
 import {
   createWorkout,
+  importFinishedSession,
+  loadHistoryDedupeKeys,
+  loadLibrary,
   loadWorkouts,
   saveWorkout,
   type WorkoutDraft,
@@ -46,6 +50,7 @@ export function ListImportScreen() {
   const stash = useStashSync();
   const meals = useMealsSync();
   const [workouts, setWorkouts] = useState<WorkoutDraft[]>([]);
+  const [historyKeys, setHistoryKeys] = useState<HistoryDedupeItem[]>([]);
 
   const existingLists = useMemo(() => {
     if (!kind) return [];
@@ -126,9 +131,12 @@ export function ListImportScreen() {
             overview: null,
             posterPath: null,
             backdropPath: null,
-            imdbId: null,
+            imdbId: row.imdbId,
           };
-          await watchlist.addTitleToList(listId, hit, { sourceUrl: row.url });
+          await watchlist.addTitleToList(listId, hit, {
+            sourceUrl: row.url,
+            status: row.itemStatus ?? 'want',
+          });
           return;
         }
         if (kind === 'wishlist') {
@@ -189,13 +197,71 @@ export function ListImportScreen() {
           });
         }
       },
+            workoutExport:
+        kind === 'workout' && activeHousehold && user && !user.isDevBypass
+          ? {
+              createRoutine: async (routine) => {
+                const id = await createWorkout({
+                  householdId: activeHousehold.id,
+                  userId: user.id,
+                  name: routine.name,
+                  visibility: 'private',
+                  splitId: null,
+                  durationMin: routine.durationMin,
+                  personIds: [],
+                  exercises: routine.exercises
+                    .filter((exercise) => exercise.status === 'ready' || exercise.status === 'needsMatch')
+                    .map((exercise) => ({
+                      exerciseId: exercise.exerciseId,
+                      name: exercise.name,
+                      targetSets: exercise.targetSets,
+                      targetReps: exercise.targetReps,
+                      targetWeight: exercise.targetWeightKg,
+                      targetRpe: exercise.targetRpe,
+                      note: exercise.note ?? '',
+                      supersetId: null,
+                    })),
+                });
+                setWorkouts(await loadWorkouts(activeHousehold.id));
+                return id;
+              },
+              findRoutineId: async (name) => {
+                const rows = await loadWorkouts(activeHousehold.id);
+                const hit = rows.find((workout) => workout.name.trim().toLowerCase() === name.trim().toLowerCase());
+                return hit?.id ?? null;
+              },
+              createHistorySession: async (session, workoutId) => {
+                if (!session.startedAt) return;
+                await importFinishedSession({
+                  householdId: activeHousehold.id,
+                  userId: user.id,
+                  workoutId,
+                  name: session.name,
+                  startedAt: session.startedAt,
+                  finishedAt: session.endedAt,
+                  durationMin: session.durationMin,
+                  exercises: session.exercises.map((exercise) => ({
+                    exerciseId: exercise.exerciseId,
+                    name: exercise.name,
+                    sets: exercise.sets.map((set) => ({
+                      weightKg: set.weightKg,
+                      reps: set.reps,
+                      durationSec: set.durationSec,
+                    })),
+                  })),
+                });
+                setHistoryKeys(await loadHistoryDedupeKeys(user.id, activeHousehold.id));
+              },
+            }
+          : undefined,
     };
   }, [activeHousehold, kind, meals, stash, user, watchlist, weightUnit]);
 
   function openKind(next: KinexusListKind) {
     setKind(next);
-    if (next === 'workout' && activeHousehold) {
+    if (next === 'workout' && activeHousehold && user && !user.isDevBypass) {
       void loadWorkouts(activeHousehold.id).then(setWorkouts).catch(() => setWorkouts([]));
+      void loadHistoryDedupeKeys(user.id, activeHousehold.id).then(setHistoryKeys).catch(() => setHistoryKeys([]));
     }
     setWizardOpen(true);
   }
@@ -217,8 +283,14 @@ export function ListImportScreen() {
           kind={kind}
           existingLists={existingLists}
           existingItems={existingItems}
+          existingHistory={historyKeys}
           weightUnit={weightUnit}
           writers={writers}
+          loadExerciseCatalog={
+            kind === 'workout'
+              ? async () => (await loadLibrary()).map((exercise) => ({ id: exercise.id, name: exercise.name }))
+              : undefined
+          }
           onClose={() => {
             setWizardOpen(false);
             if (params.kind) router.back();

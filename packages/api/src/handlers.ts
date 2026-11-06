@@ -10,7 +10,21 @@ import { fetchReaderDocument } from './scrape/reader.js';
 import { fetchArchiveFrameHtml } from './scrape/archive-frame.js';
 import { lookupCollectible, parseCollectibleKind, searchCollectibles } from './scrape/collectibles.js';
 import { scrapeRecipeSource } from './scrape/recipe-source.js';
-import { discoverWatchlistTitles, listStreamingServices, lookupWatchlistTitle, recommendWatchlistTitles, resolveWatchlistUrl, searchWatchlistPeople, searchWatchlistTitles, watchlistPersonMovies, watchlistTitleCast } from './watchlist.js';
+import {
+  discoverWatchlistTitles,
+  listStreamingServices,
+  lookupWatchlistTitle,
+  matchWatchlistImportRows,
+  recommendWatchlistTitles,
+  resolveWatchlistUrl,
+  searchWatchlistPeople,
+  searchWatchlistTitles,
+  WATCHLIST_IMPORT_MATCH_BATCH_CAP,
+  watchlistPersonMovies,
+  watchlistTitleCast,
+  type WatchlistImportMatchRow,
+} from './watchlist.js';
+import { assertWatchlistImportMatchRateLimit } from './watchlist-import-rate-limit.js';
 import type { RecipeDraft } from './recipe-draft.js';
 
 export type AiTask = 'extract_recipe' | 'extract_recipe_from_url' | 'generate_recipe_from_name' | 'estimate_recipe_nutrition';
@@ -292,9 +306,13 @@ function parseClassifyCategories(value: unknown): BudgetCategoryOption[] {
   return budgetCategoryOptions(rows);
 }
 
-function tmdbError(err: unknown, fallback: string): { status: number; body: { error: string } } {
+function tmdbError(err: unknown, fallback: string): { status: number; body: { error: string; errorCode?: string } } {
   const message = err instanceof Error ? err.message : fallback;
   const status = typeof (err as { status?: number }).status === 'number' ? (err as { status: number }).status : 500;
+  const code = typeof (err as { code?: unknown }).code === 'string' ? (err as { code: string }).code : undefined;
+  if (code === 'rate_limited' || status === 429) {
+    return { status: 429, body: { error: message, errorCode: 'rate_limited' } };
+  }
   if (message.includes('not configured') || message.includes('is not set')) {
     return { status: 503, body: { error: message } };
   }
@@ -476,5 +494,55 @@ export async function handleWatchlistResolve(body: { url?: unknown; country?: un
     return { status: 200 as const, body: { results } };
   } catch (err) {
     return tmdbError(err, 'Could not resolve that link');
+  }
+}
+
+function parseImportMatchRows(value: unknown): WatchlistImportMatchRow[] {
+  if (!Array.isArray(value)) return [];
+  const rows: WatchlistImportMatchRow[] = [];
+  for (const row of value) {
+    if (!row || typeof row !== 'object') continue;
+    const record = row as { key?: unknown; imdbId?: unknown; title?: unknown; year?: unknown };
+    const key = typeof record.key === 'string' ? record.key : '';
+    if (!key) continue;
+    const yearRaw = record.year;
+    const year =
+      yearRaw == null || yearRaw === ''
+        ? null
+        : Number.isFinite(Number(yearRaw))
+          ? Math.trunc(Number(yearRaw))
+          : null;
+    rows.push({
+      key: key.slice(0, 64),
+      imdbId: typeof record.imdbId === 'string' ? record.imdbId : null,
+      title: typeof record.title === 'string' ? record.title.slice(0, 200) : null,
+      year,
+    });
+    if (rows.length >= WATCHLIST_IMPORT_MATCH_BATCH_CAP) break;
+  }
+  return rows;
+}
+
+export async function handleWatchlistImportMatch(
+  userId: string,
+  body: { rows?: unknown; country?: unknown },
+) {
+  try {
+    assertWatchlistImportMatchRateLimit(userId);
+    const rows = parseImportMatchRows(body.rows);
+    if (rows.length === 0) return { status: 400 as const, body: { error: 'At least one row is required' } };
+    if (Array.isArray(body.rows) && body.rows.length > WATCHLIST_IMPORT_MATCH_BATCH_CAP) {
+      return {
+        status: 400 as const,
+        body: { error: `Match at most ${WATCHLIST_IMPORT_MATCH_BATCH_CAP} rows per request` },
+      };
+    }
+    const results = await matchWatchlistImportRows({
+      rows,
+      country: typeof body.country === 'string' ? body.country : 'AU',
+    });
+    return { status: 200 as const, body: { results } };
+  } catch (err) {
+    return tmdbError(err, 'Could not match titles');
   }
 }

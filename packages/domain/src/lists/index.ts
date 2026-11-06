@@ -1,3 +1,8 @@
+import './parse-imdb';
+import './parse-letterboxd';
+import './parse-hevy';
+import './parse-strong';
+
 export {
   clearListSourceDetectors,
   detectListSource,
@@ -9,12 +14,14 @@ export {
 } from './detect';
 export type { ListSourceDetector, ListSourceInput } from './detect';
 
-export { buildKinexusExport, buildListExport } from './export-build';
+export { buildKinexusExport, buildLetterboxdImportCsv, buildListExport } from './export-build';
 export type { ExportListInput } from './export-build';
 
 export {
+  acceptImportMatch,
   applyDedupeStatus,
   applyImportRows,
+  applyMatchResults,
   buildImportPlan,
   dedupeKey,
   importRowsToExportItems,
@@ -23,7 +30,26 @@ export {
   remapImportPlan,
   summarizeImportRows,
 } from './import-plan';
-export type { ExistingDedupeItem } from './import-plan';
+export type { ExistingDedupeItem, MatchResultInput } from './import-plan';
+
+export {
+  MATCH_AUTO_ACCEPT,
+  MATCH_NEEDS_CONFIRM,
+  classifyMatchConfidence,
+  letterboxdRatingToScore,
+  normalizeImdbId,
+  scoreToLetterboxdRating,
+  titleYearMatchConfidence,
+} from './match-confidence';
+
+export {
+  applyExerciseMatch,
+  exerciseMatchConfidence,
+  matchWorkoutExercises,
+  normalizeExerciseName,
+  rankExerciseMatches,
+} from './match-exercise';
+export type { ExerciseCatalogEntry } from './match-exercise';
 
 export {
   defaultHeadersForKind,
@@ -33,15 +59,37 @@ export {
 } from './map-columns';
 
 export { linesFromDocxHtml, parseDocxBytes } from './parse-docx';
+export { looksLikeHevyCsv, parseHevyCsv } from './parse-hevy';
+export { looksLikeImdbCsv, parseImdbCsv } from './parse-imdb';
+export { looksLikeLetterboxdCsv, parseLetterboxdCsv, parseLetterboxdZip } from './parse-letterboxd';
+export { looksLikeStrongCsv, parseStrongCsv } from './parse-strong';
 export { parsePlainTextList, parseQuantityLine } from './parse-text';
 export { buildXlsxBytes, parseXlsxMatrix } from './parse-xlsx';
 
-export { KINEXUS_EXPORT_VERSION } from './types';
+export {
+  acceptExerciseMatch,
+  applyHistoryDedupe,
+  applyRoutineDedupe,
+  historyDedupeKey,
+  keepExerciseFreeText,
+  matchPlanExercises,
+  parseStrongDurationToMinutes,
+  refreshWorkoutImportPlan,
+  routineDedupeKey,
+  routinesFromSessions,
+  routinesToRows,
+  summarizeWorkoutImport,
+} from './workout-import';
+export type { HistoryDedupeItem, ParsedWorkoutFile } from './workout-import';
+
+export { emptyImportRow, KINEXUS_EXPORT_VERSION } from './types';
 export type {
   BuiltExport,
   ColumnMapping,
+  ExerciseMatchCandidate,
   ImportApplySummary,
   ImportField,
+  ImportMatchCandidate,
   ImportPlan,
   ImportRow,
   ImportRowStatus,
@@ -51,4 +99,8 @@ export type {
   KinexusListKind,
   ListExportFormat,
   ListSourceFormat,
+  WorkoutImportExercise,
+  WorkoutImportRoutine,
+  WorkoutImportSession,
+  WorkoutImportSet,
 } from './types';

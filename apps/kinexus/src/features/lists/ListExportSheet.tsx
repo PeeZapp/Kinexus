@@ -5,6 +5,7 @@ import * as Clipboard from 'expo-clipboard';
 import {
   buildListExport,
   type ExportListInput,
+  type KinexusListKind,
   type ListExportFormat,
 } from '@kinexus/domain';
 
@@ -15,11 +16,12 @@ import type { LinkShareState } from '@/src/features/share/LinkShareSheet';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 
-const FORMATS: { value: ListExportFormat; label: string }[] = [
+const FORMATS: { value: ListExportFormat; label: string; kinds?: KinexusListKind[] }[] = [
   { value: 'json', label: 'Kinexus JSON' },
   { value: 'csv', label: 'CSV' },
   { value: 'xlsx', label: 'Excel' },
   { value: 'text', label: 'Plain text' },
+  { value: 'letterboxd-csv', label: 'Letterboxd CSV', kinds: ['watchlist'] },
 ];
 
 export type ListExportLinkShare = {
@@ -170,7 +172,7 @@ export function ListExportSheet({
           <>
             <Text style={styles.hint}>Choose a format</Text>
             <View style={styles.wrap}>
-              {FORMATS.map((item) => (
+              {FORMATS.filter((item) => !item.kinds || (input && item.kinds.includes(input.kind))).map((item) => (
                 <Pill key={item.value} label={item.label} active={format === item.value} onPress={() => setFormat(item.value)} />
               ))}
             </View>

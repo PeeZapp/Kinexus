@@ -5,6 +5,7 @@ import { useRouter, type Href } from 'expo-router';
 import {
   applyLoggedSets,
   canCreateShared,
+  canPublishTrainGlobal,
   clusterExercises,
   generateFromCategoryMix,
   nextSimilarExercise,
@@ -105,7 +106,13 @@ function draftFromLive(live: LiveSession, userId: string): WorkoutDraft {
     createdBy: userId,
     shareToken: null,
     isShared: false,
+    level: null,
+    goal: null,
+    equipment: [],
+    sourceWorkoutId: null,
+    sourceCreatorId: null,
     personIds: [],
+    buddyUserIds: [],
     ratings: [],
     notes: [],
     exercises: [...grouped.entries()]
@@ -134,13 +141,6 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
   const creator = useCreator();
   const userId = user && !user.isDevBypass ? user.id : null;
   const canSave = canCreateShared(role);
-  const visibilityOptions = useMemo(
-    () =>
-      creator.isApprovedCreator
-        ? ([...BASE_VISIBILITY, { value: 'global', label: 'Everyone' }] as const)
-        : BASE_VISIBILITY,
-    [creator.isApprovedCreator],
-  );
   const [sets, setSets] = useState<SessionSet[]>([]);
   const [weightDraft, setWeightDraft] = useState<Record<string, string>>({});
 
@@ -149,6 +149,18 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
   }, [weightUnit]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [workout, setWorkout] = useState<WorkoutDraft | null>(null);
+  const visibilityOptions = useMemo(() => {
+    const canGlobal =
+      creator.isApprovedCreator &&
+      canPublishTrainGlobal({
+        level: workout?.level ?? null,
+        goal: workout?.goal ?? null,
+        equipment: workout?.equipment ?? [],
+      });
+    return canGlobal
+      ? ([...BASE_VISIBILITY, { value: 'global', label: 'Everyone' }] as const)
+      : BASE_VISIBILITY;
+  }, [creator.isApprovedCreator, workout?.equipment, workout?.goal, workout?.level]);
   const [savedSignature, setSavedSignature] = useState<string | null>(null);
   const [restGame, setRestGame] = useState<RestExtra>('off');
   const [restSeconds, setRestSeconds] = useState<number>(90);
@@ -164,6 +176,11 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState('');
   const [saveVisibility, setSaveVisibility] = useState<WorkoutDraft['visibility']>('private');
+  useEffect(() => {
+    if (saveVisibility === 'global' && !visibilityOptions.some((option) => option.value === 'global')) {
+      setSaveVisibility('private');
+    }
+  }, [saveVisibility, visibilityOptions]);
   const [savePeople, setSavePeople] = useState<string[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -528,6 +545,7 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
     setSaving(true);
     setSaveError(null);
     try {
+      const buddyUserIds = owns ? workout.buddyUserIds : [];
       const id = owns ? workout.id : await createWorkout({
         householdId: activeHousehold.id,
         userId,
@@ -535,7 +553,11 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
         visibility: saveVisibility,
         splitId: workout.splitId,
         durationMin: workout.durationMin,
+        level: workout.level,
+        goal: workout.goal,
+        equipment: workout.equipment,
         personIds,
+        buddyUserIds: [],
         exercises: payload,
       });
       if (owns) {
@@ -544,7 +566,11 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
           visibility: saveVisibility,
           splitId: workout.splitId,
           durationMin: workout.durationMin,
+          level: workout.level,
+          goal: workout.goal,
+          equipment: workout.equipment,
           personIds,
+          buddyUserIds,
           exercises: payload,
         });
       }
@@ -555,6 +581,7 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
         name,
         visibility: saveVisibility,
         personIds,
+        buddyUserIds,
         exercises,
         notes: owns ? workout.notes : [],
         ratings: owns ? workout.ratings : [],

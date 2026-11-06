@@ -9,7 +9,7 @@ export type ListSourceInput = {
 
 /**
  * Pluggable detector for external list sources (IMDb, Letterboxd, Hevy, Strong…).
- * Return a format override, or null to defer. 5b/5c will register real parsers.
+ * Return a format override, or null to defer. 5b registers IMDb/Letterboxd; 5c Hevy/Strong.
  */
 export type ListSourceDetector = {
   id: string;
@@ -32,17 +32,8 @@ export function listSourceDetectors(): readonly ListSourceDetector[] {
   return detectors;
 }
 
-/** Stubs so 5b/5c can replace without changing call sites. */
-export const STUB_LIST_SOURCE_DETECTORS: ListSourceDetector[] = [
-  { id: 'imdb', detect: () => null },
-  { id: 'letterboxd', detect: () => null },
-  { id: 'hevy', detect: () => null },
-  { id: 'strong', detect: () => null },
-];
-
-for (const stub of STUB_LIST_SOURCE_DETECTORS) {
-  registerListSourceDetector(stub);
-}
+/** @deprecated 5c registered real Hevy/Strong detectors; kept empty for call-site compatibility. */
+export const STUB_LIST_SOURCE_DETECTORS: ListSourceDetector[] = [];
 
 function extensionOf(fileName: string | null | undefined): string {
   if (!fileName) return '';
@@ -76,6 +67,8 @@ export function detectListSource(input: ListSourceInput): ListSourceFormat {
   const mime = (input.mimeType ?? '').toLowerCase();
   const text = input.text?.replace(/^\uFEFF/, '') ?? null;
 
+  if (ext === 'zip' || mime.includes('zip')) return 'letterboxd-zip';
+
   if (ext === 'json' || mime.includes('json')) {
     if (text && looksLikeKinexusJson(text)) return 'kinexus-json';
     if (text && looksLikeJson(text)) return 'kinexus-json';
@@ -99,8 +92,10 @@ export function detectListSource(input: ListSourceInput): ListSourceFormat {
   }
 
   if (input.bytes && input.bytes.length >= 4) {
-    // ZIP local file header — xlsx/docx are zips
+    // ZIP local file header — xlsx/docx/letterboxd zip
     if (input.bytes[0] === 0x50 && input.bytes[1] === 0x4b) {
+      if (ext === 'docx' || mime.includes('wordprocessingml')) return 'docx';
+      if (ext === 'xlsx' || mime.includes('spreadsheetml')) return 'xlsx';
       // Could be xlsx or docx; without filename default xlsx
       return 'xlsx';
     }
@@ -112,10 +107,10 @@ export function detectListSource(input: ListSourceInput): ListSourceFormat {
 }
 
 export function listFileExtensions(): readonly string[] {
-  return ['.csv', '.tsv', '.xlsx', '.xls', '.docx', '.txt', '.json'];
+  return ['.csv', '.tsv', '.xlsx', '.xls', '.docx', '.txt', '.json', '.zip'];
 }
 
 export function isListImportFileName(fileName: string | null | undefined): boolean {
   const ext = extensionOf(fileName);
-  return ['csv', 'tsv', 'xlsx', 'xls', 'docx', 'txt', 'json'].includes(ext);
+  return ['csv', 'tsv', 'xlsx', 'xls', 'docx', 'txt', 'json', 'zip'].includes(ext);
 }

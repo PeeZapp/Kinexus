@@ -1,4 +1,4 @@
-import type { ImportRow } from './types';
+import { emptyImportRow, type ImportRow } from './types';
 
 const QTY_PREFIX = /^(\d+(?:\.\d+)?)\s*[x×]\s+(.+)$/i;
 const QTY_SUFFIX = /^(.+?)\s+[x×]\s*(\d+(?:\.\d+)?)$/i;
@@ -29,21 +29,7 @@ export function parsePlainTextList(text: string): ImportRow[] {
     if (!line) continue;
     const { title, quantity } = parseQuantityLine(line);
     if (!title) continue;
-    rows.push({
-      title,
-      year: null,
-      quantity,
-      notes: null,
-      url: null,
-      price: null,
-      sets: null,
-      reps: null,
-      weight: null,
-      tmdbId: null,
-      mediaType: null,
-      status: 'ready',
-      note: null,
-    });
+    rows.push(emptyImportRow({ title, quantity, status: 'ready', note: null }));
   }
   return rows;
 }

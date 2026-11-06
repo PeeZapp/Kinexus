@@ -102,7 +102,7 @@ export type SharedAccess = {
   userId: string | null;
   personId: string | null;
   createdBy: string | null;
-  visibility: 'household' | 'private' | 'people' | 'global';
+  visibility: 'household' | 'private' | 'people' | 'buddies' | 'buddies_selected' | 'global';
   personIds: readonly string[];
 };
 

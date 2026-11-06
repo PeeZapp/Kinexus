@@ -2,7 +2,13 @@ import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 
-import { canCreateShared, estimateWorkout, exerciseSearchScore, type RemixCategory } from '@kinexus/domain';
+import {
+  canCreateShared,
+  estimateWorkout,
+  exerciseSearchScore,
+  resolveDefaultWorkoutVisibility,
+  type RemixCategory,
+} from '@kinexus/domain';
 
 import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/FilterMenu';
 import { ListExportSheet } from '@/src/features/lists/ListExportSheet';
@@ -14,12 +20,26 @@ import {
 } from '@/src/features/lists/list-io-adapters';
 import { buildShareUrl } from '@/src/features/share/share-url';
 import { disableEntityShare, enableEntityShare, resetEntityShare, sharePreview } from '@/src/features/share/link-share';
-import { clearOpenSession, createWorkout, loadOpenWorkoutIds, loadWorkouts, saveWorkout, saveWorkoutRating, type WorkoutDraft } from '@/src/features/train/api';
+import {
+  clearOpenSession,
+  createWorkout,
+  importFinishedSession,
+  loadHistoryDedupeKeys,
+  loadLibrary,
+  loadOpenWorkoutIds,
+  loadTrainPrefs,
+  loadWorkouts,
+  saveWorkout,
+  saveWorkoutRating,
+  type WorkoutDraft,
+} from '@/src/features/train/api';
+import { loadTrainBuddies } from '@/src/features/train/buddies-api';
 import { EMPTY_WORKOUT_SEED, WorkoutBuilder, type WorkoutBuilderResult } from '@/src/features/train/WorkoutBuilder';
 import { SearchField, TrainButton, TrainPage } from '@/src/features/train/ui';
 import { exerciseTitle } from '@/src/features/train/format';
 import { ErrorBanner, LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
+import { useCreator } from '@/src/features/creators/use-creator';
 import { useAuth } from '@/src/lib/auth';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useHousehold } from '@/src/lib/household';
@@ -59,13 +79,17 @@ export function WorkoutsScreen() {
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [clearingId, setClearingId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [historyKeys, setHistoryKeys] = useState<{ name: string; startedAt: string }[]>([]);
   const [exportWorkout, setExportWorkout] = useState<WorkoutDraft | null>(null);
   const [linkShareBusy, setLinkShareBusy] = useState(false);
   const [linkShareError, setLinkShareError] = useState<string | null>(null);
   const { weightUnit } = useUnits();
+  const creator = useCreator();
   const userId = user && !user.isDevBypass ? user.id : null;
   const canCreate = canCreateShared(role);
   const wide = mode === 'desktop';
+  const [defaultVisibility, setDefaultVisibility] = useState(EMPTY_WORKOUT_SEED.visibility);
+  const [buddies, setBuddies] = useState<{ id: string; name: string }[]>([]);
 
   async function refreshWorkouts() {
     if (!activeHousehold) return;
@@ -79,9 +103,30 @@ export function WorkoutsScreen() {
       if (!activeHousehold) return;
       let cancelled = false;
       const householdId = activeHousehold.id;
-      loadWorkouts(householdId)
-        .then((rows) => {
-          if (!cancelled) setWorkouts(rows);
+      Promise.all([
+        loadWorkouts(householdId),
+        userId ? loadTrainPrefs(userId) : Promise.resolve(null),
+        userId ? loadTrainBuddies(userId) : Promise.resolve([]),
+      ])
+        .then(([rows, prefs, buddyRows]) => {
+          if (cancelled) return;
+          setWorkouts(rows);
+          if (prefs) {
+            setDefaultVisibility(
+              resolveDefaultWorkoutVisibility({
+                preferred: prefs.defaultWorkoutVisibility,
+                isApprovedCreator: creator.isApprovedCreator,
+              }),
+            );
+          }
+          setBuddies(
+            buddyRows
+              .filter((row) => row.status === 'accepted')
+              .map((row) => ({
+                id: row.otherUserId,
+                name: row.profile.username || row.profile.globalHandle || 'Buddy',
+              })),
+          );
         })
         .catch((err: unknown) => {
           if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load workouts');
@@ -103,7 +148,7 @@ export function WorkoutsScreen() {
       return () => {
         cancelled = true;
       };
-    }, [activeHousehold, userId]),
+    }, [activeHousehold, creator.isApprovedCreator, userId]),
   );
 
   const plans = useMemo(() => {
@@ -159,7 +204,11 @@ export function WorkoutsScreen() {
       visibility: result.visibility,
       splitId: result.splitId,
       durationMin: result.durationMin,
+      level: result.level,
+      goal: result.goal,
+      equipment: result.equipment,
       personIds: result.personIds,
+      buddyUserIds: result.buddyUserIds,
       exercises: result.exercises.flatMap((exercise) =>
         exercise.exerciseId
           ? [
@@ -226,7 +275,20 @@ export function WorkoutsScreen() {
             <SearchField value={query} onChangeText={setQuery} placeholder="Search workouts" />
           </View>
           {canCreate ? <TrainButton label="New workout" onPress={() => setBuilderOpen(true)} /> : null}
-          {canCreate ? <TrainButton label="Import" tone="ghost" onPress={() => setImportOpen(true)} /> : null}
+          {canCreate ? (
+            <TrainButton
+              label="Import"
+              tone="ghost"
+              onPress={() => {
+                if (userId && activeHousehold) {
+                  void loadHistoryDedupeKeys(userId, activeHousehold.id)
+                    .then(setHistoryKeys)
+                    .catch(() => setHistoryKeys([]));
+                }
+                setImportOpen(true);
+              }}
+            />
+          ) : null}
         </View>
         <View style={styles.filters}>
           <FilterBar>
@@ -337,8 +399,9 @@ export function WorkoutsScreen() {
       {builderOpen ? (
         <WorkoutBuilder
           presentation="modal"
-          seed={EMPTY_WORKOUT_SEED}
+          seed={{ ...EMPTY_WORKOUT_SEED, visibility: defaultVisibility }}
           people={people}
+          buddies={buddies}
           editable
           onClose={() => setBuilderOpen(false)}
           onSubmit={submitNew}
@@ -408,7 +471,11 @@ export function WorkoutsScreen() {
         kind="workout"
         existingLists={workouts.map((workout) => ({ id: workout.id, name: workout.name }))}
         existingItems={workouts.flatMap((workout) => workout.exercises.map((exercise) => ({ title: exercise.name })))}
+        existingHistory={historyKeys}
         weightUnit={weightUnit}
+        loadExerciseCatalog={async () =>
+          (await loadLibrary()).map((exercise) => ({ id: exercise.id, name: exercise.name }))
+        }
         writers={
           {
             ensureTargetList: async (target) => {
@@ -434,7 +501,11 @@ export function WorkoutsScreen() {
                 visibility: current.visibility,
                 splitId: current.splitId,
                 durationMin: current.durationMin,
+                level: current.level,
+                goal: current.goal,
+                equipment: current.equipment,
                 personIds: current.personIds,
+                buddyUserIds: current.buddyUserIds,
                 exercises: [
                   ...current.exercises.map((exercise) => ({
                     exerciseId: exercise.exerciseId,
@@ -460,6 +531,65 @@ export function WorkoutsScreen() {
               });
               setWorkouts(await loadWorkouts(activeHousehold.id));
             },
+            workoutExport:
+              activeHousehold && userId
+                ? {
+                    createRoutine: async (routine) => {
+                      const id = await createWorkout({
+                        householdId: activeHousehold.id,
+                        userId,
+                        name: routine.name,
+                        visibility: 'private',
+                        splitId: null,
+                        durationMin: routine.durationMin,
+                        personIds: [],
+                        exercises: routine.exercises
+                          .filter((exercise) => exercise.status === 'ready' || exercise.status === 'needsMatch')
+                          .map((exercise) => ({
+                            exerciseId: exercise.exerciseId,
+                            name: exercise.name,
+                            targetSets: exercise.targetSets,
+                            targetReps: exercise.targetReps,
+                            targetWeight: exercise.targetWeightKg,
+                            targetRpe: exercise.targetRpe,
+                            note: exercise.note ?? '',
+                            supersetId: null,
+                          })),
+                      });
+                      await refreshWorkouts();
+                      return id;
+                    },
+                    findRoutineId: async (name) => {
+                      const rows = await loadWorkouts(activeHousehold.id);
+                      const hit = rows.find(
+                        (workout) => workout.name.trim().toLowerCase() === name.trim().toLowerCase(),
+                      );
+                      return hit?.id ?? null;
+                    },
+                    createHistorySession: async (session, workoutId) => {
+                      if (!session.startedAt) return;
+                      await importFinishedSession({
+                        householdId: activeHousehold.id,
+                        userId,
+                        workoutId,
+                        name: session.name,
+                        startedAt: session.startedAt,
+                        finishedAt: session.endedAt,
+                        durationMin: session.durationMin,
+                        exercises: session.exercises.map((exercise) => ({
+                          exerciseId: exercise.exerciseId,
+                          name: exercise.name,
+                          sets: exercise.sets.map((set) => ({
+                            weightKg: set.weightKg,
+                            reps: set.reps,
+                            durationSec: set.durationSec,
+                          })),
+                        })),
+                      });
+                      setHistoryKeys(await loadHistoryDedupeKeys(userId, activeHousehold.id));
+                    },
+                  }
+                : undefined,
           } satisfies ListImportWriters
         }
         onClose={() => setImportOpen(false)}

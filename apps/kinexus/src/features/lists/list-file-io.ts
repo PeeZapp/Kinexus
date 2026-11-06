@@ -18,6 +18,8 @@ const ACCEPT = [
   'text/tab-separated-values',
   'text/plain',
   'application/json',
+  'application/zip',
+  'application/x-zip-compressed',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -28,6 +30,7 @@ const ACCEPT = [
   '.xlsx',
   '.xls',
   '.docx',
+  '.zip',
 ];
 
 function base64ToBytes(base64: string): Uint8Array {
@@ -45,7 +48,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 function isBinaryName(fileName: string): boolean {
-  return /\.(xlsx|xls|docx)$/i.test(fileName);
+  return /\.(xlsx|xls|docx|zip)$/i.test(fileName);
 }
 
 export async function pickListFile(): Promise<PickedListFile | null> {

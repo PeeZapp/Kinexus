@@ -16,6 +16,7 @@ import {
   handleArchiveFrame,
   handleWatchlistCast,
   handleWatchlistDiscover,
+  handleWatchlistImportMatch,
   handleWatchlistLookup,
   handleWatchlistPeople,
   handleWatchlistPersonMovies,
@@ -560,6 +561,17 @@ function registerMealsRoutes(router: Hono) {
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
     const result = await handleWatchlistResolve(body as { url?: unknown; country?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/watchlist/import/match', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleWatchlistImportMatch(
+      authed.user.id,
+      body as { rows?: unknown; country?: unknown },
+    );
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 }

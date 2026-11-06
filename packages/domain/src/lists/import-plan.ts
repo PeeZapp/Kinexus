@@ -1,14 +1,26 @@
 import { parseCsv } from '../csv';
 import type { WeightUnit } from '../train/units';
 import { detectListSource, type ListSourceInput } from './detect';
+import { classifyMatchConfidence } from './match-confidence';
 import { guessColumnMapping, rowFromCells, rowsFromMatrix } from './map-columns';
 import { parseDocxBytes } from './parse-docx';
+import { parseHevyCsv } from './parse-hevy';
+import { parseImdbCsv } from './parse-imdb';
+import { parseLetterboxdCsv, parseLetterboxdZip } from './parse-letterboxd';
+import { parseStrongCsv } from './parse-strong';
 import { parsePlainTextList } from './parse-text';
 import { parseXlsxMatrix } from './parse-xlsx';
 import {
+  refreshWorkoutImportPlan,
+  routinesFromSessions,
+  routinesToRows,
+} from './workout-import';
+import {
+  emptyImportRow,
   KINEXUS_EXPORT_VERSION,
   type ColumnMapping,
   type ImportApplySummary,
+  type ImportMatchCandidate,
   type ImportPlan,
   type ImportRow,
   type KinexusExport,
@@ -54,7 +66,11 @@ export function applyDedupeStatus(
   return rows.map((row) => {
     if (row.status === 'invalid') return row;
     if (kind === 'watchlist' && row.tmdbId == null) {
-      return { ...row, status: 'needsMatch', note: 'Needs TMDB match (coming in a later import step)' };
+      return {
+        ...row,
+        status: 'needsMatch',
+        note: row.note ?? 'Needs TMDB match',
+      };
     }
     const key = dedupeKey(kind, row);
     if (!key) return row;
@@ -74,21 +90,27 @@ export function parseKinexusJson(text: string): { export: KinexusExport; rows: I
   if (parsed.kinexusExport > KINEXUS_EXPORT_VERSION) {
     throw new Error(`Unsupported export version ${parsed.kinexusExport}`);
   }
-  const rows: ImportRow[] = (parsed.items ?? []).map((item) => ({
-    title: (item.title ?? '').trim(),
-    year: item.year ?? null,
-    quantity: item.quantity ?? null,
-    notes: item.notes ?? null,
-    url: item.url ?? null,
-    price: item.price ?? null,
-    sets: item.sets ?? null,
-    reps: item.reps ?? null,
-    weight: item.weight ?? null,
-    tmdbId: item.tmdbId ?? null,
-    mediaType: item.mediaType ?? null,
-    status: (item.title ?? '').trim() ? 'ready' : 'invalid',
-    note: (item.title ?? '').trim() ? null : 'Missing title',
-  }));
+  const rows: ImportRow[] = (parsed.items ?? []).map((item) =>
+    emptyImportRow({
+      title: (item.title ?? '').trim(),
+      year: item.year ?? null,
+      quantity: item.quantity ?? null,
+      notes: item.notes ?? null,
+      url: item.url ?? null,
+      price: item.price ?? null,
+      sets: item.sets ?? null,
+      reps: item.reps ?? null,
+      weight: item.weight ?? null,
+      tmdbId: item.tmdbId ?? null,
+      mediaType: item.mediaType ?? null,
+      imdbId: item.imdbId ?? null,
+      itemStatus: item.itemStatus ?? null,
+      rating: item.rating ?? null,
+      watchedDate: item.watchedDate ?? null,
+      status: (item.title ?? '').trim() ? 'ready' : 'invalid',
+      note: (item.title ?? '').trim() ? null : 'Missing title',
+    }),
+  );
   return { export: parsed, rows };
 }
 
@@ -98,8 +120,122 @@ function suggestedNameFrom(fileName: string | null | undefined, fallback: string
   return base || fallback;
 }
 
-function kindFromFormatHint(format: ListSourceFormat, jsonKind: KinexusListKind | null): KinexusListKind | null {
+function kindFromFormat(format: ListSourceFormat, jsonKind: KinexusListKind | null): KinexusListKind | null {
+  if (format === 'imdb-csv' || format === 'letterboxd-csv' || format === 'letterboxd-zip') return 'watchlist';
+  if (format === 'hevy-csv' || format === 'strong-csv') return 'workout';
   return jsonKind;
+}
+
+function isWorkoutExportFormat(format: ListSourceFormat): boolean {
+  return format === 'hevy-csv' || format === 'strong-csv';
+}
+
+export type MatchResultInput = {
+  /** Index into plan.rows */
+  index: number;
+  confidence: number;
+  match: {
+    tmdbId: number;
+    mediaType: 'movie' | 'tv';
+    title: string;
+    year: number | null;
+    posterPath?: string | null;
+    imdbId?: string | null;
+  } | null;
+  candidates?: ImportMatchCandidate[] | null;
+};
+
+/** Apply server match results onto needsMatch rows (auto-accept high confidence). */
+export function applyMatchResults(plan: ImportPlan, results: readonly MatchResultInput[]): ImportPlan {
+  if (!plan.kind || plan.kind !== 'watchlist') return plan;
+  const rows = plan.rows.map((row, index) => {
+    const hit = results.find((result) => result.index === index);
+    if (!hit || row.status === 'invalid' || row.status === 'duplicate') return row;
+    const candidates = hit.candidates ?? null;
+    if (!hit.match) {
+      const next: ImportRow = {
+        ...row,
+        status: 'needsMatch',
+        note: 'No match — search manually',
+        matchConfidence: hit.confidence,
+        candidates,
+      };
+      return next;
+    }
+    const band = classifyMatchConfidence(hit.confidence);
+    if (band === 'auto') {
+      const next: ImportRow = {
+        ...row,
+        title: hit.match.title || row.title,
+        year: hit.match.year ?? row.year,
+        tmdbId: hit.match.tmdbId,
+        mediaType: hit.match.mediaType,
+        imdbId: hit.match.imdbId ?? row.imdbId,
+        status: 'ready',
+        note: null,
+        matchConfidence: hit.confidence,
+        candidates: null,
+      };
+      return next;
+    }
+    if (band === 'confirm') {
+      const next: ImportRow = {
+        ...row,
+        status: 'needsMatch',
+        note: 'Needs confirmation',
+        matchConfidence: hit.confidence,
+        candidates:
+          candidates && candidates.length > 0
+            ? candidates
+            : [
+                {
+                  tmdbId: hit.match.tmdbId,
+                  mediaType: hit.match.mediaType,
+                  title: hit.match.title,
+                  year: hit.match.year,
+                  posterPath: hit.match.posterPath ?? null,
+                  imdbId: hit.match.imdbId ?? null,
+                  confidence: hit.confidence,
+                },
+              ],
+      };
+      return next;
+    }
+    const next: ImportRow = {
+      ...row,
+      status: 'needsMatch',
+      note: 'No confident match — search manually',
+      matchConfidence: hit.confidence,
+      candidates,
+    };
+    return next;
+  });
+  return { ...plan, rows: applyDedupeStatus(plan.kind, rows, []) };
+}
+
+export function acceptImportMatch(
+  plan: ImportPlan,
+  index: number,
+  candidate: ImportMatchCandidate,
+  existing: readonly ExistingDedupeItem[] = [],
+): ImportPlan {
+  if (!plan.kind) return plan;
+  const rows = plan.rows.map((row, i) => {
+    if (i !== index) return row;
+    return {
+      ...row,
+      title: candidate.title || row.title,
+      year: candidate.year ?? row.year,
+      tmdbId: candidate.tmdbId,
+      mediaType: candidate.mediaType,
+      imdbId: candidate.imdbId ?? row.imdbId,
+      status: 'ready' as const,
+      note: null,
+      matchConfidence: candidate.confidence,
+      candidates: null,
+    };
+  });
+  return { ...plan, rows: applyDedupeStatus(plan.kind, rows, existing) };
 }
 
 export async function buildImportPlan(
@@ -113,6 +249,11 @@ export async function buildImportPlan(
   let rows: ImportRow[] = [];
   let weightUnit: WeightUnit | null = input.weightUnit ?? null;
   let matrix: string[][] | null = null;
+  let workoutSessions: ImportPlan['workoutSessions'] = null;
+  let workoutRoutines: ImportPlan['workoutRoutines'] = null;
+  let sourceWeightUnit: WeightUnit | null = null;
+  let supportsHistory = false;
+  let customExercisesSupported = false;
 
   if (format === 'kinexus-json') {
     const text = input.text?.trim();
@@ -122,6 +263,42 @@ export async function buildImportPlan(
     suggestedName = parsed.export.list?.name?.trim() || suggestedName;
     rows = parsed.rows;
     weightUnit = parsed.export.weightUnit ?? weightUnit;
+  } else if (format === 'imdb-csv') {
+    rows = parseImdbCsv(input.text ?? '');
+    kind = 'watchlist';
+    suggestedName = suggestedNameFrom(input.fileName, 'IMDb import');
+  } else if (format === 'letterboxd-csv') {
+    rows = parseLetterboxdCsv(input.text ?? '', input.fileName);
+    kind = 'watchlist';
+    suggestedName = suggestedNameFrom(input.fileName, 'Letterboxd import');
+  } else if (format === 'letterboxd-zip') {
+    if (!input.bytes) throw new Error('Zip bytes required');
+    const parsed = await parseLetterboxdZip(input.bytes);
+    rows = parsed.rows;
+    kind = 'watchlist';
+    suggestedName = suggestedNameFrom(input.fileName, parsed.suggestedName);
+  } else if (format === 'hevy-csv') {
+    const parsed = parseHevyCsv(input.text ?? '');
+    kind = 'workout';
+    suggestedName = suggestedNameFrom(input.fileName, 'Hevy import');
+    sourceWeightUnit = parsed.sourceWeightUnit;
+    weightUnit = parsed.sourceWeightUnit;
+    workoutSessions = parsed.sessions;
+    workoutRoutines = routinesFromSessions(parsed.sessions);
+    rows = routinesToRows(workoutRoutines);
+    supportsHistory = true;
+    customExercisesSupported = false;
+  } else if (format === 'strong-csv') {
+    const parsed = parseStrongCsv(input.text ?? '', { fallbackWeightUnit: input.weightUnit ?? 'kg' });
+    kind = 'workout';
+    suggestedName = suggestedNameFrom(input.fileName, 'Strong import');
+    sourceWeightUnit = parsed.sourceWeightUnit;
+    weightUnit = parsed.sourceWeightUnit;
+    workoutSessions = parsed.sessions;
+    workoutRoutines = routinesFromSessions(parsed.sessions);
+    rows = routinesToRows(workoutRoutines);
+    supportsHistory = true;
+    customExercisesSupported = false;
   } else if (format === 'csv' || format === 'tsv') {
     const text = input.text ?? '';
     const parsed = parseCsv(text, { delimiter: format === 'tsv' ? '\t' : undefined });
@@ -144,13 +321,13 @@ export async function buildImportPlan(
     throw new Error('Could not detect a supported list format');
   }
 
-  kind = kindFromFormatHint(format, kind);
+  kind = kindFromFormat(format, kind) ?? kind;
 
-  if (kind) {
+  if (kind && !isWorkoutExportFormat(format)) {
     rows = applyDedupeStatus(kind, rows, []);
   }
 
-  return {
+  const plan: ImportPlan = {
     format,
     kind,
     suggestedName,
@@ -159,7 +336,18 @@ export async function buildImportPlan(
     rows,
     weightUnit,
     matrix,
+    workoutSessions,
+    workoutRoutines,
+    sourceWeightUnit,
+    supportsHistory,
+    importHistory: false,
+    customExercisesSupported,
   };
+
+  if (isWorkoutExportFormat(format)) {
+    return refreshWorkoutImportPlan(plan, [], []);
+  }
+  return plan;
 }
 
 export function remapImportPlan(plan: ImportPlan, mapping: ColumnMapping, matrix: readonly (readonly string[])[]): ImportPlan {
@@ -208,6 +396,10 @@ export function importRowsToExportItems(rows: readonly ImportRow[]) {
       weight: row.weight,
       tmdbId: row.tmdbId,
       mediaType: row.mediaType,
+      imdbId: row.imdbId,
+      itemStatus: row.itemStatus,
+      rating: row.rating,
+      watchedDate: row.watchedDate,
     }));
 }
 
@@ -284,6 +476,18 @@ export function cellsFromMappingPreview(row: ImportRow, mapping: ColumnMapping, 
         break;
       case 'mediaType':
         cells[index] = row.mediaType ?? '';
+        break;
+      case 'imdbId':
+        cells[index] = row.imdbId ?? '';
+        break;
+      case 'rating':
+        cells[index] = row.rating != null ? String(row.rating) : '';
+        break;
+      case 'watchedDate':
+        cells[index] = row.watchedDate ?? '';
+        break;
+      case 'itemStatus':
+        cells[index] = row.itemStatus ?? '';
         break;
     }
   }

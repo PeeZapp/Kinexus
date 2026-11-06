@@ -4,6 +4,7 @@ import {
   isWatchlistMediaType,
   isWatchlistOfferType,
   mergeStreamingServices,
+  normalizeImdbId,
   resolveStreamingDisplayPriority,
   normalizeCountryCode,
   normalizeStreamingProviderIds,
@@ -11,6 +12,7 @@ import {
   pickYoutubeTrailerUrl,
   rankWatchlistSuggestions,
   titleStreamsOn,
+  titleYearMatchConfidence,
   watchlistListError,
   watchlistTasteBand,
   watchlistTitleKey,
@@ -26,6 +28,9 @@ import {
   type WatchlistTasteCandidate,
   type WatchlistTasteSeed,
 } from '@kinexus/domain';
+
+export const WATCHLIST_IMPORT_MATCH_BATCH_CAP = 40;
+const MATCH_CACHE_TTL_MS = 10 * 60 * 1000;
 
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 
@@ -664,4 +669,167 @@ export async function watchlistPersonMovies(personId: number): Promise<{
     profilePath: person.profile_path ?? null,
     results: rows.slice(0, 40).map((row) => row.credit),
   };
+}
+
+export type WatchlistImportMatchRow = {
+  /** Client row key / index as string. */
+  key: string;
+  imdbId?: string | null;
+  title?: string | null;
+  year?: number | null;
+};
+
+export type WatchlistImportMatchCandidate = WatchlistSearchHit & { confidence: number };
+
+export type WatchlistImportMatchResult = {
+  key: string;
+  confidence: number;
+  match: WatchlistSearchHit | null;
+  candidates: WatchlistImportMatchCandidate[];
+};
+
+type MatchCacheEntry = { expiresAt: number; result: WatchlistImportMatchResult };
+
+const matchCache = new Map<string, MatchCacheEntry>();
+
+export function resetWatchlistImportMatchCache(): void {
+  matchCache.clear();
+}
+
+function cacheKey(row: WatchlistImportMatchRow, country: string): string {
+  const imdb = normalizeImdbId(row.imdbId ?? null);
+  if (imdb) return `imdb:${imdb}:${country}`;
+  const title = (row.title ?? '').trim().toLowerCase();
+  const year = row.year != null && Number.isFinite(row.year) ? String(row.year) : '';
+  return `ty:${title}|${year}|${country}`;
+}
+
+function getCached(key: string): WatchlistImportMatchResult | null {
+  const entry = matchCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt < Date.now()) {
+    matchCache.delete(key);
+    return null;
+  }
+  return entry.result;
+}
+
+function setCached(key: string, result: WatchlistImportMatchResult): void {
+  matchCache.set(key, { expiresAt: Date.now() + MATCH_CACHE_TTL_MS, result });
+}
+
+async function matchByImdbId(imdbId: string): Promise<WatchlistImportMatchResult> {
+  const found = await tmdbGet<{
+    movie_results?: TmdbSearchItem[];
+    tv_results?: TmdbSearchItem[];
+  }>(`/find/${imdbId}`, { external_source: 'imdb_id' });
+  const candidates: WatchlistImportMatchCandidate[] = [];
+  for (const row of found.movie_results ?? []) {
+    const hit = hitFromTmdb(row, 'movie', imdbId);
+    if (hit) candidates.push({ ...hit, confidence: 1 });
+  }
+  for (const row of found.tv_results ?? []) {
+    const hit = hitFromTmdb(row, 'tv', imdbId);
+    if (hit) candidates.push({ ...hit, confidence: 1 });
+  }
+  const match = candidates[0] ?? null;
+  return {
+    key: '',
+    confidence: match ? 1 : 0,
+    match,
+    candidates: candidates.slice(0, 5),
+  };
+}
+
+async function matchByTitleYear(
+  title: string,
+  year: number | null,
+  country: string,
+): Promise<WatchlistImportMatchResult> {
+  const query = year != null ? `${title} ${year}` : title;
+  if (query.trim().length < 2) {
+    return { key: '', confidence: 0, match: null, candidates: [] };
+  }
+  const hits = await searchWatchlistTitles(query, country);
+  const scored = hits
+    .map((hit) => ({
+      ...hit,
+      confidence: titleYearMatchConfidence({ title, year }, { title: hit.title, year: hit.year }),
+    }))
+    .sort((a, b) => b.confidence - a.confidence);
+  const best = scored[0] ?? null;
+  return {
+    key: '',
+    confidence: best?.confidence ?? 0,
+    match: best
+      ? {
+          tmdbId: best.tmdbId,
+          mediaType: best.mediaType,
+          title: best.title,
+          year: best.year,
+          overview: best.overview,
+          posterPath: best.posterPath,
+          backdropPath: best.backdropPath,
+          imdbId: best.imdbId,
+        }
+      : null,
+    candidates: scored.slice(0, 5),
+  };
+}
+
+export async function matchWatchlistImportRows(input: {
+  rows: readonly WatchlistImportMatchRow[];
+  country?: string;
+}): Promise<WatchlistImportMatchResult[]> {
+  if (!Array.isArray(input.rows) || input.rows.length === 0) {
+    throw Object.assign(new Error('At least one row is required'), { status: 400 });
+  }
+  if (input.rows.length > WATCHLIST_IMPORT_MATCH_BATCH_CAP) {
+    throw Object.assign(new Error(`Match at most ${WATCHLIST_IMPORT_MATCH_BATCH_CAP} rows per request`), {
+      status: 400,
+    });
+  }
+  const country = normalizeCountryCode(input.country);
+  const out: WatchlistImportMatchResult[] = [];
+
+  for (const row of input.rows) {
+    const key = typeof row.key === 'string' && row.key.trim() ? row.key.trim() : '';
+    if (!key) {
+      out.push({ key: '', confidence: 0, match: null, candidates: [] });
+      continue;
+    }
+    const imdbId = normalizeImdbId(row.imdbId ?? null);
+    const title = typeof row.title === 'string' ? row.title.trim() : '';
+    const year =
+      row.year == null || row.year === ('' as unknown)
+        ? null
+        : Number.isFinite(Number(row.year))
+          ? Math.trunc(Number(row.year))
+          : null;
+
+    const ck = cacheKey({ key, imdbId, title, year }, country);
+    const cached = getCached(ck);
+    if (cached) {
+      out.push({ ...cached, key });
+      continue;
+    }
+
+    let result: WatchlistImportMatchResult;
+    try {
+      if (imdbId) {
+        result = await matchByImdbId(imdbId);
+      } else if (title.length >= 1) {
+        result = await matchByTitleYear(title, year, country);
+      } else {
+        result = { key, confidence: 0, match: null, candidates: [] };
+      }
+    } catch {
+      result = { key, confidence: 0, match: null, candidates: [] };
+    }
+    result = { ...result, key };
+    setCached(ck, result);
+    out.push(result);
+  }
+
+  return out;
 }

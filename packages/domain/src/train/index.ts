@@ -10,6 +10,81 @@ export type {
   WorkoutExercise,
 } from './types';
 export {
+  TRAIN_BUDDY_PERMISSION_KEYS,
+  TRAIN_BUDDY_PERMISSION_LABELS,
+  TRAIN_BUDDY_STATUSES,
+  areTrainBuddies,
+  buddyCan,
+  defaultTrainBuddyPermissions,
+  isTrainBuddyPermissionKey,
+  normalizeBuddyUsername,
+} from './buddies';
+export type {
+  TrainBuddyPermissionKey,
+  TrainBuddyPermissions,
+  TrainBuddyStatus,
+} from './buddies';
+export {
+  TRAIN_BUDDY_EVENT_TYPES,
+  TRAIN_TOGETHER_STATUSES,
+  buddyHubVisibility,
+  canViewTrainBuddyEvent,
+  filterTrainBuddyFeed,
+  isTrainBuddyEventType,
+  isTrainTogetherStatus,
+  trainBuddyEventLabel,
+  trainBuddyEventPermission,
+} from './feed';
+export type { TrainBuddyEventType, TrainTogetherStatus } from './feed';
+export {
+  FAMILY_PLAN_SHARES,
+  TRAIN_VISIBILITIES,
+  TRAIN_VISIBILITY_OPTIONS,
+  allowedFamilyPlanShares,
+  canCopySharedWorkout,
+  canEditWorkoutVisibility,
+  canViewSessionVisibility,
+  canViewWorkoutVisibility,
+  canViewWorkoutWeights,
+  isFamilyPlanShare,
+  isTrainVisibility,
+  normalizeTrainShare,
+  resolveDefaultWorkoutVisibility,
+  trainVisibilityLabel,
+  trainVisibilityOptions,
+} from './visibility';
+export type {
+  FamilyPlanShare,
+  TrainVisibility,
+  TrainVisibilityOption,
+  WorkoutVisibilityAccess,
+} from './visibility';
+export {
+  TRAIN_GLOBAL_EQUIPMENT,
+  TRAIN_GLOBAL_GOALS,
+  TRAIN_GLOBAL_LEVELS,
+  TRAIN_GLOBAL_SORTS,
+  canPublishTrainGlobal,
+  filterTrainGlobalLibrary,
+  isTrainGlobalEquipment,
+  isTrainGlobalGoal,
+  isTrainGlobalLevel,
+  isTrainGlobalSort,
+  normalizeTrainGlobalEquipment,
+  trainGlobalEquipmentLabel,
+  trainGlobalGoalLabel,
+  trainGlobalLevelLabel,
+} from './library';
+export type {
+  TrainGlobalEquipment,
+  TrainGlobalGoal,
+  TrainGlobalLevel,
+  TrainGlobalLibraryFilters,
+  TrainGlobalLibraryItem,
+  TrainGlobalSort,
+  TrainGlobalTags,
+} from './library';
+export {
   REMIX_CATEGORIES,
   REMIX_CATEGORY_COLOR,
   REMIX_DURATIONS,

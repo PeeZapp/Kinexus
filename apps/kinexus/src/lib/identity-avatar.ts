@@ -39,13 +39,24 @@ export function resolveAvatarPresetId(stored: string | null | undefined): Avatar
   return DEFAULT_AVATAR_PRESET;
 }
 
-/** Display choice for ProfileAvatar — Google URL when opted in, else preset fallback. */
+/** Display choice for ProfileAvatar — Google URL / Facebook id when opted in, else preset. */
 export function resolveAvatarDisplay(input: {
   avatarUrl?: string | null;
-  avatarSource?: 'preset' | 'google' | null;
+  avatarSource?: 'preset' | 'google' | 'facebook' | null;
   avatarGoogleUrl?: string | null;
-}): { kind: 'google'; uri: string; preset: AvatarPresetId } | { kind: 'preset'; preset: AvatarPresetId } {
+  avatarFacebookId?: string | null;
+}):
+  | { kind: 'google'; uri: string; preset: AvatarPresetId }
+  | { kind: 'facebook'; facebookId: string; preset: AvatarPresetId }
+  | { kind: 'preset'; preset: AvatarPresetId } {
   const preset = resolveAvatarPresetId(input.avatarUrl);
+  if (
+    input.avatarSource === 'facebook' &&
+    typeof input.avatarFacebookId === 'string' &&
+    input.avatarFacebookId.trim()
+  ) {
+    return { kind: 'facebook', facebookId: input.avatarFacebookId.trim(), preset };
+  }
   const uri = input.avatarGoogleUrl;
   if (input.avatarSource === 'google' && typeof uri === 'string' && uri.startsWith('https://')) {
     return { kind: 'google', uri, preset };

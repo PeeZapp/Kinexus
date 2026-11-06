@@ -28,13 +28,16 @@ export function buildEnsureProfilePatch(
 export const OWN_IDENTITY_SELECT_BASE =
   'id, global_handle, username, username_changed_at, display_name, avatar_url, is_verified_creator';
 
-/** Includes optional Google photo columns (20261106140000). */
+/** Google photo columns only (20261106140000) — fallback before Facebook migration. */
 export const OWN_IDENTITY_SELECT_WITH_GOOGLE = `${OWN_IDENTITY_SELECT_BASE}, avatar_source, avatar_google_url`;
+
+/** Google + Facebook photo columns (20261106170000). */
+export const OWN_IDENTITY_SELECT_WITH_PROVIDERS = `${OWN_IDENTITY_SELECT_WITH_GOOGLE}, avatar_facebook_id`;
 
 /** @deprecated Prefer OWN_IDENTITY_SELECT_BASE / fetchOwnIdentity resilient path. */
 export const OWN_IDENTITY_SELECT = OWN_IDENTITY_SELECT_BASE;
 
-export type AvatarSource = 'preset' | 'google';
+export type AvatarSource = 'preset' | 'google' | 'facebook';
 
 export type OwnIdentity = {
   id: string;
@@ -48,6 +51,8 @@ export type OwnIdentity = {
   avatarSource: AvatarSource;
   /** Server-managed Google photo URL when avatarSource is google. */
   avatarGoogleUrl: string | null;
+  /** Server-managed Facebook user id when avatarSource is facebook (no CDN URL). */
+  avatarFacebookId: string | null;
   isVerifiedCreator: boolean;
 };
 
@@ -60,11 +65,14 @@ export type ProfileIdentityRow = {
   avatar_url: string | null;
   avatar_source?: string | null;
   avatar_google_url?: string | null;
+  avatar_facebook_id?: string | null;
   is_verified_creator: boolean | null;
 };
 
 export function mapAvatarSource(value: string | null | undefined): AvatarSource {
-  return value === 'google' ? 'google' : 'preset';
+  if (value === 'google') return 'google';
+  if (value === 'facebook') return 'facebook';
+  return 'preset';
 }
 
 export function mapOwnIdentity(row: ProfileIdentityRow): OwnIdentity {
@@ -73,6 +81,41 @@ export function mapOwnIdentity(row: ProfileIdentityRow): OwnIdentity {
     typeof row.avatar_google_url === 'string' && row.avatar_google_url.startsWith('https://')
       ? row.avatar_google_url
       : null;
+  const facebookId =
+    typeof row.avatar_facebook_id === 'string' && row.avatar_facebook_id.trim()
+      ? row.avatar_facebook_id.trim()
+      : null;
+
+  if (avatarSource === 'facebook' && facebookId) {
+    return {
+      id: row.id,
+      globalHandle: row.global_handle,
+      username: row.username,
+      usernameChangedAt: row.username_changed_at,
+      displayName: row.display_name,
+      avatarUrl: row.avatar_url,
+      avatarSource: 'facebook',
+      avatarGoogleUrl: null,
+      avatarFacebookId: facebookId,
+      isVerifiedCreator: Boolean(row.is_verified_creator),
+    };
+  }
+
+  if (avatarSource === 'google' && googleUrl) {
+    return {
+      id: row.id,
+      globalHandle: row.global_handle,
+      username: row.username,
+      usernameChangedAt: row.username_changed_at,
+      displayName: row.display_name,
+      avatarUrl: row.avatar_url,
+      avatarSource: 'google',
+      avatarGoogleUrl: googleUrl,
+      avatarFacebookId: null,
+      isVerifiedCreator: Boolean(row.is_verified_creator),
+    };
+  }
+
   return {
     id: row.id,
     globalHandle: row.global_handle,
@@ -80,8 +123,9 @@ export function mapOwnIdentity(row: ProfileIdentityRow): OwnIdentity {
     usernameChangedAt: row.username_changed_at,
     displayName: row.display_name,
     avatarUrl: row.avatar_url,
-    avatarSource: avatarSource === 'google' && googleUrl ? 'google' : 'preset',
-    avatarGoogleUrl: avatarSource === 'google' ? googleUrl : null,
+    avatarSource: 'preset',
+    avatarGoogleUrl: null,
+    avatarFacebookId: null,
     isVerifiedCreator: Boolean(row.is_verified_creator),
   };
 }
@@ -90,5 +134,5 @@ export function isMissingColumnError(error: { message?: string; code?: string } 
   if (!error) return false;
   if (error.code === '42703') return true;
   const message = error.message ?? '';
-  return /avatar_source|avatar_google_url|column .* does not exist/i.test(message);
+  return /avatar_source|avatar_google_url|avatar_facebook_id|column .* does not exist/i.test(message);
 }

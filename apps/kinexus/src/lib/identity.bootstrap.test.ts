@@ -75,6 +75,7 @@ describe('own identity with optional Google columns', () => {
     expect(identity.avatarUrl).toBe('preset:meals');
     expect(identity.avatarSource).toBe('preset');
     expect(identity.avatarGoogleUrl).toBeNull();
+    expect(identity.avatarFacebookId).toBeNull();
   });
 });
 

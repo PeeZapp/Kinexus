@@ -2,8 +2,8 @@ import type { SupportedStorage } from '@supabase/supabase-js';
 
 /**
  * Supabase may serialise provider_token / provider_refresh_token into persisted
- * session JSON. Strip those on every write so one-shot Google re-auth tokens
- * never land on disk. Normal access/refresh session persistence stays intact.
+ * session JSON. Strip those on every write so one-shot Google / Facebook OAuth
+ * tokens never land on disk. Normal access/refresh session persistence stays intact.
  */
 export function stripProviderTokensFromSessionValue(value: string): string {
   try {

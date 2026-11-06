@@ -30,7 +30,11 @@ import {
   type OwnIdentity,
   type UsernameCheckResult,
 } from '@/src/lib/identity';
-import { reauthGoogleForAvatar } from '@/src/lib/oauth';
+import { linkFacebookIdentity, reauthFacebookForAvatar, reauthGoogleForAvatar } from '@/src/lib/oauth';
+import {
+  currentUserHasLinkedFacebookIdentity,
+  runFacebookAvatarOptIn,
+} from '@/src/lib/profile-avatar-facebook';
 import {
   currentUserHasLinkedGoogleIdentity,
   runGoogleAvatarOptIn,
@@ -304,26 +308,27 @@ function UsernameEditor({
   );
 }
 
-type AvatarChoice = AvatarPresetId | 'google';
+type AvatarChoice = AvatarPresetId | 'google' | 'facebook';
 
 function savedAvatarChoice(identity: OwnIdentity): AvatarChoice {
+  if (identity.avatarSource === 'facebook' && identity.avatarFacebookId) return 'facebook';
   if (identity.avatarSource === 'google' && identity.avatarGoogleUrl) return 'google';
   return resolveAvatarPresetId(identity.avatarUrl);
 }
 
 function AvatarPresetPicker({
   value,
-  googleSelected,
+  providerSelected,
   onChange,
 }: {
   value: AvatarPresetId;
-  googleSelected: boolean;
+  providerSelected: boolean;
   onChange: (id: AvatarPresetId) => void;
 }) {
   return (
     <View style={styles.presetGrid}>
       {AVATAR_PRESETS.map((preset) => {
-        const active = !googleSelected && preset.id === value;
+        const active = !providerSelected && preset.id === value;
         return (
           <Pressable
             key={preset.id}
@@ -345,8 +350,10 @@ export function ProfileSection() {
   const [displayName, setDisplayName] = useState('');
   const [avatarChoice, setAvatarChoice] = useState<AvatarChoice>(resolveAvatarPresetId(null));
   const [hasGoogleLinked, setHasGoogleLinked] = useState(false);
+  const [hasFacebookLinked, setHasFacebookLinked] = useState(false);
   const [profileBusy, setProfileBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [facebookBusy, setFacebookBusy] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileNotice, setProfileNotice] = useState<string | null>(null);
 
@@ -358,6 +365,7 @@ export function ProfileSection() {
     identity?.avatarUrl,
     identity?.avatarSource,
     identity?.avatarGoogleUrl,
+    identity?.avatarFacebookId,
     identity?.id,
     user?.displayName,
   ]);
@@ -365,6 +373,7 @@ export function ProfileSection() {
   useEffect(() => {
     if (!user || user.isDevBypass) {
       setHasGoogleLinked(false);
+      setHasFacebookLinked(false);
       return;
     }
     let cancelled = false;
@@ -374,6 +383,13 @@ export function ProfileSection() {
       })
       .catch(() => {
         if (!cancelled) setHasGoogleLinked(false);
+      });
+    void currentUserHasLinkedFacebookIdentity()
+      .then((linked) => {
+        if (!cancelled) setHasFacebookLinked(linked);
+      })
+      .catch(() => {
+        if (!cancelled) setHasFacebookLinked(false);
       });
     return () => {
       cancelled = true;
@@ -414,12 +430,30 @@ export function ProfileSection() {
   const displayDirty = displayName.trim() !== (identity.displayName ?? '').trim();
   const avatarDirty = avatarChoice !== savedChoice;
   const googleSelected = avatarChoice === 'google';
-  const presetValue = googleSelected
+  const facebookSelected = avatarChoice === 'facebook';
+  const providerSelected = googleSelected || facebookSelected;
+  const presetValue = providerSelected
     ? resolveAvatarPresetId(identity.avatarUrl)
     : (avatarChoice as AvatarPresetId);
 
+  async function refreshIdentitySelection(fallbackPreset = true) {
+    try {
+      const current = await fetchOwnIdentity(identity!.id);
+      if (current) {
+        setIdentity(current);
+        setAvatarChoice(savedAvatarChoice(current));
+        return;
+      }
+    } catch {
+      // fall through
+    }
+    if (fallbackPreset) {
+      setAvatarChoice(resolveAvatarPresetId(identity!.avatarUrl));
+    }
+  }
+
   async function optInGooglePhoto() {
-    if (!hasGoogleLinked || googleBusy) return;
+    if (!hasGoogleLinked || googleBusy || facebookBusy) return;
     setGoogleBusy(true);
     setProfileError(null);
     setProfileNotice(null);
@@ -427,23 +461,47 @@ export function ProfileSection() {
       expectedUserId: identity!.id,
       reauth: reauthGoogleForAvatar,
     });
-    try {
-      const current = await fetchOwnIdentity(identity!.id);
-      if (current) {
-        setIdentity(current);
-        setAvatarChoice(savedAvatarChoice(current));
-      } else {
-        setAvatarChoice(resolveAvatarPresetId(identity!.avatarUrl));
-      }
-    } catch {
-      setAvatarChoice(resolveAvatarPresetId(identity!.avatarUrl));
-    }
+    await refreshIdentitySelection();
     if (!result.ok) {
       setProfileError(result.error);
     } else {
       setProfileNotice('Saved');
     }
     setGoogleBusy(false);
+  }
+
+  async function connectFacebook() {
+    if (hasFacebookLinked || facebookBusy || googleBusy) return;
+    setFacebookBusy(true);
+    setProfileError(null);
+    setProfileNotice(null);
+    const result = await linkFacebookIdentity(identity!.id);
+    if (!result.ok) {
+      setProfileError(result.error);
+      setFacebookBusy(false);
+      return;
+    }
+    setHasFacebookLinked(true);
+    setProfileNotice('Facebook connected');
+    setFacebookBusy(false);
+  }
+
+  async function optInFacebookPhoto() {
+    if (!hasFacebookLinked || facebookBusy || googleBusy) return;
+    setFacebookBusy(true);
+    setProfileError(null);
+    setProfileNotice(null);
+    const result = await runFacebookAvatarOptIn({
+      expectedUserId: identity!.id,
+      reauth: reauthFacebookForAvatar,
+    });
+    await refreshIdentitySelection();
+    if (!result.ok) {
+      setProfileError(result.error);
+    } else {
+      setProfileNotice('Saved');
+    }
+    setFacebookBusy(false);
   }
 
   async function saveProfileFields() {
@@ -456,7 +514,7 @@ export function ProfileSection() {
           displayName: displayName.trim() || null,
         });
       }
-      if (avatarDirty && avatarChoice !== 'google') {
+      if (avatarDirty && avatarChoice !== 'google' && avatarChoice !== 'facebook') {
         await saveOwnAvatarPreset(identity!.id, avatarChoice);
       }
       const next = await fetchOwnIdentity(identity!.id);
@@ -487,8 +545,11 @@ export function ProfileSection() {
       <View style={styles.previewRow}>
         <ProfileAvatar
           avatarUrl={presetValue}
-          avatarSource={googleSelected ? 'google' : 'preset'}
+          avatarSource={
+            googleSelected ? 'google' : facebookSelected ? 'facebook' : 'preset'
+          }
           avatarGoogleUrl={googleSelected ? identity.avatarGoogleUrl : null}
+          avatarFacebookId={facebookSelected ? identity.avatarFacebookId : null}
           size={56}
         />
         <View style={styles.previewText}>
@@ -526,35 +587,74 @@ export function ProfileSection() {
       <Text style={styles.fieldLabel}>Avatar</Text>
       <AvatarPresetPicker
         value={presetValue}
-        googleSelected={googleSelected}
+        providerSelected={providerSelected}
         onChange={setAvatarChoice}
       />
       <Pressable
         onPress={() => void optInGooglePhoto()}
-        disabled={!hasGoogleLinked || googleBusy || googleSelected}
+        disabled={!hasGoogleLinked || googleBusy || facebookBusy || googleSelected}
         accessibilityRole="button"
         accessibilityState={{
           selected: googleSelected,
-          disabled: !hasGoogleLinked || googleBusy || googleSelected,
+          disabled: !hasGoogleLinked || googleBusy || facebookBusy || googleSelected,
         }}
         accessibilityLabel="Use my Google photo"
         style={[
-          styles.googleOption,
+          styles.providerOption,
           googleSelected && styles.presetCellActive,
-          (!hasGoogleLinked || googleBusy) && styles.googleOptionDisabled,
+          (!hasGoogleLinked || googleBusy || facebookBusy) && styles.providerOptionDisabled,
         ]}>
         {googleBusy ? (
           <ActivityIndicator color={colors.accent} />
         ) : (
           <Text
             style={[
-              styles.googleOptionLabel,
-              !hasGoogleLinked && styles.googleOptionLabelDisabled,
+              styles.providerOptionLabel,
+              !hasGoogleLinked && styles.providerOptionLabelDisabled,
             ]}>
             Use my Google photo
           </Text>
         )}
       </Pressable>
+      {hasFacebookLinked ? (
+        <Pressable
+          onPress={() => void optInFacebookPhoto()}
+          disabled={facebookBusy || googleBusy || facebookSelected}
+          accessibilityRole="button"
+          accessibilityState={{
+            selected: facebookSelected,
+            disabled: facebookBusy || googleBusy || facebookSelected,
+          }}
+          accessibilityLabel="Use my Facebook photo"
+          style={[
+            styles.providerOption,
+            facebookSelected && styles.presetCellActive,
+            (facebookBusy || googleBusy) && styles.providerOptionDisabled,
+          ]}>
+          {facebookBusy ? (
+            <ActivityIndicator color={colors.accent} />
+          ) : (
+            <Text style={styles.providerOptionLabel}>Use my Facebook photo</Text>
+          )}
+        </Pressable>
+      ) : (
+        <Pressable
+          onPress={() => void connectFacebook()}
+          disabled={facebookBusy || googleBusy}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: facebookBusy || googleBusy }}
+          accessibilityLabel="Connect Facebook"
+          style={[
+            styles.providerOption,
+            (facebookBusy || googleBusy) && styles.providerOptionDisabled,
+          ]}>
+          {facebookBusy ? (
+            <ActivityIndicator color={colors.accent} />
+          ) : (
+            <Text style={styles.providerOptionLabel}>Connect Facebook</Text>
+          )}
+        </Pressable>
+      )}
 
       <Btn
         label="Save profile"
@@ -709,7 +809,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
   },
-  googleOption: {
+  providerOption: {
     marginTop: 4,
     borderRadius: radius.xl,
     borderWidth: 1,
@@ -721,15 +821,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 44,
   },
-  googleOptionDisabled: {
+  providerOptionDisabled: {
     opacity: 0.45,
   },
-  googleOptionLabel: {
+  providerOptionLabel: {
     color: colors.text,
     fontSize: 14,
     fontWeight: '600',
   },
-  googleOptionLabelDisabled: {
+  providerOptionLabelDisabled: {
     color: colors.textMuted,
   },
 });

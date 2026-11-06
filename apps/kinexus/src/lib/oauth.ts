@@ -2,6 +2,11 @@ import { makeRedirectUri } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 
+import {
+  facebookIdentityAlreadyLinkedElsewhere,
+  type FacebookAvatarReauthFn,
+  type FacebookLinkResult,
+} from '@/src/lib/profile-avatar-facebook-flow';
 import type { GoogleAvatarReauthFn } from '@/src/lib/profile-avatar-google-flow';
 import { supabase } from '@/src/lib/supabase';
 
@@ -11,6 +16,9 @@ if (typeof window !== 'undefined') {
 
 /** Profile-photo re-auth only — never Calendar scopes. */
 const GOOGLE_AVATAR_SCOPES = 'openid email profile';
+
+/** Facebook avatar link / re-auth only — public_profile, never extra permissions. */
+const FACEBOOK_AVATAR_SCOPES = 'public_profile';
 
 export function getAuthRedirectUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -209,6 +217,197 @@ export const reauthGoogleForAvatar: GoogleAvatarReauthFn = async (expectedUserId
   }
 
   // Token stays in this return value only; drop it from the live session next.
+  await clearProviderTokensFromMemorySession();
+  return { ok: true, userId: expectedUserId, providerToken };
+};
+
+/**
+ * Explicit Facebook identity link for the signed-in Kinexus user.
+ * Never used as a Kinexus sign-in path. Aborts with a clear error when the
+ * Facebook identity is already linked to a different account.
+ */
+export async function linkFacebookIdentity(expectedUserId: string): Promise<FacebookLinkResult> {
+  if (!supabase) {
+    return { ok: false, code: 'oauth', error: 'Supabase is not configured' };
+  }
+
+  const { data: before } = await supabase.auth.getSession();
+  const previous = before.session;
+  if (!previous?.access_token || !previous.refresh_token || previous.user.id !== expectedUserId) {
+    return { ok: false, code: 'oauth', error: 'Sign in required' };
+  }
+
+  const redirectTo = getAuthRedirectUrl();
+  const { data, error } = await supabase.auth.linkIdentity({
+    provider: 'facebook',
+    options: {
+      redirectTo,
+      skipBrowserRedirect: true,
+      scopes: FACEBOOK_AVATAR_SCOPES,
+    },
+  });
+
+  if (error) {
+    if (facebookIdentityAlreadyLinkedElsewhere(error.message)) {
+      return {
+        ok: false,
+        code: 'already_linked_elsewhere',
+        error: 'That Facebook account is already linked to a different Kinexus user',
+      };
+    }
+    return { ok: false, code: 'oauth', error: error.message };
+  }
+  if (!data.url) {
+    return { ok: false, code: 'oauth', error: 'No OAuth URL returned from Supabase' };
+  }
+
+  const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+  if (result.type === 'cancel' || result.type === 'dismiss') {
+    return { ok: false, code: 'cancelled', error: 'Facebook connect was cancelled' };
+  }
+  if (result.type !== 'success') {
+    return { ok: false, code: 'oauth', error: 'Facebook connect did not complete' };
+  }
+
+  const params = paramsFromUrl(result.url);
+  if (params.error) {
+    const message = params.error_description ?? params.error;
+    if (facebookIdentityAlreadyLinkedElsewhere(message)) {
+      return {
+        ok: false,
+        code: 'already_linked_elsewhere',
+        error: 'That Facebook account is already linked to a different Kinexus user',
+      };
+    }
+    return { ok: false, code: 'oauth', error: message };
+  }
+  if (!params.code) {
+    return { ok: false, code: 'oauth', error: 'Facebook connect did not return a code' };
+  }
+
+  const { data: exchanged, error: exchangeError } = await supabase.auth.exchangeCodeForSession(
+    params.code,
+  );
+  if (exchangeError) {
+    await supabase.auth.setSession({
+      access_token: previous.access_token,
+      refresh_token: previous.refresh_token,
+    });
+    if (facebookIdentityAlreadyLinkedElsewhere(exchangeError.message)) {
+      return {
+        ok: false,
+        code: 'already_linked_elsewhere',
+        error: 'That Facebook account is already linked to a different Kinexus user',
+      };
+    }
+    return { ok: false, code: 'oauth', error: exchangeError.message };
+  }
+
+  const next = exchanged.session;
+  if (!next || next.user.id !== expectedUserId) {
+    await supabase.auth.setSession({
+      access_token: previous.access_token,
+      refresh_token: previous.refresh_token,
+    });
+    return {
+      ok: false,
+      code: 'mismatch',
+      error: 'Facebook connect did not match your account',
+    };
+  }
+
+  const providerToken = next.provider_token ?? undefined;
+  await clearProviderTokensFromMemorySession();
+  return { ok: true, userId: expectedUserId, providerToken };
+}
+
+/**
+ * One-shot Facebook re-auth for profile photo verification.
+ * Only call when Facebook is already linked to this user. Restores the prior
+ * session if OAuth would switch accounts. Scopes: public_profile only.
+ */
+export const reauthFacebookForAvatar: FacebookAvatarReauthFn = async (expectedUserId) => {
+  if (!supabase) {
+    return { ok: false, code: 'oauth', error: 'Supabase is not configured' };
+  }
+
+  const { data: before } = await supabase.auth.getSession();
+  const previous = before.session;
+  if (!previous?.access_token || !previous.refresh_token || previous.user.id !== expectedUserId) {
+    return { ok: false, code: 'oauth', error: 'Sign in required' };
+  }
+
+  const redirectTo = getAuthRedirectUrl();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'facebook',
+    options: {
+      redirectTo,
+      skipBrowserRedirect: true,
+      scopes: FACEBOOK_AVATAR_SCOPES,
+    },
+  });
+
+  if (error) {
+    return { ok: false, code: 'oauth', error: error.message };
+  }
+  if (!data.url) {
+    return { ok: false, code: 'oauth', error: 'No OAuth URL returned from Supabase' };
+  }
+
+  const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+  if (result.type === 'cancel' || result.type === 'dismiss') {
+    return { ok: false, code: 'cancelled', error: 'Facebook sign-in was cancelled' };
+  }
+  if (result.type !== 'success') {
+    return { ok: false, code: 'oauth', error: 'Facebook sign-in did not complete' };
+  }
+
+  const params = paramsFromUrl(result.url);
+  if (params.error) {
+    return {
+      ok: false,
+      code: 'oauth',
+      error: params.error_description ?? params.error,
+    };
+  }
+  if (!params.code) {
+    return { ok: false, code: 'oauth', error: 'Facebook sign-in did not return a code' };
+  }
+
+  const { data: exchanged, error: exchangeError } = await supabase.auth.exchangeCodeForSession(
+    params.code,
+  );
+  if (exchangeError) {
+    await supabase.auth.setSession({
+      access_token: previous.access_token,
+      refresh_token: previous.refresh_token,
+    });
+    return { ok: false, code: 'oauth', error: exchangeError.message };
+  }
+
+  const next = exchanged.session;
+  if (!next || next.user.id !== expectedUserId) {
+    await supabase.auth.setSession({
+      access_token: previous.access_token,
+      refresh_token: previous.refresh_token,
+    });
+    return {
+      ok: false,
+      code: 'mismatch',
+      error: 'Facebook did not match your account',
+    };
+  }
+
+  const providerToken = next.provider_token;
+  if (!providerToken) {
+    await clearProviderTokensFromMemorySession();
+    return {
+      ok: false,
+      code: 'no_token',
+      error: 'Facebook did not return an access token',
+    };
+  }
+
   await clearProviderTokensFromMemorySession();
   return { ok: true, userId: expectedUserId, providerToken };
 };

@@ -20,7 +20,7 @@ export async function updateOwnProfileFields(
   }
   if ('avatarUrl' in patch) {
     // Server also enforces allowlist; client rejects URLs/data URLs early.
-    // Never write avatar_source / avatar_google_url from the client.
+    // Never write avatar_source / avatar_google_url / avatar_facebook_id from the client.
     body.avatar_url = normalizeAvatarPresetWrite(patch.avatarUrl);
   }
   if (Object.keys(body).length === 0) return;

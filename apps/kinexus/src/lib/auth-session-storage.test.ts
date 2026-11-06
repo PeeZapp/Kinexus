@@ -22,6 +22,20 @@ describe('auth session storage provider token strip', () => {
     expect(stripped).not.toHaveProperty('provider_refresh_token');
   });
 
+  it('also strips Facebook provider tokens (provider-agnostic strip)', () => {
+    const raw = JSON.stringify({
+      access_token: 'access',
+      refresh_token: 'refresh',
+      provider_token: 'facebook-access-token',
+      provider_refresh_token: 'facebook-refresh-token',
+      user: { id: 'u1', app_metadata: { provider: 'facebook' } },
+    });
+    const stripped = JSON.parse(stripProviderTokensFromSessionValue(raw)) as Record<string, unknown>;
+    expect(stripped).not.toHaveProperty('provider_token');
+    expect(stripped).not.toHaveProperty('provider_refresh_token');
+    expect(JSON.stringify(stripped)).not.toMatch(/facebook-access-token|facebook-refresh-token/);
+  });
+
   it('strips nested currentSession provider tokens', () => {
     const raw = JSON.stringify({
       currentSession: {

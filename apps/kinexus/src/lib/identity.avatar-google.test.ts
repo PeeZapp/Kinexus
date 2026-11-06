@@ -18,6 +18,7 @@ describe('google avatar display tolerance', () => {
     });
     expect(withGoogle.avatarSource).toBe('google');
     expect(withGoogle.avatarGoogleUrl).toBe('https://lh3.googleusercontent.com/a/photo');
+    expect(withGoogle.avatarFacebookId).toBeNull();
     expect(resolveAvatarPresetId(withGoogle.avatarUrl)).toBe('preset:meals');
 
     const missingUrl = mapOwnIdentity({

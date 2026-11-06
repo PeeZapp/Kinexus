@@ -51,6 +51,11 @@ import {
   handleCompleteGoogleAvatarIntent,
   handleCreateGoogleAvatarIntent,
 } from './profile-avatar-google.js';
+import {
+  handleCompleteFacebookAvatarIntent,
+  handleCreateFacebookAvatarIntent,
+  handleGetFacebookAvatarPicture,
+} from './profile-avatar-facebook.js';
 import { handleVerifyCreatorLinks } from './creators/verify-links.js';
 import { handleOverviewNews, handleOverviewPlaces, handleOverviewWeather } from './overview.js';
 import { handleOverviewWordle } from './wordle.js';
@@ -414,6 +419,32 @@ function registerMealsRoutes(router: Hono) {
       authed.user.id,
       body as { intentId?: unknown; googleAccessToken?: unknown },
     );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  // Optional Facebook profile photo. Distinct from sign-in; linkIdentity is client-side.
+  router.post('/profile/avatar/facebook/intent', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const result = await handleCreateFacebookAvatarIntent(authed.user.id);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/profile/avatar/facebook/complete', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleCompleteFacebookAvatarIntent(
+      authed.user.id,
+      body as { intentId?: unknown; facebookAccessToken?: unknown },
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/profile/avatar/facebook/picture', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const result = await handleGetFacebookAvatarPicture(authed.user.id);
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 

@@ -4,6 +4,7 @@ import { containsProfanity } from '@kinexus/domain';
 import {
   OWN_IDENTITY_SELECT_BASE,
   OWN_IDENTITY_SELECT_WITH_GOOGLE,
+  OWN_IDENTITY_SELECT_WITH_PROVIDERS,
   isMissingColumnError,
   mapOwnIdentity,
   type OwnIdentity,
@@ -29,6 +30,7 @@ export {
   OWN_IDENTITY_SELECT,
   OWN_IDENTITY_SELECT_BASE,
   OWN_IDENTITY_SELECT_WITH_GOOGLE,
+  OWN_IDENTITY_SELECT_WITH_PROVIDERS,
   mapOwnIdentity,
   type AvatarSource,
   type OwnIdentity,
@@ -139,6 +141,22 @@ export function usernameReasonMessage(
 
 export async function fetchOwnIdentity(userId: string): Promise<OwnIdentity | null> {
   if (!supabase) return null;
+
+  const withProviders = await supabase
+    .from('profiles')
+    .select(OWN_IDENTITY_SELECT_WITH_PROVIDERS as never)
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (!withProviders.error) {
+    if (!withProviders.data) return null;
+    return mapOwnIdentity(withProviders.data as unknown as ProfileIdentityRow);
+  }
+
+  // Facebook column not migrated yet — keep Google columns working.
+  if (!isMissingColumnError(withProviders.error)) {
+    throwIfError(withProviders.error);
+  }
 
   const withGoogle = await supabase
     .from('profiles')

@@ -29,6 +29,9 @@ import {
 
 import { ErrorText } from '@/src/features/household/ui';
 import { LoadingState } from '@/src/features/shell/states';
+import { LinkShareSheet } from '@/src/features/share/LinkShareSheet';
+import { buildShareUrl } from '@/src/features/share/share-url';
+import { disableEntityShare, enableEntityShare, resetEntityShare, sharePreview } from '@/src/features/share/link-share';
 import { WatchlistDesktop, type WatchlistLayoutProps } from '@/src/features/stash/watchlist/WatchlistDesktop';
 import { WatchlistMobile } from '@/src/features/stash/watchlist/WatchlistMobile';
 import type { WatchlistCardReview, WatchlistListCardModel } from '@/src/features/stash/watchlist/WatchlistShared';
@@ -58,6 +61,14 @@ import {
   type WatchlistPersonHit,
   type WatchlistSearchHitWithRole,
 } from '@/src/features/stash/watchlist-api';
+import { ListExportSheet } from '@/src/features/lists/ListExportSheet';
+import { ListImportWizard } from '@/src/features/lists/ListImportWizard';
+import {
+  asWatchlistHit,
+  watchlistDedupe,
+  watchlistExportInput,
+  type ListImportWriters,
+} from '@/src/features/lists/list-io-adapters';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
@@ -133,6 +144,9 @@ export function WatchlistScreen() {
   const [renameValue, setRenameValue] = useState('');
   const [renameShare, setRenameShare] = useState<ListShareDraft>({ visibility: 'household', personIds: [] });
   const [renamePublish, setRenamePublish] = useState({ blurb: '', samplePosterPaths: [] as string[] });
+  const [linkShareId, setLinkShareId] = useState<string | null>(null);
+  const [linkShareBusy, setLinkShareBusy] = useState(false);
+  const [linkShareError, setLinkShareError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [watchedQuery, setWatchedQuery] = useState('');
@@ -159,6 +173,8 @@ export function WatchlistScreen() {
   } | null>(null);
   const [profileKnown, setProfileKnown] = useState(false);
   const [socialRefresh, setSocialRefresh] = useState(0);
+  const [importOpen, setImportOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   useEffect(() => {
     setOwnPublicReview(null);
@@ -796,6 +812,8 @@ export function WatchlistScreen() {
         : 'Search above for a movie, show, or person, then tap a title to add it.',
     onAddList: () => setAddList(true),
     onAddTitle: () => setAddTitle(true),
+    onImport: () => setImportOpen(true),
+    onExport: selectedListId ? () => setExportOpen(true) : undefined,
     onWhatNext: () => setIdeasMode('next'),
     onSurprise: () => setIdeasMode('surprise'),
     onLikeThis: () => setIdeasMode('like'),
@@ -958,6 +976,14 @@ export function WatchlistScreen() {
           );
           if (ok) setRenameId(null);
         }}
+        onOpenLinkShare={
+          renameId
+            ? () => {
+                setLinkShareError(null);
+                setLinkShareId(renameId);
+              }
+            : undefined
+        }
         onDelete={
           renameId
             ? async () => {
@@ -969,6 +995,58 @@ export function WatchlistScreen() {
               }
             : undefined
         }
+      />
+      <LinkShareSheet
+        visible={Boolean(linkShareId)}
+        title="Share watchlist"
+        preview={(() => {
+          const list = watchlist.lists.find((item) => item.id === linkShareId);
+          if (!list) return '';
+          const count = watchlist.items.filter((item) => item.listId === list.id).length;
+          return sharePreview([
+            `${selfName}'s ${list.name}`,
+            `${count} title${count === 1 ? '' : 's'}`,
+          ]);
+        })()}
+        state={(() => {
+          const list = watchlist.lists.find((item) => item.id === linkShareId);
+          return {
+            isShared: Boolean(list?.isShared),
+            shareToken: list?.shareToken ?? null,
+            url: list?.isShared && list.shareToken ? buildShareUrl('watchlist', list.shareToken) : null,
+          };
+        })()}
+        busy={linkShareBusy}
+        error={linkShareError}
+        onClose={() => setLinkShareId(null)}
+        onToggle={async (enabled) => {
+          if (!linkShareId) return null;
+          setLinkShareBusy(true);
+          setLinkShareError(null);
+          try {
+            return enabled
+              ? await watchlist.enableLinkShare(linkShareId)
+              : await watchlist.disableLinkShare(linkShareId);
+          } catch (err) {
+            setLinkShareError(err instanceof Error ? err.message : 'Could not update share link');
+            throw err;
+          } finally {
+            setLinkShareBusy(false);
+          }
+        }}
+        onReset={async () => {
+          if (!linkShareId) return null;
+          setLinkShareBusy(true);
+          setLinkShareError(null);
+          try {
+            return await watchlist.resetLinkShare(linkShareId);
+          } catch (err) {
+            setLinkShareError(err instanceof Error ? err.message : 'Could not reset share link');
+            throw err;
+          } finally {
+            setLinkShareBusy(false);
+          }
+        }}
       />
       <TitleSheet
         visible={Boolean(openEntry)}
@@ -1194,6 +1272,40 @@ export function WatchlistScreen() {
           }
           void run(() => watchlist.addTitleToList(listId, hit, { status: 'want' }));
         }}
+      />
+      <ListExportSheet
+        visible={exportOpen}
+        input={
+          selectedList
+            ? watchlistExportInput(
+                selectedList.name,
+                selectedList.id,
+                entries.filter((entry) => entry.list.id === selectedList.id),
+              )
+            : null
+        }
+        onClose={() => setExportOpen(false)}
+      />
+      <ListImportWizard
+        visible={importOpen}
+        kind="watchlist"
+        existingLists={customLists.map((list) => ({ id: list.id, name: list.name }))}
+        existingItems={watchlistDedupe(entries)}
+        writers={
+          {
+            ensureTargetList: async (target) => {
+              if (target.mode === 'existing') return target.listId;
+              return watchlist.createList(target.name, { visibility: 'private', personIds: [] });
+            },
+            writeRow: async (listId, row) => {
+              if (!listId || row.tmdbId == null) return;
+              await watchlist.addTitleToList(listId, asWatchlistHit({ ...row, tmdbId: row.tmdbId }), {
+                sourceUrl: row.url,
+              });
+            },
+          } satisfies ListImportWriters
+        }
+        onClose={() => setImportOpen(false)}
       />
     </View>
   );

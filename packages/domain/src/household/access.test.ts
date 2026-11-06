@@ -56,6 +56,7 @@ describe('household access', () => {
     expect(canSeeShared(adultView)).toBe(false);
     expect(canSeeShared({ ...adultView, createdBy: 'adult-1' })).toBe(true);
     expect(canSeeShared({ ...adultView, visibility: 'household' })).toBe(true);
+    expect(canSeeShared({ ...adultView, visibility: 'global' })).toBe(true);
     expect(canSeeShared({ ...adultView, visibility: 'people', personIds: ['p1'] })).toBe(true);
     expect(canSeeShared({ ...adultView, role: 'admin' })).toBe(false);
     expect(canSeeShared({ ...adultView, role: 'admin', createdBy: 'adult-1', userId: 'adult-1' })).toBe(true);

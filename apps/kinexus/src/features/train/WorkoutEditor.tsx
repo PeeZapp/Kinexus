@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Platform } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 
@@ -7,6 +7,9 @@ import { canEditShared } from '@kinexus/domain';
 import { deleteWorkout, loadWorkouts, saveWorkout, saveWorkoutUserNotes, type WorkoutDraft } from '@/src/features/train/api';
 import { WorkoutBuilder, type WorkoutBuilderResult } from '@/src/features/train/WorkoutBuilder';
 import { TrainButton, TrainPage } from '@/src/features/train/ui';
+import { LinkShareSheet } from '@/src/features/share/LinkShareSheet';
+import { buildShareUrl } from '@/src/features/share/share-url';
+import { disableEntityShare, enableEntityShare, resetEntityShare, sharePreview } from '@/src/features/share/link-share';
 import { ErrorBanner, LoadingState } from '@/src/features/shell/states';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
@@ -17,6 +20,9 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
   const { activeHousehold, people, role } = useHousehold();
   const [workout, setWorkout] = useState<WorkoutDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
   const userId = user && !user.isDevBypass ? user.id : null;
   const personId = people.find((person) => person.userId === userId)?.id ?? null;
 
@@ -50,6 +56,16 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
         personIds: workout.personIds,
       })
     : false;
+
+  const preview = useMemo(() => {
+    if (!workout) return '';
+    const owner = user?.displayName?.trim() || 'Workout';
+    return sharePreview([
+      `${owner}'s ${workout.name}`,
+      `${workout.exercises.length} exercise${workout.exercises.length === 1 ? '' : 's'}`,
+      workout.durationMin ? `${workout.durationMin} min` : null,
+    ]);
+  }, [user?.displayName, workout]);
 
   async function confirmDelete() {
     if (!workout) return;
@@ -93,6 +109,50 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
     if (result.start) router.push(`/train/session/${workout.id}` as Href);
   }
 
+  async function refreshWorkout() {
+    if (!activeHousehold) return;
+    const rows = await loadWorkouts(activeHousehold.id);
+    const match = rows.find((row) => row.id === workoutId) ?? null;
+    if (match) setWorkout(match);
+  }
+
+  async function toggleShare(enabled: boolean) {
+    if (!workout) return null;
+    setShareBusy(true);
+    setShareError(null);
+    try {
+      if (!enabled) {
+        await disableEntityShare('workout', workout.id);
+        await refreshWorkout();
+        return null;
+      }
+      const url = await enableEntityShare('workout', workout.id, workout.shareToken);
+      await refreshWorkout();
+      return url;
+    } catch (err) {
+      setShareError(err instanceof Error ? err.message : 'Could not update share link');
+      throw err;
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
+  async function resetShare() {
+    if (!workout) return null;
+    setShareBusy(true);
+    setShareError(null);
+    try {
+      const url = await resetEntityShare('workout', workout.id);
+      await refreshWorkout();
+      return url;
+    } catch (err) {
+      setShareError(err instanceof Error ? err.message : 'Could not reset share link');
+      throw err;
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
   if (!workout) {
     return (
       <TrainPage>
@@ -103,35 +163,53 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
   }
 
   return (
-    <WorkoutBuilder
-      key={workout.id}
-      presentation="page"
-      seed={{
-        name: workout.name,
-        visibility: workout.visibility,
-        personIds: workout.personIds,
-        splitId: workout.splitId,
-        durationMin: workout.durationMin,
-        exercises: workout.exercises,
-        notes: workout.notes,
-      }}
-      people={people}
-      editable={editable}
-      onClose={() => router.replace('/train' as Href)}
-      onPersonalNotes={
-        userId && activeHousehold
-          ? async (notes) => {
-              await saveWorkoutUserNotes({
-                workoutId: workout.id,
-                userId,
-                householdId: activeHousehold.id,
-                notes,
-              });
-            }
-          : undefined
-      }
-      onDelete={editable ? confirmDelete : undefined}
-      onSubmit={submit}
-    />
+    <>
+      <WorkoutBuilder
+        key={workout.id}
+        presentation="page"
+        seed={{
+          name: workout.name,
+          visibility: workout.visibility,
+          personIds: workout.personIds,
+          splitId: workout.splitId,
+          durationMin: workout.durationMin,
+          exercises: workout.exercises,
+          notes: workout.notes,
+        }}
+        people={people}
+        editable={editable}
+        onClose={() => router.replace('/train' as Href)}
+        onPersonalNotes={
+          userId && activeHousehold
+            ? async (notes) => {
+                await saveWorkoutUserNotes({
+                  workoutId: workout.id,
+                  userId,
+                  householdId: activeHousehold.id,
+                  notes,
+                });
+              }
+            : undefined
+        }
+        onDelete={editable ? confirmDelete : undefined}
+        onShare={editable ? () => setShareOpen(true) : undefined}
+        onSubmit={submit}
+      />
+      <LinkShareSheet
+        visible={shareOpen}
+        title="Share workout"
+        preview={preview}
+        state={{
+          isShared: workout.isShared,
+          shareToken: workout.shareToken,
+          url: workout.isShared && workout.shareToken ? buildShareUrl('workout', workout.shareToken) : null,
+        }}
+        busy={shareBusy}
+        error={shareError}
+        onClose={() => setShareOpen(false)}
+        onToggle={toggleShare}
+        onReset={resetShare}
+      />
+    </>
   );
 }

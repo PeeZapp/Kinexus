@@ -3,6 +3,13 @@ import { useRouter } from 'expo-router';
 
 import { estimateShoppingListCost, lookupChainsForCountry } from '@kinexus/domain';
 
+import { ListExportSheet } from '@/src/features/lists/ListExportSheet';
+import { ListImportWizard } from '@/src/features/lists/ListImportWizard';
+import {
+  shoppingDedupe,
+  shoppingExportInput,
+  type ListImportWriters,
+} from '@/src/features/lists/list-io-adapters';
 import { recipeHref } from '@/src/features/meals/recipe-href';
 import { ShoppingBot } from '@/src/features/meals/shopping/ShoppingBot';
 import { ShoppingDesktop } from '@/src/features/meals/shopping/ShoppingDesktop';
@@ -35,6 +42,8 @@ export function ShoppingScreen() {
     [active],
   );
   const [pickingId, setPickingId] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const picking = pickingId ? meals.shoppingItems.find((item) => item.id === pickingId) ?? null : null;
   const canMatch = meals.online && lookupChainsForCountry(activeHousehold?.country).length > 0;
   const grocery = useGroceryPrices({
@@ -89,6 +98,8 @@ export function ShoppingScreen() {
     onRecipe: (id: string) => router.push(recipeHref(id, { from: 'shopping' })),
     onSetPurchase: (recipeId: string, mode: 'buy' | 'make') => void meals.setShoppingPurchase(recipeId, mode),
     onAdd: (name: string, amount?: string) => void meals.addShoppingItem(name, amount),
+    onImport: () => setImportOpen(true),
+    onExport: () => setExportOpen(true),
     costEstimate: grocery.comparison?.cheapestShop ? null : costEstimate,
     stores: meals.market.stores,
     shopPicker,
@@ -106,6 +117,26 @@ export function ShoppingScreen() {
         country={activeHousehold?.country}
         onClose={() => setPickingId(null)}
         onSave={(id, quote) => meals.saveShoppingQuotes([{ id, quote }])}
+      />
+      <ListExportSheet
+        visible={exportOpen}
+        input={shoppingExportInput(meals.weekStart, meals.shoppingItems)}
+        onClose={() => setExportOpen(false)}
+      />
+      <ListImportWizard
+        visible={importOpen}
+        kind="shopping"
+        existingLists={[]}
+        existingItems={shoppingDedupe(meals.shoppingItems)}
+        writers={
+          {
+            ensureTargetList: async () => null,
+            writeRow: async (_listId, row) => {
+              await meals.addShoppingItem(row.title, row.quantity ?? undefined);
+            },
+          } satisfies ListImportWriters
+        }
+        onClose={() => setImportOpen(false)}
       />
     </>
   );

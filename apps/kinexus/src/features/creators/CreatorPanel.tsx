@@ -1,11 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   creatorLinksToVerify,
+  creatorPlatformLabel,
   creatorQuestionnaireError,
   creatorStatusLabel,
   emptyCreatorQuestionnaire,
+  extractCreatorHandleFromUrl,
+  isCreatorPlatform,
+  normalizeRequestedUsername,
+  suggestRequestedCreatorHandle,
+  type CreatorPlatform,
   type CreatorQuestionnaire,
 } from '@kinexus/domain';
 
@@ -14,6 +20,8 @@ import { Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
 import { verifyCreatorLinks } from '@/src/lib/meals-api';
+
+const PLATFORMS: CreatorPlatform[] = ['instagram', 'youtube', 'tiktok'];
 
 export function CreatorPanel() {
   const { user } = useAuth();
@@ -24,6 +32,7 @@ export function CreatorPanel() {
   );
   const [error, setError] = useState<string | null>(null);
   const [checkingLinks, setCheckingLinks] = useState(false);
+  const autoHandleRef = useRef<string>('');
 
   useEffect(() => {
     if (user?.displayName && !form.displayName) {
@@ -32,7 +41,51 @@ export function CreatorPanel() {
   }, [user?.displayName, form.displayName]);
 
   function patch(update: Partial<CreatorQuestionnaire>) {
-    setForm((current) => ({ ...current, ...update }));
+    setForm((current) => {
+      const next = { ...current, ...update };
+      const socialChanged =
+        update.instagramUrl !== undefined ||
+        update.youtubeUrl !== undefined ||
+        update.tiktokUrl !== undefined;
+
+      if (socialChanged) {
+        const suggestion = suggestRequestedCreatorHandle(next);
+        const currentNormalized = normalizeRequestedUsername(current.requestedUsername);
+        const shouldFill =
+          !currentNormalized ||
+          currentNormalized === autoHandleRef.current ||
+          (suggestion && currentNormalized === suggestion.username);
+
+        if (suggestion && shouldFill) {
+          autoHandleRef.current = suggestion.username;
+          next.requestedUsername = suggestion.username;
+          if (!next.requestedPlatform) next.requestedPlatform = suggestion.platform;
+        }
+      }
+
+      if (update.requestedPlatform && isCreatorPlatform(update.requestedPlatform)) {
+        const url =
+          update.requestedPlatform === 'instagram'
+            ? next.instagramUrl
+            : update.requestedPlatform === 'youtube'
+              ? next.youtubeUrl
+              : next.tiktokUrl;
+        const extracted = extractCreatorHandleFromUrl(url, update.requestedPlatform);
+        if (extracted) {
+          const currentNormalized = normalizeRequestedUsername(next.requestedUsername);
+          if (!currentNormalized || currentNormalized === autoHandleRef.current) {
+            autoHandleRef.current = extracted;
+            next.requestedUsername = extracted;
+          }
+        }
+      }
+
+      if (update.requestedUsername !== undefined) {
+        next.requestedUsername = normalizeRequestedUsername(update.requestedUsername);
+      }
+
+      return next;
+    });
   }
 
   async function onSubmit() {
@@ -81,6 +134,15 @@ export function CreatorPanel() {
       <Card>
         <Text style={styles.heading}>Creator</Text>
         <Text style={styles.status}>{creatorStatusLabel('approved')}</Text>
+        {creator.creator.verifiedHandle ? (
+          <Text style={styles.verified}>
+            @{creator.creator.verifiedHandle}
+            {creator.creator.verifiedPlatform
+              ? ` · ${creatorPlatformLabel(creator.creator.verifiedPlatform)}`
+              : ''}{' '}
+            ✓
+          </Text>
+        ) : null}
         <Text style={styles.body}>
           You publish as {creator.creator.displayName}. Open a household recipe and choose Publish to
           library to share it with everyone.
@@ -94,6 +156,15 @@ export function CreatorPanel() {
       <Card>
         <Text style={styles.heading}>Creator application</Text>
         <Text style={styles.status}>{creatorStatusLabel('pending')}</Text>
+        {creator.pendingApplication.requestedUsername ? (
+          <Text style={styles.body}>
+            Requested @{creator.pendingApplication.requestedUsername}
+            {creator.pendingApplication.requestedPlatform
+              ? ` on ${creatorPlatformLabel(creator.pendingApplication.requestedPlatform)}`
+              : ''}
+            . That name is reserved while we review.
+          </Text>
+        ) : null}
         <Text style={styles.body}>
           Thanks — we review applications manually and may message you on the social profile you
           shared for confirmation. This can take up to 30 days.
@@ -163,10 +234,6 @@ export function CreatorPanel() {
             placeholder="Tell us what qualifies you to be a creator"
           />
           <Text style={styles.section}>Socials (at least one required)</Text>
-          <Text style={styles.hint}>
-            We use these to DM you for confirmation. Add a working Instagram, YouTube, or TikTok
-            profile link.
-          </Text>
           <Field
             label="Instagram"
             value={form.instagramUrl}
@@ -186,6 +253,29 @@ export function CreatorPanel() {
             value={form.tiktokUrl}
             onChangeText={(tiktokUrl) => patch({ tiktokUrl })}
             placeholder="https://tiktok.com/…"
+            autoCapitalize="none"
+          />
+          <Text style={styles.section}>Requested username</Text>
+          <View style={styles.platformRow}>
+            {PLATFORMS.map((platform) => {
+              const active = form.requestedPlatform === platform;
+              return (
+                <Pressable
+                  key={platform}
+                  onPress={() => patch({ requestedPlatform: platform })}
+                  style={[styles.platformChip, active && styles.platformChipOn]}>
+                  <Text style={[styles.platformChipLabel, active && styles.platformChipLabelOn]}>
+                    {creatorPlatformLabel(platform)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Field
+            label="Username"
+            value={form.requestedUsername}
+            onChangeText={(requestedUsername) => patch({ requestedUsername })}
+            placeholder="Reserved while we review"
             autoCapitalize="none"
           />
           <Text style={styles.section}>Other links (optional)</Text>
@@ -248,10 +338,10 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 12,
   },
-  hint: {
-    color: colors.textDim,
-    fontSize: 12,
-    lineHeight: 17,
+  verified: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '700',
     marginBottom: 8,
   },
   status: {
@@ -275,6 +365,32 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 8,
     marginBottom: 4,
+  },
+  platformRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  platformChip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: colors.bgElevated,
+  },
+  platformChipOn: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accentSoft,
+  },
+  platformChipLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  platformChipLabelOn: {
+    color: colors.accent,
   },
   checkRow: {
     flexDirection: 'row',

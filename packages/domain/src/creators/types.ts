@@ -2,6 +2,8 @@ export type CreatorApplicationStatus = 'pending' | 'approved' | 'rejected' | 're
 
 export type CreatorContentKind = 'recipe';
 
+export type CreatorPlatform = 'instagram' | 'youtube' | 'tiktok';
+
 export type CreatorQuestionnaire = {
   displayName: string;
   bio: string;
@@ -14,6 +16,8 @@ export type CreatorQuestionnaire = {
   otherLinks: string;
   valuePitch: string;
   originalityAttested: boolean;
+  requestedUsername: string;
+  requestedPlatform: CreatorPlatform | '';
 };
 
 export type CreatorApplication = CreatorQuestionnaire & {
@@ -23,6 +27,10 @@ export type CreatorApplication = CreatorQuestionnaire & {
   staffNotes: string | null;
   reviewedBy: string | null;
   reviewedAt: string | null;
+  contactedViaDm: boolean;
+  creatorConfirmed: boolean;
+  verifiedBy: string | null;
+  verifiedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -34,6 +42,8 @@ export type CreatorProfile = {
   approvedAt: string | null;
   revokedAt: string | null;
   revokedReason: string | null;
+  verifiedHandle: string | null;
+  verifiedPlatform: CreatorPlatform | null;
 };
 
 export type CreatorDigestItem = {
@@ -50,4 +60,10 @@ export type CreatorPublishDraft = {
   name: string;
   ingredientsCount: number;
   methodStepsCount: number;
+};
+
+export type CreatorReviewChecklist = {
+  contactedViaDm: boolean;
+  creatorConfirmed: boolean;
+  notes: string;
 };

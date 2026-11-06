@@ -1,14 +1,21 @@
 import type {
   CreatorApplicationStatus,
+  CreatorPlatform,
   CreatorPublishDraft,
   CreatorQuestionnaire,
+  CreatorReviewChecklist,
 } from './types';
 
 const URL_HINT = /^(https?:\/\/|www\.)/i;
 const LOOSE_URL = /https?:\/\/[^\s]+|www\.[^\s]+/gi;
+const USERNAME_RE = /^[a-z0-9._]+$/;
 
 export function isCreatorApplicationStatus(value: string): value is CreatorApplicationStatus {
   return value === 'pending' || value === 'approved' || value === 'rejected' || value === 'revoked';
+}
+
+export function isCreatorPlatform(value: string): value is CreatorPlatform {
+  return value === 'instagram' || value === 'youtube' || value === 'tiktok';
 }
 
 export function creatorStatusLabel(status: CreatorApplicationStatus): string {
@@ -21,6 +28,17 @@ export function creatorStatusLabel(status: CreatorApplicationStatus): string {
       return 'Not approved';
     case 'revoked':
       return 'Revoked';
+  }
+}
+
+export function creatorPlatformLabel(platform: CreatorPlatform): string {
+  switch (platform) {
+    case 'instagram':
+      return 'Instagram';
+    case 'youtube':
+      return 'YouTube';
+    case 'tiktok':
+      return 'TikTok';
   }
 }
 
@@ -37,6 +55,8 @@ export function emptyCreatorQuestionnaire(displayName = ''): CreatorQuestionnair
     otherLinks: '',
     valuePitch: '',
     originalityAttested: false,
+    requestedUsername: '',
+    requestedPlatform: '',
   };
 }
 
@@ -50,6 +70,100 @@ export function normalizeCreatorLink(raw: string): string | null {
   if (!trimmed) return null;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   if (/^www\./i.test(trimmed) || trimmed.includes('.')) return `https://${trimmed}`;
+  return null;
+}
+
+export function normalizeRequestedUsername(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^@+/, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9._]/g, '')
+    .replace(/^\.+/, '')
+    .replace(/\.+$/, '')
+    .replace(/\.{2,}/g, '.');
+}
+
+export function requestedUsernameFormatError(value: string): string | null {
+  const u = normalizeRequestedUsername(value);
+  if (!u) return 'Add the username you want reserved';
+  if (u.length < 3 || u.length > 24) return 'Username must be 3–24 characters';
+  if (!USERNAME_RE.test(u)) return 'Use letters, numbers, . or _';
+  if (u.startsWith('.') || u.endsWith('.') || u.includes('..')) return 'Use letters, numbers, . or _';
+  return null;
+}
+
+/** Pull a handle from a social profile URL when possible. */
+export function extractCreatorHandleFromUrl(raw: string, platform?: CreatorPlatform): string | null {
+  const normalized = normalizeCreatorLink(raw);
+  if (!normalized) return null;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    return null;
+  }
+
+  const host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
+  const path = parsed.pathname.replace(/\/+$/, '');
+  const segments = path.split('/').filter(Boolean);
+
+  const inferred: CreatorPlatform | null =
+    platform ??
+    (host === 'instagram.com' || host.endsWith('.instagram.com')
+      ? 'instagram'
+      : host === 'tiktok.com' || host.endsWith('.tiktok.com')
+        ? 'tiktok'
+        : host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtu.be'
+          ? 'youtube'
+          : null);
+
+  if (!inferred) return null;
+
+  let candidate = '';
+  if (inferred === 'instagram') {
+    if (host !== 'instagram.com' && !host.endsWith('.instagram.com')) return null;
+    const first = segments[0] ?? '';
+    if (!first || ['p', 'reel', 'reels', 'stories', 'explore', 'tv'].includes(first.toLowerCase())) {
+      return null;
+    }
+    candidate = first;
+  } else if (inferred === 'tiktok') {
+    if (host !== 'tiktok.com' && !host.endsWith('.tiktok.com')) return null;
+    const first = segments[0] ?? '';
+    if (!first.startsWith('@')) return null;
+    candidate = first.slice(1);
+  } else {
+    if (host === 'youtu.be') return null;
+    if (host !== 'youtube.com' && !host.endsWith('.youtube.com')) return null;
+    const first = (segments[0] ?? '').toLowerCase();
+    if (first.startsWith('@')) {
+      candidate = segments[0]!.slice(1);
+    } else if ((first === 'c' || first === 'user') && segments[1]) {
+      candidate = segments[1];
+    } else {
+      return null;
+    }
+  }
+
+  const cleaned = normalizeRequestedUsername(candidate);
+  return cleaned.length >= 3 ? cleaned : null;
+}
+
+/** Prefer the first filled social that yields a parseable handle. */
+export function suggestRequestedCreatorHandle(
+  input: Pick<CreatorQuestionnaire, 'instagramUrl' | 'youtubeUrl' | 'tiktokUrl'>,
+): { username: string; platform: CreatorPlatform } | null {
+  const ordered: { platform: CreatorPlatform; url: string }[] = [
+    { platform: 'instagram', url: input.instagramUrl },
+    { platform: 'tiktok', url: input.tiktokUrl },
+    { platform: 'youtube', url: input.youtubeUrl },
+  ];
+  for (const row of ordered) {
+    const username = extractCreatorHandleFromUrl(row.url, row.platform);
+    if (username) return { username, platform: row.platform };
+  }
   return null;
 }
 
@@ -117,9 +231,36 @@ export function creatorQuestionnaireError(input: CreatorQuestionnaire): string |
     }
   }
 
+  if (!isCreatorPlatform(input.requestedPlatform)) {
+    return 'Choose which platform the requested username comes from';
+  }
+
+  const platformUrl =
+    input.requestedPlatform === 'instagram'
+      ? input.instagramUrl
+      : input.requestedPlatform === 'youtube'
+        ? input.youtubeUrl
+        : input.tiktokUrl;
+  if (!hasText(platformUrl)) {
+    return `Add your ${creatorPlatformLabel(input.requestedPlatform)} profile for that username`;
+  }
+
+  const usernameError = requestedUsernameFormatError(input.requestedUsername);
+  if (usernameError) return usernameError;
+
   if (!input.originalityAttested) {
     return 'Confirm that your content is original or that you have rights to share it';
   }
+  return null;
+}
+
+export function creatorReviewChecklistError(
+  checklist: CreatorReviewChecklist,
+  action: 'approve' | 'reject',
+): string | null {
+  if (action !== 'approve') return null;
+  if (!checklist.contactedViaDm) return 'Check that you contacted them via DM';
+  if (!checklist.creatorConfirmed) return 'Check that they confirmed from that account';
   return null;
 }
 

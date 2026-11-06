@@ -28,6 +28,7 @@ import { ErrorBanner, LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useUnits } from '@/src/lib/use-units';
+import { useCreator } from '@/src/features/creators/use-creator';
 import { displayWeight, loadLibrary, type LibraryExercise, type WorkoutDraft } from '@/src/features/train/api';
 import { exerciseFacts, exerciseTitle, prettyLabel } from '@/src/features/train/format';
 import {
@@ -44,7 +45,7 @@ import {
   TrainPage,
 } from '@/src/features/train/ui';
 
-const VISIBILITY = [
+const BASE_VISIBILITY = [
   { value: 'private', label: 'Only me' },
   { value: 'household', label: 'Household' },
   { value: 'people', label: 'People' },
@@ -158,6 +159,7 @@ export function WorkoutBuilder({
   editable,
   onClose,
   onDelete,
+  onShare,
   onSubmit,
   onPersonalNotes,
 }: {
@@ -167,13 +169,28 @@ export function WorkoutBuilder({
   editable: boolean;
   onClose?: () => void;
   onDelete?: () => void | Promise<void>;
+  onShare?: () => void;
   onSubmit: (result: WorkoutBuilderResult) => Promise<void>;
   onPersonalNotes?: (notes: { position: number; body: string }[]) => Promise<void>;
 }) {
+  const creator = useCreator();
+  const visibilityOptions = useMemo(
+    () =>
+      creator.isApprovedCreator
+        ? ([...BASE_VISIBILITY, { value: 'global', label: 'Everyone' }] as const)
+        : BASE_VISIBILITY,
+    [creator.isApprovedCreator],
+  );
   const [meta] = useState({ splitId: seed.splitId, durationMin: seed.durationMin });
   const [name, setName] = useState(seed.name);
   const [visibility, setVisibility] = useState(seed.visibility);
   const [personIds, setPersonIds] = useState(seed.personIds);
+
+  useEffect(() => {
+    if (visibility === 'global' && !creator.isApprovedCreator) {
+      setVisibility('household');
+    }
+  }, [creator.isApprovedCreator, visibility]);
   const [selected, setSelected] = useState<BuiltExercise[]>(() => toSelected(seed));
   const [workoutNote, setWorkoutNote] = useState(() => seed.notes?.find((note) => note.position === -1)?.body ?? '');
   const [library, setLibrary] = useState<LibraryExercise[]>(cachedLibrary ?? []);
@@ -416,7 +433,7 @@ export function WorkoutBuilder({
           <Field value={name} onChangeText={setName} placeholder="Workout name" editable={editable} />
           <Segmented
             value={visibility}
-            options={VISIBILITY.map((item) => ({ value: item.value, label: item.label }))}
+            options={visibilityOptions.map((item) => ({ value: item.value, label: item.label }))}
             onChange={(next) => {
               if (editable) setVisibility(next);
             }}
@@ -457,7 +474,7 @@ export function WorkoutBuilder({
               <Field value={name} onChangeText={setName} placeholder="Workout name" editable={editable} />
               <Segmented
                 value={visibility}
-                options={VISIBILITY.map((item) => ({ value: item.value, label: item.label }))}
+                options={visibilityOptions.map((item) => ({ value: item.value, label: item.label }))}
                 onChange={(next) => {
                   if (editable) setVisibility(next);
                 }}
@@ -693,6 +710,7 @@ export function WorkoutBuilder({
       </View>
       <View style={styles.footer}>
         {onDelete ? <TrainButton label="Delete" tone="danger" onPress={() => void removeWorkout()} disabled={busy} /> : null}
+        {onShare ? <TrainButton label="Share" tone="ghost" onPress={onShare} disabled={busy} /> : null}
         <View style={styles.footerActions}>
           {onClose ? (
             <TrainButton label={presentation === 'modal' ? 'Cancel' : 'Back'} tone="ghost" fill onPress={onClose} disabled={busy} />

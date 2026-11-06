@@ -53,6 +53,8 @@ export type ChecklistsLayoutProps = {
   onAddItemAnywhere?: () => void;
   onToggleItem: (item: StashListItem) => void;
   onOpenItem: (item: StashListItem) => void;
+  onImport?: () => void;
+  onExport?: () => void;
   online: boolean;
 };
 
@@ -215,6 +217,8 @@ function ListDetail(props: ChecklistsLayoutProps) {
             ? () => props.onRenameList?.(props.selectedListId!)
             : undefined
         }
+        onImport={props.onImport}
+        onExport={props.onExport}
         disabled={!props.online || !props.onAddItem}
       />
       <SearchField value={props.query} onChange={props.setQuery} placeholder="Search this list" />
@@ -237,6 +241,8 @@ export function ChecklistsDesktop(props: ChecklistsLayoutProps) {
         <PrimaryActions
           addLabel="New list"
           onAdd={props.onAddList ?? (() => undefined)}
+          onImport={props.onImport}
+          onExport={props.onExport}
           disabled={!props.online || !props.onAddList}
         />
       ) : null}
@@ -246,52 +252,6 @@ export function ChecklistsDesktop(props: ChecklistsLayoutProps) {
         <ListCardsGrid cards={props.listCards} wide props={props} />
       )}
     </StashChrome>
-  );
-}
-
-function ListHomeActions({
-  onNewList,
-  onAddItem,
-  disabled,
-}: {
-  onNewList?: () => void;
-  onAddItem?: () => void;
-  disabled?: boolean;
-}) {
-  if (!onNewList && !onAddItem) return null;
-  return (
-    <View style={styles.topActions}>
-      {onNewList ? (
-        <Pressable
-          onPress={onNewList}
-          disabled={disabled}
-          accessibilityRole="button"
-          accessibilityLabel="New list"
-          style={({ pressed }) => [
-            styles.topAction,
-            styles.topActionPrimary,
-            disabled && styles.topActionDisabled,
-            pressed && styles.topActionPressed,
-          ]}>
-          <Text style={styles.topActionPrimaryLabel}>New list</Text>
-        </Pressable>
-      ) : null}
-      {onAddItem ? (
-        <Pressable
-          onPress={onAddItem}
-          disabled={disabled}
-          accessibilityRole="button"
-          accessibilityLabel="Add item"
-          style={({ pressed }) => [
-            styles.topAction,
-            styles.topActionSecondary,
-            disabled && styles.topActionDisabled,
-            pressed && styles.topActionPressed,
-          ]}>
-          <Text style={styles.topActionLabel}>Add item</Text>
-        </Pressable>
-      ) : null}
-    </View>
   );
 }
 
@@ -306,9 +266,13 @@ export function ChecklistsMobile(props: ChecklistsLayoutProps) {
 
   return (
     <StashChrome desktop={false} kicker={props.kicker} title={props.title}>
-      <ListHomeActions
-        onNewList={props.onAddList}
-        onAddItem={props.onAddItemAnywhere}
+      <PrimaryActions
+        addLabel="New list"
+        onAdd={props.onAddList}
+        extraLabel={props.onAddItemAnywhere ? 'Add item' : undefined}
+        onExtra={props.onAddItemAnywhere}
+        onImport={props.onImport}
+        onExport={props.onExport}
         disabled={!props.online}
       />
       <Text style={styles.sectionTitle}>Your lists</Text>

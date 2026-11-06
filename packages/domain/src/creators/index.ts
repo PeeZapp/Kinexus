@@ -3,19 +3,28 @@ export type {
   CreatorApplicationStatus,
   CreatorContentKind,
   CreatorDigestItem,
+  CreatorPlatform,
   CreatorProfile,
   CreatorPublishDraft,
   CreatorQuestionnaire,
+  CreatorReviewChecklist,
 } from './types';
 
 export {
   canApplyAsCreator,
   creatorLinksToVerify,
+  creatorPlatformLabel,
   creatorPublishError,
   creatorQuestionnaireError,
+  creatorReviewChecklistError,
   creatorSocialLinks,
   creatorStatusLabel,
   emptyCreatorQuestionnaire,
+  extractCreatorHandleFromUrl,
   isCreatorApplicationStatus,
+  isCreatorPlatform,
   normalizeCreatorLink,
+  normalizeRequestedUsername,
+  requestedUsernameFormatError,
+  suggestRequestedCreatorHandle,
 } from './access';

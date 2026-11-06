@@ -1,3 +1,4 @@
+import { detectDelimiter, headerKey, splitDelimited } from '../csv';
 import { parseMoney, roundMoney } from '../stash/money';
 import { monthStartIso } from './budget';
 
@@ -408,14 +409,6 @@ function normalizeMerchant(description: string): string {
     .trim();
 }
 
-function headerKey(raw: string): string {
-  return raw
-    .toLowerCase()
-    .replace(/[$()]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function findHeaderIndex(keys: string[], names: string[]): number {
   return keys.findIndex((key) => names.includes(key));
 }
@@ -442,39 +435,4 @@ function pickDescription(cells: string[], descIdx: number, dateIdx: number): str
     .filter((cell) => parseSignedAmount(cell) == null && !parseDate(cell))
     .join(' ')
     .trim();
-}
-
-function detectDelimiter(line: string): string {
-  const counts: Array<[string, number]> = [
-    [',', (line.match(/,/g) ?? []).length],
-    ['\t', (line.match(/\t/g) ?? []).length],
-    [';', (line.match(/;/g) ?? []).length],
-    ['|', (line.match(/\|/g) ?? []).length],
-  ];
-  counts.sort((a, b) => b[1] - a[1]);
-  const best = counts[0];
-  return best && best[1] > 0 ? best[0] : ',';
-}
-
-function splitDelimited(line: string, delimiter: string): string[] {
-  const out: string[] = [];
-  let cur = '';
-  let quoted = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (quoted) {
-      if (ch === '"') {
-        if (line[i + 1] === '"') {
-          cur += '"';
-          i += 1;
-        } else quoted = false;
-      } else cur += ch;
-    } else if (ch === '"') quoted = true;
-    else if (ch === delimiter) {
-      out.push(cur.trim());
-      cur = '';
-    } else cur += ch;
-  }
-  out.push(cur.trim());
-  return out;
 }

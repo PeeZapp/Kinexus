@@ -264,6 +264,8 @@ export function PrimaryActions(props: {
   onAdd?: () => void;
   extraLabel?: string;
   onExtra?: () => void;
+  onImport?: () => void;
+  onExport?: () => void;
   disabled?: boolean;
 }) {
   return (
@@ -272,6 +274,8 @@ export function PrimaryActions(props: {
       {props.extraLabel && props.onExtra ? (
         <Btn label={props.extraLabel} variant="secondary" onPress={props.onExtra} disabled={props.disabled} />
       ) : null}
+      {props.onImport ? <Btn label="Import" variant="ghost" onPress={props.onImport} disabled={props.disabled} /> : null}
+      {props.onExport ? <Btn label="Export" variant="ghost" onPress={props.onExport} disabled={props.disabled} /> : null}
     </ActionRow>
   );
 }

@@ -385,6 +385,8 @@ export function ShoppingChrome({
   onGenerate,
   onClearChecked,
   onAdd,
+  onImport,
+  onExport,
   checkedCount,
   costEstimate,
   stores,
@@ -404,6 +406,8 @@ export function ShoppingChrome({
   onGenerate: () => void;
   onClearChecked: () => void;
   onAdd: (name: string, amount?: string) => void;
+  onImport?: () => void;
+  onExport?: () => void;
   checkedCount: number;
   costEstimate: ShoppingCostEstimate | null;
   stores: readonly string[];
@@ -425,6 +429,8 @@ export function ShoppingChrome({
           busy={shoppingBusy}
         />
         <AddItemButton onAdd={onAdd} disabled={!online} />
+        {onImport ? <Btn label="Import" variant="ghost" onPress={onImport} disabled={!online} /> : null}
+        {onExport ? <Btn label="Export" variant="ghost" onPress={onExport} disabled={!online} /> : null}
         {checkedCount > 0 ? (
           <Btn label="Clear checked" variant="ghost" onPress={onClearChecked} disabled={!online} />
         ) : null}

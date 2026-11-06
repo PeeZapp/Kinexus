@@ -1448,6 +1448,8 @@ export type Database = {
           audience: 'all' | '7+' | '13+' | '16+' | '18+';
           blurb: string | null;
           sample_poster_paths: Json;
+          share_token: string | null;
+          is_shared: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -1461,6 +1463,8 @@ export type Database = {
           audience?: 'all' | '7+' | '13+' | '16+' | '18+';
           blurb?: string | null;
           sample_poster_paths?: Json;
+          share_token?: string | null;
+          is_shared?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -1470,6 +1474,8 @@ export type Database = {
           audience?: 'all' | '7+' | '13+' | '16+' | '18+';
           blurb?: string | null;
           sample_poster_paths?: Json;
+          share_token?: string | null;
+          is_shared?: boolean;
         };
         Relationships: [];
       };
@@ -1758,6 +1764,8 @@ export type Database = {
           approved_at: string | null;
           revoked_at: string | null;
           revoked_reason: string | null;
+          verified_handle: string | null;
+          verified_platform: 'instagram' | 'youtube' | 'tiktok' | null;
           updated_at: string;
           created_at: string;
         };
@@ -1768,6 +1776,8 @@ export type Database = {
           approved_at?: string | null;
           revoked_at?: string | null;
           revoked_reason?: string | null;
+          verified_handle?: string | null;
+          verified_platform?: 'instagram' | 'youtube' | 'tiktok' | null;
           updated_at?: string;
           created_at?: string;
         };
@@ -1777,6 +1787,8 @@ export type Database = {
           approved_at?: string | null;
           revoked_at?: string | null;
           revoked_reason?: string | null;
+          verified_handle?: string | null;
+          verified_platform?: 'instagram' | 'youtube' | 'tiktok' | null;
           updated_at?: string;
         };
         Relationships: [];
@@ -1797,6 +1809,12 @@ export type Database = {
           other_links: string | null;
           value_pitch: string | null;
           originality_attested: boolean;
+          requested_username: string | null;
+          requested_platform: 'instagram' | 'youtube' | 'tiktok' | null;
+          contacted_via_dm: boolean;
+          creator_confirmed: boolean;
+          verified_by: string | null;
+          verified_at: string | null;
           staff_notes: string | null;
           reviewed_by: string | null;
           reviewed_at: string | null;
@@ -1816,8 +1834,14 @@ export type Database = {
           tiktok_url?: string | null;
           website_url?: string | null;
           other_links?: string | null;
-          value_pitch: string;
+          value_pitch?: string | null;
           originality_attested?: boolean;
+          requested_username?: string | null;
+          requested_platform?: 'instagram' | 'youtube' | 'tiktok' | null;
+          contacted_via_dm?: boolean;
+          creator_confirmed?: boolean;
+          verified_by?: string | null;
+          verified_at?: string | null;
           staff_notes?: string | null;
           reviewed_by?: string | null;
           reviewed_at?: string | null;
@@ -1835,12 +1859,45 @@ export type Database = {
           tiktok_url?: string | null;
           website_url?: string | null;
           other_links?: string | null;
-          value_pitch?: string;
+          value_pitch?: string | null;
           originality_attested?: boolean;
+          requested_username?: string | null;
+          requested_platform?: 'instagram' | 'youtube' | 'tiktok' | null;
+          contacted_via_dm?: boolean;
+          creator_confirmed?: boolean;
+          verified_by?: string | null;
+          verified_at?: string | null;
           staff_notes?: string | null;
           reviewed_by?: string | null;
           reviewed_at?: string | null;
           updated_at?: string;
+        };
+        Relationships: [];
+      };
+      reserved_usernames: {
+        Row: {
+          username: string;
+          reason: string | null;
+          application_id: string | null;
+          held_for_user_id: string | null;
+          platform: 'instagram' | 'youtube' | 'tiktok' | null;
+          created_at: string;
+        };
+        Insert: {
+          username: string;
+          reason?: string | null;
+          application_id?: string | null;
+          held_for_user_id?: string | null;
+          platform?: 'instagram' | 'youtube' | 'tiktok' | null;
+          created_at?: string;
+        };
+        Update: {
+          username?: string;
+          reason?: string | null;
+          application_id?: string | null;
+          held_for_user_id?: string | null;
+          platform?: 'instagram' | 'youtube' | 'tiktok' | null;
+          created_at?: string;
         };
         Relationships: [];
       };
@@ -2351,9 +2408,11 @@ export type Database = {
           household_id: string;
           created_by: string | null;
           name: string;
-          visibility: 'private' | 'household' | 'people';
+          visibility: 'private' | 'household' | 'people' | 'global';
           split_id: string | null;
           duration_min: number | null;
+          share_token: string | null;
+          is_shared: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -2362,17 +2421,21 @@ export type Database = {
           household_id: string;
           created_by?: string | null;
           name: string;
-          visibility?: 'private' | 'household' | 'people';
+          visibility?: 'private' | 'household' | 'people' | 'global';
           split_id?: string | null;
           duration_min?: number | null;
+          share_token?: string | null;
+          is_shared?: boolean;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           name?: string;
-          visibility?: 'private' | 'household' | 'people';
+          visibility?: 'private' | 'household' | 'people' | 'global';
           split_id?: string | null;
           duration_min?: number | null;
+          share_token?: string | null;
+          is_shared?: boolean;
         };
         Relationships: [];
       };
@@ -2787,13 +2850,21 @@ export type Database = {
           p_tiktok_url?: string | null;
           p_website_url?: string | null;
           p_other_links?: string | null;
-          p_value_pitch: string;
+          p_value_pitch?: string | null;
           p_originality_attested: boolean;
+          p_requested_username: string;
+          p_requested_platform: string;
         };
         Returns: string;
       };
       review_creator_application: {
-        Args: { p_application_id: string; p_action: string; p_staff_notes?: string | null };
+        Args: {
+          p_application_id: string;
+          p_action: string;
+          p_staff_notes?: string | null;
+          p_contacted_via_dm?: boolean;
+          p_creator_confirmed?: boolean;
+        };
         Returns: undefined;
       };
       revoke_creator: {

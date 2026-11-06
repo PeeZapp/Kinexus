@@ -164,6 +164,9 @@ export type WatchlistList = {
   blurb: string | null;
   /** Up to four poster paths shown on the shared shelf. */
   samplePosterPaths: string[];
+  /** Public link-share token (independent of household visibility). */
+  shareToken: string | null;
+  isShared: boolean;
   personIds: string[];
   createdAt: string;
   updatedAt: string;

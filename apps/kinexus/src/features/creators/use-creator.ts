@@ -5,7 +5,10 @@ import { rpc, type Database } from '@kinexus/db';
 import {
   canApplyAsCreator,
   creatorQuestionnaireError,
+  isCreatorPlatform,
+  normalizeRequestedUsername,
   type CreatorApplication,
+  type CreatorPlatform,
   type CreatorProfile,
   type CreatorQuestionnaire,
 } from '@kinexus/domain';
@@ -32,9 +35,17 @@ function mapApplication(row: ApplicationRow): CreatorApplication {
     otherLinks: row.other_links ?? '',
     valuePitch: row.value_pitch ?? '',
     originalityAttested: row.originality_attested,
+    requestedUsername: row.requested_username ?? '',
+    requestedPlatform: isCreatorPlatform(row.requested_platform ?? '')
+      ? (row.requested_platform as CreatorPlatform)
+      : '',
     staffNotes: row.staff_notes,
     reviewedBy: row.reviewed_by,
     reviewedAt: row.reviewed_at,
+    contactedViaDm: Boolean(row.contacted_via_dm),
+    creatorConfirmed: Boolean(row.creator_confirmed),
+    verifiedBy: row.verified_by,
+    verifiedAt: row.verified_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -48,6 +59,10 @@ function mapCreator(row: CreatorRow): CreatorProfile {
     approvedAt: row.approved_at,
     revokedAt: row.revoked_at,
     revokedReason: row.revoked_reason,
+    verifiedHandle: row.verified_handle,
+    verifiedPlatform: isCreatorPlatform(row.verified_platform ?? '')
+      ? (row.verified_platform as CreatorPlatform)
+      : null,
   };
 }
 
@@ -98,6 +113,9 @@ export function useCreator() {
       const validation = creatorQuestionnaireError(form);
       if (validation) throw new Error(validation);
       if (!supabase) throw new Error('Sign in to apply');
+      if (!isCreatorPlatform(form.requestedPlatform)) {
+        throw new Error('Choose which platform the requested username comes from');
+      }
       const { data, error } = await supabase.rpc(rpc.submitCreatorApplication, {
         p_display_name: form.displayName.trim(),
         p_bio: form.bio.trim(),
@@ -110,6 +128,8 @@ export function useCreator() {
         p_other_links: form.otherLinks.trim() || null,
         p_value_pitch: '',
         p_originality_attested: form.originalityAttested,
+        p_requested_username: normalizeRequestedUsername(form.requestedUsername),
+        p_requested_platform: form.requestedPlatform,
       });
       if (error) throw error;
       return data as string;

@@ -76,6 +76,8 @@ export type WorkoutDraft = {
   splitId: string | null;
   durationMin: number | null;
   createdBy: string | null;
+  shareToken: string | null;
+  isShared: boolean;
   personIds: string[];
   exercises: WorkoutExercise[];
   ratings: WorkoutRating[];
@@ -163,6 +165,8 @@ export async function loadWorkouts(householdId: string): Promise<WorkoutDraft[]>
     splitId: row.split_id,
     durationMin: row.duration_min,
     createdBy: row.created_by,
+    shareToken: row.share_token,
+    isShared: Boolean(row.is_shared),
     personIds: (row.workout_people ?? []).map((person) => person.person_id),
     ratings: ratingsByWorkout.get(row.id) ?? [],
     notes: notesByWorkout.get(row.id) ?? [],
@@ -192,7 +196,7 @@ export async function createWorkout(input: {
   splitId: string | null;
   durationMin: number | null;
   personIds: string[];
-  exercises: (WorkoutExerciseInput & { exerciseId: string })[];
+  exercises: WorkoutExerciseInput[];
 }): Promise<string> {
   const { data, error } = await db()
     .from('workouts')

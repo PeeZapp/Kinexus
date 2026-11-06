@@ -27,6 +27,13 @@ import { CatalogMobile } from '@/src/features/stash/catalog/CatalogMobile';
 import type { WishlistListCardModel } from '@/src/features/stash/StashShared';
 import { useStashSync, actionErrorMessage, type ListIdentityDraft, type ListShareDraft, type ProductDraft } from '@/src/features/stash/use-stash-sync';
 import { LoadingState } from '@/src/features/shell/states';
+import { ListExportSheet } from '@/src/features/lists/ListExportSheet';
+import { ListImportWizard } from '@/src/features/lists/ListImportWizard';
+import {
+  wishlistDedupe,
+  wishlistExportInput,
+  type ListImportWriters,
+} from '@/src/features/lists/list-io-adapters';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
@@ -93,6 +100,8 @@ export function CatalogScreen() {
   const [priceCheckAlerts, setPriceCheckAlerts] = useState<string[]>([]);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   const lists = useMemo(() => listsOfKind(stash.lists, 'wishlist'), [stash.lists]);
   const shareLabels = useMemo(() => {
@@ -330,6 +339,8 @@ export function CatalogScreen() {
     shareBusy,
     shareStatus,
     onDismissShareStatus: () => setShareStatus(null),
+    onImport: canManage ? () => setImportOpen(true) : undefined,
+    onExport: selectedList ? () => setExportOpen(true) : undefined,
   };
 
   if (stash.loading && stash.products.length === 0 && stash.lists.length === 0) {
@@ -446,6 +457,42 @@ export function CatalogScreen() {
             setRenameId(null);
           }
         }}
+      />
+      <ListExportSheet
+        visible={exportOpen}
+        input={
+          selectedList
+            ? wishlistExportInput(selectedList.name, selectedList.id, visibleProducts)
+            : null
+        }
+        onClose={() => setExportOpen(false)}
+      />
+      <ListImportWizard
+        visible={importOpen}
+        kind="wishlist"
+        existingLists={lists.map((list) => ({ id: list.id, name: list.name }))}
+        existingItems={wishlistDedupe(stash.products)}
+        writers={
+          {
+            ensureTargetList: async (target) => {
+              if (target.mode === 'existing') return target.listId;
+              return stash.createList(target.name, { visibility: 'private', personIds: [] }, { kind: 'wishlist' });
+            },
+            writeRow: async (listId, row) => {
+              if (!listId) return;
+              await stash.createProduct({
+                title: row.title,
+                sourceUrl: row.url ?? '',
+                currentPrice: row.price ?? undefined,
+                notes: row.notes ?? undefined,
+                listId,
+                priceSource: 'manual',
+                detailStatus: 'ready',
+              });
+            },
+          } satisfies ListImportWriters
+        }
+        onClose={() => setImportOpen(false)}
       />
     </View>
   );

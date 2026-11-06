@@ -28,6 +28,7 @@ import {
   WATCHLIST_REVIEW_LIMIT,
 } from '@kinexus/domain';
 
+import { disableEntityShare, enableEntityShare, resetEntityShare } from '@/src/features/share/link-share';
 import { lookupWatchlistCatalog } from '@/src/features/stash/watchlist-api';
 import { ensureSocialAlias } from '@/src/features/stash/watchlist-social';
 import { watchlistItemFromRow, watchlistListFromRow, watchlistReviewFromRow, watchlistTitleFromRow } from '@/src/features/stash/watchlist-mappers';
@@ -550,6 +551,38 @@ export function useWatchlistSync() {
     [householdId, invalidate],
   );
 
+  const enableLinkShare = useCallback(
+    async (id: string) => {
+      if (!householdId) throw new Error('Not ready');
+      const list = (listsQuery.data ?? []).find((item) => item.id === id);
+      if (!list || isWatchedList(list)) throw new Error('List not found');
+      const url = await enableEntityShare('watchlist', id, list.shareToken);
+      await queryClient.invalidateQueries({ queryKey: listsKey(householdId) });
+      return url;
+    },
+    [householdId, listsQuery.data, queryClient],
+  );
+
+  const disableLinkShare = useCallback(
+    async (id: string) => {
+      if (!householdId) throw new Error('Not ready');
+      await disableEntityShare('watchlist', id);
+      await queryClient.invalidateQueries({ queryKey: listsKey(householdId) });
+      return null;
+    },
+    [householdId, queryClient],
+  );
+
+  const resetLinkShare = useCallback(
+    async (id: string) => {
+      if (!householdId) throw new Error('Not ready');
+      const url = await resetEntityShare('watchlist', id);
+      await queryClient.invalidateQueries({ queryKey: listsKey(householdId) });
+      return url;
+    },
+    [householdId, queryClient],
+  );
+
   const refreshTitle = useCallback(
     async (title: WatchlistTitle, force = false) => {
       if (!householdId || !supabase) throw new Error('Not ready');
@@ -667,6 +700,9 @@ export function useWatchlistSync() {
     addTitleToList,
     updateItem,
     removeItem,
+    enableLinkShare,
+    disableLinkShare,
+    resetLinkShare,
     refreshTitle,
     saveReview,
     deleteReview,

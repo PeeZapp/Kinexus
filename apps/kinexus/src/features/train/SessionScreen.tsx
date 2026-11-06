@@ -47,6 +47,7 @@ import {
   type WorkoutExercise,
 } from '@/src/features/train/api';
 import { clock, exerciseFacts, exerciseTitle } from '@/src/features/train/format';
+import { useCreator } from '@/src/features/creators/use-creator';
 import { Badge, Choice, EffortBadge, ExerciseSteps, Field, MediaGallery, NoteLine, Pill, Segmented, TrainButton, TrainPage } from '@/src/features/train/ui';
 import { ErrorBanner } from '@/src/features/shell/states';
 import { colors, radius } from '@/src/features/shell/theme';
@@ -56,7 +57,7 @@ import { useUnits } from '@/src/lib/use-units';
 
 const REST_TIMES = [60, 90, 120] as const;
 
-const VISIBILITY = [
+const BASE_VISIBILITY = [
   { value: 'private', label: 'Only me' },
   { value: 'household', label: 'Household' },
   { value: 'people', label: 'People' },
@@ -102,6 +103,8 @@ function draftFromLive(live: LiveSession, userId: string): WorkoutDraft {
     splitId: live.remixSpec,
     durationMin: live.durationMin,
     createdBy: userId,
+    shareToken: null,
+    isShared: false,
     personIds: [],
     ratings: [],
     notes: [],
@@ -128,8 +131,16 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
   const { user } = useAuth();
   const { activeHousehold, people, role } = useHousehold();
   const { weightUnit } = useUnits();
+  const creator = useCreator();
   const userId = user && !user.isDevBypass ? user.id : null;
   const canSave = canCreateShared(role);
+  const visibilityOptions = useMemo(
+    () =>
+      creator.isApprovedCreator
+        ? ([...BASE_VISIBILITY, { value: 'global', label: 'Everyone' }] as const)
+        : BASE_VISIBILITY,
+    [creator.isApprovedCreator],
+  );
   const [sets, setSets] = useState<SessionSet[]>([]);
   const [weightDraft, setWeightDraft] = useState<Record<string, string>>({});
 
@@ -839,7 +850,7 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
           <Field value={saveName} onChangeText={setSaveName} placeholder="Workout name" editable={!saving} />
           <Segmented
             value={saveVisibility}
-            options={VISIBILITY.map((item) => ({ value: item.value, label: item.label }))}
+            options={visibilityOptions.map((item) => ({ value: item.value, label: item.label }))}
             onChange={(next) => {
               if (!saving) setSaveVisibility(next);
             }}

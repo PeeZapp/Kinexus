@@ -34,6 +34,8 @@ import {
 } from './recipes/handlers.js';
 import { handleMirrorRecipeImage } from './recipes/source-image.js';
 import { handleGetSharedWishlist } from './shared-wishlist.js';
+import { handleGetSharedWorkout } from './shared-workout.js';
+import { handleGetSharedWatchlist } from './shared-watchlist-link.js';
 import { handleEnrichPendingProducts } from './stash/enrich-pending.js';
 import { handleCalendarObservances } from './calendar-observances.js';
 import {
@@ -75,6 +77,16 @@ function registerMealsRoutes(router: Hono) {
 
   router.get('/stash/shared/:token', async (c) => {
     const result = await handleGetSharedWishlist(c.req.param('token'));
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/train/shared/:token', async (c) => {
+    const result = await handleGetSharedWorkout(c.req.param('token'));
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/watchlist/shared/:token', async (c) => {
+    const result = await handleGetSharedWatchlist(c.req.param('token'));
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 

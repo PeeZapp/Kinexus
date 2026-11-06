@@ -5,7 +5,14 @@ import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { canCreateShared, estimateWorkout, exerciseSearchScore, type RemixCategory } from '@kinexus/domain';
 
 import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/FilterMenu';
-import { clearOpenSession, createWorkout, loadOpenWorkoutIds, loadWorkouts, saveWorkoutRating, type WorkoutDraft } from '@/src/features/train/api';
+import { ListExportSheet } from '@/src/features/lists/ListExportSheet';
+import { ListImportWizard } from '@/src/features/lists/ListImportWizard';
+import {
+  workoutExportInput,
+  workoutWeightToKg,
+  type ListImportWriters,
+} from '@/src/features/lists/list-io-adapters';
+import { clearOpenSession, createWorkout, loadOpenWorkoutIds, loadWorkouts, saveWorkout, saveWorkoutRating, type WorkoutDraft } from '@/src/features/train/api';
 import { EMPTY_WORKOUT_SEED, WorkoutBuilder, type WorkoutBuilderResult } from '@/src/features/train/WorkoutBuilder';
 import { SearchField, TrainButton, TrainPage } from '@/src/features/train/ui';
 import { exerciseTitle } from '@/src/features/train/format';
@@ -14,6 +21,7 @@ import { colors, radius, space } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useHousehold } from '@/src/lib/household';
+import { useUnits } from '@/src/lib/use-units';
 
 const SHOWN_EXERCISES = 4;
 
@@ -48,6 +56,9 @@ export function WorkoutsScreen() {
   const [ratingId, setRatingId] = useState<string | null>(null);
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [clearingId, setClearingId] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [exportWorkout, setExportWorkout] = useState<WorkoutDraft | null>(null);
+  const { weightUnit } = useUnits();
   const userId = user && !user.isDevBypass ? user.id : null;
   const canCreate = canCreateShared(role);
   const wide = mode === 'desktop';
@@ -204,6 +215,7 @@ export function WorkoutsScreen() {
             <SearchField value={query} onChangeText={setQuery} placeholder="Search workouts" />
           </View>
           {canCreate ? <TrainButton label="New workout" onPress={() => setBuilderOpen(true)} /> : null}
+          {canCreate ? <TrainButton label="Import" tone="ghost" onPress={() => setImportOpen(true)} /> : null}
         </View>
         <View style={styles.filters}>
           <FilterBar>
@@ -261,6 +273,7 @@ export function WorkoutsScreen() {
                         ) : null}
                       </Pressable>
                       <View style={styles.actions}>
+                        <TrainButton label="Export" tone="ghost" onPress={() => setExportWorkout(workout)} />
                         {open ? (
                           <TrainButton label="Clear" tone="ghost" disabled={clearingId === workout.id} onPress={() => void clearWorkout(workout.id)} />
                         ) : null}
@@ -320,6 +333,72 @@ export function WorkoutsScreen() {
           onSubmit={submitNew}
         />
       ) : null}
+      <ListExportSheet
+        visible={Boolean(exportWorkout)}
+        input={exportWorkout ? workoutExportInput(exportWorkout, weightUnit) : null}
+        onClose={() => setExportWorkout(null)}
+      />
+      <ListImportWizard
+        visible={importOpen}
+        kind="workout"
+        existingLists={workouts.map((workout) => ({ id: workout.id, name: workout.name }))}
+        existingItems={workouts.flatMap((workout) => workout.exercises.map((exercise) => ({ title: exercise.name })))}
+        weightUnit={weightUnit}
+        writers={
+          {
+            ensureTargetList: async (target) => {
+              if (!activeHousehold || !userId) throw new Error('Sign in to import workouts');
+              if (target.mode === 'existing') return target.listId;
+              return createWorkout({
+                householdId: activeHousehold.id,
+                userId,
+                name: target.name,
+                visibility: 'private',
+                splitId: null,
+                durationMin: null,
+                personIds: [],
+                exercises: [],
+              });
+            },
+            writeRow: async (listId, row) => {
+              if (!listId || !activeHousehold) return;
+              const current = (await loadWorkouts(activeHousehold.id)).find((workout) => workout.id === listId);
+              if (!current) return;
+              await saveWorkout(listId, activeHousehold.id, {
+                name: current.name,
+                visibility: current.visibility,
+                splitId: current.splitId,
+                durationMin: current.durationMin,
+                personIds: current.personIds,
+                exercises: [
+                  ...current.exercises.map((exercise) => ({
+                    exerciseId: exercise.exerciseId,
+                    name: exercise.name,
+                    targetSets: exercise.targetSets,
+                    targetReps: exercise.targetReps,
+                    targetWeight: exercise.targetWeight,
+                    targetEffort: exercise.targetEffort,
+                    targetRpe: exercise.targetRpe,
+                    note: exercise.note,
+                    supersetId: exercise.supersetId,
+                  })),
+                  {
+                    exerciseId: null,
+                    name: row.title,
+                    targetSets: row.sets ?? 3,
+                    targetReps: row.reps ?? '8',
+                    targetWeight: workoutWeightToKg(row.weight, weightUnit),
+                    note: row.notes ?? '',
+                    supersetId: null,
+                  },
+                ],
+              });
+              setWorkouts(await loadWorkouts(activeHousehold.id));
+            },
+          } satisfies ListImportWriters
+        }
+        onClose={() => setImportOpen(false)}
+      />
     </>
   );
 }

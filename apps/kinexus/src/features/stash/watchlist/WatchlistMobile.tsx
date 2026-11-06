@@ -41,6 +41,8 @@ export function WatchlistMobile(props: WatchlistLayoutProps) {
           onAdd={props.onAddList}
           extraLabel="Add title"
           onExtra={props.onAddTitle}
+          onImport={props.onImport}
+          onExport={props.onExport}
           disabled={!props.online}
         />
         <WatchlistIdeaActions
@@ -121,6 +123,13 @@ export function WatchlistMobile(props: WatchlistLayoutProps) {
           {props.entries.length} · {props.country}
         </Text>
       </View>
+      <PrimaryActions
+        addLabel="Add title"
+        onAdd={props.onAddTitle}
+        onImport={props.onImport}
+        onExport={props.onExport}
+        disabled={!props.online}
+      />
 
       <WatchlistDetailToolbar
         catalogQuery={props.catalogQuery}

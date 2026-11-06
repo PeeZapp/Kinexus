@@ -102,7 +102,7 @@ export type SharedAccess = {
   userId: string | null;
   personId: string | null;
   createdBy: string | null;
-  visibility: 'household' | 'private' | 'people';
+  visibility: 'household' | 'private' | 'people' | 'global';
   personIds: readonly string[];
 };
 
@@ -110,7 +110,7 @@ export function canSeeShared(opts: SharedAccess): boolean {
   if (opts.createdBy && opts.userId && opts.createdBy === opts.userId) return true;
   if (opts.visibility === 'private') return opts.role === 'owner';
   if (opts.role === 'owner' || opts.role === 'admin') return true;
-  if (opts.visibility === 'household') return true;
+  if (opts.visibility === 'household' || opts.visibility === 'global') return true;
   return Boolean(opts.personId && opts.personIds.includes(opts.personId));
 }
 

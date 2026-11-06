@@ -24,6 +24,8 @@ export function CatalogMobile(props: CatalogLayoutProps) {
           onAdd={props.onAddList ?? props.onAddProduct}
           extraLabel={props.onAddList ? props.addItemLabel : undefined}
           onExtra={props.onAddList ? props.onAddProduct : undefined}
+          onImport={props.onImport}
+          onExport={props.onExport}
           disabled={!props.online}
         />
         {props.listCards.length === 0 ? (
@@ -64,6 +66,8 @@ export function CatalogMobile(props: CatalogLayoutProps) {
         onAdd={props.onAddProduct}
         extraLabel={props.onAddSublist ? 'Add sublist' : undefined}
         onExtra={props.onAddSublist}
+        onImport={props.onImport}
+        onExport={props.onExport}
         disabled={!props.online || props.checkingPrices}
       />
       <View style={styles.detailActions}>

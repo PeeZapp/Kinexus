@@ -27,6 +27,13 @@ import type { ChecklistListCardModel } from './ChecklistShared';
 import { AddListSheet, ChecklistItemSheet, ListSettingsSheet } from '@/src/features/stash/sheets';
 import { useStashSync, actionErrorMessage, type ChecklistItemDraft, type ListIdentityDraft, type ListShareDraft } from '@/src/features/stash/use-stash-sync';
 import { LoadingState } from '@/src/features/shell/states';
+import { ListExportSheet } from '@/src/features/lists/ListExportSheet';
+import { ListImportWizard } from '@/src/features/lists/ListImportWizard';
+import {
+  checklistDedupe,
+  checklistExportInput,
+  type ListImportWriters,
+} from '@/src/features/lists/list-io-adapters';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
@@ -82,6 +89,8 @@ export function ChecklistsScreen() {
   const [identity, setIdentity] = useState<ListIdentityDraft>(DEFAULT_IDENTITY);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   const lists = useMemo(() => listsOfKind(stash.lists, 'checklist'), [stash.lists]);
   const today = todayIso();
@@ -291,6 +300,8 @@ export function ChecklistsScreen() {
       void run(() => stash.updateItem(row.id, patch));
     },
     onOpenItem: (row: StashListItem) => setItemId(row.id),
+    onImport: canCreate ? () => setImportOpen(true) : undefined,
+    onExport: selectedListId ? () => setExportOpen(true) : undefined,
     online: stash.online,
   };
 
@@ -381,6 +392,34 @@ export function ChecklistsScreen() {
             setRenameId(null);
           }
         }}
+      />
+      <ListExportSheet
+        visible={exportOpen}
+        input={
+          selectedList
+            ? checklistExportInput(selectedList.name, selectedList.id, [...active, ...checked])
+            : null
+        }
+        onClose={() => setExportOpen(false)}
+      />
+      <ListImportWizard
+        visible={importOpen}
+        kind="checklist"
+        existingLists={lists.map((list) => ({ id: list.id, name: list.name }))}
+        existingItems={checklistDedupe(stash.items)}
+        writers={
+          {
+            ensureTargetList: async (target) => {
+              if (target.mode === 'existing') return target.listId;
+              return stash.createList(target.name, { visibility: 'private', personIds: [] }, { kind: 'checklist' });
+            },
+            writeRow: async (listId, row) => {
+              if (!listId) return;
+              await stash.createItem(listId, { title: row.title, notes: row.notes });
+            },
+          } satisfies ListImportWriters
+        }
+        onClose={() => setImportOpen(false)}
       />
     </View>
   );

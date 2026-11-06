@@ -30,6 +30,8 @@ export function ShoppingDesktop(props: {
   onRecipe: (id: string) => void;
   onSetPurchase: (recipeId: string, mode: 'buy' | 'make') => void;
   onAdd: (name: string, amount?: string) => void;
+  onImport?: () => void;
+  onExport?: () => void;
   costEstimate: ShoppingCostEstimate | null;
   stores: readonly string[];
   shopPicker?: ReactNode;
@@ -50,6 +52,8 @@ export function ShoppingDesktop(props: {
     onGenerate: props.onGenerate,
     onClearChecked: props.onClearChecked,
     onAdd: props.onAdd,
+    onImport: props.onImport,
+    onExport: props.onExport,
     costEstimate: props.costEstimate,
     stores: props.stores,
     shopPicker: props.shopPicker,

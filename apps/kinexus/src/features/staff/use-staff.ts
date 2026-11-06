@@ -2,7 +2,13 @@ import { useCallback, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { rpc, type Database } from '@kinexus/db';
-import type { CreatorApplication, CreatorDigestItem, CreatorProfile } from '@kinexus/domain';
+import {
+  isCreatorPlatform,
+  type CreatorApplication,
+  type CreatorDigestItem,
+  type CreatorPlatform,
+  type CreatorProfile,
+} from '@kinexus/domain';
 
 import { useAuth } from '@/src/lib/auth';
 import { supabase } from '@/src/lib/supabase';
@@ -29,9 +35,17 @@ function mapApplication(row: ApplicationRow): CreatorApplication {
     otherLinks: row.other_links ?? '',
     valuePitch: row.value_pitch ?? '',
     originalityAttested: row.originality_attested,
+    requestedUsername: row.requested_username ?? '',
+    requestedPlatform: isCreatorPlatform(row.requested_platform ?? '')
+      ? (row.requested_platform as CreatorPlatform)
+      : '',
     staffNotes: row.staff_notes,
     reviewedBy: row.reviewed_by,
     reviewedAt: row.reviewed_at,
+    contactedViaDm: Boolean(row.contacted_via_dm),
+    creatorConfirmed: Boolean(row.creator_confirmed),
+    verifiedBy: row.verified_by,
+    verifiedAt: row.verified_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -45,6 +59,10 @@ function mapCreator(row: CreatorRow): CreatorProfile {
     approvedAt: row.approved_at,
     revokedAt: row.revoked_at,
     revokedReason: row.revoked_reason,
+    verifiedHandle: row.verified_handle,
+    verifiedPlatform: isCreatorPlatform(row.verified_platform ?? '')
+      ? (row.verified_platform as CreatorPlatform)
+      : null,
   };
 }
 
@@ -163,11 +181,19 @@ export function useStaffDashboard(day = todayUtc()) {
   }, [queryClient]);
 
   const reviewMutation = useMutation({
-    mutationFn: async (input: { applicationId: string; action: 'approve' | 'reject'; notes?: string }) => {
+    mutationFn: async (input: {
+      applicationId: string;
+      action: 'approve' | 'reject';
+      notes?: string;
+      contactedViaDm?: boolean;
+      creatorConfirmed?: boolean;
+    }) => {
       const { error } = await supabase!.rpc(rpc.reviewCreatorApplication, {
         p_application_id: input.applicationId,
         p_action: input.action,
         p_staff_notes: input.notes?.trim() || null,
+        p_contacted_via_dm: Boolean(input.contactedViaDm),
+        p_creator_confirmed: Boolean(input.creatorConfirmed),
       });
       if (error) throw error;
     },

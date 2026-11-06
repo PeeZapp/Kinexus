@@ -1,7 +1,13 @@
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { creatorStatusLabel, type CreatorApplication } from '@kinexus/domain';
+import {
+  creatorPlatformLabel,
+  creatorReviewChecklistError,
+  creatorStatusLabel,
+  isCreatorPlatform,
+  type CreatorApplication,
+} from '@kinexus/domain';
 
 import { Btn, ErrorText } from '@/src/features/household/ui';
 import { useStaffDashboard } from '@/src/features/staff/use-staff';
@@ -18,22 +24,59 @@ function LinkRow({ label, href }: { label: string; href: string }) {
   );
 }
 
+function CheckRow({
+  label,
+  checked,
+  onToggle,
+}: {
+  label: string;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <Pressable onPress={onToggle} style={styles.checkRow}>
+      <View style={[styles.check, checked && styles.checkOn]}>
+        {checked ? <Text style={styles.checkMark}>✓</Text> : null}
+      </View>
+      <Text style={styles.checkLabel}>{label}</Text>
+    </Pressable>
+  );
+}
+
 function ApplicationCard({
   app,
   onReview,
   busy,
 }: {
   app: CreatorApplication;
-  onReview: (action: 'approve' | 'reject', notes: string) => Promise<void>;
+  onReview: (input: {
+    action: 'approve' | 'reject';
+    notes: string;
+    contactedViaDm: boolean;
+    creatorConfirmed: boolean;
+  }) => Promise<void>;
   busy: boolean;
 }) {
   const [notes, setNotes] = useState('');
+  const [contactedViaDm, setContactedViaDm] = useState(false);
+  const [creatorConfirmed, setCreatorConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const platformLabel = isCreatorPlatform(app.requestedPlatform)
+    ? creatorPlatformLabel(app.requestedPlatform)
+    : 'social';
 
   async function run(action: 'approve' | 'reject') {
     setError(null);
+    const checklistError = creatorReviewChecklistError(
+      { contactedViaDm, creatorConfirmed, notes },
+      action,
+    );
+    if (checklistError) {
+      setError(checklistError);
+      return;
+    }
     try {
-      await onReview(action, notes);
+      await onReview({ action, notes, contactedViaDm, creatorConfirmed });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Review failed');
     }
@@ -46,6 +89,12 @@ function ApplicationCard({
         <Text style={styles.badge}>{creatorStatusLabel(app.status)}</Text>
       </View>
       <Text style={styles.meta}>Submitted {new Date(app.createdAt).toLocaleString()}</Text>
+      {app.requestedUsername ? (
+        <Text style={styles.body}>
+          Requested @{app.requestedUsername}
+          {isCreatorPlatform(app.requestedPlatform) ? ` · ${platformLabel}` : ''}
+        </Text>
+      ) : null}
       <Text style={styles.section}>About</Text>
       <Text style={styles.body}>{app.bio}</Text>
       <Text style={styles.section}>What qualifies them</Text>
@@ -62,6 +111,17 @@ function ApplicationCard({
       </Text>
       {app.status === 'pending' ? (
         <View style={styles.reviewBox}>
+          <Text style={styles.section}>Verification</Text>
+          <CheckRow
+            label={`Contacted via ${platformLabel} DM`}
+            checked={contactedViaDm}
+            onToggle={() => setContactedViaDm((value) => !value)}
+          />
+          <CheckRow
+            label="Creator confirmed from that account"
+            checked={creatorConfirmed}
+            onToggle={() => setCreatorConfirmed((value) => !value)}
+          />
           <Text style={styles.section}>Staff notes</Text>
           <TextInput
             value={notes}
@@ -77,9 +137,19 @@ function ApplicationCard({
             <Btn label="Approve" busy={busy} onPress={() => void run('approve')} />
           </View>
         </View>
-      ) : app.staffNotes ? (
-        <Text style={styles.meta}>Notes: {app.staffNotes}</Text>
-      ) : null}
+      ) : (
+        <View style={styles.reviewBox}>
+          {app.staffNotes ? <Text style={styles.meta}>Notes: {app.staffNotes}</Text> : null}
+          {app.verifiedAt ? (
+            <Text style={styles.meta}>
+              Verified {new Date(app.verifiedAt).toLocaleString()}
+              {app.contactedViaDm || app.creatorConfirmed
+                ? ` · DM ${app.contactedViaDm ? 'yes' : 'no'} · confirmed ${app.creatorConfirmed ? 'yes' : 'no'}`
+                : ''}
+            </Text>
+          ) : null}
+        </View>
+      )}
     </View>
   );
 }
@@ -136,8 +206,14 @@ export function StaffApplicationsPage() {
           key={app.id}
           app={app}
           busy={staff.reviewing}
-          onReview={(action, notes) =>
-            staff.reviewApplication({ applicationId: app.id, action, notes })
+          onReview={({ action, notes, contactedViaDm, creatorConfirmed }) =>
+            staff.reviewApplication({
+              applicationId: app.id,
+              action,
+              notes,
+              contactedViaDm,
+              creatorConfirmed,
+            })
           }
         />
       ))}
@@ -174,6 +250,13 @@ export function StaffCreatorsPage() {
             <Text style={styles.cardTitle}>{creator.displayName}</Text>
             <Text style={styles.badge}>{creatorStatusLabel(creator.status)}</Text>
           </View>
+          {creator.verifiedHandle ? (
+            <Text style={styles.body}>
+              @{creator.verifiedHandle}
+              {creator.verifiedPlatform ? ` · ${creatorPlatformLabel(creator.verifiedPlatform)}` : ''}{' '}
+              ✓
+            </Text>
+          ) : null}
           <Text style={styles.meta}>
             {creator.approvedAt ? `Approved ${new Date(creator.approvedAt).toLocaleDateString()}` : ''}
             {creator.revokedAt ? ` · Revoked ${new Date(creator.revokedAt).toLocaleDateString()}` : ''}
@@ -348,6 +431,37 @@ const styles = StyleSheet.create({
   reviewBox: {
     marginTop: 8,
     gap: 10,
+  },
+  checkRow: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+  },
+  check: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: '#0B1219',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  checkOn: {
+    backgroundColor: 'rgba(62,207,191,0.16)',
+    borderColor: '#3ECFBF',
+  },
+  checkMark: {
+    color: '#3ECFBF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  checkLabel: {
+    flex: 1,
+    color: '#A8B4C3',
+    fontSize: 13,
+    lineHeight: 18,
   },
   input: {
     borderWidth: 1,

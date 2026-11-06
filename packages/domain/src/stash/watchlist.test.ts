@@ -30,6 +30,8 @@ function list(partial: Partial<WatchlistList> & Pick<WatchlistList, 'id' | 'name
     audience: '18+',
     blurb: null,
     samplePosterPaths: [],
+    shareToken: null,
+    isShared: false,
     personIds: [],
     createdAt: '2026-01-01',
     updatedAt: '2026-01-01',

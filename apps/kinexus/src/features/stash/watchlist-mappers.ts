@@ -36,6 +36,8 @@ export function watchlistListFromRow(row: ListRow): WatchlistList {
     audience: isWatchlistAudience(row.audience) ? row.audience : '18+',
     blurb: row.blurb?.trim() || null,
     samplePosterPaths: samplePosterPathsFromRow(row.sample_poster_paths),
+    shareToken: row.share_token,
+    isShared: Boolean(row.is_shared),
     personIds: [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,

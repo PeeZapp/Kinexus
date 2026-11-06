@@ -9,6 +9,7 @@ import {
 
 import { publicPrimaryName, type PublicNameUser } from '@/src/features/shell/PublicName';
 import { watchlistListFromRow } from '@/src/features/stash/watchlist-mappers';
+import { resolveAvatarPresetId } from '@/src/lib/identity-avatar';
 import { supabase } from '@/src/lib/supabase';
 
 // watchlist_social_aliases is deprecated — superseded by profiles.global_handle /
@@ -26,6 +27,7 @@ export async function ensureSocialAlias(userId: string): Promise<string> {
 
 export type PublicSocialUser = PublicNameUser & {
   id: string;
+  /** Allowlisted preset id for ProfileAvatar; never a remote/data URL. */
   avatarUrl: string | null;
 };
 
@@ -42,7 +44,8 @@ function mapPublicProfile(row: PublicProfileRow): PublicSocialUser {
     id: row.id,
     globalHandle: row.global_handle,
     username: row.username,
-    avatarUrl: row.avatar_url,
+    // Legacy uploaded/external/data-URL values fall back to a safe preset.
+    avatarUrl: resolveAvatarPresetId(row.avatar_url),
     isVerifiedCreator: row.is_verified_creator,
   };
 }
@@ -52,7 +55,7 @@ function fallbackPublicUser(userId: string): PublicSocialUser {
     id: userId,
     globalHandle: 'Unknown',
     username: null,
-    avatarUrl: null,
+    avatarUrl: resolveAvatarPresetId(null),
     isVerifiedCreator: false,
   };
 }

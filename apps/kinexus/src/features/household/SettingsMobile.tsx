@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CreatorPanel } from '@/src/features/creators/CreatorPanel';
 import { GoogleCalendarPanel } from '@/src/features/household/GoogleCalendarPanel';
 import { GrokBotSettings } from '@/src/features/household/GrokBotSettings';
+import { ProfileSection, UsernameSetupPrompt } from '@/src/features/household/profile-settings';
 import { RecipeImageUploadLink } from '@/src/features/household/RecipeImageUploadLink';
 import { RolePreviewCard } from '@/src/features/household/RolePreview';
 import {
@@ -24,6 +26,7 @@ import { useHousehold } from '@/src/lib/household';
 export function SettingsMobile() {
   const insets = useSafeAreaInsets();
   const { isReady, error, activeHousehold, members, memberships } = useHousehold();
+  const [profileEpoch, setProfileEpoch] = useState(0);
 
   if (!isReady) {
     return (
@@ -38,13 +41,16 @@ export function SettingsMobile() {
       <ScrollView
         style={styles.root}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
-        keyboardShouldPersistTaps="handled">
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag">
         <Text style={styles.kicker}>Get started</Text>
         <Text style={styles.title}>Your household</Text>
         <Text style={styles.lede}>
           Create a household or paste an invite. Meals and the other modules unlock after you join.
         </Text>
         <ErrorText message={error} />
+        <UsernameSetupPrompt onChanged={() => setProfileEpoch((value) => value + 1)} />
+        <ProfileSection key={profileEpoch} />
         <UnitsSettings />
         <StaffSettingsLink />
         <NewsTopicsLink />
@@ -58,12 +64,15 @@ export function SettingsMobile() {
     <ScrollView
       style={styles.root}
       contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
-      keyboardShouldPersistTaps="handled">
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag">
       <Text style={styles.kicker}>
         {memberships.length > 1 ? `${memberships.length} households` : 'Household'}
       </Text>
       <Text style={styles.title}>{activeHousehold.name}</Text>
       <ErrorText message={error} />
+      <UsernameSetupPrompt onChanged={() => setProfileEpoch((value) => value + 1)} />
+      <ProfileSection key={profileEpoch} />
       <UnitsSettings />
       <RolePreviewCard />
       <StaffSettingsLink />

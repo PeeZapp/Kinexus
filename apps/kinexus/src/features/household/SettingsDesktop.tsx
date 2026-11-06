@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CreatorPanel } from '@/src/features/creators/CreatorPanel';
 import { GoogleCalendarPanel } from '@/src/features/household/GoogleCalendarPanel';
 import { GrokBotSettings } from '@/src/features/household/GrokBotSettings';
+import { ProfileSection, UsernameSetupPrompt } from '@/src/features/household/profile-settings';
 import { RecipeImageUploadLink } from '@/src/features/household/RecipeImageUploadLink';
 import { RolePreviewCard } from '@/src/features/household/RolePreview';
 import {
@@ -22,6 +24,7 @@ import { useHousehold } from '@/src/lib/household';
 
 export function SettingsDesktop() {
   const { isReady, error, activeHousehold, members, memberships } = useHousehold();
+  const [profileEpoch, setProfileEpoch] = useState(0);
 
   if (!isReady) {
     return (
@@ -35,7 +38,11 @@ export function SettingsDesktop() {
 
   if (!activeHousehold) {
     return (
-      <View style={styles.root}>
+      <ScrollView
+        style={styles.root}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag">
         <Text style={styles.kicker}>Get started</Text>
         <Text style={styles.title}>Your household</Text>
         <Text style={styles.lede}>
@@ -43,18 +50,24 @@ export function SettingsDesktop() {
         </Text>
         <ErrorText message={error} />
         <View style={styles.narrow}>
+          <UsernameSetupPrompt onChanged={() => setProfileEpoch((value) => value + 1)} />
+          <ProfileSection key={profileEpoch} />
           <UnitsSettings />
           <StaffSettingsLink />
           <NewsTopicsLink />
           <RecipeImageUploadLink />
           <CreateJoinPanel />
         </View>
-      </View>
+      </ScrollView>
     );
   }
 
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.root}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag">
       <Text style={styles.kicker}>Account</Text>
       <Text style={styles.title}>Settings</Text>
       <Text style={styles.lede}>
@@ -65,6 +78,8 @@ export function SettingsDesktop() {
       <ErrorText message={error} />
       <View style={styles.grid}>
         <View style={styles.col}>
+          <UsernameSetupPrompt onChanged={() => setProfileEpoch((value) => value + 1)} />
+          <ProfileSection key={profileEpoch} />
           <UnitsSettings />
           <RolePreviewCard />
           <StaffSettingsLink />
@@ -96,6 +111,7 @@ const styles = StyleSheet.create({
   content: {
     paddingBottom: 64,
     maxWidth: 1100,
+    gap: 16,
   },
   kicker: {
     color: colors.accent,
@@ -124,6 +140,7 @@ const styles = StyleSheet.create({
   },
   narrow: {
     maxWidth: 480,
+    gap: 16,
   },
   grid: {
     flexDirection: 'row',

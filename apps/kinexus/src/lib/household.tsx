@@ -24,6 +24,7 @@ import {
 } from '@kinexus/domain';
 
 import { useAuth, type AuthUser } from '@/src/lib/auth';
+import { buildEnsureProfilePatch } from '@/src/lib/identity-own';
 import { buildInviteUrl } from '@/src/lib/invite';
 import {
   clearActiveHouseholdId,
@@ -154,14 +155,7 @@ async function ensureProfile(user: AuthUser): Promise<void> {
   // Profile rows are created by handle_new_user (with global_handle). Only fill blanks.
   if (!existing) return;
 
-  const patch: {
-    display_name?: string;
-    avatar_url?: string | null;
-    email?: string | null;
-  } = {};
-  if (!existing.display_name && user.displayName) patch.display_name = user.displayName;
-  if (!existing.avatar_url && user.avatarUrl) patch.avatar_url = user.avatarUrl;
-  if (!existing.email && user.email) patch.email = user.email;
+  const patch = buildEnsureProfilePatch(existing, user);
   if (Object.keys(patch).length === 0) return;
 
   const { error } = await supabase.from('profiles').update(patch).eq('id', user.id);

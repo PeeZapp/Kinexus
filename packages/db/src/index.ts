@@ -33,4 +33,8 @@ export const rpc = {
   publishCreatorRecipe: 'publish_creator_recipe',
   unpublishCreatorRecipe: 'unpublish_creator_recipe',
   staffCreatorContentDigest: 'staff_creator_content_digest',
+  checkUsernameAvailable: 'check_username_available',
+  setUsername: 'set_username',
+  publicProfile: 'public_profile',
+  publicProfiles: 'public_profiles',
 } as const;

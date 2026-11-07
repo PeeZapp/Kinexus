@@ -1,5 +1,5 @@
-import { dayDateIso, type PlanWeekDbClient, type TrainingPlanDayRow, type TrainingPlanWeekRow } from './plan-week.js';
-import type { Day } from '../meals/types.js';
+import { dayDateIso, type PlanWeekDbClient, type TrainingPlanDayRow, type TrainingPlanWeekRow } from './plan-week';
+import type { Day } from '../meals/types';
 
 export type PlanCalendarPush = (householdId: string, eventId: string) => Promise<void> | void;
 export type PlanCalendarDeletePush = (householdId: string, eventId: string) => Promise<void> | void;

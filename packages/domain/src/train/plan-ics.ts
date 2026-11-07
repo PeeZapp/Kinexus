@@ -1,5 +1,5 @@
-import { dayDateIso } from './plan-week.js';
-import type { Day } from '../meals/types.js';
+import { dayDateIso } from './plan-week';
+import type { Day } from '../meals/types';
 
 const CRLF = '\r\n';
 const FOLD_LIMIT = 75;

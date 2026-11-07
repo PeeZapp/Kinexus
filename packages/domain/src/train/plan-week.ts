@@ -431,7 +431,7 @@ export async function handleDuplicateTrainingPlanToNextWeek(
     }
 
     if (plan.calendarAutoSync) {
-      const { syncPlanCalendarIfEnabled } = await import('./plan-calendar.js');
+      const { syncPlanCalendarIfEnabled } = await import('./plan-calendar');
       const synced = await syncPlanCalendarIfEnabled(client, {
         authUserId: input.authUserId,
         planId: newPlanId,
@@ -692,7 +692,7 @@ export async function handleRegenerateRemainingDays(
   }
 
   if (plan.calendarAutoSync) {
-    const { syncPlanCalendarIfEnabled } = await import('./plan-calendar.js');
+    const { syncPlanCalendarIfEnabled } = await import('./plan-calendar');
     const synced = await syncPlanCalendarIfEnabled(client, {
       authUserId: input.authUserId,
       planId: plan.id,

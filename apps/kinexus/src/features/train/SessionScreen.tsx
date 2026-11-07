@@ -600,7 +600,7 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
     setFinishing(true);
     setError(null);
     try {
-      await finishSession({ sessionId, userId, sets, records });
+      await finishSession({ sessionId, userId, sets, records, workoutId: workout?.id ?? null });
       if (score !== null && activeHousehold && workout?.id) {
         await saveWorkoutRating({ workoutId: workout.id, userId, householdId: activeHousehold.id, score });
       }

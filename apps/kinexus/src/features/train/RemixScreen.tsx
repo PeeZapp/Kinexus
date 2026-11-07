@@ -178,7 +178,7 @@ export function RemixScreen() {
   );
 }
 
-function WeightSlider({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+export function WeightSlider({ value, onChange }: { value: number; onChange: (value: number) => void }) {
   const track = useRef(1);
   function setFromX(x: number) {
     const ratio = Math.min(1, Math.max(0, x / track.current));

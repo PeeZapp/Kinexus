@@ -2718,6 +2718,7 @@ export type Database = {
             | 'buddies_selected'
             | 'global';
           family_plan_share: 'off' | 'plan' | 'plan_activity';
+          generate_prefs: Record<string, unknown>;
         };
         Insert: {
           user_id: string;
@@ -2730,6 +2731,7 @@ export type Database = {
             | 'buddies_selected'
             | 'global';
           family_plan_share?: 'off' | 'plan' | 'plan_activity';
+          generate_prefs?: Record<string, unknown>;
         };
         Update: {
           rest_extra?: 'off' | 'quiz' | 'memory';
@@ -2741,8 +2743,151 @@ export type Database = {
             | 'buddies_selected'
             | 'global';
           family_plan_share?: 'off' | 'plan' | 'plan_activity';
+          generate_prefs?: Record<string, unknown>;
         };
         Relationships: [];
+      };
+      training_plans: {
+        Row: {
+          id: string;
+          household_id: string;
+          owner_id: string;
+          name: string;
+          week_start: string;
+          visibility: 'private' | 'household' | 'people' | 'buddies' | 'buddies_selected' | 'global';
+          audience_person_ids: string[];
+          prefs: Record<string, unknown>;
+          calendar_auto_sync: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          household_id: string;
+          owner_id: string;
+          name?: string;
+          week_start: string;
+          visibility?: 'private' | 'household' | 'people' | 'buddies' | 'buddies_selected' | 'global';
+          audience_person_ids?: string[];
+          prefs?: Record<string, unknown>;
+          calendar_auto_sync?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          name?: string;
+          week_start?: string;
+          visibility?: 'private' | 'household' | 'people' | 'buddies' | 'buddies_selected' | 'global';
+          audience_person_ids?: string[];
+          prefs?: Record<string, unknown>;
+          calendar_auto_sync?: boolean;
+        };
+        Relationships: [];
+      };
+      training_plan_day_events: {
+        Row: {
+          training_plan_day_id: string;
+          household_event_id: string;
+          created_at: string;
+        };
+        Insert: {
+          training_plan_day_id: string;
+          household_event_id: string;
+          created_at?: string;
+        };
+        Update: {
+          household_event_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'training_plan_day_events_training_plan_day_id_fkey';
+            columns: ['training_plan_day_id'];
+            isOneToOne: true;
+            referencedRelation: 'training_plan_days';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'training_plan_day_events_household_event_id_fkey';
+            columns: ['household_event_id'];
+            isOneToOne: true;
+            referencedRelation: 'household_events';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      training_plan_days: {
+        Row: {
+          id: string;
+          plan_id: string;
+          day: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+          position: number;
+          workout_id: string | null;
+          generated_spec: Record<string, unknown> | null;
+          rest_day: boolean;
+          scheduled_time: string | null;
+          duration_min: number | null;
+          focus: string[];
+          status: 'planned' | 'done' | 'skipped';
+          session_id: string | null;
+        };
+        Insert: {
+          id?: string;
+          plan_id: string;
+          day: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+          position?: number;
+          workout_id?: string | null;
+          generated_spec?: Record<string, unknown> | null;
+          rest_day?: boolean;
+          scheduled_time?: string | null;
+          duration_min?: number | null;
+          focus?: string[];
+          status?: 'planned' | 'done' | 'skipped';
+          session_id?: string | null;
+        };
+        Update: {
+          day?: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+          position?: number;
+          workout_id?: string | null;
+          generated_spec?: Record<string, unknown> | null;
+          rest_day?: boolean;
+          scheduled_time?: string | null;
+          duration_min?: number | null;
+          focus?: string[];
+          status?: 'planned' | 'done' | 'skipped';
+          session_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'training_plan_days_plan_id_fkey';
+            columns: ['plan_id'];
+            isOneToOne: false;
+            referencedRelation: 'training_plans';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      training_plan_buddy_shares: {
+        Row: {
+          plan_id: string;
+          buddy_user_id: string;
+          household_id: string;
+        };
+        Insert: {
+          plan_id: string;
+          buddy_user_id: string;
+          household_id: string;
+        };
+        Update: {
+          buddy_user_id?: string;
+          household_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'training_plan_buddy_shares_plan_id_fkey';
+            columns: ['plan_id'];
+            isOneToOne: false;
+            referencedRelation: 'training_plans';
+            referencedColumns: ['id'];
+          },
+        ];
       };
       workout_buddy_shares: {
         Row: {

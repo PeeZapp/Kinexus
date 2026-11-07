@@ -5,8 +5,6 @@ import { DAY_LABELS, MEAL_SLOTS } from '@kinexus/domain';
 
 import { Btn, ErrorText } from '@/src/features/household/ui';
 import {
-  DayPicker,
-  GenerateAudiencePicker,
   GenerateModePicker,
   GoalsEditor,
   MealPrepControls,
@@ -19,6 +17,7 @@ import { GenerateMealFooter } from '@/src/features/meals/generate/GenerateMealFo
 import { WeekSwitcher } from '@/src/features/meals/plan/PlanShared';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
 import { weekApplyLabel } from '@/src/features/meals/week-labels';
+import { DayPicker, GenerateAudiencePicker } from '@/src/features/shell/generate-controls';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
 export function GenerateMobile(props: GenerateViewProps) {

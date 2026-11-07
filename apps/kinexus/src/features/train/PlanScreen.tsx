@@ -1,125 +1,96 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 
-import {
-  canPublishTrainGlobal,
-  normalizeTrainShare,
-  TRAIN_GLOBAL_EQUIPMENT,
-  TRAIN_GLOBAL_GOALS,
-  TRAIN_GLOBAL_LEVELS,
-  trainGlobalEquipmentLabel,
-  trainGlobalGoalLabel,
-  trainGlobalLevelLabel,
-  trainVisibilityOptions,
-  type TrainGlobalEquipment,
-  type TrainGlobalGoal,
-  type TrainGlobalLevel,
-  type TrainVisibility,
-} from '@kinexus/domain';
+import { addDaysIso, mondayWeekStart, type Day } from '@kinexus/domain';
 
-import { useCreator } from '@/src/features/creators/use-creator';
 import {
-  loadMyTrainPlan,
+  addTrainingPlanDayToCalendar,
+  addTrainingPlanToCalendar,
+  downloadTrainingPlanIcs,
+  duplicateTrainingPlanToNextWeek,
+  listTrainingPlansByWeek,
+  loadLibrary,
   loadWorkouts,
-  saveMyTrainPlan,
-  type TrainPlanDraft,
-  type WorkoutDraft,
+  regenerateRemainingTrainingDays,
+  setTrainingPlanCalendarAutoSync,
+  setTrainingPlanDayStatus,
+  type TrainingPlanWeekRow,
 } from '@/src/features/train/api';
-import {
-  loadPlanTrainTogether,
-  loadTrainBuddies,
-  type TrainTogetherInvite,
-} from '@/src/features/train/buddies-api';
-import { Choice, Field, Pill, TextAction, TrainButton, TrainPage, VisibilityPicker } from '@/src/features/train/ui';
-import { ErrorBanner, LoadingState } from '@/src/features/shell/states';
-import { colors, radius, space } from '@/src/features/shell/theme';
+import { PlanDesktop } from '@/src/features/train/plan/PlanDesktop';
+import { PlanMobile } from '@/src/features/train/plan/PlanMobile';
+import type { PlanAudienceRow, PlanDayCardModel } from '@/src/features/train/plan/types';
+import { TrainPage } from '@/src/features/train/ui';
+import { LoadingState } from '@/src/features/shell/states';
+import { todayDay } from '@/src/features/meals/week-labels';
+import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function cardsForPlan(plan: TrainingPlanWeekRow, defaultTimeDayIds: string[]): PlanDayCardModel[] {
+  return plan.days.map((day) => ({
+    id: day.id,
+    planId: plan.id,
+    day: day.day,
+    restDay: day.restDay,
+    focus: day.focus,
+    scheduledTime: day.scheduledTime,
+    durationMin: day.durationMin,
+    status: day.status,
+    workoutId: day.workoutId,
+    sessionId: day.sessionId,
+    usedDefaultTime: defaultTimeDayIds.includes(day.id),
+  }));
+}
+
+function audienceLabel(
+  plan: TrainingPlanWeekRow,
+  userId: string | null,
+  people: { id: string; name: string; userId: string | null }[],
+): string {
+  if (plan.ownerId === userId) return 'You';
+  const linked = people.find((person) => person.userId === plan.ownerId);
+  if (linked) return linked.name;
+  if (plan.audiencePersonIds.length > 0) {
+    const names = plan.audiencePersonIds
+      .map((id) => people.find((person) => person.id === id)?.name)
+      .filter(Boolean);
+    if (names.length) return names.join(', ');
+  }
+  return plan.name || 'Plan';
+}
 
 export function PlanScreen() {
+  const { mode } = useExperienceMode();
+  const desktop = mode === 'desktop';
   const router = useRouter();
   const { user } = useAuth();
   const { activeHousehold, people } = useHousehold();
-  const creator = useCreator();
   const userId = user && !user.isDevBypass ? user.id : null;
 
+  const [weekStart, setWeekStart] = useState(() => mondayWeekStart());
+  const [plans, setPlans] = useState<TrainingPlanWeekRow[]>([]);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [name, setName] = useState('My plan');
-  const [visibility, setVisibility] = useState<TrainVisibility>('private');
-  const [personIds, setPersonIds] = useState<string[]>([]);
-  const [buddyUserIds, setBuddyUserIds] = useState<string[]>([]);
-  const [level, setLevel] = useState<TrainGlobalLevel | null>(null);
-  const [goal, setGoal] = useState<TrainGlobalGoal | null>(null);
-  const [equipment, setEquipment] = useState<TrainGlobalEquipment[]>([]);
-  const [days, setDays] = useState<{ weekday: number; workoutId: string | null; label: string }[]>(
-    WEEKDAYS.map((_, weekday) => ({ weekday, workoutId: null, label: '' })),
-  );
-  const [workouts, setWorkouts] = useState<WorkoutDraft[]>([]);
-  const [buddies, setBuddies] = useState<{ id: string; name: string }[]>([]);
-  const [together, setTogether] = useState<TrainTogetherInvite[]>([]);
-  const [pickingDay, setPickingDay] = useState<number | null>(null);
+  const [regenPreview, setRegenPreview] = useState<{
+    planId: string;
+    summary: string;
+  } | null>(null);
+  const [defaultTimeDayIds, setDefaultTimeDayIds] = useState<string[]>([]);
 
-  const visibilityOptions = useMemo(
-    () => trainVisibilityOptions({ isApprovedCreator: creator.isApprovedCreator, current: visibility }),
-    [creator.isApprovedCreator, visibility],
+  const peopleOptions = useMemo(
+    () => people.map((person) => ({ id: person.id, name: person.name, userId: person.userId })),
+    [people],
   );
 
   const refresh = useCallback(async () => {
     if (!userId || !activeHousehold) {
-      setWorkouts([]);
-      setBuddies([]);
+      setPlans([]);
       return;
     }
-    const [plan, workoutRows, buddyRows, togetherRows] = await Promise.all([
-      loadMyTrainPlan(userId, activeHousehold.id),
-      loadWorkouts(activeHousehold.id),
-      loadTrainBuddies(userId),
-      loadPlanTrainTogether(userId),
-    ]);
-    setWorkouts(workoutRows);
-    setBuddies(
-      buddyRows
-        .filter((row) => row.status === 'accepted')
-        .map((row) => ({
-          id: row.otherUserId,
-          name: row.profile.username || row.profile.globalHandle || 'Buddy',
-        })),
-    );
-    setTogether(togetherRows);
-    applyPlan(plan);
-  }, [activeHousehold, userId]);
-
-  function applyPlan(plan: TrainPlanDraft | null) {
-    if (!plan) {
-      setName('My plan');
-      setVisibility('private');
-      setPersonIds([]);
-      setBuddyUserIds([]);
-      setLevel(null);
-      setGoal(null);
-      setEquipment([]);
-      setDays(WEEKDAYS.map((_, weekday) => ({ weekday, workoutId: null, label: '' })));
-      return;
-    }
-    setName(plan.name);
-    setVisibility(plan.visibility);
-    setPersonIds(plan.personIds);
-    setBuddyUserIds(plan.buddyUserIds);
-    setLevel(plan.level);
-    setGoal(plan.goal);
-    setEquipment(plan.equipment);
-    setDays(
-      WEEKDAYS.map((_, weekday) => {
-        const match = plan.days.find((day) => day.weekday === weekday);
-        return { weekday, workoutId: match?.workoutId ?? null, label: match?.label ?? '' };
-      }),
-    );
-  }
+    const rows = await listTrainingPlansByWeek(activeHousehold.id, weekStart, userId);
+    setPlans(rows);
+  }, [activeHousehold, userId, weekStart]);
 
   useFocusEffect(
     useCallback(() => {
@@ -138,43 +109,190 @@ export function PlanScreen() {
     }, [refresh]),
   );
 
-  useEffect(() => {
-    if (visibility === 'global' && !creator.isApprovedCreator) setVisibility('private');
-  }, [creator.isApprovedCreator, visibility]);
+  const rows: PlanAudienceRow[] = useMemo(
+    () =>
+      plans.map((plan) => ({
+        label: audienceLabel(plan, userId, peopleOptions),
+        plan,
+        cards: cardsForPlan(plan, defaultTimeDayIds),
+      })),
+    [defaultTimeDayIds, peopleOptions, plans, userId],
+  );
 
-  async function save() {
-    if (!userId || !activeHousehold || busy) return;
-    if (visibility === 'global' && !canPublishTrainGlobal({ level, goal, equipment })) {
-      setError('Everyone publish requires level, goal, and equipment');
-      return;
-    }
+  const today: Day | null = weekStart === mondayWeekStart() ? todayDay() : null;
+
+  function canManagePlan(plan: TrainingPlanWeekRow) {
+    return Boolean(userId && plan.ownerId === userId);
+  }
+
+  async function mutateStatus(card: PlanDayCardModel, status: 'planned' | 'done' | 'skipped') {
+    if (!userId || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const share = normalizeTrainShare(visibility, personIds, buddyUserIds);
-      await saveMyTrainPlan({
-        householdId: activeHousehold.id,
+      await setTrainingPlanDayStatus({
         userId,
-        name,
-        visibility: share.visibility,
-        level,
-        goal,
-        equipment,
-        personIds: share.personIds,
-        buddyUserIds: share.buddyUserIds,
-        days: days
-          .filter((day) => day.workoutId || day.label.trim())
-          .map((day, index) => ({
-            weekday: day.weekday,
-            position: index,
-            workoutId: day.workoutId,
-            label: day.label.trim(),
-          })),
+        dayId: card.id,
+        status,
+        sessionId: status === 'done' ? card.sessionId : null,
       });
+      await refresh();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Could not save plan');
+      setError(err instanceof Error ? err.message : 'Could not update day');
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onDuplicate(plan: TrainingPlanWeekRow) {
+    if (!userId || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await duplicateTrainingPlanToNextWeek(userId, plan.id);
+      setWeekStart(result.weekStart);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not duplicate plan');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRegenerate(plan: TrainingPlanWeekRow) {
+    if (!userId || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const [library, workouts] = await Promise.all([
+        loadLibrary(),
+        activeHousehold ? loadWorkouts(activeHousehold.id) : Promise.resolve([]),
+      ]);
+      const preview = await regenerateRemainingTrainingDays({
+        userId,
+        planId: plan.id,
+        catalogue: library,
+        savedWorkouts: workouts.map((workout) => ({
+          id: workout.id,
+          name: workout.name,
+          focus: [],
+          durationMin: workout.durationMin,
+          exerciseIds: workout.exercises.flatMap((exercise) => (exercise.exerciseId ? [exercise.exerciseId] : [])),
+        })),
+        confirm: false,
+      });
+      const focusBits = preview.preview
+        .filter((day) => !day.restDay)
+        .map((day) => `${day.day}: ${(day.focus[0] ?? 'Train').toLowerCase()}`)
+        .join(', ');
+      setRegenPreview({
+        planId: plan.id,
+        summary:
+          preview.remainingDays.length === 0
+            ? 'No remaining planned days to regenerate.'
+            : `Will replace ${preview.remainingDays.length} day(s) (${focusBits || 'rest'}). Done, skipped, and past days stay put.`,
+      });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not preview regenerate');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onConfirmRegen() {
+    if (!userId || !regenPreview || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const [library, workouts] = await Promise.all([
+        loadLibrary(),
+        activeHousehold ? loadWorkouts(activeHousehold.id) : Promise.resolve([]),
+      ]);
+      await regenerateRemainingTrainingDays({
+        userId,
+        planId: regenPreview.planId,
+        catalogue: library,
+        savedWorkouts: workouts.map((workout) => ({
+          id: workout.id,
+          name: workout.name,
+          focus: [],
+          durationMin: workout.durationMin,
+          exerciseIds: workout.exercises.flatMap((exercise) => (exercise.exerciseId ? [exercise.exerciseId] : [])),
+        })),
+        confirm: true,
+      });
+      setRegenPreview(null);
+      await refresh();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not regenerate');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onStart(card: PlanDayCardModel) {
+    if (!card.workoutId) return;
+    router.push(`/train/session/${card.workoutId}` as Href);
+  }
+
+  async function onAddPlanToCalendar(plan: TrainingPlanWeekRow) {
+    if (!userId || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await addTrainingPlanToCalendar(userId, plan.id);
+      setDefaultTimeDayIds((current) => [...new Set([...current, ...result.usedDefaultTimeDays])]);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not add plan to calendar');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onAddDayToCalendar(card: PlanDayCardModel) {
+    if (!userId || busy || card.restDay) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await addTrainingPlanDayToCalendar(userId, card.id);
+      if (result.usedDefaultTime) {
+        setDefaultTimeDayIds((current) => [...new Set([...current, card.id])]);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not add day to calendar');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onToggleAutoSync(plan: TrainingPlanWeekRow) {
+    if (!userId || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await setTrainingPlanCalendarAutoSync(userId, plan.id, !plan.calendarAutoSync);
+      await refresh();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not update auto-sync');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onExportPlanIcs(plan: TrainingPlanWeekRow) {
+    setError(null);
+    try {
+      await downloadTrainingPlanIcs(plan);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not export .ics');
+    }
+  }
+
+  async function onExportDayIcs(plan: TrainingPlanWeekRow, card: PlanDayCardModel) {
+    setError(null);
+    try {
+      await downloadTrainingPlanIcs(plan, [card.id]);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not export .ics');
     }
   }
 
@@ -186,192 +304,32 @@ export function PlanScreen() {
     );
   }
 
-  return (
-    <TrainPage>
-      <ScrollView contentContainerStyle={styles.content}>
-        <ErrorBanner message={error} />
-        <Field value={name} onChangeText={setName} placeholder="Plan name" title />
-        <VisibilityPicker value={visibility} options={visibilityOptions} onChange={setVisibility} />
-        {visibility === 'people' ? (
-          <View style={styles.picks}>
-            {people.map((person) => {
-              const on = personIds.includes(person.id);
-              return (
-                <Choice
-                  key={person.id}
-                  label={person.name}
-                  active={on}
-                  onPress={() =>
-                    setPersonIds((current) => (on ? current.filter((id) => id !== person.id) : [...current, person.id]))
-                  }
-                />
-              );
-            })}
-          </View>
-        ) : null}
-        {visibility === 'buddies_selected' ? (
-          <View style={styles.picks}>
-            {buddies.map((buddy) => {
-              const on = buddyUserIds.includes(buddy.id);
-              return (
-                <Choice
-                  key={buddy.id}
-                  label={buddy.name}
-                  active={on}
-                  onPress={() =>
-                    setBuddyUserIds((current) =>
-                      on ? current.filter((id) => id !== buddy.id) : [...current, buddy.id],
-                    )
-                  }
-                />
-              );
-            })}
-          </View>
-        ) : null}
-        {visibility === 'global' ? (
-          <View style={styles.tags}>
-            <View style={styles.picks}>
-              {TRAIN_GLOBAL_LEVELS.map((value) => (
-                <Choice
-                  key={value}
-                  label={trainGlobalLevelLabel(value)}
-                  active={level === value}
-                  onPress={() => setLevel(value)}
-                />
-              ))}
-            </View>
-            <View style={styles.picks}>
-              {TRAIN_GLOBAL_GOALS.map((value) => (
-                <Choice
-                  key={value}
-                  label={trainGlobalGoalLabel(value)}
-                  active={goal === value}
-                  onPress={() => setGoal(value)}
-                />
-              ))}
-            </View>
-            <View style={styles.picks}>
-              {TRAIN_GLOBAL_EQUIPMENT.map((value) => {
-                const on = equipment.includes(value);
-                return (
-                  <Choice
-                    key={value}
-                    label={trainGlobalEquipmentLabel(value)}
-                    active={on}
-                    onPress={() =>
-                      setEquipment((current) =>
-                        on ? current.filter((item) => item !== value) : [...current, value],
-                      )
-                    }
-                  />
-                );
-              })}
-            </View>
-          </View>
-        ) : null}
+  const viewProps = {
+    weekStart,
+    onPrevWeek: () => setWeekStart((current) => addDaysIso(current, -7)),
+    onNextWeek: () => setWeekStart((current) => addDaysIso(current, 7)),
+    onThisWeek: () => setWeekStart(mondayWeekStart()),
+    rows,
+    today,
+    busy,
+    error,
+    regenPreview,
+    onGenerate: () => router.push('/train/plan/generate' as Href),
+    onDuplicate,
+    onRegenerate: (plan: TrainingPlanWeekRow) => void onRegenerate(plan),
+    onConfirmRegen: () => void onConfirmRegen(),
+    onCancelRegen: () => setRegenPreview(null),
+    onStart,
+    onMarkDone: (card: PlanDayCardModel) => void mutateStatus(card, 'done'),
+    onMarkSkipped: (card: PlanDayCardModel) => void mutateStatus(card, 'skipped'),
+    onUndo: (card: PlanDayCardModel) => void mutateStatus(card, 'planned'),
+    onAddPlanToCalendar: (plan: TrainingPlanWeekRow) => void onAddPlanToCalendar(plan),
+    onAddDayToCalendar: (card: PlanDayCardModel) => void onAddDayToCalendar(card),
+    onExportPlanIcs: (plan: TrainingPlanWeekRow) => void onExportPlanIcs(plan),
+    onExportDayIcs: (plan: TrainingPlanWeekRow, card: PlanDayCardModel) => void onExportDayIcs(plan, card),
+    onToggleAutoSync: (plan: TrainingPlanWeekRow) => void onToggleAutoSync(plan),
+    canManagePlan,
+  };
 
-        {together.length > 0 ? (
-          <View style={styles.together}>
-            <Text style={styles.togetherTitle}>Train together</Text>
-            {together.map((row) => (
-              <View key={row.id} style={styles.togetherRow}>
-                <View style={styles.togetherCopy}>
-                  <Text style={styles.dayWorkout}>{row.workoutName}</Text>
-                  <Text style={styles.togetherMeta}>
-                    {row.otherProfile.username || row.otherProfile.globalHandle}
-                    {row.scheduledAt ? ` · ${new Date(row.scheduledAt).toLocaleString()}` : ''}
-                  </Text>
-                  <Pill label={row.status === 'pending' ? 'Pending' : 'Accepted'} />
-                </View>
-                <TextAction label="Open" onPress={() => router.push(`/train/${row.workoutId}` as Href)} />
-              </View>
-            ))}
-          </View>
-        ) : null}
-
-        {days.map((day) => {
-          const workout = workouts.find((item) => item.id === day.workoutId);
-          return (
-            <View key={day.weekday} style={styles.day}>
-              <Text style={styles.dayLabel}>{WEEKDAYS[day.weekday]}</Text>
-              <View style={styles.dayBody}>
-                <Text style={styles.dayWorkout}>{workout?.name || day.label || 'Rest'}</Text>
-                <TextAction
-                  label={pickingDay === day.weekday ? 'Close' : 'Set'}
-                  onPress={() => setPickingDay((current) => (current === day.weekday ? null : day.weekday))}
-                />
-              </View>
-              {pickingDay === day.weekday ? (
-                <View style={styles.picks}>
-                  <Choice
-                    label="Rest"
-                    active={!day.workoutId}
-                    onPress={() => {
-                      setDays((current) =>
-                        current.map((item) =>
-                          item.weekday === day.weekday ? { ...item, workoutId: null, label: '' } : item,
-                        ),
-                      );
-                      setPickingDay(null);
-                    }}
-                  />
-                  {workouts.map((item) => (
-                    <Choice
-                      key={item.id}
-                      label={item.name}
-                      active={day.workoutId === item.id}
-                      onPress={() => {
-                        setDays((current) =>
-                          current.map((entry) =>
-                            entry.weekday === day.weekday
-                              ? { ...entry, workoutId: item.id, label: item.name }
-                              : entry,
-                          ),
-                        );
-                        setPickingDay(null);
-                      }}
-                    />
-                  ))}
-                </View>
-              ) : null}
-            </View>
-          );
-        })}
-
-        <TrainButton label={busy ? 'Saving…' : 'Save plan'} onPress={() => void save()} disabled={busy} fill />
-      </ScrollView>
-    </TrainPage>
-  );
+  return <TrainPage>{desktop ? <PlanDesktop {...viewProps} /> : <PlanMobile {...viewProps} />}</TrainPage>;
 }
-
-const styles = StyleSheet.create({
-  content: { gap: space.md, paddingBottom: space.lg },
-  picks: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  tags: { gap: 8 },
-  together: { gap: space.sm },
-  togetherTitle: { color: colors.textMuted, fontSize: 13, fontWeight: '700', letterSpacing: 0.4 },
-  togetherRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    backgroundColor: colors.bgElevated,
-    padding: space.md,
-  },
-  togetherCopy: { flex: 1, gap: 4 },
-  togetherMeta: { color: colors.textDim, fontSize: 12 },
-  day: {
-    gap: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    backgroundColor: colors.bgElevated,
-    padding: space.md,
-  },
-  dayLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
-  dayBody: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  dayWorkout: { flex: 1, color: colors.text, fontSize: 15, fontWeight: '600' },
-});

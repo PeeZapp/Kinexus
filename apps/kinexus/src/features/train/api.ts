@@ -3,18 +3,37 @@ import type {
   EffortLevel,
   ExerciseRecord,
   FamilyPlanShare,
+  GeneratedTrainDay,
   LoggedSet,
+  PlanIcsDay,
+  RegenerateRemainingPreviewDay,
   RestExtra,
+  SavedWorkoutCandidate,
   TrainGlobalEquipment,
   TrainGlobalGoal,
   TrainGlobalLevel,
+  TrainingPlanDayStatus,
+  TrainingPlanWeekRow,
   TrainVisibility,
   WeightUnit,
 } from '@kinexus/domain';
 import {
   applyLoggedSets,
+  buildTrainingPlanIcs,
   effortLevelFrom,
   formatWeight,
+  handleApplyTrainingPlan,
+  handleDuplicateTrainingPlanToNextWeek,
+  handleListTrainingPlansByWeek,
+  handleMarkTrainingPlanDayFromSession,
+  handleRegenerateRemainingDays,
+  handleRemoveTrainingPlanDayEvent,
+  handleSaveGeneratePrefs,
+  handleSetTrainingPlanCalendarAutoSync,
+  handleSetTrainingPlanDayStatus,
+  handleSyncTrainingPlanToCalendar,
+  handleUpdateTrainingPlanDaySchedule,
+  handleUpsertTrainingPlanDayEvent,
   isFamilyPlanShare,
   isTrainGlobalGoal,
   isTrainGlobalLevel,
@@ -27,6 +46,11 @@ import {
 import type { Database } from '@kinexus/db';
 import { rpc } from '@kinexus/db';
 
+import {
+  deleteHouseholdEventFromGoogle,
+  pushHouseholdEventToGoogle,
+} from '@/src/features/calendar/google-sync';
+import { shareOrDownloadExport } from '@/src/features/lists/list-file-io';
 import { fetchPublicProfilesByIds, type PublicSocialUser } from '@/src/features/stash/watchlist-social';
 import { supabase } from '@/src/lib/supabase';
 
@@ -135,6 +159,7 @@ export type TrainPrefs = {
   restExtra: RestExtra;
   defaultWorkoutVisibility: TrainVisibility;
   familyPlanShare: FamilyPlanShare;
+  generatePrefs: Record<string, unknown>;
 };
 
 export type FamilyTrainMember = {
@@ -546,22 +571,32 @@ export async function saveRestExtra(userId: string, restExtra: RestExtra): Promi
 export async function loadTrainPrefs(userId: string): Promise<TrainPrefs> {
   const { data, error } = await db()
     .from('user_train_prefs')
-    .select('rest_extra, default_workout_visibility, family_plan_share')
+    .select('rest_extra, default_workout_visibility, family_plan_share, generate_prefs')
     .eq('user_id', userId)
     .maybeSingle();
   if (error) throw error;
   const visibility = data?.default_workout_visibility;
   const family = data?.family_plan_share;
+  const generatePrefs =
+    data?.generate_prefs && typeof data.generate_prefs === 'object' && !Array.isArray(data.generate_prefs)
+      ? (data.generate_prefs as Record<string, unknown>)
+      : {};
   return {
     restExtra: data?.rest_extra ?? 'off',
     defaultWorkoutVisibility: visibility && isTrainVisibility(visibility) ? visibility : 'private',
     familyPlanShare: family && isFamilyPlanShare(family) ? family : 'off',
+    generatePrefs,
   };
 }
 
 export async function saveTrainPrefs(
   userId: string,
-  patch: Partial<{ restExtra: RestExtra; defaultWorkoutVisibility: TrainVisibility; familyPlanShare: FamilyPlanShare }>,
+  patch: Partial<{
+    restExtra: RestExtra;
+    defaultWorkoutVisibility: TrainVisibility;
+    familyPlanShare: FamilyPlanShare;
+    generatePrefs: Record<string, unknown>;
+  }>,
 ): Promise<void> {
   const { error } = await db()
     .from('user_train_prefs')
@@ -572,6 +607,7 @@ export async function saveTrainPrefs(
         ? { default_workout_visibility: patch.defaultWorkoutVisibility }
         : {}),
       ...(patch.familyPlanShare != null ? { family_plan_share: patch.familyPlanShare } : {}),
+      ...(patch.generatePrefs != null ? { generate_prefs: patch.generatePrefs } : {}),
     });
   if (error) throw error;
 }
@@ -1223,6 +1259,7 @@ export async function finishSession(input: {
   userId: string;
   sets: SessionSet[];
   records: Record<string, ExerciseRecord>;
+  workoutId?: string | null;
 }): Promise<void> {
   const groups = new Map<string, SessionSet[]>();
   for (const set of input.sets) {
@@ -1246,6 +1283,20 @@ export async function finishSession(input: {
   }
   const { error } = await db().from('workout_sessions').update({ finished_at: new Date().toISOString() }).eq('id', input.sessionId);
   if (error) throw error;
+
+  let workoutId = input.workoutId ?? null;
+  if (!workoutId) {
+    const { data } = await db().from('workout_sessions').select('workout_id').eq('id', input.sessionId).maybeSingle();
+    workoutId = data?.workout_id ?? null;
+  }
+  const marked = await handleMarkTrainingPlanDayFromSession(db() as never, {
+    authUserId: input.userId,
+    sessionId: input.sessionId,
+    workoutId,
+  });
+  if (marked.status !== 200 && marked.status !== 403) {
+    throw new Error(marked.body.error);
+  }
 }
 
 export async function loadHistoryDedupeKeys(
@@ -1316,5 +1367,227 @@ export async function importFinishedSession(input: {
     if (setError) throw setError;
   }
   return data.id;
+}
+
+export async function loadGeneratePrefs(userId: string): Promise<Record<string, unknown>> {
+  const prefs = await loadTrainPrefs(userId);
+  return prefs.generatePrefs;
+}
+
+export async function saveGeneratePrefs(userId: string, prefs: Record<string, unknown>): Promise<void> {
+  const result = await handleSaveGeneratePrefs(db() as never, {
+    userId,
+    authUserId: userId,
+    prefs,
+  });
+  if (result.status !== 200) throw new Error(result.body.error);
+}
+
+export async function applyGeneratedTrainingPlan(input: {
+  householdId: string;
+  userId: string;
+  name?: string;
+  weekStart: string;
+  visibility: TrainVisibility;
+  audiencePersonIds?: string[];
+  buddyUserIds?: string[];
+  prefs?: Record<string, unknown>;
+  days: (GeneratedTrainDay & { scheduledTime?: string | null })[];
+}): Promise<{ planId: string; workoutIds: Record<string, string> }> {
+  const result = await handleApplyTrainingPlan(db() as never, {
+    householdId: input.householdId,
+    ownerId: input.userId,
+    authUserId: input.userId,
+    name: input.name,
+    weekStart: input.weekStart,
+    visibility: input.visibility,
+    audiencePersonIds: input.audiencePersonIds,
+    buddyUserIds: input.buddyUserIds,
+    prefs: input.prefs,
+    days: input.days,
+  });
+  if (result.status !== 200) throw new Error(result.body.error);
+  return result.body;
+}
+
+export type { TrainingPlanWeekRow, TrainingPlanDayStatus, RegenerateRemainingPreviewDay };
+
+export async function listTrainingPlansByWeek(
+  householdId: string,
+  weekStart: string,
+  userId: string,
+): Promise<TrainingPlanWeekRow[]> {
+  const result = await handleListTrainingPlansByWeek(db() as never, {
+    householdId,
+    weekStart,
+    authUserId: userId,
+  });
+  if (result.status !== 200) throw new Error(result.body.error);
+  return result.body.plans;
+}
+
+export async function setTrainingPlanDayStatus(input: {
+  userId: string;
+  dayId: string;
+  status: TrainingPlanDayStatus;
+  sessionId?: string | null;
+}): Promise<void> {
+  const result = await handleSetTrainingPlanDayStatus(db() as never, {
+    authUserId: input.userId,
+    dayId: input.dayId,
+    status: input.status,
+    sessionId: input.sessionId,
+  });
+  if (result.status !== 200) throw new Error(result.body.error);
+}
+
+export async function duplicateTrainingPlanToNextWeek(userId: string, planId: string): Promise<{ planId: string; weekStart: string }> {
+  const result = await handleDuplicateTrainingPlanToNextWeek(db() as never, {
+    authUserId: userId,
+    planId,
+    pushToGoogle: pushHouseholdEventToGoogle,
+    deleteFromGoogle: deleteHouseholdEventFromGoogle,
+  });
+  if (result.status !== 200) throw new Error(result.body.error);
+  return result.body;
+}
+
+export async function regenerateRemainingTrainingDays(input: {
+  userId: string;
+  planId: string;
+  catalogue: readonly CatalogExercise[];
+  savedWorkouts?: readonly SavedWorkoutCandidate[];
+  seed?: number;
+  confirm: boolean;
+}): Promise<{
+  planId: string;
+  remainingDays: string[];
+  lockedDays: string[];
+  preview: RegenerateRemainingPreviewDay[];
+  applied: boolean;
+}> {
+  const result = await handleRegenerateRemainingDays(db() as never, {
+    authUserId: input.userId,
+    planId: input.planId,
+    catalogue: input.catalogue,
+    savedWorkouts: input.savedWorkouts,
+    seed: input.seed,
+    confirm: input.confirm,
+    pushToGoogle: pushHouseholdEventToGoogle,
+    deleteFromGoogle: deleteHouseholdEventFromGoogle,
+  });
+  if (result.status !== 200) throw new Error(result.body.error);
+  return result.body;
+}
+
+export async function addTrainingPlanDayToCalendar(userId: string, dayId: string): Promise<{
+  eventId: string;
+  usedDefaultTime: boolean;
+  created: boolean;
+}> {
+  const result = await handleUpsertTrainingPlanDayEvent(db() as never, {
+    authUserId: userId,
+    dayId,
+    force: true,
+    pushToGoogle: pushHouseholdEventToGoogle,
+    deleteFromGoogle: deleteHouseholdEventFromGoogle,
+  });
+  if (result.status !== 200) throw new Error(result.body.error);
+  return {
+    eventId: result.body.eventId,
+    usedDefaultTime: result.body.usedDefaultTime,
+    created: result.body.created,
+  };
+}
+
+export async function addTrainingPlanToCalendar(userId: string, planId: string): Promise<{
+  usedDefaultTimeDays: string[];
+}> {
+  const result = await handleSyncTrainingPlanToCalendar(db() as never, {
+    authUserId: userId,
+    planId,
+    force: true,
+    pushToGoogle: pushHouseholdEventToGoogle,
+    deleteFromGoogle: deleteHouseholdEventFromGoogle,
+  });
+  if (result.status !== 200) throw new Error(result.body.error);
+  return { usedDefaultTimeDays: result.body.usedDefaultTimeDays };
+}
+
+export async function setTrainingPlanCalendarAutoSync(
+  userId: string,
+  planId: string,
+  calendarAutoSync: boolean,
+): Promise<void> {
+  const result = await handleSetTrainingPlanCalendarAutoSync(db() as never, {
+    authUserId: userId,
+    planId,
+    calendarAutoSync,
+    pushToGoogle: pushHouseholdEventToGoogle,
+    deleteFromGoogle: deleteHouseholdEventFromGoogle,
+  });
+  if (result.status !== 200) throw new Error(result.body.error);
+}
+
+export async function updateTrainingPlanDaySchedule(input: {
+  userId: string;
+  dayId: string;
+  scheduledTime?: string | null;
+  durationMin?: number | null;
+  day?: TrainingPlanWeekRow['days'][number]['day'];
+  restDay?: boolean;
+}): Promise<{ synced: boolean; usedDefaultTime: boolean }> {
+  const result = await handleUpdateTrainingPlanDaySchedule(db() as never, {
+    authUserId: input.userId,
+    dayId: input.dayId,
+    scheduledTime: input.scheduledTime,
+    durationMin: input.durationMin,
+    day: input.day,
+    restDay: input.restDay,
+    pushToGoogle: pushHouseholdEventToGoogle,
+    deleteFromGoogle: deleteHouseholdEventFromGoogle,
+  });
+  if (result.status !== 200) throw new Error(result.body.error);
+  return { synced: result.body.synced, usedDefaultTime: result.body.usedDefaultTime };
+}
+
+export async function removeTrainingPlanDayFromCalendar(userId: string, dayId: string): Promise<void> {
+  const result = await handleRemoveTrainingPlanDayEvent(db() as never, {
+    authUserId: userId,
+    dayId,
+    deleteFromGoogle: deleteHouseholdEventFromGoogle,
+  });
+  if (result.status !== 200) throw new Error(result.body.error);
+}
+
+function icsDaysFromPlan(plan: TrainingPlanWeekRow, dayIds?: string[]): PlanIcsDay[] {
+  return plan.days
+    .filter((day) => (!dayIds || dayIds.includes(day.id)) && !day.restDay)
+    .map((day) => ({
+      id: day.id,
+      day: day.day,
+      restDay: day.restDay,
+      focus: day.focus,
+      scheduledTime: day.scheduledTime,
+      durationMin: day.durationMin,
+    }));
+}
+
+export async function downloadTrainingPlanIcs(plan: TrainingPlanWeekRow, dayIds?: string[]): Promise<void> {
+  const days = icsDaysFromPlan(plan, dayIds);
+  if (days.length === 0) throw new Error('No workout days to export');
+  const text = buildTrainingPlanIcs({
+    planId: plan.id,
+    planName: plan.name,
+    weekStart: plan.weekStart,
+    days,
+  });
+  const suffix = dayIds?.length === 1 ? `-${days[0]?.day ?? 'day'}` : '';
+  await shareOrDownloadExport({
+    fileName: `kinexus-plan-${plan.weekStart}${suffix}.ics`,
+    mimeType: 'text/calendar',
+    text,
+    bytes: null,
+  });
 }
 

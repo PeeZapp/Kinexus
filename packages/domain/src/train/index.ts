@@ -101,6 +101,89 @@ export {
   nextSimilarExercise,
 } from './remix';
 export type { RemixCategory } from './remix';
+export {
+  MAX_SESSIONS_PER_GROUP,
+  WEEKLY_VOLUME_TARGET,
+  compoundFirstOrder,
+  generateTrainPlan,
+  isCompoundExercise,
+  pickTrainingDays,
+  prescriptionFor,
+  splitTemplateFor,
+  weeklyVolumeByGroup,
+} from './generate-plan';
+export type {
+  GeneratePlanGoal,
+  GeneratePlanInput,
+  GeneratePlanLevel,
+  GeneratedTrainDay,
+  GeneratedTrainExercise,
+  SavedWorkoutCandidate,
+  TrainFocus,
+} from './generate-plan';
+export {
+  handleApplyTrainingPlan,
+  handleSaveGeneratePrefs,
+} from './apply-plan';
+export type {
+  ApplyDbClient,
+  ApplyTrainingPlanDay,
+  ApplyTrainingPlanInput,
+  ApplyTrainingPlanResult,
+  SaveGeneratePrefsInput,
+  SaveGeneratePrefsResult,
+} from './apply-plan';
+export {
+  dayDateIso,
+  handleDuplicateTrainingPlanToNextWeek,
+  handleListTrainingPlansByWeek,
+  handleMarkTrainingPlanDayFromSession,
+  handleRegenerateRemainingDays,
+  handleSetTrainingPlanDayStatus,
+  isRegeneratableDay,
+} from './plan-week';
+export type {
+  DuplicateTrainingPlanResult,
+  ListTrainingPlansByWeekResult,
+  MarkPlanDayFromSessionResult,
+  PlanWeekDbClient,
+  RegenerateRemainingPreviewDay,
+  RegenerateRemainingResult,
+  SetTrainingPlanDayStatusResult,
+  TrainingPlanDayRow,
+  TrainingPlanDayStatus,
+  TrainingPlanWeekRow,
+} from './plan-week';
+export {
+  addMinutesToPlanClock,
+  computePlanDaySchedule,
+  handleRemoveTrainingPlanDayEvent,
+  handleSetTrainingPlanCalendarAutoSync,
+  handleSyncTrainingPlanToCalendar,
+  handleUpdateTrainingPlanDaySchedule,
+  handleUpsertTrainingPlanDayEvent,
+  normalizePlanClock,
+  syncPlanCalendarIfEnabled,
+  trainingPlanEventTitle,
+} from './plan-calendar';
+export type {
+  PlanCalendarDeletePush,
+  PlanCalendarPush,
+  PlanDayEventSyncBody,
+  PlanDaySchedule,
+  RemovePlanDayEventResult,
+  SetCalendarAutoSyncResult,
+  SyncPlanCalendarResult,
+  UpdatePlanDayScheduleResult,
+  UpsertPlanDayEventResult,
+} from './plan-calendar';
+export {
+  buildTrainingPlanIcs,
+  escapeIcsText,
+  foldIcsLine,
+  trainingPlanDayIcsUid,
+} from './plan-ics';
+export type { PlanIcsDay, PlanIcsInput } from './plan-ics';
 export { applyLoggedSets, parseWeight } from './records';
 export { memoryPairs, quizForRest, shuffledRestQuiz } from './quiz';
 export type { QuizQuestion } from './quiz';

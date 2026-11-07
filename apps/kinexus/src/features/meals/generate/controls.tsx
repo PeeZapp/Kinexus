@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
@@ -15,28 +15,18 @@ import {
 
 import { Field } from '@/src/features/household/ui';
 import { Chip } from '@/src/features/meals/meals-kit';
+import {
+  DayPicker,
+  GenerateAudiencePicker,
+  Section,
+} from '@/src/features/shell/generate-controls';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
 import { GOAL_PRESETS, goalsMatch } from './presets';
 
 export type GenerateMode = 'weekly' | 'meal_prep';
 
-function Section({
-  label,
-  children,
-  last,
-}: {
-  label?: string;
-  children: ReactNode;
-  last?: boolean;
-}) {
-  return (
-    <View style={[styles.section, last && styles.sectionLast]}>
-      {label ? <Text style={styles.sectionLabel}>{label}</Text> : null}
-      {children}
-    </View>
-  );
-}
+export { DayPicker, GenerateAudiencePicker, Section };
 
 export function GenerateModePicker({
   mode,
@@ -66,73 +56,6 @@ export function GenerateModePicker({
         );
       })}
     </View>
-  );
-}
-
-export function GenerateAudiencePicker({
-  people,
-  selectedIds,
-  onChange,
-}: {
-  people: readonly { id: string; name: string }[];
-  selectedIds: readonly string[];
-  onChange: (ids: string[]) => void;
-}) {
-  if (people.length === 0) return null;
-  const family = selectedIds.length === 0;
-  return (
-    <Section label="For">
-      <View style={styles.row}>
-        <Chip label="Family" active={family} onPress={() => onChange([])} />
-        {people.map((person) => {
-          const active = selectedIds.includes(person.id);
-          return (
-            <Chip
-              key={person.id}
-              label={person.name}
-              active={active}
-              onPress={() => {
-                if (family) {
-                  onChange([person.id]);
-                  return;
-                }
-                onChange(active ? selectedIds.filter((id) => id !== person.id) : [...selectedIds, person.id]);
-              }}
-            />
-          );
-        })}
-      </View>
-    </Section>
-  );
-}
-
-export function DayPicker({
-  availableDays,
-  selected,
-  onToggle,
-  onSelectAll,
-}: {
-  availableDays: readonly Day[];
-  selected: ReadonlySet<Day>;
-  onToggle: (day: Day) => void;
-  onSelectAll: () => void;
-}) {
-  if (availableDays.length === 0) return null;
-  const allSelected = availableDays.every((day) => selected.has(day));
-  return (
-    <Section label="Days">
-      <View style={styles.row}>
-        <Chip label="All" active={allSelected} onPress={onSelectAll} />
-        {availableDays.map((day) => (
-          <Chip
-            key={day}
-            label={DAY_LABELS[day].slice(0, 3)}
-            active={selected.has(day)}
-            onPress={() => onToggle(day)}
-          />
-        ))}
-      </View>
-    </Section>
   );
 }
 

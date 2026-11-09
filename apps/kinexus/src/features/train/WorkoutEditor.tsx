@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Platform } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 
 import { canCopySharedWorkout, canEditShared, defaultTrainBuddyPermissions } from '@kinexus/domain';
@@ -22,6 +21,7 @@ import { WorkoutBuilder, type WorkoutBuilderResult } from '@/src/features/train/
 import { TrainButton, TrainPage } from '@/src/features/train/ui';
 import { ErrorBanner, LoadingState } from '@/src/features/shell/states';
 import { useAuth } from '@/src/lib/auth';
+import { confirmAction } from '@/src/lib/confirm';
 import { useHousehold } from '@/src/lib/household';
 import { useUnits } from '@/src/lib/use-units';
 
@@ -126,26 +126,7 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
 
   async function confirmDelete() {
     if (!workout) return;
-    const confirmed =
-      Platform.OS === 'web' && typeof window !== 'undefined'
-        ? window.confirm(`Delete ${workout.name}?`)
-        : await new Promise<boolean>((resolve) => {
-            let settled = false;
-            const settle = (value: boolean) => {
-              if (settled) return;
-              settled = true;
-              resolve(value);
-            };
-            Alert.alert(
-              'Delete this workout?',
-              workout.name,
-              [
-                { text: 'Cancel', style: 'cancel', onPress: () => settle(false) },
-                { text: 'Delete', style: 'destructive', onPress: () => settle(true) },
-              ],
-              { cancelable: true, onDismiss: () => settle(false) },
-            );
-          });
+    const confirmed = await confirmAction('Delete this workout?', workout.name);
     if (!confirmed) return;
     await deleteWorkout(workout.id);
     router.replace('/train' as Href);

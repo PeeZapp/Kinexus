@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 
 import {
@@ -42,10 +42,10 @@ import {
   updateTrainingPlanDaySchedule,
   updateTrainingPlanVisibility,
   type LibraryExercise,
-  type OpenLiveSessionSummary,
   type TrainingPlanWeekRow,
   type WorkoutDraft,
 } from '@/src/features/train/api';
+import { chooseResumeOrStartNew, confirmAction } from '@/src/features/train/confirm';
 import { EMPTY_WORKOUT_SEED, WorkoutBuilder, type WorkoutBuilderResult } from '@/src/features/train/WorkoutBuilder';
 import { loadTrainBuddies } from '@/src/features/train/buddies-api';
 import {
@@ -150,7 +150,7 @@ export function PlanScreen() {
     const [rows, buddyRows, workoutRows, prefs] = await Promise.all([
       listTrainingPlansByWeek(activeHousehold.id, weekStart, userId),
       loadTrainBuddies(userId),
-      loadWorkouts(activeHousehold.id),
+      loadWorkouts(activeHousehold.id, { includePlanOnly: true }),
       loadGeneratePrefs(userId),
     ]);
     setPlans(rows);
@@ -244,6 +244,13 @@ export function PlanScreen() {
 
   async function onBlankWeek() {
     if (!userId || !activeHousehold || busy) return;
+    if (ownedRows[0]) {
+      const confirmed = await confirmAction(
+        'Replace with blank?',
+        'Replaces this week with an empty intent plan. Done and skipped days are cleared.',
+      );
+      if (!confirmed) return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -281,29 +288,20 @@ export function PlanScreen() {
     }
   }
 
-  function onClearWeek(plan: TrainingPlanWeekRow) {
+  async function onClearWeek(plan: TrainingPlanWeekRow) {
     if (!userId || busy) return;
-    Alert.alert('Clear this week?', 'Removes the plan for this week.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Clear',
-        style: 'destructive',
-        onPress: () => {
-          void (async () => {
-            setBusy(true);
-            setError(null);
-            try {
-              await deleteTrainingPlan(userId, plan.id);
-              await refresh();
-            } catch (err: unknown) {
-              setError(err instanceof Error ? err.message : 'Could not clear week');
-            } finally {
-              setBusy(false);
-            }
-          })();
-        },
-      },
-    ]);
+    const confirmed = await confirmAction('Clear this week?', 'Removes the plan for this week.');
+    if (!confirmed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteTrainingPlan(userId, plan.id);
+      await refresh();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not clear week');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function onAddToDay(plan: TrainingPlanWeekRow, day: Day) {
@@ -423,16 +421,6 @@ export function PlanScreen() {
     }
   }
 
-  function askResumeOrStartNew(resume: OpenLiveSessionSummary): Promise<'resume' | 'start' | 'cancel'> {
-    return new Promise((resolve) => {
-      Alert.alert('You have a workout in progress', undefined, [
-        { text: 'Resume', onPress: () => resolve('resume') },
-        { text: 'Start new', onPress: () => resolve('start') },
-        { text: 'Cancel', style: 'cancel', onPress: () => resolve('cancel') },
-      ]);
-    });
-  }
-
   async function beginWorkoutStart(): Promise<'proceed' | 'cancel'> {
     if (!userId) return 'cancel';
     const { resume } = await prepareToStartWorkout(userId);
@@ -440,7 +428,7 @@ export function PlanScreen() {
       await abandonEmptyOpenSessions(userId);
       return 'proceed';
     }
-    const choice = await askResumeOrStartNew(resume);
+    const choice = await chooseResumeOrStartNew();
     if (choice === 'cancel') return 'cancel';
     if (choice === 'resume') {
       router.push(`/train/session/live/${resume.id}` as Href);
@@ -505,6 +493,7 @@ export function PlanScreen() {
       level: result.level,
       goal: result.goal,
       equipment: result.equipment,
+      planOnly: true,
       personIds: result.personIds,
       buddyUserIds: result.buddyUserIds,
       exercises: result.exercises.flatMap((exercise) =>
@@ -811,7 +800,7 @@ export function PlanScreen() {
     isApprovedCreator: creator.isApprovedCreator,
     onGenerate: () => router.push('/train/plan/generate' as Href),
     onBlankWeek: () => void onBlankWeek(),
-    onClearWeek: (plan: TrainingPlanWeekRow) => onClearWeek(plan),
+    onClearWeek: (plan: TrainingPlanWeekRow) => void onClearWeek(plan),
     onAddToDay: (plan: TrainingPlanWeekRow, day: Day) => void onAddToDay(plan, day),
     onDuplicate,
     onRegenerate: (plan: TrainingPlanWeekRow) => void onRegenerate(plan),
@@ -821,6 +810,13 @@ export function PlanScreen() {
     onPickWorkout: (card: PlanDayCardModel) => onPickWorkout(card),
     onBuildWorkout: (card: PlanDayCardModel) => onBuildWorkout(card),
     onSuggestWorkout: (card: PlanDayCardModel) => void onSuggestWorkout(card),
+    onViewWorkout: (card: PlanDayCardModel) => {
+      if (!card.workoutId) {
+        setError('No workout on this day');
+        return;
+      }
+      router.push(`/train/${card.workoutId}` as Href);
+    },
     onOpenWorkoutMenu: (card: PlanDayCardModel) => {
       if (card.restDay) setTypeCard(card);
       else setMenuCard(card);
@@ -878,7 +874,19 @@ export function PlanScreen() {
               />
               <TextAction
                 label="Clear workout"
-                onPress={() => menuCard && void onAttachSaved(menuCard, null)}
+                onPress={() => {
+                  if (!menuCard) return;
+                  void (async () => {
+                    const confirmed = await confirmAction(
+                      'Clear workout?',
+                      'Removes the workout from this day. The workout itself is kept.',
+                    );
+                    if (!confirmed) return;
+                    const card = menuCard;
+                    setMenuCard(null);
+                    await onAttachSaved(card, null);
+                  })();
+                }}
               />
               <TextAction
                 label="Done"
@@ -937,20 +945,24 @@ export function PlanScreen() {
           {savedCard?.workoutId ? (
             <TextAction label="Clear workout" onPress={() => savedCard && void onAttachSaved(savedCard, null)} />
           ) : null}
-          {workouts.map((workout) => (
-            <Pressable
-              key={workout.id}
-              accessibilityRole="button"
-              disabled={busy}
-              onPress={() => savedCard && void onAttachSaved(savedCard, workout.id)}
-              style={styles.sheetRow}>
-              <Text style={styles.sheetName}>{workout.name}</Text>
-              <Text style={styles.sheetMeta}>
-                {workout.durationMin != null ? `${workout.durationMin}m` : 'Workout'}
-              </Text>
-            </Pressable>
-          ))}
-          {workouts.length === 0 ? <Text style={styles.sheetMeta}>No saved workouts yet</Text> : null}
+          {workouts
+            .filter((workout) => !workout.planOnly)
+            .map((workout) => (
+              <Pressable
+                key={workout.id}
+                accessibilityRole="button"
+                disabled={busy}
+                onPress={() => savedCard && void onAttachSaved(savedCard, workout.id)}
+                style={styles.sheetRow}>
+                <Text style={styles.sheetName}>{workout.name}</Text>
+                <Text style={styles.sheetMeta}>
+                  {workout.durationMin != null ? `${workout.durationMin}m` : 'Workout'}
+                </Text>
+              </Pressable>
+            ))}
+          {workouts.every((workout) => workout.planOnly) ? (
+            <Text style={styles.sheetMeta}>No saved workouts yet</Text>
+          ) : null}
         </ScrollView>
       </Sheet>
       <LinkShareSheet

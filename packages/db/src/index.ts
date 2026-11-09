@@ -10,6 +10,7 @@ export type {
 export const rpc = {
   createTrainingPlan: 'create_training_plan',
   createPrivateWorkout: 'create_private_workout',
+  saveWorkoutToLibrary: 'save_workout_to_library',
   startWorkoutSession: 'start_workout_session',
   abandonWorkoutSession: 'abandon_workout_session',
   appendWorkoutSet: 'append_workout_set',

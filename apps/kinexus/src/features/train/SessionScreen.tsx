@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 
 import {
@@ -51,6 +51,7 @@ import {
   saveRestBest,
   saveWorkout,
   saveWorkoutRating,
+  saveWorkoutToLibrary,
   saveWorkoutUserNotes,
   updateSet,
   weightLabel,
@@ -62,6 +63,7 @@ import {
   type WorkoutDraft,
   type WorkoutExercise,
 } from '@/src/features/train/api';
+import { chooseResumeOrStartNew, confirmAction } from '@/src/features/train/confirm';
 import { clock, exerciseFacts, exerciseTitle } from '@/src/features/train/format';
 import { useCreator } from '@/src/features/creators/use-creator';
 import { Badge, Choice, EffortBadge, ExerciseSteps, Field, MediaGallery, NoteLine, Pill, Segmented, TrainButton, TrainPage } from '@/src/features/train/ui';
@@ -105,7 +107,7 @@ function scoreBits(best?: number, top?: number): string {
   return [best ? `Best ${best}` : '', top ? `Top ${top}` : ''].filter(Boolean).join(' · ');
 }
 
-function draftFromLive(live: LiveSession, userId: string): WorkoutDraft {
+function draftFromLive(live: LiveSession, userId: string, planOnly = false): WorkoutDraft {
   const grouped = new Map<number, SessionSet[]>();
   for (const set of live.sets) {
     const group = grouped.get(set.position) ?? [];
@@ -121,6 +123,7 @@ function draftFromLive(live: LiveSession, userId: string): WorkoutDraft {
     createdBy: userId,
     shareToken: null,
     isShared: false,
+    planOnly,
     level: null,
     goal: null,
     equipment: [],
@@ -266,7 +269,7 @@ export function SessionScreen({
               return;
             }
           }
-          setWorkout(draftFromLive(live, userId));
+          setWorkout(draftFromLive(live, userId, Boolean(planDayId)));
           setSavedSignature(null);
           void loadLibrary().then(setLibrary).catch(() => undefined);
           return;
@@ -283,13 +286,7 @@ export function SessionScreen({
         const { resume } = await prepareToStartWorkout(userId);
         if (cancelled) return;
         if (resume && resume.workoutId !== found.id) {
-          const choice = await new Promise<'resume' | 'start' | 'cancel'>((resolve) => {
-            Alert.alert('You have a workout in progress', undefined, [
-              { text: 'Resume', onPress: () => resolve('resume') },
-              { text: 'Start new', onPress: () => resolve('start') },
-              { text: 'Cancel', style: 'cancel', onPress: () => resolve('cancel') },
-            ]);
-          });
+          const choice = await chooseResumeOrStartNew();
           if (cancelled) return;
           if (choice === 'resume') {
             router.replace(`/train/session/live/${resume.id}` as Href);
@@ -321,7 +318,7 @@ export function SessionScreen({
     return () => {
       cancelled = true;
     };
-  }, [activeHousehold, userId, workoutId, liveSessionId]);
+  }, [activeHousehold, userId, workoutId, liveSessionId, planDayId]);
 
   useEffect(() => {
     if (!restUntil) return undefined;
@@ -385,10 +382,12 @@ export function SessionScreen({
   }
 
   async function addExerciseToSession(exercise: LibraryExercise) {
-    if (!sessionId || !activeHousehold || !userId || adding) return;
+    if (adding) return;
     setAdding(true);
     setError(null);
     try {
+      if (!sessionId) throw new Error('Session is not ready');
+      if (!activeHousehold || !userId) throw new Error('Sign in to add an exercise');
       const category = remixCategoryOf(exercise);
       const defaults = getRemixDefaultsForCategory(category ?? 'Full Body');
       const loaded = records[exercise.id]
@@ -415,32 +414,26 @@ export function SessionScreen({
     }
   }
 
-  function askRemoveExercise(position: number, name: string) {
-    if (!sessionId) return;
-    Alert.alert('Remove exercise?', exerciseTitle(name), [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: () => {
-          void (async () => {
-            setError(null);
-            try {
-              const nextSets = await removeSessionExercise({ sessionId, position });
-              setSets(nextSets);
-              setOffered((current) => {
-                if (!(position in current)) return current;
-                const next = { ...current };
-                delete next[position];
-                return next;
-              });
-            } catch (err: unknown) {
-              setError(err instanceof Error ? err.message : 'Could not remove exercise');
-            }
-          })();
-        },
-      },
-    ]);
+  async function askRemoveExercise(position: number, name: string) {
+    if (!sessionId) {
+      setError('Session is not ready');
+      throw new Error('Session is not ready');
+    }
+    const confirmed = await confirmAction('Remove exercise?', exerciseTitle(name));
+    if (!confirmed) return;
+    setError(null);
+    try {
+      const nextSets = await removeSessionExercise({ sessionId, position });
+      setSets(nextSets);
+      setOffered((current) => {
+        if (!(position in current)) return current;
+        const next = { ...current };
+        delete next[position];
+        return next;
+      });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not remove exercise');
+    }
   }
 
   async function moveExercise(position: number, direction: -1 | 1) {
@@ -835,6 +828,7 @@ export function SessionScreen({
           visibility: 'private',
           splitId: null,
           durationMin: workout?.durationMin ?? null,
+          planOnly: true,
           personIds: [],
           exercises: sessionExercises,
         });
@@ -856,6 +850,17 @@ export function SessionScreen({
           score,
         });
       }
+      const shouldOfferSave =
+        Boolean(linkedWorkoutId) &&
+        (workout?.planOnly || Boolean(planDayId)) &&
+        sessionHasLoggedSets(sets);
+      if (shouldOfferSave && linkedWorkoutId) {
+        const saveIt = await confirmAction(
+          'Save to my workouts?',
+          'Keeps this workout in your Workouts list. It stays on the plan either way.',
+        );
+        if (saveIt) await saveWorkoutToLibrary(linkedWorkoutId);
+      }
       router.replace('/train' as Href);
     } catch (err: unknown) {
       setScoreOpen(false);
@@ -864,16 +869,15 @@ export function SessionScreen({
     }
   }
 
-  function askFinish() {
+  async function askFinish() {
     if (!sessionId || finishing) return;
     if (workout?.id) {
       setScoreOpen(true);
       return;
     }
-    Alert.alert('Finish', 'End this workout?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Finish', onPress: () => void complete(null) },
-    ]);
+    const confirmed = await confirmAction('Finish', 'End this workout?');
+    if (!confirmed) return;
+    await complete(null);
   }
 
   const activeBest = restGame === 'quiz' || restGame === 'memory' ? findScore(myScores, restGame, restSeconds) : undefined;
@@ -980,7 +984,7 @@ export function SessionScreen({
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`Remove ${exerciseTitle(name)}`}
-                    onPress={() => askRemoveExercise(position, name)}
+                    onPress={() => void askRemoveExercise(position, name)}
                     hitSlop={8}>
                     <Text style={styles.remove}>Remove</Text>
                   </Pressable>
@@ -1053,7 +1057,7 @@ export function SessionScreen({
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`Remove ${exerciseTitle(name)}`}
-                    onPress={() => askRemoveExercise(position, name)}
+                    onPress={() => void askRemoveExercise(position, name)}
                     hitSlop={8}>
                     <Text style={styles.remove}>Remove</Text>
                   </Pressable>
@@ -1159,7 +1163,7 @@ export function SessionScreen({
         <TrainButton label="Add" tone="ghost" fill disabled={!sessionId || adding} onPress={() => void openAddExercise()} />
         <TrainButton label="Rest" tone="ghost" fill onPress={() => setRestOpen(true)} />
         {remix ? <TrainButton label="Remix" tone="ghost" fill disabled={remixing || !sessionId} onPress={confirmRemix} /> : null}
-        <TrainButton label="Finish" fill disabled={finishing || !sessionId} onPress={askFinish} />
+        <TrainButton label="Finish" fill disabled={finishing || !sessionId} onPress={() => void askFinish()} />
       </View>
       <Sheet visible={addOpen} title="Add exercise" onClose={() => setAddOpen(false)}>
         <View style={styles.addSheet}>

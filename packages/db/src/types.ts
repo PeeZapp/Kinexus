@@ -2503,6 +2503,7 @@ export type Database = {
           duration_min: number | null;
           share_token: string | null;
           is_shared: boolean;
+          plan_only: boolean;
           level: 'beginner' | 'intermediate' | 'advanced' | null;
           goal: 'strength' | 'hypertrophy' | 'conditioning' | 'mobility' | 'fat_loss' | null;
           equipment: string[];
@@ -2521,6 +2522,7 @@ export type Database = {
           duration_min?: number | null;
           share_token?: string | null;
           is_shared?: boolean;
+          plan_only?: boolean;
           level?: 'beginner' | 'intermediate' | 'advanced' | null;
           goal?: 'strength' | 'hypertrophy' | 'conditioning' | 'mobility' | 'fat_loss' | null;
           equipment?: string[];
@@ -2536,6 +2538,7 @@ export type Database = {
           duration_min?: number | null;
           share_token?: string | null;
           is_shared?: boolean;
+          plan_only?: boolean;
           level?: 'beginner' | 'intermediate' | 'advanced' | null;
           goal?: 'strength' | 'hypertrophy' | 'conditioning' | 'mobility' | 'fat_loss' | null;
           equipment?: string[];
@@ -3385,6 +3388,12 @@ export type Database = {
           p_duration_min?: number | null;
         };
         Returns: string;
+      };
+      save_workout_to_library: {
+        Args: {
+          p_workout_id: string;
+        };
+        Returns: undefined;
       };
       start_workout_session: {
         Args: {

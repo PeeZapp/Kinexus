@@ -73,6 +73,8 @@ import {
   handleRevokeGroceryConnector,
   handleShoppingMcp,
 } from './grocery/bot-handlers.js';
+import { handleWeeklyCatalogueSelection } from './grocery/catalogue-select.js';
+import { handleDailyCatalogueRefresh } from './grocery/catalogue-refresh.js';
 
 function registerMealsRoutes(router: Hono) {
   router.get('/health', (c) => c.json({ ok: true }));
@@ -99,6 +101,16 @@ function registerMealsRoutes(router: Hono) {
 
   router.get('/stash/enrich', async (c) => {
     const result = await handleEnrichPendingProducts(c.req.raw);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/grocery/catalogue/select', async (c) => {
+    const result = await handleWeeklyCatalogueSelection(c.req.raw);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/grocery/catalogue/refresh', async (c) => {
+    const result = await handleDailyCatalogueRefresh(c.req.raw);
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 

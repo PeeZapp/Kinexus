@@ -63,7 +63,10 @@ export function woolworthsOffer(product: WoolworthsProduct): CatalogueOffer | nu
   };
 }
 
-export async function searchWoolworthsProducts(query: string): Promise<CatalogueOffer[]> {
+export async function searchWoolworthsProducts(
+  query: string,
+  _storeId?: string,
+): Promise<CatalogueOffer[]> {
   const data = await catalogueJson<SearchResponse>(ORIGIN, `${ORIGIN}/apis/ui/Search/products`, {
     method: 'POST',
     headers: {

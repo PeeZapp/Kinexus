@@ -67,6 +67,8 @@
     { "source": "/mcp", "destination": "/api?__path=/mcp" },
     { "source": "/grocery/compare", "destination": "/api?__path=/grocery/compare" },
     { "source": "/grocery/catalog", "destination": "/api?__path=/grocery/catalog" },
+    { "source": "/grocery/catalogue/select", "destination": "/api?__path=/grocery/catalogue/select" },
+    { "source": "/grocery/catalogue/refresh", "destination": "/api?__path=/grocery/catalogue/refresh" },
     { "source": "/grocery/connectors", "destination": "/api?__path=/grocery/connectors" },
     { "source": "/grocery/connectors/revoke", "destination": "/api?__path=/grocery/connectors/revoke" },
     { "source": "/grocery/handoff", "destination": "/api?__path=/grocery/handoff" },
@@ -102,6 +104,14 @@
     {
       "path": "/api/stash/enrich",
       "schedule": "0 19 * * *"
+    },
+    {
+      "path": "/api/grocery/catalogue/select",
+      "schedule": "30 16 * * 0"
+    },
+    {
+      "path": "/api/grocery/catalogue/refresh",
+      "schedule": "0,20,40 17-18 * * *"
     }
   ]
 }

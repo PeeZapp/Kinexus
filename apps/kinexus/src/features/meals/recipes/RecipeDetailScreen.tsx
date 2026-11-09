@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View, type TextStyle } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View, type TextStyle } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
@@ -18,6 +18,7 @@ import { fetchRecipeById, useMealsSync } from '@/src/features/meals/use-meals-sy
 import { LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
+import { confirmAction } from '@/src/lib/confirm';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { isLinkOnlyRecipe, openRecipeLink, sourceHostLabel } from '@/src/features/meals/recipes/link-recipe';
 
@@ -114,26 +115,7 @@ export function RecipeDetailScreen() {
   async function removeFromCatalog() {
     if (!recipe || removing) return;
     const message = 'This hides it from the recipe library for every household.';
-    const confirmed =
-      Platform.OS === 'web' && typeof window !== 'undefined'
-        ? window.confirm(`Remove ${recipe.name} from the catalog?\n\n${message}`)
-        : await new Promise<boolean>((resolve) => {
-            let settled = false;
-            const settle = (value: boolean) => {
-              if (settled) return;
-              settled = true;
-              resolve(value);
-            };
-            Alert.alert(
-              'Remove from catalog?',
-              message,
-              [
-                { text: 'Keep', style: 'cancel', onPress: () => settle(false) },
-                { text: 'Remove', style: 'destructive', onPress: () => settle(true) },
-              ],
-              { cancelable: true, onDismiss: () => settle(false) },
-            );
-          });
+    const confirmed = await confirmAction(`Remove ${recipe.name} from the catalog?`, message);
     if (!confirmed) return;
     setRemoving(true);
     setError(null);

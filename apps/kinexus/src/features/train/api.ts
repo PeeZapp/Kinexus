@@ -163,6 +163,8 @@ export type WorkoutDraft = {
   createdBy: string | null;
   shareToken: string | null;
   isShared: boolean;
+  /** Linked to a plan day; hidden from the Workouts library until saved. */
+  planOnly: boolean;
   level: TrainGlobalLevel | null;
   goal: TrainGlobalGoal | null;
   equipment: TrainGlobalEquipment[];
@@ -320,12 +322,19 @@ export async function loadLibrary(): Promise<LibraryExercise[]> {
   return rows.map((row) => mapExercise(row, row.owner_id ? owners.get(row.owner_id) ?? null : null));
 }
 
-export async function loadWorkouts(householdId: string): Promise<WorkoutDraft[]> {
-  const { data, error } = await db()
+export async function loadWorkouts(
+  householdId: string,
+  opts?: { includePlanOnly?: boolean },
+): Promise<WorkoutDraft[]> {
+  let query = db()
     .from('workouts')
     .select('*, workout_exercises(*), workout_people(person_id), workout_buddy_shares(buddy_user_id)')
     .eq('household_id', householdId)
     .order('updated_at', { ascending: false });
+  if (!opts?.includePlanOnly) {
+    query = query.eq('plan_only', false);
+  }
+  const { data, error } = await query;
   if (error) throw error;
   const { data: ratingRows } = await db().from('workout_ratings').select('workout_id, user_id, score').eq('household_id', householdId);
   const ratingsByWorkout = new Map<string, WorkoutRating[]>();
@@ -344,7 +353,45 @@ export async function loadWorkouts(householdId: string): Promise<WorkoutDraft[]>
     list.push({ position: note.exercise_position, body: note.body });
     notesByWorkout.set(note.workout_id, list);
   }
-  return (data ?? []).map((row) => ({
+  return (data ?? []).map((row) => mapWorkoutDraft(row, ratingsByWorkout, notesByWorkout));
+}
+
+function mapWorkoutDraft(
+  row: {
+    id: string;
+    name: string;
+    visibility: WorkoutRow['visibility'];
+    split_id: string | null;
+    duration_min: number | null;
+    created_by: string | null;
+    share_token: string | null;
+    is_shared: boolean | null;
+    plan_only?: boolean | null;
+    level: string | null;
+    goal: string | null;
+    equipment: string[] | null;
+    source_workout_id: string | null;
+    source_creator_id: string | null;
+    workout_exercises?: {
+      id: string;
+      exercise_id: string | null;
+      name: string;
+      position: number;
+      target_sets: number;
+      target_reps: string;
+      target_weight: number | null;
+      target_effort: string | null;
+      target_rpe: number | null;
+      note: string | null;
+      superset_id: string | null;
+    }[];
+    workout_people?: { person_id: string }[];
+    workout_buddy_shares?: { buddy_user_id: string }[];
+  },
+  ratingsByWorkout?: Map<string, WorkoutRating[]>,
+  notesByWorkout?: Map<string, WorkoutUserNote[]>,
+): WorkoutDraft {
+  return {
     id: row.id,
     name: row.name,
     visibility: row.visibility,
@@ -353,6 +400,7 @@ export async function loadWorkouts(householdId: string): Promise<WorkoutDraft[]>
     createdBy: row.created_by,
     shareToken: row.share_token,
     isShared: Boolean(row.is_shared),
+    planOnly: Boolean(row.plan_only),
     level: mapGlobalLevel(row.level),
     goal: mapGlobalGoal(row.goal),
     equipment: normalizeTrainGlobalEquipment(row.equipment),
@@ -360,53 +408,9 @@ export async function loadWorkouts(householdId: string): Promise<WorkoutDraft[]>
     sourceCreatorId: row.source_creator_id,
     personIds: (row.workout_people ?? []).map((person) => person.person_id),
     buddyUserIds: (row.workout_buddy_shares ?? []).map((share) => share.buddy_user_id),
-    ratings: ratingsByWorkout.get(row.id) ?? [],
-    notes: notesByWorkout.get(row.id) ?? [],
+    ratings: ratingsByWorkout?.get(row.id) ?? [],
+    notes: notesByWorkout?.get(row.id) ?? [],
     exercises: [...(row.workout_exercises ?? [])]
-      .sort((a, b) => a.position - b.position)
-      .map((exercise) => ({
-        id: exercise.id,
-        exerciseId: exercise.exercise_id,
-        name: exercise.name,
-        position: exercise.position,
-        targetSets: exercise.target_sets,
-        targetReps: exercise.target_reps,
-        targetWeight: exercise.target_weight,
-        targetEffort: effortLevelFrom(exercise.target_effort),
-        targetRpe: rpeFromDb(exercise.target_rpe),
-        note: exercise.note ?? '',
-        supersetId: exercise.superset_id ?? null,
-      })),
-  }));
-}
-
-export async function loadWorkoutById(workoutId: string): Promise<WorkoutDraft | null> {
-  const { data, error } = await db()
-    .from('workouts')
-    .select('*, workout_exercises(*), workout_people(person_id), workout_buddy_shares(buddy_user_id)')
-    .eq('id', workoutId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!data) return null;
-  return {
-    id: data.id,
-    name: data.name,
-    visibility: data.visibility,
-    splitId: data.split_id,
-    durationMin: data.duration_min,
-    createdBy: data.created_by,
-    shareToken: data.share_token,
-    isShared: Boolean(data.is_shared),
-    level: mapGlobalLevel(data.level),
-    goal: mapGlobalGoal(data.goal),
-    equipment: normalizeTrainGlobalEquipment(data.equipment),
-    sourceWorkoutId: data.source_workout_id,
-    sourceCreatorId: data.source_creator_id,
-    personIds: (data.workout_people ?? []).map((person) => person.person_id),
-    buddyUserIds: (data.workout_buddy_shares ?? []).map((share) => share.buddy_user_id),
-    ratings: [],
-    notes: [],
-    exercises: [...(data.workout_exercises ?? [])]
       .sort((a, b) => a.position - b.position)
       .map((exercise) => ({
         id: exercise.id,
@@ -424,49 +428,28 @@ export async function loadWorkoutById(workoutId: string): Promise<WorkoutDraft |
   };
 }
 
+export async function loadWorkoutById(workoutId: string): Promise<WorkoutDraft | null> {
+  const { data, error } = await db()
+    .from('workouts')
+    .select('*, workout_exercises(*), workout_people(person_id), workout_buddy_shares(buddy_user_id)')
+    .eq('id', workoutId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  return mapWorkoutDraft(data);
+}
+
 /** Workouts shared to the signed-in user by buddies (any household). */
 export async function loadBuddySharedWorkouts(): Promise<WorkoutDraft[]> {
   const { data, error } = await db()
     .from('workouts')
     .select('*, workout_exercises(*), workout_people(person_id), workout_buddy_shares(buddy_user_id)')
     .in('visibility', ['buddies', 'buddies_selected', 'global'])
+    .eq('plan_only', false)
     .order('updated_at', { ascending: false })
     .limit(100);
   if (error) throw error;
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    name: row.name,
-    visibility: row.visibility,
-    splitId: row.split_id,
-    durationMin: row.duration_min,
-    createdBy: row.created_by,
-    shareToken: row.share_token,
-    isShared: Boolean(row.is_shared),
-    level: mapGlobalLevel(row.level),
-    goal: mapGlobalGoal(row.goal),
-    equipment: normalizeTrainGlobalEquipment(row.equipment),
-    sourceWorkoutId: row.source_workout_id,
-    sourceCreatorId: row.source_creator_id,
-    personIds: (row.workout_people ?? []).map((person) => person.person_id),
-    buddyUserIds: (row.workout_buddy_shares ?? []).map((share) => share.buddy_user_id),
-    ratings: [],
-    notes: [],
-    exercises: [...(row.workout_exercises ?? [])]
-      .sort((a, b) => a.position - b.position)
-      .map((exercise) => ({
-        id: exercise.id,
-        exerciseId: exercise.exercise_id,
-        name: exercise.name,
-        position: exercise.position,
-        targetSets: exercise.target_sets,
-        targetReps: exercise.target_reps,
-        targetWeight: exercise.target_weight,
-        targetEffort: effortLevelFrom(exercise.target_effort),
-        targetRpe: rpeFromDb(exercise.target_rpe),
-        note: exercise.note ?? '',
-        supersetId: exercise.superset_id ?? null,
-      })),
-  }));
+  return (data ?? []).map((row) => mapWorkoutDraft(row));
 }
 
 export async function createWorkout(input: {
@@ -481,6 +464,8 @@ export async function createWorkout(input: {
   equipment?: TrainGlobalEquipment[];
   sourceWorkoutId?: string | null;
   sourceCreatorId?: string | null;
+  /** When true, workout stays off the Workouts library (plan-linked). */
+  planOnly?: boolean;
   personIds: string[];
   buddyUserIds?: string[];
   exercises: WorkoutExerciseInput[];
@@ -518,11 +503,20 @@ export async function createWorkout(input: {
         equipment: input.equipment ?? [],
         source_workout_id: input.sourceWorkoutId ?? null,
         source_creator_id: input.sourceCreatorId ?? null,
+        plan_only: Boolean(input.planOnly),
       })
       .select('id')
       .single();
     if (error) throw new Error(error.message);
     workoutId = data.id;
+  }
+
+  if (input.planOnly && usePrivateRpc) {
+    const { error } = await db()
+      .from('workouts')
+      .update({ plan_only: true })
+      .eq('id', workoutId);
+    if (error) throw new Error(error.message);
   }
 
   const needsChildren =
@@ -541,6 +535,11 @@ export async function createWorkout(input: {
     );
   }
   return workoutId;
+}
+
+export async function saveWorkoutToLibrary(workoutId: string): Promise<void> {
+  const { error } = await db().rpc(rpc.saveWorkoutToLibrary, { p_workout_id: workoutId });
+  if (error) throw new Error(error.message);
 }
 
 export async function saveWorkout(
@@ -1137,6 +1136,8 @@ export async function openSession(input: {
     p_household_id: input.householdId,
     p_name: input.workout.name,
     p_workout_id: input.workout.id,
+    p_remix_spec: null,
+    p_duration_min: input.workout.durationMin,
     p_sets: seedRows.map((row) => ({
       exercise_id: row.exercise_id,
       exercise_name: row.exercise_name,
@@ -1148,7 +1149,29 @@ export async function openSession(input: {
   });
   if (error) throw new Error(error.message);
   if (!data || typeof data !== 'string') throw new Error('Could not start workout');
-  return { sessionId: data, sets: await loadSets(data) };
+  let sets = await loadSets(data);
+  if (sets.length === 0 && input.workout.exercises.length > 0) {
+    sets = await rewriteSessionExercises({
+      sessionId: data,
+      householdId: input.householdId,
+      userId: input.userId,
+      exercises: input.workout.exercises.flatMap((exercise) =>
+        exercise.exerciseId
+          ? [
+              {
+                exerciseId: exercise.exerciseId,
+                name: exercise.name,
+                targetSets: Math.max(1, exercise.targetSets || 1),
+                targetReps: exercise.targetReps,
+              },
+            ]
+          : [],
+      ),
+      records: input.records,
+    });
+    if (sets.length === 0) throw new Error('Could not load workout exercises');
+  }
+  return { sessionId: data, sets };
 }
 
 export type OpenLiveSessionSummary = {
@@ -1889,6 +1912,7 @@ export async function ensurePlanDayWorkout(input: {
     visibility: 'private',
     splitId: null,
     durationMin: input.durationMin,
+    planOnly: true,
     personIds: [],
     exercises: [],
   });
@@ -1981,6 +2005,11 @@ export async function fillPlanDayFromLibrary(input: {
       personIds: [],
       exercises,
     });
+    const { error: planOnlyError } = await db()
+      .from('workouts')
+      .update({ plan_only: true })
+      .eq('id', workoutId);
+    if (planOnlyError) throw new Error(planOnlyError.message);
   } else {
     workoutId = await createWorkout({
       householdId: input.householdId,
@@ -1991,6 +2020,7 @@ export async function fillPlanDayFromLibrary(input: {
       durationMin: input.durationMin,
       goal: input.goal ?? null,
       level: input.level ?? null,
+      planOnly: true,
       personIds: [],
       exercises,
     });

@@ -335,6 +335,7 @@ function mapWorkoutRow(row: {
     createdBy: row.created_by,
     shareToken: row.share_token,
     isShared: Boolean(row.is_shared),
+    planOnly: false,
     level: row.level ?? null,
     goal: row.goal ?? null,
     equipment: normalizeTrainGlobalEquipment(row.equipment),

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   budgetLineGroups,
@@ -45,6 +45,7 @@ import { EmptyState, LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useAuth } from '@/src/lib/auth';
+import { confirmAction } from '@/src/lib/confirm';
 import { useHousehold } from '@/src/lib/household';
 
 const SPREAD_KEY = 'kinexus.budget.spreadPeriodical';
@@ -148,26 +149,7 @@ export function BudgetScreen() {
 
   async function confirmClearBudget() {
     const message = 'This removes categories, planned amounts, and every monthly entry.';
-    const confirmed =
-      Platform.OS === 'web' && typeof window !== 'undefined'
-        ? window.confirm(`Clear the whole budget?\n\n${message}`)
-        : await new Promise<boolean>((resolve) => {
-            let settled = false;
-            const settle = (value: boolean) => {
-              if (settled) return;
-              settled = true;
-              resolve(value);
-            };
-            Alert.alert(
-              'Clear budget?',
-              message,
-              [
-                { text: 'Keep', style: 'cancel', onPress: () => settle(false) },
-                { text: 'Clear', style: 'destructive', onPress: () => settle(true) },
-              ],
-              { cancelable: true, onDismiss: () => settle(false) },
-            );
-          });
+    const confirmed = await confirmAction('Clear budget?', message);
     if (!confirmed) return;
     setSetupOpen(false);
     await run(() => finances.clearBudget());

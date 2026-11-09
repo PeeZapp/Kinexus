@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 
@@ -47,6 +46,7 @@ import type { SlotOutboxOp } from '@/src/features/meals/outbox';
 import { todayDay } from '@/src/features/meals/week-labels';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useAuth } from '@/src/lib/auth';
+import { confirmAction } from '@/src/lib/confirm';
 import { useHousehold } from '@/src/lib/household';
 
 const FALLBACK_GOALS: NutritionGoals = { calories: 2000, protein: 120, carbs: 250, fat: 65 };
@@ -362,26 +362,7 @@ export function PlanScreen() {
   async function confirmClearWeek() {
     const message =
       'This empties every meal on this week, brings removed days back, and drops slot changes still waiting to sync. The shopping list is left as it is.';
-    const confirmed =
-      Platform.OS === 'web' && typeof window !== 'undefined'
-        ? window.confirm(`Clear this week?\n\n${message}`)
-        : await new Promise<boolean>((resolve) => {
-            let settled = false;
-            const settle = (value: boolean) => {
-              if (settled) return;
-              settled = true;
-              resolve(value);
-            };
-            Alert.alert(
-              'Clear this week?',
-              message,
-              [
-                { text: 'Keep', style: 'cancel', onPress: () => settle(false) },
-                { text: 'Clear week', style: 'destructive', onPress: () => settle(true) },
-              ],
-              { cancelable: true, onDismiss: () => settle(false) },
-            );
-          });
+    const confirmed = await confirmAction('Clear this week?', message);
     if (!confirmed) return;
     setClearError(null);
     setClearingWeek(true);

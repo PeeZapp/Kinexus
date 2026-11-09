@@ -57,9 +57,12 @@ export function colesOffer(product: ColesProduct): CatalogueOffer | null {
   };
 }
 
-export async function searchColesProducts(query: string): Promise<CatalogueOffer[]> {
+export async function searchColesProducts(
+  query: string,
+  storeId: string = ONLINE_STORE_ID,
+): Promise<CatalogueOffer[]> {
   const params = new URLSearchParams({
-    storeId: ONLINE_STORE_ID,
+    storeId: storeId || ONLINE_STORE_ID,
     searchTerm: query,
     start: '0',
     limit: '24',

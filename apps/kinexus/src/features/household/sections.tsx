@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -20,6 +20,7 @@ import { GROCERY_MARKETS, marketForHousehold, storeListLabel } from '@kinexus/do
 
 import { Btn, Card, ErrorText, Field, Pill } from '@/src/features/household/ui';
 import { colors, radius, space } from '@/src/features/shell/theme';
+import { confirmAction } from '@/src/lib/confirm';
 import { parseInviteToken } from '@/src/lib/invite';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
@@ -351,75 +352,66 @@ export function MembersList({ members }: { members: HouseholdMember[] }) {
     }
   }
 
-  function confirmRemove(member: HouseholdMember) {
+  async function confirmRemove(member: HouseholdMember) {
     const name = member.profile.displayName ?? member.profile.email ?? 'this person';
-    Alert.alert('Remove from household', `Remove ${name}? They will lose access to this household.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: () => {
-          setError(null);
-          setBusyId(member.userId);
-          void removeMember(member.userId)
-            .catch((err) => setError(err instanceof Error ? err.message : 'Could not remove member'))
-            .finally(() => setBusyId(null));
-        },
-      },
-    ]);
+    const confirmed = await confirmAction(
+      'Remove from household',
+      `Remove ${name}? They will lose access to this household.`,
+    );
+    if (!confirmed) return;
+    setError(null);
+    setBusyId(member.userId);
+    try {
+      await removeMember(member.userId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove member');
+    } finally {
+      setBusyId(null);
+    }
   }
 
-  function confirmLeave() {
-    Alert.alert('Leave household', 'You will lose access until someone invites you again.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Leave',
-        style: 'destructive',
-        onPress: () => {
-          setError(null);
-          void leaveHousehold().catch((err) => setError(err instanceof Error ? err.message : 'Could not leave'));
-        },
-      },
-    ]);
+  async function confirmLeave() {
+    const confirmed = await confirmAction(
+      'Leave household',
+      'You will lose access until someone invites you again.',
+    );
+    if (!confirmed) return;
+    setError(null);
+    try {
+      await leaveHousehold();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not leave');
+    }
   }
 
-  function confirmDeleteFamily() {
+  async function confirmDeleteFamily() {
     const name = activeHousehold?.name ?? 'this family';
-    Alert.alert(
+    const confirmed = await confirmAction(
       'Delete family',
       `Delete ${name}? Meals, lists, money, and everyone in it are removed. You stay signed in and can start a new family.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete family',
-          style: 'destructive',
-          onPress: () => {
-            setError(null);
-            void deleteHousehold().catch((err) => setError(err instanceof Error ? err.message : 'Could not delete the family'));
-          },
-        },
-      ],
     );
+    if (!confirmed) return;
+    setError(null);
+    try {
+      await deleteHousehold();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete the family');
+    }
   }
 
-  function confirmDeleteAccount() {
-    Alert.alert(
+  async function confirmDeleteAccount() {
+    const confirmed = await confirmAction(
       'Delete your account',
       'Your sign-in is removed, and any family you are the only owner of is deleted. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete account',
-          style: 'destructive',
-          onPress: () => {
-            setError(null);
-            void deleteOwnAccount()
-              .then(() => signOut())
-              .catch((err) => setError(err instanceof Error ? err.message : 'Could not delete your account'));
-          },
-        },
-      ],
     );
+    if (!confirmed) return;
+    setError(null);
+    try {
+      await deleteOwnAccount();
+      await signOut();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete your account');
+    }
   }
 
   return (
@@ -458,7 +450,7 @@ export function MembersList({ members }: { members: HouseholdMember[] }) {
               </View>
             ) : null}
             {removable ? (
-              <Pressable onPress={() => confirmRemove(member)} hitSlop={8} disabled={busyId === member.userId}>
+              <Pressable onPress={() => void confirmRemove(member)} hitSlop={8} disabled={busyId === member.userId}>
                 <Text style={styles.dangerLink}>Remove</Text>
               </Pressable>
             ) : null}
@@ -467,13 +459,15 @@ export function MembersList({ members }: { members: HouseholdMember[] }) {
       })}
       {role === 'owner' && members.filter((member) => member.role === 'owner').length <= 1 ? (
         <>
-          <Btn label="Delete family" variant="danger" onPress={confirmDeleteFamily} />
-          <Btn label="Delete my account" variant="danger" onPress={confirmDeleteAccount} />
+          <Btn label="Delete family" variant="danger" onPress={() => void confirmDeleteFamily()} />
+          <Btn label="Delete my account" variant="danger" onPress={() => void confirmDeleteAccount()} />
         </>
       ) : (
         <>
-          <Btn label="Leave household" variant="danger" onPress={confirmLeave} />
-          {role === 'owner' ? <Btn label="Delete family" variant="danger" onPress={confirmDeleteFamily} /> : null}
+          <Btn label="Leave household" variant="danger" onPress={() => void confirmLeave()} />
+          {role === 'owner' ? (
+            <Btn label="Delete family" variant="danger" onPress={() => void confirmDeleteFamily()} />
+          ) : null}
         </>
       )}
       <ErrorText message={error} />

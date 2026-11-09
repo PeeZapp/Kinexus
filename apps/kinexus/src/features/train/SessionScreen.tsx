@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, Vibration, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, type Href } from 'expo-router';
 
 import {
@@ -161,6 +162,9 @@ export function SessionScreen({
   planDayId?: string;
 }) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const narrow = width < 420;
   const { user } = useAuth();
   const { activeHousehold, people, role } = useHousehold();
   const { weightUnit } = useUnits();
@@ -1159,11 +1163,33 @@ export function SessionScreen({
           );
         })}
       </ScrollView>
-      <View style={styles.dock}>
-        <TrainButton label="Add" tone="ghost" fill disabled={!sessionId || adding} onPress={() => void openAddExercise()} />
-        <TrainButton label="Rest" tone="ghost" fill onPress={() => setRestOpen(true)} />
-        {remix ? <TrainButton label="Remix" tone="ghost" fill disabled={remixing || !sessionId} onPress={confirmRemix} /> : null}
-        <TrainButton label="Finish" fill disabled={finishing || !sessionId} onPress={() => void askFinish()} />
+      <View style={[styles.dock, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+        <TrainButton
+          label="Add"
+          tone="ghost"
+          fill
+          compact={narrow}
+          disabled={!sessionId || adding}
+          onPress={() => void openAddExercise()}
+        />
+        <TrainButton label="Rest" tone="ghost" fill compact={narrow} onPress={() => setRestOpen(true)} />
+        {remix ? (
+          <TrainButton
+            label="Remix"
+            tone="ghost"
+            fill
+            compact={narrow}
+            disabled={remixing || !sessionId}
+            onPress={confirmRemix}
+          />
+        ) : null}
+        <TrainButton
+          label="Finish"
+          fill
+          compact={narrow}
+          disabled={finishing || !sessionId}
+          onPress={() => void askFinish()}
+        />
       </View>
       <Sheet visible={addOpen} title="Add exercise" onClose={() => setAddOpen(false)}>
         <View style={styles.addSheet}>
@@ -1557,6 +1583,7 @@ const styles = StyleSheet.create({
   setCheckMarkOn: { color: colors.bg },
   dock: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     paddingTop: 10,
     borderTopWidth: 1,

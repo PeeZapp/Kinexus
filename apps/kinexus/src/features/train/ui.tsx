@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode, type Ref } from 'react';
 import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { EFFORT_COLOR, EFFORT_LABEL, type EffortLevel } from '@kinexus/domain';
@@ -20,12 +20,14 @@ export function TrainButton({
   tone = 'accent',
   disabled = false,
   fill = false,
+  compact = false,
 }: {
   label: string;
   onPress: () => void;
   tone?: 'accent' | 'ghost' | 'danger';
   disabled?: boolean;
   fill?: boolean;
+  compact?: boolean;
 }) {
   return (
     <Pressable
@@ -34,6 +36,7 @@ export function TrainButton({
       accessibilityRole="button"
       style={({ pressed }) => [
         styles.button,
+        compact && styles.buttonCompact,
         tone === 'ghost' && styles.buttonGhost,
         tone === 'danger' && styles.buttonDanger,
         fill && styles.fill,
@@ -43,6 +46,7 @@ export function TrainButton({
       <Text
         style={[
           styles.buttonLabel,
+          compact && styles.buttonLabelCompact,
           tone === 'ghost' && styles.buttonLabelGhost,
           tone === 'danger' && styles.buttonLabelDanger,
         ]}>
@@ -173,6 +177,7 @@ export function Field({
   fill = false,
   compact = false,
   editable = true,
+  inputRef,
 }: {
   value: string;
   onChangeText: (value: string) => void;
@@ -182,9 +187,11 @@ export function Field({
   fill?: boolean;
   compact?: boolean;
   editable?: boolean;
+  inputRef?: Ref<TextInput>;
 }) {
   return (
     <TextInput
+      ref={inputRef}
       value={value}
       onChangeText={onChangeText}
       placeholder={placeholder}
@@ -450,12 +457,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  buttonCompact: { minHeight: 40, paddingHorizontal: 10 },
   buttonGhost: { backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
   buttonDanger: { backgroundColor: 'transparent' },
   buttonLabel: { color: colors.bg, fontWeight: '700', fontSize: 15 },
+  buttonLabelCompact: { fontSize: 13 },
   buttonLabelGhost: { color: colors.text },
   buttonLabelDanger: { color: colors.danger },
-  fill: { alignSelf: 'stretch', flexGrow: 1 },
+  fill: { alignSelf: 'stretch', flexGrow: 1, flexBasis: 0, minWidth: 64 },
   pressed: { opacity: 0.82 },
   disabled: { opacity: 0.4 },
   textAction: { minHeight: 32, justifyContent: 'center' },

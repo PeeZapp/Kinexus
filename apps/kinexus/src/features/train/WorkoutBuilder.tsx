@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   canPublishTrainGlobal,
@@ -109,7 +110,8 @@ type BuiltExercise = {
   exerciseId: string | null;
   name: string;
   category: RemixCategory | null;
-  targetSets: number;
+  /** Raw sets text while editing; parsed on blur/save. */
+  targetSets: string;
   targetReps: string;
   /** Stored kg. */
   targetWeight: number | null;
@@ -119,6 +121,19 @@ type BuiltExercise = {
   personalNote: string;
   supersetId: string | null;
 };
+
+function parseSets(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const value = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(value) || value < 1) return null;
+  return value;
+}
+
+function repsValid(raw: string): boolean {
+  const trimmed = raw.trim();
+  return trimmed.length > 0 && trimmed !== '0';
+}
 
 type CatalogRow = {
   exercise: LibraryExercise;
@@ -143,21 +158,13 @@ function ensureLibrary(force = false): Promise<LibraryExercise[]> {
   return libraryRequest;
 }
 
-function suggestWorkoutName(exercises: { name: string }[]): string {
-  const [first, second] = exercises;
-  if (!first) return '';
-  if (!second) return exerciseTitle(first.name);
-  if (exercises.length === 2) return `${exerciseTitle(first.name)} & ${exerciseTitle(second.name)}`;
-  return `${exerciseTitle(first.name)} + ${exercises.length - 1} more`;
-}
-
 function toSelected(seed: WorkoutBuilderSeed): BuiltExercise[] {
   return seed.exercises.map((exercise, index) => ({
     key: exercise.exerciseId ?? `saved-${index}`,
     exerciseId: exercise.exerciseId,
     name: exercise.name,
     category: null,
-    targetSets: exercise.targetSets,
+    targetSets: String(exercise.targetSets),
     targetReps: exercise.targetReps,
     targetWeight: exercise.targetWeight ?? null,
     targetEffort: exercise.targetEffort ?? null,
@@ -201,6 +208,9 @@ export function WorkoutBuilder({
   const { user } = useAuth();
   const { activeHousehold, canManageHousehold, role } = useHousehold();
   const staff = useStaffAccess();
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const narrow = width < 420;
   const userId = user && !user.isDevBypass ? user.id : null;
   const [customOpen, setCustomOpen] = useState(false);
   const [groups, setGroups] = useState<ExerciseGroup[]>([]);
@@ -237,8 +247,11 @@ export function WorkoutBuilder({
   const [pairFrom, setPairFrom] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<'details' | 'workout' | 'library'>('workout');
   const [detailsOpen, setDetailsOpen] = useState(() => !seed.name.trim());
+  const nameRef = useRef<TextInput>(null);
+  const rowNodes = useRef<Record<string, View | null>>({});
   const { openMenu, toggleMenu, pick } = useFilterMenus();
   const split = useExperienceMode().mode === 'desktop';
 
@@ -266,11 +279,6 @@ export function WorkoutBuilder({
       .then(setGroups)
       .catch(() => setGroups([]));
   }, [userId]);
-
-  useEffect(() => {
-    if (selected.length === 0) return;
-    setName((current) => (current.trim() ? current : suggestWorkoutName(selected)));
-  }, [selected]);
 
   const catalog = useMemo<CatalogRow[]>(
     () =>
@@ -327,7 +335,7 @@ export function WorkoutBuilder({
         selected.map((exercise) => ({
           name: exercise.name,
           category: exercise.category,
-          targetSets: exercise.targetSets,
+          targetSets: parseSets(exercise.targetSets) ?? 0,
           supersetId: exercise.supersetId,
         })),
       ),
@@ -343,7 +351,24 @@ export function WorkoutBuilder({
 
   const globalReady =
     visibility !== 'global' || canPublishTrainGlobal({ level, goal, equipment });
-  const canSubmit = name.trim().length > 0 && selected.length > 0 && globalReady && !busy;
+  const canSubmit = selected.length > 0 && globalReady && !busy;
+
+  function focusProblem(kind: 'name' | 'exercise', key?: string) {
+    if (kind === 'name') {
+      setDetailsOpen(true);
+      if (!split) setMobilePane('details');
+      setHighlightKey(null);
+      requestAnimationFrame(() => nameRef.current?.focus());
+      return;
+    }
+    if (!split) setMobilePane('workout');
+    setHighlightKey(key ?? null);
+    requestAnimationFrame(() => {
+      if (!key) return;
+      const node = rowNodes.current[key] as { scrollIntoView?: (opts: object) => void } | null;
+      node?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    });
+  }
 
   function addExercise(exercise: LibraryExercise) {
     if (!editable) return;
@@ -358,7 +383,7 @@ export function WorkoutBuilder({
           exerciseId: exercise.id,
           name: exercise.name,
           category: nextCategory,
-          targetSets: defaults.sets,
+          targetSets: String(defaults.sets),
           targetReps: defaults.reps,
           targetWeight: null,
           targetEffort: null,
@@ -376,6 +401,23 @@ export function WorkoutBuilder({
     setPairFrom((current) => (current === key ? null : current));
     setSelected((rows) => {
       const next = normalizeSupersets(rows.filter((row) => row.key !== key));
+      void persistPersonal(next, workoutNote);
+      return next;
+    });
+  }
+
+  function moveExercise(key: string, direction: -1 | 1) {
+    if (!editable) return;
+    setSelected((rows) => {
+      const clusters = clusterExercises(rows);
+      const from = clusters.findIndex((cluster) => cluster.indices.some((index) => rows[index]?.key === key));
+      const to = from + direction;
+      if (from < 0 || to < 0 || to >= clusters.length) return rows;
+      const ordered = clusters.map((cluster) => cluster.indices.map((index) => rows[index]!));
+      const [moved] = ordered.splice(from, 1);
+      if (!moved) return rows;
+      ordered.splice(to, 0, moved);
+      const next = normalizeSupersets(ordered.flat());
       void persistPersonal(next, workoutNote);
       return next;
     });
@@ -430,8 +472,26 @@ export function WorkoutBuilder({
 
   async function submit(start: boolean) {
     if (!canSubmit) return;
+    if (!name.trim()) {
+      setError('Add a workout name');
+      focusProblem('name');
+      return;
+    }
+    for (const exercise of selected) {
+      if (parseSets(exercise.targetSets) === null) {
+        setError(`Sets required for ${exerciseTitle(exercise.name)}`);
+        focusProblem('exercise', exercise.key);
+        return;
+      }
+      if (!repsValid(exercise.targetReps)) {
+        setError(`Reps required for ${exerciseTitle(exercise.name)}`);
+        focusProblem('exercise', exercise.key);
+        return;
+      }
+    }
     setBusy(true);
     setError(null);
+    setHighlightKey(null);
     try {
       const share = normalizeTrainShare(visibility as TrainVisibility, personIds, buddyUserIds);
       await onSubmit({
@@ -447,8 +507,8 @@ export function WorkoutBuilder({
         exercises: selected.map((exercise) => ({
           exerciseId: exercise.exerciseId,
           name: exercise.name,
-          targetSets: exercise.targetSets,
-          targetReps: exercise.targetReps.trim() || '10',
+          targetSets: parseSets(exercise.targetSets)!,
+          targetReps: exercise.targetReps.trim(),
           targetWeight: exercise.targetWeight,
           targetEffort: exercise.targetEffort,
           targetRpe: exercise.targetRpe,
@@ -563,7 +623,13 @@ export function WorkoutBuilder({
 
   const detailsFields = (
     <>
-      <Field value={name} onChangeText={setName} placeholder="Workout name" editable={editable} />
+      <Field
+        value={name}
+        onChangeText={setName}
+        placeholder="Workout name"
+        editable={editable}
+        inputRef={nameRef}
+      />
       {visibilityControls}
       {onPersonalNotes ? (
         <NoteLine
@@ -587,7 +653,7 @@ export function WorkoutBuilder({
       nestedScrollEnabled
       keyboardShouldPersistTaps="handled">
       {selected.length === 0 ? <Text style={styles.empty}>No exercises</Text> : null}
-      {clusterExercises(selected).map((cluster) => {
+      {clusterExercises(selected).map((cluster, clusterIndex, clusters) => {
         const rows = cluster.indices.map((index) => selected[index]).filter((exercise): exercise is BuiltExercise => Boolean(exercise));
         const cards = rows.map((exercise, part) => {
           const info =
@@ -613,8 +679,14 @@ export function WorkoutBuilder({
               part={cluster.type === 'superset' ? part + 1 : null}
               pairing={pairFrom !== null}
               isSource={pairFrom === exercise.key}
+              highlighted={highlightKey === exercise.key}
               editable={editable}
               canPair={selected.length > 1}
+              canMoveUp={clusterIndex > 0}
+              canMoveDown={clusterIndex < clusters.length - 1}
+              rowRef={(node) => {
+                rowNodes.current[exercise.key] = node;
+              }}
               onDetails={() => {
                 if (!info) return;
                 if (split && preview?.id === info.id) {
@@ -627,12 +699,14 @@ export function WorkoutBuilder({
               }}
               detailsReady={Boolean(info)}
               onRemove={() => removeExercise(exercise.key)}
+              onMoveUp={() => moveExercise(exercise.key, -1)}
+              onMoveDown={() => moveExercise(exercise.key, 1)}
               onSuperset={() => setPairFrom(exercise.key)}
               onCancelPair={() => setPairFrom(null)}
               onPair={() => pairWith(exercise.key)}
               onUnlink={() => unlink(exercise.key)}
               onSets={(value) => {
-                const targetSets = Math.max(1, Math.min(20, Number.parseInt(value, 10) || 1));
+                const targetSets = value.replace(/[^\d]/g, '');
                 setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetSets } : row)));
               }}
               onReps={(targetReps) => {
@@ -850,13 +924,23 @@ export function WorkoutBuilder({
           </View>
         </>
       )}
-      <View style={[styles.footer, !editable && styles.footerViewer]}>
-        {editable && onDelete ? <TrainButton label="Delete" tone="danger" onPress={() => void removeWorkout()} disabled={busy} /> : null}
-        {editable && onShare ? <TrainButton label="Share" tone="ghost" onPress={onShare} disabled={busy} /> : null}
+      <View
+        style={[
+          styles.footer,
+          !editable && styles.footerViewer,
+          { paddingBottom: Math.max(insets.bottom, 8) },
+        ]}>
+        {editable && onDelete ? (
+          <TrainButton label="Delete" tone="danger" compact={narrow} onPress={() => void removeWorkout()} disabled={busy} />
+        ) : null}
+        {editable && onShare ? (
+          <TrainButton label="Share" tone="ghost" compact={narrow} onPress={onShare} disabled={busy} />
+        ) : null}
         {onCopy ? (
           <TrainButton
-            label="Copy to my workouts"
+            label={narrow ? 'Copy' : 'Copy to my workouts'}
             tone="ghost"
+            compact={narrow}
             onPress={() => {
               void Promise.resolve(onCopy()).catch((err: unknown) => {
                 setError(err instanceof Error ? err.message : 'Could not copy workout');
@@ -867,10 +951,19 @@ export function WorkoutBuilder({
         ) : null}
         <View style={styles.footerActions}>
           {editable && onClose ? (
-            <TrainButton label={presentation === 'modal' ? 'Cancel' : 'Back'} tone="ghost" fill onPress={onClose} disabled={busy} />
+            <TrainButton
+              label={presentation === 'modal' ? 'Cancel' : 'Back'}
+              tone="ghost"
+              fill
+              compact={narrow}
+              onPress={onClose}
+              disabled={busy}
+            />
           ) : null}
-          {editable ? <TrainButton label="Save" tone="ghost" fill disabled={!canSubmit} onPress={() => void submit(false)} /> : null}
-          <TrainButton label="Start" fill disabled={!canSubmit} onPress={() => void submit(true)} />
+          {editable ? (
+            <TrainButton label="Save" tone="ghost" fill compact={narrow} disabled={!canSubmit} onPress={() => void submit(false)} />
+          ) : null}
+          <TrainButton label="Start" fill compact={narrow} disabled={!canSubmit} onPress={() => void submit(true)} />
         </View>
       </View>
     </View>
@@ -1040,7 +1133,7 @@ function LabeledSlot({
   value: string;
   onChangeText: (value: string) => void;
   editable: boolean;
-  keyboard?: 'decimal-pad';
+  keyboard?: 'number-pad' | 'default';
   width?: number;
   fill?: boolean;
 }) {
@@ -1063,9 +1156,15 @@ function SelectedExercise({
   part,
   pairing,
   isSource,
+  highlighted,
   editable,
   canPair,
+  canMoveUp,
+  canMoveDown,
+  rowRef,
   onRemove,
+  onMoveUp,
+  onMoveDown,
   onSuperset,
   onCancelPair,
   onPair,
@@ -1082,9 +1181,15 @@ function SelectedExercise({
   part: number | null;
   pairing: boolean;
   isSource: boolean;
+  highlighted: boolean;
   editable: boolean;
   canPair: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  rowRef: (node: View | null) => void;
   onRemove: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
   onSuperset: () => void;
   onCancelPair: () => void;
   onPair: () => void;
@@ -1100,7 +1205,9 @@ function SelectedExercise({
   const guideKind = exerciseGuideKind(exercise.category);
   const guideOptions = guideOptionsFor(guideKind);
   return (
-    <View style={[styles.selectedRow, isSource && styles.selectedRowActive]}>
+    <View
+      ref={rowRef}
+      style={[styles.selectedRow, isSource && styles.selectedRowActive, highlighted && styles.selectedRowProblem]}>
       <View style={styles.selectedTop}>
         <View style={styles.selectedCopy}>
           <Text style={[styles.exerciseName, styles.selectedName]} numberOfLines={1}>
@@ -1113,6 +1220,26 @@ function SelectedExercise({
             </View>
           ) : null}
         </View>
+        {editable ? (
+          <>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Move ${exerciseTitle(exercise.name)} up`}
+              disabled={!canMoveUp}
+              onPress={onMoveUp}
+              hitSlop={8}>
+              <Text style={[styles.reorder, !canMoveUp && styles.reorderDisabled]}>Up</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Move ${exerciseTitle(exercise.name)} down`}
+              disabled={!canMoveDown}
+              onPress={onMoveDown}
+              hitSlop={8}>
+              <Text style={[styles.reorder, !canMoveDown && styles.reorderDisabled]}>Down</Text>
+            </Pressable>
+          </>
+        ) : null}
         {editable && canPair ? (
           isSource ? (
             <TextAction label="Cancel" onPress={onCancelPair} />
@@ -1127,9 +1254,9 @@ function SelectedExercise({
         {editable ? <IconButton label={`Remove ${exerciseTitle(exercise.name)}`} glyph="×" tone="remove" compact onPress={onRemove} /> : null}
       </View>
       <View style={styles.targets}>
-        <LabeledSlot label="Sets" editable={editable} keyboard="decimal-pad" value={String(exercise.targetSets)} onChangeText={onSets} width={78} />
+        <LabeledSlot label="Sets" editable={editable} keyboard="number-pad" value={exercise.targetSets} onChangeText={onSets} width={78} />
         <Text style={styles.times}>×</Text>
-        <LabeledSlot label="Reps" editable={editable} value={exercise.targetReps ?? ''} onChangeText={onReps} width={78} />
+        <LabeledSlot label="Reps" editable={editable} keyboard="default" value={exercise.targetReps ?? ''} onChangeText={onReps} width={78} />
       </View>
       <View style={styles.loadGuide}>
         <Text style={styles.loadGuideLabel}>{guideTitleFor(guideKind)}</Text>
@@ -1296,6 +1423,7 @@ const styles = StyleSheet.create({
   empty: { color: colors.textMuted, fontSize: 15, paddingVertical: 16 },
   footer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: 8,
     paddingTop: 8,
@@ -1303,7 +1431,10 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   footerViewer: { justifyContent: 'flex-end' },
-  footerActions: { flex: 1, flexDirection: 'row', gap: 8 },
+  footerActions: { flexGrow: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 8, minWidth: 160 },
+  reorder: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
+  reorderDisabled: { opacity: 0.35 },
+  selectedRowProblem: { borderColor: colors.danger },
   mark: { borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 },
   markLabel: { fontSize: 11, fontWeight: '800' },
   icon: {

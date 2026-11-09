@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildIntentWeekDays,
   compoundFirstOrder,
+  focusSequenceForSplit,
   generateTrainPlan,
   isCompoundExercise,
   prescriptionFor,
@@ -61,6 +63,71 @@ describe('splitTemplateFor', () => {
   });
 });
 
+describe('focusSequenceForSplit', () => {
+  it('uses full-body / upper-lower / ppl / bro templates', () => {
+    expect(focusSequenceForSplit('full_body', 3)).toEqual(['Full Body', 'Full Body', 'Full Body']);
+    expect(focusSequenceForSplit('upper_lower', 4)).toEqual(['Upper', 'Lower', 'Upper', 'Lower']);
+    expect(focusSequenceForSplit('ppl', 6)).toEqual(['Push', 'Pull', 'Legs', 'Push', 'Pull', 'Legs']);
+    expect(focusSequenceForSplit('bro', 5)).toEqual([
+      'Chest & Triceps',
+      'Back & Biceps',
+      'Legs',
+      'Shoulders',
+      'Arms',
+    ]);
+  });
+
+  it('falls back to auto split for unknown styles', () => {
+    expect(focusSequenceForSplit('auto', 3, 'hypertrophy')).toEqual(['Push', 'Pull', 'Legs']);
+  });
+});
+
+describe('buildIntentWeekDays', () => {
+  it('assigns real session types instead of generic Train', () => {
+    const days = buildIntentWeekDays({
+      trainingDays: ['monday', 'wednesday', 'friday'],
+      durationMin: 40,
+      splitStyle: 'auto',
+      goal: 'hypertrophy',
+    });
+    const training = days.filter((day) => !day.restDay);
+    expect(training.map((day) => day.focus[0])).toEqual(['Upper Push', 'Upper Pull', 'Legs']);
+    expect(training.every((day) => day.exercises.length === 0 && day.workoutId === null)).toBe(true);
+  });
+
+  it('respects named split styles', () => {
+    const days = buildIntentWeekDays({
+      trainingDays: ['monday', 'tuesday', 'thursday', 'friday'],
+      durationMin: 45,
+      splitStyle: 'upper_lower',
+    });
+    expect(days.filter((day) => !day.restDay).map((day) => day.focus[0])).toEqual([
+      'Upper',
+      'Lower',
+      'Upper',
+      'Lower',
+    ]);
+  });
+});
+
+describe('generateTrainPlan splitStyle', () => {
+  it('honors full_body split style for day focuses', () => {
+    const plan = generateTrainPlan(
+      baseInput({
+        days: ['monday', 'wednesday', 'friday'],
+        daysPerWeek: 3,
+        splitStyle: 'full_body',
+        seed: 11,
+      }),
+    );
+    expect(plan.filter((day) => !day.restDay).map((day) => day.focus[0])).toEqual([
+      'Full Body',
+      'Full Body',
+      'Full Body',
+    ]);
+  });
+});
+
 describe('generateTrainPlan', () => {
   it('does not schedule the same recovery group on back-to-back days', () => {
     const plan = generateTrainPlan(
@@ -78,8 +145,8 @@ describe('generateTrainPlan', () => {
       const gap = Math.abs(dayOrder.indexOf(cur.day) - dayOrder.indexOf(prev.day));
       if (gap < 2) {
         expect(prev.focus[0]).not.toBe(cur.focus[0]);
-        const pushish = new Set(['Push', 'Upper']);
-        const pullish = new Set(['Pull']);
+        const pushish = new Set(['Push', 'Upper', 'Upper Push']);
+        const pullish = new Set(['Pull', 'Upper Pull']);
         const legsish = new Set(['Legs', 'Lower']);
         if (pushish.has(prev.focus[0]!) && pushish.has(cur.focus[0]!)) {
           expect.fail('push/upper back-to-back');
@@ -102,7 +169,7 @@ describe('generateTrainPlan', () => {
         seed: 11,
       }),
     );
-    const uppers = plan.filter((d) => d.focus[0] === 'Upper');
+    const uppers = plan.filter((d) => d.focus[0] === 'Upper' || d.focus[0] === 'Upper Push');
     expect(uppers.length).toBeGreaterThanOrEqual(1);
     if (uppers.length >= 2) {
       const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -169,6 +236,50 @@ describe('generateTrainPlan', () => {
       });
       if (anyCompound) expect(isCompoundExercise(first)).toBe(true);
     }
+  });
+
+  it('picks custom exercises and honours isCompound override', () => {
+    const custom: CatalogExercise = {
+      id: 'custom-push',
+      name: 'Family Band Press',
+      bodyPart: 'other',
+      equipment: 'band',
+      targetMuscle: '',
+      category: 'Chest',
+      isCompound: true,
+    };
+    const isolation: CatalogExercise = {
+      id: 'custom-fly',
+      name: 'Soft fluff move',
+      bodyPart: 'other',
+      equipment: 'band',
+      targetMuscle: '',
+      category: 'Chest',
+      isCompound: false,
+    };
+    expect(isCompoundExercise(custom)).toBe(true);
+    expect(isCompoundExercise(isolation)).toBe(false);
+
+    const plan = generateTrainPlan(
+      baseInput({
+        days: ['monday'],
+        daysPerWeek: 1,
+        goal: 'hypertrophy',
+        equipment: ['band'],
+        catalogue: [custom, isolation],
+        seed: 17,
+      }),
+    );
+    const day = plan.find((d) => d.day === 'monday' && !d.restDay);
+    expect(day?.exercises.some((e) => e.exerciseId === 'custom-push')).toBe(true);
+    const ordered = compoundFirstOrder(
+      (day?.exercises ?? []).map((e) => ({ exerciseId: e.exerciseId, name: e.name })),
+      new Map([
+        [custom.id, custom],
+        [isolation.id, isolation],
+      ]),
+    );
+    expect(ordered[0]?.exerciseId).toBe('custom-push');
   });
 
   it('is deterministic for a seed and differs across seeds', () => {

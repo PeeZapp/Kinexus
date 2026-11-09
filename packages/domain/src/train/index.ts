@@ -43,7 +43,9 @@ export {
   allowedFamilyPlanShares,
   canCopySharedWorkout,
   canEditWorkoutVisibility,
+  canPublishTrainingPlanGlobal,
   canViewSessionVisibility,
+  canViewTrainingPlanVisibility,
   canViewWorkoutVisibility,
   canViewWorkoutWeights,
   isFamilyPlanShare,
@@ -55,6 +57,7 @@ export {
 } from './visibility';
 export type {
   FamilyPlanShare,
+  TrainingPlanVisibilityAccess,
   TrainVisibility,
   TrainVisibilityOption,
   WorkoutVisibilityAccess,
@@ -104,7 +107,10 @@ export type { RemixCategory } from './remix';
 export {
   MAX_SESSIONS_PER_GROUP,
   WEEKLY_VOLUME_TARGET,
+  buildIntentWeekDays,
+  coerceTrainFocus,
   compoundFirstOrder,
+  focusSequenceForSplit,
   generateTrainPlan,
   isCompoundExercise,
   pickTrainingDays,
@@ -120,6 +126,7 @@ export type {
   GeneratedTrainExercise,
   SavedWorkoutCandidate,
   TrainFocus,
+  TrainSplitStyleId,
 } from './generate-plan';
 export {
   handleApplyTrainingPlan,
@@ -135,14 +142,23 @@ export type {
 } from './apply-plan';
 export {
   dayDateIso,
+  handleAddTrainingPlanDay,
+  handleAttachWorkoutToPlanDay,
+  handleCopySharedTrainingPlan,
+  handleDeleteTrainingPlan,
   handleDuplicateTrainingPlanToNextWeek,
   handleListTrainingPlansByWeek,
   handleMarkTrainingPlanDayFromSession,
   handleRegenerateRemainingDays,
   handleSetTrainingPlanDayStatus,
+  handleUpdateTrainingPlanVisibility,
   isRegeneratableDay,
 } from './plan-week';
 export type {
+  AddTrainingPlanDayResult,
+  AttachWorkoutToPlanDayResult,
+  CopySharedTrainingPlanResult,
+  DeleteTrainingPlanResult,
   DuplicateTrainingPlanResult,
   ListTrainingPlansByWeekResult,
   MarkPlanDayFromSessionResult,
@@ -150,10 +166,32 @@ export type {
   RegenerateRemainingPreviewDay,
   RegenerateRemainingResult,
   SetTrainingPlanDayStatusResult,
+  SharedTrainingPlanCopyDay,
   TrainingPlanDayRow,
   TrainingPlanDayStatus,
   TrainingPlanWeekRow,
+  UpdateTrainingPlanVisibilityResult,
 } from './plan-week';
+export {
+  SESSION_TYPE_EXERCISE_KEYS,
+  TRAIN_SESSION_KINDS,
+  TRAIN_SESSION_TYPES,
+  durationTargetForSessionType,
+  isDurationTarget,
+  isTrainSessionTypeId,
+  preferredExerciseKeysForSessionType,
+  resolveSessionTypeFromFocus,
+  trainSessionTypeById,
+  trainSessionTypesByKind,
+} from './session-types';
+export type { TrainSessionKind, TrainSessionType, TrainSessionTypeId } from './session-types';
+export {
+  canFillSessionType,
+  displayFocusLabel,
+  fillWorkoutFromSessionType,
+  sessionTypeIdFromFocus,
+} from './workout-templates';
+export type { FillWorkoutTemplateInput, FilledTemplateExercise } from './workout-templates';
 export {
   addMinutesToPlanClock,
   computePlanDaySchedule,
@@ -189,6 +227,34 @@ export { memoryPairs, quizForRest, shuffledRestQuiz } from './quiz';
 export type { QuizQuestion } from './quiz';
 export { REST_EXTRAS, restExtraFrom } from './rest';
 export { exerciseSearchScore } from './search';
+export {
+  EXERCISE_DIFFICULTIES,
+  EXERCISE_SCOPES,
+  EXERCISE_SOURCE_BADGES,
+  EXERCISE_SOURCE_BADGE_LABEL,
+  archiveExerciseCall,
+  canPromoteExercise,
+  exerciseSourceBadge,
+  findDuplicateExerciseSuggestions,
+  isExerciseDifficulty,
+  isLikelyDuplicateName,
+  planSharedWorkoutExerciseCopy,
+  promoteExercisePatch,
+  publishGlobalExerciseCall,
+} from './custom-exercises';
+export type {
+  ArchiveExerciseCall,
+  DuplicateExerciseCandidate,
+  ExerciseDifficulty,
+  ExerciseScope,
+  ExerciseSourceBadge,
+  PromoteExercisePatch,
+  PromoteExerciseTarget,
+  PublishGlobalExerciseCall,
+  ShareCopyExerciseRow,
+  ShareCopyPlanItem,
+  ShareCopyWorkoutExercise,
+} from './custom-exercises';
 export { estimateWorkout } from './estimate';
 export type { EstimateExercise, WorkoutEstimate } from './estimate';
 export { clusterExercises, linkSuperset, normalizeSupersets, unlinkSuperset } from './supersets';

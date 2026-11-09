@@ -66,87 +66,36 @@ export function GenerateDesktop(props: TrainGenerateViewProps) {
             <>
               <View style={styles.summary}>
                 <Text style={styles.summaryTitle}>Week</Text>
-                <Text style={styles.summaryMeta}>{props.totalTimeMin} min · training time</Text>
-                {props.balanceWarning ? <Text style={styles.warn}>{props.balanceWarning}</Text> : null}
-                <View style={styles.bars}>
-                  {props.volumeBars.map((bar) => (
-                    <View key={bar.label} style={styles.barRow}>
-                      <Text style={styles.barLabel}>{bar.label}</Text>
-                      <View style={styles.barTrack}>
-                        <View
-                          style={[
-                            styles.barFill,
-                            { width: `${Math.min(100, (bar.sets / Math.max(bar.target, 1)) * 100)}%` },
-                          ]}
-                        />
-                      </View>
-                      <Text style={styles.barValue}>
-                        {bar.sets}/{bar.target}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
+                <Text style={styles.summaryMeta}>{props.totalTimeMin} min planned</Text>
               </View>
 
               <View style={styles.grid}>
                 {DAYS.map((day) => {
                   const row = props.preview?.find((item) => item.day === day);
                   if (!row) return null;
+                  const exerciseSummary = row.workoutId
+                    ? props.workouts.find((item) => item.id === row.workoutId)?.name ?? 'Saved workout'
+                    : row.exercises.map((ex) => ex.name).slice(0, 4).join(' · ');
                   return (
                     <View key={day} style={styles.card}>
                       <View style={styles.cardHead}>
                         <Text style={styles.cardDay}>{DAY_LABELS[day].slice(0, 3)}</Text>
                         <Text style={styles.cardFocus}>
                           {row.restDay ? 'Rest' : row.focus[0] ?? 'Train'}
-                          {row.scheduledTime ? ` · ${row.scheduledTime}` : ''}
+                          {!row.restDay && row.durationMin ? ` · ${row.durationMin}m` : ''}
                         </Text>
                       </View>
                       {!row.restDay ? (
-                        <Text style={styles.cardMeta} numberOfLines={3}>
-                          {row.workoutId
-                            ? props.workouts.find((item) => item.id === row.workoutId)?.name ?? 'Saved workout'
-                            : row.exercises.map((ex) => ex.name).slice(0, 4).join(' · ')}
+                        <Text style={styles.cardMeta} numberOfLines={2}>
+                          {exerciseSummary || 'Intent only'}
                         </Text>
                       ) : null}
                       <View style={styles.actions}>
-                        <TextAction label="Rest" onPress={() => props.onToggleRest(day)} />
-                        <TextAction label="Time" onPress={() => props.onChangeTime(day)} />
-                        <TextAction label="←" onPress={() => props.onMoveDay(day, -1)} />
-                        <TextAction label="→" onPress={() => props.onMoveDay(day, 1)} />
-                        {!row.restDay ? (
-                          <>
-                            <TextAction label="Swap" onPress={() => props.onSwapExercise(day)} />
-                            <TextAction label="Re-roll" onPress={() => props.onRerollDay(day)} />
-                            <TextAction
-                              label="Saved"
-                              onPress={() =>
-                                props.onPickWorkoutDay(props.pickingWorkoutDay === day ? null : day)
-                              }
-                            />
-                          </>
-                        ) : null}
+                        <TextAction
+                          label={row.restDay ? 'Train' : 'Rest'}
+                          onPress={() => props.onToggleRest(day)}
+                        />
                       </View>
-                      {props.pickingWorkoutDay === day ? (
-                        <View style={styles.pickList}>
-                          <TextAction
-                            label="Clear saved"
-                            onPress={() => {
-                              props.onSwapSavedWorkout(day, null);
-                              props.onPickWorkoutDay(null);
-                            }}
-                          />
-                          {props.workouts.map((workout) => (
-                            <TextAction
-                              key={workout.id}
-                              label={workout.name}
-                              onPress={() => {
-                                props.onSwapSavedWorkout(day, workout.id);
-                                props.onPickWorkoutDay(null);
-                              }}
-                            />
-                          ))}
-                        </View>
-                      ) : null}
                     </View>
                   );
                 })}

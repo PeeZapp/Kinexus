@@ -10,7 +10,7 @@ import {
 } from './generate-plan';
 import type { PlanCalendarDeletePush, PlanCalendarPush } from './plan-calendar';
 import type { CatalogExercise } from './types';
-import type { TrainVisibility } from './visibility';
+import { isTrainVisibility, type TrainVisibility } from './visibility';
 
 export type TrainingPlanDayStatus = 'planned' | 'done' | 'skipped';
 
@@ -40,6 +40,8 @@ export type TrainingPlanWeekRow = {
   prefs: Record<string, unknown>;
   calendarAutoSync: boolean;
   buddyUserIds: string[];
+  shareToken: string | null;
+  isShared: boolean;
   days: TrainingPlanDayRow[];
 };
 
@@ -59,8 +61,7 @@ function isRlsOrOwnershipError(error: QueryError): boolean {
     error.code === '42501' ||
     msg.includes('row-level security') ||
     msg.includes('permission denied') ||
-    msg.includes('violates row-level security') ||
-    msg.includes('new row violates')
+    msg.includes('violates row-level security')
   );
 }
 
@@ -151,6 +152,8 @@ function mapPlanRow(row: Record<string, unknown>): TrainingPlanWeekRow | null {
           : '',
       )
       .filter(Boolean),
+    shareToken: typeof row.share_token === 'string' ? row.share_token : null,
+    isShared: Boolean(row.is_shared),
     days: dayRows
       .map((day) =>
         day && typeof day === 'object' ? mapDayRow(day as Record<string, unknown>, row.id as string) : null,
@@ -172,12 +175,12 @@ export async function handleListTrainingPlansByWeek(
     return { status: 400, body: { error: 'householdId, weekStart, and authUserId are required' } };
   }
 
+  // Week-scoped only — RLS returns owned + household/family + buddy-shared plans.
   const result = await client
     .from('training_plans')
     .select(
-      'id, household_id, owner_id, name, week_start, visibility, audience_person_ids, prefs, calendar_auto_sync, training_plan_days(*), training_plan_buddy_shares(buddy_user_id)',
+      'id, household_id, owner_id, name, week_start, visibility, audience_person_ids, prefs, calendar_auto_sync, share_token, is_shared, training_plan_days(*), training_plan_buddy_shares(buddy_user_id)',
     )
-    .eq('household_id', input.householdId)
     .eq('week_start', input.weekStart)
     .order('created_at', { ascending: true });
 
@@ -194,6 +197,506 @@ export async function handleListTrainingPlansByWeek(
     .filter((plan: TrainingPlanWeekRow | null): plan is TrainingPlanWeekRow => Boolean(plan));
 
   return { status: 200, body: { plans } };
+}
+
+export type UpdateTrainingPlanVisibilityResult =
+  | { status: 200; body: { id: string; visibility: TrainVisibility; buddyUserIds: string[] } }
+  | { status: 400 | 403 | 404 | 500; body: { error: string } };
+
+export async function handleUpdateTrainingPlanVisibility(
+  client: PlanWeekDbClient,
+  input: {
+    authUserId: string;
+    planId: string;
+    visibility: TrainVisibility;
+    audiencePersonIds?: string[];
+    buddyUserIds?: string[];
+  },
+): Promise<UpdateTrainingPlanVisibilityResult> {
+  if (!input.authUserId || !input.planId) {
+    return { status: 400, body: { error: 'authUserId and planId are required' } };
+  }
+  if (!isTrainVisibility(input.visibility)) {
+    return { status: 400, body: { error: 'Invalid visibility' } };
+  }
+
+  const loaded = await client
+    .from('training_plans')
+    .select('id, household_id, owner_id, visibility')
+    .eq('id', input.planId)
+    .maybeSingle();
+
+  if (loaded.error) {
+    if (isRlsOrOwnershipError(loaded.error)) {
+      return { status: 403, body: { error: 'Not allowed to update this plan' } };
+    }
+    return { status: 500, body: { error: loaded.error.message } };
+  }
+  if (!loaded.data || typeof loaded.data !== 'object' || !('id' in loaded.data)) {
+    return { status: 404, body: { error: 'Plan not found' } };
+  }
+
+  const plan = loaded.data as { id: string; household_id: string; owner_id: string };
+  if (plan.owner_id !== input.authUserId) {
+    return { status: 403, body: { error: 'You can only change visibility on plans you own' } };
+  }
+
+  const audiencePersonIds =
+    input.visibility === 'people' ? [...new Set(input.audiencePersonIds ?? [])] : [];
+  const buddyUserIds =
+    input.visibility === 'buddies_selected'
+      ? [...new Set((input.buddyUserIds ?? []).filter((id) => id !== input.authUserId))]
+      : [];
+
+  const updated = await client
+    .from('training_plans')
+    .update({
+      visibility: input.visibility,
+      audience_person_ids: audiencePersonIds,
+    })
+    .eq('id', input.planId)
+    .select('id, visibility')
+    .maybeSingle();
+
+  if (updated.error) {
+    if (isRlsOrOwnershipError(updated.error)) {
+      return { status: 403, body: { error: 'Not allowed to set this visibility' } };
+    }
+    return { status: 500, body: { error: updated.error.message } };
+  }
+  if (!updated.data || typeof updated.data !== 'object') {
+    return { status: 404, body: { error: 'Plan not found' } };
+  }
+
+  const clearShares = await client.from('training_plan_buddy_shares').delete().eq('plan_id', input.planId);
+  if (clearShares.error) {
+    if (isRlsOrOwnershipError(clearShares.error)) {
+      return { status: 403, body: { error: 'Not allowed to update buddy shares' } };
+    }
+    return { status: 500, body: { error: clearShares.error.message } };
+  }
+
+  if (buddyUserIds.length > 0) {
+    const shareInsert = await client.from('training_plan_buddy_shares').insert(
+      buddyUserIds.map((buddyUserId) => ({
+        plan_id: input.planId,
+        buddy_user_id: buddyUserId,
+        household_id: plan.household_id,
+      })),
+    );
+    if (shareInsert.error) {
+      if (isRlsOrOwnershipError(shareInsert.error)) {
+        return { status: 403, body: { error: 'Not allowed to share with those buddies' } };
+      }
+      return { status: 500, body: { error: shareInsert.error.message } };
+    }
+  }
+
+  return {
+    status: 200,
+    body: {
+      id: input.planId,
+      visibility: input.visibility,
+      buddyUserIds,
+    },
+  };
+}
+
+export type SharedTrainingPlanCopyDay = {
+  day: Day;
+  restDay: boolean;
+  focus: string[];
+  durationMin: number | null;
+  exercises: Array<{
+    name: string;
+    sets: number;
+    reps: string;
+    effort: string | null;
+    rpe: number | null;
+    note: string;
+    supersetId: string | null;
+  }>;
+};
+
+export type CopySharedTrainingPlanResult =
+  | { status: 200; body: { planId: string; workoutIds: Record<string, string> } }
+  | { status: 400 | 403 | 500; body: { error: string } };
+
+/** Clone a public shared plan payload into the caller's household as a private owned plan. */
+export async function handleCopySharedTrainingPlan(
+  client: PlanWeekDbClient,
+  input: {
+    householdId: string;
+    ownerId: string;
+    authUserId: string;
+    name: string;
+    weekStart: string;
+    days: readonly SharedTrainingPlanCopyDay[];
+  },
+): Promise<CopySharedTrainingPlanResult> {
+  if (!input.householdId || !input.ownerId || !input.authUserId || !input.weekStart) {
+    return { status: 400, body: { error: 'householdId, ownerId, authUserId, and weekStart are required' } };
+  }
+  if (input.ownerId !== input.authUserId) {
+    return { status: 403, body: { error: 'You can only copy plans into your own ownership' } };
+  }
+  if (!input.days.length) {
+    return { status: 400, body: { error: 'Plan days are required' } };
+  }
+
+  const planInsert = await client
+    .from('training_plans')
+    .insert({
+      household_id: input.householdId,
+      owner_id: input.ownerId,
+      name: (input.name.trim() || 'Training plan').slice(0, 120),
+      week_start: input.weekStart,
+      visibility: 'private',
+      audience_person_ids: [],
+      prefs: {},
+      calendar_auto_sync: false,
+      is_shared: false,
+      share_token: null,
+    })
+    .select('id')
+    .single();
+
+  if (planInsert.error || !planInsert.data || typeof planInsert.data !== 'object' || !('id' in planInsert.data)) {
+    if (isRlsOrOwnershipError(planInsert.error)) {
+      return { status: 403, body: { error: 'Not allowed to create this training plan' } };
+    }
+    return { status: 500, body: { error: planInsert.error?.message ?? 'Could not create training plan' } };
+  }
+
+  const planId = String((planInsert.data as { id: string }).id);
+  const workoutIds: Record<string, string> = {};
+  const createdWorkoutIds: string[] = [];
+
+  try {
+    for (let position = 0; position < input.days.length; position += 1) {
+      const day = input.days[position]!;
+      let workoutId: string | null = null;
+
+      if (!day.restDay && day.exercises.length > 0) {
+        const workoutInsert = await client
+          .from('workouts')
+          .insert({
+            household_id: input.householdId,
+            created_by: input.ownerId,
+            name: `${DAY_SHORT[day.day]} · ${day.focus[0] ?? 'Train'}`,
+            visibility: 'private',
+            split_id: null,
+            duration_min: day.durationMin,
+          })
+          .select('id')
+          .single();
+
+        if (
+          workoutInsert.error ||
+          !workoutInsert.data ||
+          typeof workoutInsert.data !== 'object' ||
+          !('id' in workoutInsert.data)
+        ) {
+          if (isRlsOrOwnershipError(workoutInsert.error)) {
+            throw Object.assign(new Error('Not allowed to create workouts for this plan'), { rls: true });
+          }
+          throw new Error(workoutInsert.error?.message ?? 'Could not create workout');
+        }
+
+        workoutId = String((workoutInsert.data as { id: string }).id);
+        createdWorkoutIds.push(workoutId);
+        workoutIds[day.day] = workoutId;
+
+        const exercisesInsert = await client.from('workout_exercises').insert(
+          day.exercises.map((exercise, index) => ({
+            workout_id: workoutId,
+            household_id: input.householdId,
+            exercise_id: null,
+            name: exercise.name,
+            position: index,
+            target_sets: exercise.sets,
+            target_reps: exercise.reps,
+            target_effort: exercise.effort,
+            target_rpe: exercise.rpe,
+            note: exercise.note,
+            superset_id: exercise.supersetId,
+          })),
+        );
+        if (exercisesInsert.error) throw new Error(exercisesInsert.error.message);
+      }
+
+      const dayInsert = await client.from('training_plan_days').insert({
+        plan_id: planId,
+        day: day.day,
+        position,
+        workout_id: day.restDay ? null : workoutId,
+        generated_spec: { focus: day.focus, exercises: day.exercises },
+        rest_day: day.restDay,
+        scheduled_time: null,
+        duration_min: day.restDay ? null : day.durationMin,
+        focus: day.focus,
+        status: 'planned',
+        session_id: null,
+      });
+      if (dayInsert.error) {
+        if (isRlsOrOwnershipError(dayInsert.error)) {
+          throw Object.assign(new Error('Not allowed to write plan days'), { rls: true });
+        }
+        throw new Error(dayInsert.error.message);
+      }
+    }
+
+    return { status: 200, body: { planId, workoutIds } };
+  } catch (err) {
+    await client.from('training_plans').delete().eq('id', planId);
+    for (const id of createdWorkoutIds) {
+      await client.from('workouts').delete().eq('id', id);
+    }
+    const message = err instanceof Error ? err.message : 'Could not copy training plan';
+    if (err && typeof err === 'object' && 'rls' in err) {
+      return { status: 403, body: { error: message } };
+    }
+    return { status: 500, body: { error: message } };
+  }
+}
+
+export type DeleteTrainingPlanResult =
+  | { status: 200; body: { id: string } }
+  | { status: 400 | 403 | 404 | 500; body: { error: string } };
+
+/** Owner-only delete of a training plan (days cascade). */
+export async function handleDeleteTrainingPlan(
+  client: PlanWeekDbClient,
+  input: { authUserId: string; planId: string },
+): Promise<DeleteTrainingPlanResult> {
+  if (!input.authUserId || !input.planId) {
+    return { status: 400, body: { error: 'authUserId and planId are required' } };
+  }
+
+  const loaded = await client
+    .from('training_plans')
+    .select('id, owner_id')
+    .eq('id', input.planId)
+    .maybeSingle();
+
+  if (loaded.error) {
+    if (isRlsOrOwnershipError(loaded.error)) {
+      return { status: 403, body: { error: 'Not allowed to delete this plan' } };
+    }
+    return { status: 500, body: { error: loaded.error.message } };
+  }
+  if (!loaded.data || typeof loaded.data !== 'object' || !('id' in loaded.data)) {
+    return { status: 404, body: { error: 'Plan not found' } };
+  }
+
+  const plan = loaded.data as { id: string; owner_id: string };
+  if (plan.owner_id !== input.authUserId) {
+    return { status: 403, body: { error: 'You can only delete plans you own' } };
+  }
+
+  const deleted = await client.from('training_plans').delete().eq('id', input.planId);
+  if (deleted.error) {
+    if (isRlsOrOwnershipError(deleted.error)) {
+      return { status: 403, body: { error: 'Not allowed to delete this plan' } };
+    }
+    return { status: 500, body: { error: deleted.error.message } };
+  }
+
+  return { status: 200, body: { id: plan.id } };
+}
+
+export type AddTrainingPlanDayResult =
+  | {
+      status: 200;
+      body: { id: string; day: Day; position: number; focus: string[]; durationMin: number | null };
+    }
+  | { status: 400 | 403 | 404 | 500; body: { error: string } };
+
+/** Add another session slot on an existing plan day (same weekday, next position). */
+export async function handleAddTrainingPlanDay(
+  client: PlanWeekDbClient,
+  input: {
+    authUserId: string;
+    planId: string;
+    day: Day;
+    focus?: string[];
+    durationMin?: number | null;
+  },
+): Promise<AddTrainingPlanDayResult> {
+  if (!input.authUserId || !input.planId || !input.day) {
+    return { status: 400, body: { error: 'authUserId, planId, and day are required' } };
+  }
+  if (!DAYS.includes(input.day)) {
+    return { status: 400, body: { error: 'Invalid day' } };
+  }
+
+  const loaded = await client
+    .from('training_plans')
+    .select('id, owner_id, prefs')
+    .eq('id', input.planId)
+    .maybeSingle();
+
+  if (loaded.error) {
+    if (isRlsOrOwnershipError(loaded.error)) {
+      return { status: 403, body: { error: 'Not allowed to update this plan' } };
+    }
+    return { status: 500, body: { error: loaded.error.message } };
+  }
+  if (!loaded.data || typeof loaded.data !== 'object' || !('id' in loaded.data)) {
+    return { status: 404, body: { error: 'Plan not found' } };
+  }
+
+  const plan = loaded.data as { id: string; owner_id: string; prefs?: Record<string, unknown> };
+  if (plan.owner_id !== input.authUserId) {
+    return { status: 403, body: { error: 'You can only edit plans you own' } };
+  }
+
+  const existing = await client
+    .from('training_plan_days')
+    .select('id, position, rest_day')
+    .eq('plan_id', input.planId)
+    .eq('day', input.day);
+
+  if (existing.error) {
+    return { status: 500, body: { error: existing.error.message } };
+  }
+
+  const rows = (existing.data ?? []) as { id: string; position: number; rest_day: boolean }[];
+  const loneRest = rows.length === 1 && rows[0]?.rest_day;
+  if (loneRest && rows[0]) {
+    const focus = (input.focus?.length ? input.focus : ['Full Body']).map((item) => item.trim()).filter(Boolean);
+    const prefsDuration =
+      typeof plan.prefs?.durationMin === 'number' && Number.isFinite(plan.prefs.durationMin)
+        ? plan.prefs.durationMin
+        : 40;
+    const durationMin = input.durationMin ?? prefsDuration;
+    const updated = await client
+      .from('training_plan_days')
+      .update({
+        rest_day: false,
+        focus,
+        duration_min: durationMin,
+        workout_id: null,
+        status: 'planned',
+      })
+      .eq('id', rows[0].id)
+      .select('id, position, focus, duration_min')
+      .maybeSingle();
+    if (updated.error || !updated.data || typeof updated.data !== 'object' || !('id' in updated.data)) {
+      if (isRlsOrOwnershipError(updated.error)) {
+        return { status: 403, body: { error: 'Not allowed to update this plan day' } };
+      }
+      return { status: 500, body: { error: updated.error?.message ?? 'Could not update plan day' } };
+    }
+    const row = updated.data as {
+      id: string;
+      position: number;
+      focus: string[];
+      duration_min: number | null;
+    };
+    return {
+      status: 200,
+      body: {
+        id: row.id,
+        day: input.day,
+        position: row.position,
+        focus: Array.isArray(row.focus) ? row.focus : focus,
+        durationMin: row.duration_min,
+      },
+    };
+  }
+
+  const nextPosition =
+    rows.length === 0 ? 0 : Math.max(...rows.map((row) => row.position)) + 1;
+  const focus = (input.focus?.length ? input.focus : ['Full Body']).map((item) => item.trim()).filter(Boolean);
+  const prefsDuration =
+    typeof plan.prefs?.durationMin === 'number' && Number.isFinite(plan.prefs.durationMin)
+      ? plan.prefs.durationMin
+      : 40;
+  const durationMin = input.durationMin ?? prefsDuration;
+
+  const inserted = await client
+    .from('training_plan_days')
+    .insert({
+      plan_id: input.planId,
+      day: input.day,
+      position: nextPosition,
+      workout_id: null,
+      rest_day: false,
+      focus,
+      duration_min: durationMin,
+      status: 'planned',
+    })
+    .select('id, position, focus, duration_min')
+    .maybeSingle();
+
+  if (inserted.error || !inserted.data || typeof inserted.data !== 'object' || !('id' in inserted.data)) {
+    if (isRlsOrOwnershipError(inserted.error)) {
+      return { status: 403, body: { error: 'Not allowed to add a plan day' } };
+    }
+    return { status: 500, body: { error: inserted.error?.message ?? 'Could not add plan day' } };
+  }
+
+  const row = inserted.data as {
+    id: string;
+    position: number;
+    focus: string[];
+    duration_min: number | null;
+  };
+  return {
+    status: 200,
+    body: {
+      id: row.id,
+      day: input.day,
+      position: row.position,
+      focus: Array.isArray(row.focus) ? row.focus : focus,
+      durationMin: row.duration_min,
+    },
+  };
+}
+
+export type AttachWorkoutToPlanDayResult =
+  | { status: 200; body: { id: string; workoutId: string | null } }
+  | { status: 400 | 403 | 404 | 500; body: { error: string } };
+
+/** Attach or clear a workout on an intent plan day. Null workout keeps the day as intent-only. */
+export async function handleAttachWorkoutToPlanDay(
+  client: PlanWeekDbClient,
+  input: {
+    authUserId: string;
+    dayId: string;
+    workoutId: string | null;
+  },
+): Promise<AttachWorkoutToPlanDayResult> {
+  if (!input.authUserId || !input.dayId) {
+    return { status: 400, body: { error: 'authUserId and dayId are required' } };
+  }
+
+  const result = await client
+    .from('training_plan_days')
+    .update({
+      workout_id: input.workoutId,
+      ...(input.workoutId ? { rest_day: false } : {}),
+    })
+    .eq('id', input.dayId)
+    .select('id, workout_id')
+    .maybeSingle();
+
+  if (result.error) {
+    if (isRlsOrOwnershipError(result.error)) {
+      return { status: 403, body: { error: 'Not allowed to update this plan day' } };
+    }
+    return { status: 500, body: { error: result.error.message } };
+  }
+  if (!result.data || typeof result.data !== 'object' || !('id' in result.data)) {
+    return { status: 404, body: { error: 'Plan day not found' } };
+  }
+
+  const row = result.data as { id: string; workout_id: string | null };
+  return {
+    status: 200,
+    body: { id: row.id, workoutId: typeof row.workout_id === 'string' ? row.workout_id : null },
+  };
 }
 
 export type SetTrainingPlanDayStatusResult =
@@ -343,7 +846,7 @@ export async function handleDuplicateTrainingPlanToNextWeek(
   const loaded = await client
     .from('training_plans')
     .select(
-      'id, household_id, owner_id, name, week_start, visibility, audience_person_ids, prefs, calendar_auto_sync, training_plan_days(*), training_plan_buddy_shares(buddy_user_id)',
+      'id, household_id, owner_id, name, week_start, visibility, audience_person_ids, prefs, calendar_auto_sync, share_token, is_shared, training_plan_days(*), training_plan_buddy_shares(buddy_user_id)',
     )
     .eq('id', input.planId)
     .maybeSingle();
@@ -521,7 +1024,7 @@ export async function handleRegenerateRemainingDays(
   const loaded = await client
     .from('training_plans')
     .select(
-      'id, household_id, owner_id, name, week_start, visibility, audience_person_ids, prefs, calendar_auto_sync, training_plan_days(*), training_plan_buddy_shares(buddy_user_id)',
+      'id, household_id, owner_id, name, week_start, visibility, audience_person_ids, prefs, calendar_auto_sync, share_token, is_shared, training_plan_days(*), training_plan_buddy_shares(buddy_user_id)',
     )
     .eq('id', input.planId)
     .maybeSingle();
@@ -577,6 +1080,11 @@ export async function handleRegenerateRemainingDays(
     goal: prefsGoal(prefs),
     level: prefsLevel(prefs),
     durationMin,
+    splitStyle: typeof prefs.splitStyle === 'string' ? prefs.splitStyle : null,
+    focusByDay:
+      prefs.customFocusByDay && typeof prefs.customFocusByDay === 'object' && !Array.isArray(prefs.customFocusByDay)
+        ? (prefs.customFocusByDay as Partial<Record<Day, string>>)
+        : undefined,
     equipment,
     avoidExerciseIds,
     allowDuplicates: false,

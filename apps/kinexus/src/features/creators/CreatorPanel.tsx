@@ -20,6 +20,10 @@ import { Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
 import { verifyCreatorLinks } from '@/src/lib/meals-api';
+import { loadLibrary, type LibraryExercise } from '@/src/features/train/api';
+import { publishGlobalExercise } from '@/src/features/train/custom-exercises-api';
+import { exerciseTitle } from '@/src/features/train/format';
+import { TrainButton } from '@/src/features/train/ui';
 
 const PLATFORMS: CreatorPlatform[] = ['instagram', 'youtube', 'tiktok'];
 
@@ -147,6 +151,7 @@ export function CreatorPanel() {
           You publish as {creator.creator.displayName}. Open a household recipe and choose Publish to
           library to share it with everyone.
         </Text>
+        <PublishExerciseTools userId={user?.id ?? null} />
       </Card>
     );
   }
@@ -325,6 +330,64 @@ export function CreatorPanel() {
   );
 }
 
+function PublishExerciseTools({ userId }: { userId: string | null }) {
+  const [rows, setRows] = useState<LibraryExercise[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!userId) return;
+    void loadLibrary()
+      .then((library) =>
+        setRows(
+          library.filter(
+            (row) =>
+              row.ownerId === userId &&
+              row.source === 'user' &&
+              row.scope !== 'global' &&
+              row.status === 'active',
+          ),
+        ),
+      )
+      .catch(() => setRows([]));
+  }, [userId]);
+
+  async function publish(exerciseId: string) {
+    setBusyId(exerciseId);
+    setError(null);
+    try {
+      await publishGlobalExercise(exerciseId);
+      setRows((current) => current.filter((row) => row.id !== exerciseId));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not publish exercise');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (!userId) return null;
+
+  return (
+    <View style={styles.publishBox}>
+      <Text style={styles.heading}>Publish exercise</Text>
+      <Text style={styles.body}>Share one of your custom exercises with everyone.</Text>
+      {rows.length === 0 ? <Text style={styles.meta}>No unpublished custom exercises</Text> : null}
+      {rows.map((row) => (
+        <View key={row.id} style={styles.publishRow}>
+          <Text style={styles.publishName}>{exerciseTitle(row.name)}</Text>
+          <TrainButton
+            label={busyId === row.id ? '…' : 'Publish'}
+            tone="ghost"
+            disabled={busyId !== null}
+            onPress={() => void publish(row.id)}
+          />
+        </View>
+      ))}
+      <ErrorText message={error} />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   heading: {
     color: colors.text,
@@ -338,6 +401,15 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 12,
   },
+  publishBox: { marginTop: 8, gap: 8 },
+  publishRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  publishName: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '600' },
+  meta: { color: colors.textMuted, fontSize: 13, marginBottom: 4 },
   verified: {
     color: colors.accent,
     fontSize: 13,

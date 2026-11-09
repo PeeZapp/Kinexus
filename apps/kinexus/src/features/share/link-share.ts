@@ -8,18 +8,27 @@ function db() {
   return supabase;
 }
 
+type ShareTable = 'workouts' | 'watchlist_lists' | 'training_plans';
+
+function tableFor(kind: Exclude<ShareKind, 'list'>): ShareTable {
+  if (kind === 'workout') return 'workouts';
+  if (kind === 'plan') return 'training_plans';
+  return 'watchlist_lists';
+}
+
 async function setShare(
-  table: 'workouts' | 'watchlist_lists',
+  table: ShareTable,
   id: string,
   patch: { is_shared: boolean; share_token: string | null },
 ): Promise<void> {
-  const { error } = await db().from(table).update(patch).eq('id', id);
+  // training_plans share columns land with 7d migration; cast until db types regenerate.
+  const { error } = await db().from(table).update(patch as never).eq('id', id);
   if (error) throw error;
 }
 
 export async function enableEntityShare(kind: Exclude<ShareKind, 'list'>, id: string, currentToken: string | null): Promise<string> {
   const token = currentToken ?? Crypto.randomUUID();
-  await setShare(kind === 'workout' ? 'workouts' : 'watchlist_lists', id, {
+  await setShare(tableFor(kind), id, {
     is_shared: true,
     share_token: token,
   });
@@ -27,7 +36,7 @@ export async function enableEntityShare(kind: Exclude<ShareKind, 'list'>, id: st
 }
 
 export async function disableEntityShare(kind: Exclude<ShareKind, 'list'>, id: string): Promise<null> {
-  await setShare(kind === 'workout' ? 'workouts' : 'watchlist_lists', id, {
+  await setShare(tableFor(kind), id, {
     is_shared: false,
     share_token: null,
   });
@@ -36,7 +45,7 @@ export async function disableEntityShare(kind: Exclude<ShareKind, 'list'>, id: s
 
 export async function resetEntityShare(kind: Exclude<ShareKind, 'list'>, id: string): Promise<string> {
   const token = Crypto.randomUUID();
-  await setShare(kind === 'workout' ? 'workouts' : 'watchlist_lists', id, {
+  await setShare(tableFor(kind), id, {
     is_shared: true,
     share_token: token,
   });

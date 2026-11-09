@@ -42,8 +42,16 @@ import { colors, radius, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useUnits } from '@/src/lib/use-units';
 import { useCreator } from '@/src/features/creators/use-creator';
+import { useStaffAccess } from '@/src/features/staff/use-staff';
 import { displayWeight, loadLibrary, type LibraryExercise, type WorkoutDraft } from '@/src/features/train/api';
+import { CustomExerciseForm } from '@/src/features/train/CustomExerciseForm';
+import {
+  loadExerciseGroups,
+  type ExerciseGroup,
+} from '@/src/features/train/custom-exercises-api';
 import { exerciseFacts, exerciseTitle, prettyLabel } from '@/src/features/train/format';
+import { useAuth } from '@/src/lib/auth';
+import { useHousehold } from '@/src/lib/household';
 import {
   Choice,
   ExerciseSteps,
@@ -124,18 +132,17 @@ type CatalogRow = {
 let cachedLibrary: LibraryExercise[] | null = null;
 let libraryRequest: Promise<LibraryExercise[]> | null = null;
 
-function ensureLibrary(): Promise<LibraryExercise[]> {
-  if (cachedLibrary) return Promise.resolve(cachedLibrary);
-  if (!libraryRequest) {
-    libraryRequest = loadLibrary()
-      .then((rows) => {
-        cachedLibrary = rows;
-        return rows;
-      })
-      .finally(() => {
-        libraryRequest = null;
-      });
-  }
+function ensureLibrary(force = false): Promise<LibraryExercise[]> {
+  if (!force && cachedLibrary) return Promise.resolve(cachedLibrary);
+  if (!force && libraryRequest) return libraryRequest;
+  libraryRequest = loadLibrary()
+    .then((rows) => {
+      cachedLibrary = rows;
+      return rows;
+    })
+    .finally(() => {
+      libraryRequest = null;
+    });
   return libraryRequest;
 }
 
@@ -194,6 +201,12 @@ export function WorkoutBuilder({
   onPersonalNotes?: (notes: { position: number; body: string }[]) => Promise<void>;
 }) {
   const creator = useCreator();
+  const { user } = useAuth();
+  const { activeHousehold, canManageHousehold, role } = useHousehold();
+  const staff = useStaffAccess();
+  const userId = user && !user.isDevBypass ? user.id : null;
+  const [customOpen, setCustomOpen] = useState(false);
+  const [groups, setGroups] = useState<ExerciseGroup[]>([]);
   const visibilityOptions = useMemo(
     () =>
       trainVisibilityOptions({
@@ -254,6 +267,13 @@ export function WorkoutBuilder({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+    void loadExerciseGroups(userId)
+      .then(setGroups)
+      .catch(() => setGroups([]));
+  }, [userId]);
 
   useEffect(() => {
     if (selected.length === 0) return;
@@ -701,6 +721,13 @@ export function WorkoutBuilder({
             {libraryReady ? <Text style={styles.count}>{matches.length.toLocaleString()}</Text> : null}
           </View>
           <SearchField value={query} onChangeText={setQuery} placeholder="Search exercises" />
+          {editable && userId ? (
+            <TextAction
+              label="Can't find it? Add custom exercise"
+              tone="accent"
+              onPress={() => setCustomOpen(true)}
+            />
+          ) : null}
           <View style={styles.filters}>
             <FilterBar>
               <FilterDropdown
@@ -815,9 +842,51 @@ export function WorkoutBuilder({
     </View>
   );
 
-  if (presentation === 'page') return <TrainPage>{body}</TrainPage>;
-  if (!onClose) return body;
-  return <BuilderModal onClose={onClose}>{body}</BuilderModal>;
+  const form =
+    userId ? (
+      <CustomExerciseForm
+        visible={customOpen}
+        onClose={() => setCustomOpen(false)}
+        seedName={query}
+        catalog={library}
+        groups={groups}
+        userId={userId}
+        householdId={activeHousehold?.id ?? null}
+        canManageHousehold={canManageHousehold || role === 'owner' || role === 'admin'}
+        isStaff={staff.isStaff}
+        onSaved={(exerciseId) => {
+          void ensureLibrary(true).then((rows) => {
+            setLibrary(rows);
+            setLibraryReady(true);
+            const created = rows.find((row) => row.id === exerciseId);
+            if (created) addExercise(created);
+          });
+        }}
+      />
+    ) : null;
+
+  if (presentation === 'page') {
+    return (
+      <TrainPage>
+        {body}
+        {form}
+      </TrainPage>
+    );
+  }
+  if (!onClose) {
+    return (
+      <>
+        {body}
+        {form}
+      </>
+    );
+  }
+  return (
+    <>
+      <BuilderModal onClose={onClose}>{body}</BuilderModal>
+      {form}
+    </>
+  );
 }
 
 function BuilderModal({ children, onClose }: { children: ReactNode; onClose: () => void }) {

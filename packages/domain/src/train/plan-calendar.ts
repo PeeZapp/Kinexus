@@ -212,6 +212,8 @@ function mapTrainingPlanRow(row: Record<string, unknown>): TrainingPlanWeekRow |
           : '',
       )
       .filter(Boolean),
+    shareToken: typeof row.share_token === 'string' ? row.share_token : null,
+    isShared: Boolean(row.is_shared),
     days: days.sort((a, b) => a.position - b.position),
   };
 }
@@ -644,6 +646,8 @@ export async function handleUpdateTrainingPlanDaySchedule(
     durationMin?: number | null;
     day?: Day;
     restDay?: boolean;
+    /** Intent label(s) for the day. Setting focus clears rest. */
+    focus?: string[];
     pushToGoogle?: PlanCalendarPush;
     deleteFromGoogle?: PlanCalendarDeletePush;
   },
@@ -667,6 +671,14 @@ export async function handleUpdateTrainingPlanDaySchedule(
       input.durationMin == null || input.durationMin <= 0 ? null : Math.round(input.durationMin);
   }
   if (input.day !== undefined) patch.day = input.day;
+  if (input.focus !== undefined) {
+    const focus = input.focus.map((label) => label.trim()).filter(Boolean);
+    patch.focus = focus;
+    patch.rest_day = false;
+    if (focus.length === 0) {
+      patch.workout_id = null;
+    }
+  }
   if (input.restDay !== undefined) {
     patch.rest_day = Boolean(input.restDay);
     if (input.restDay) {

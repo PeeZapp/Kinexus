@@ -43,7 +43,7 @@ const CATEGORY_DEFAULTS: Record<RemixCategory, { sets: number; reps: string; min
   Glutes: { sets: 4, reps: '12-15', minPerExercise: 7 },
   Shoulders: { sets: 4, reps: '12', minPerExercise: 7 },
   Core: { sets: 4, reps: '12', minPerExercise: 7 },
-  Cardio: { sets: 3, reps: '45s', minPerExercise: 5 },
+  Cardio: { sets: 1, reps: '20-30 min', minPerExercise: 25 },
   'Full Body': { sets: 3, reps: '15', minPerExercise: 6 },
   Plyometrics: { sets: 3, reps: '8', minPerExercise: 5 },
   Mobility: { sets: 1, reps: '30s', minPerExercise: 10 },
@@ -72,7 +72,7 @@ const UNTAGGED_CATEGORY: readonly [RegExp, RemixCategory][] = [
   [/\b(shoulder|lateral raise|rear delt|overhead press|military press)\b/i, 'Shoulders'],
   [/\b(pulldowns?|pull-?ups?|rows?|deadlifts?|latissimus|lats?)\b/i, 'Back'],
   [/\b(crunch|plank|sit-?up|oblique|abdominal)\b/i, 'Core'],
-  [/\b(sprint|bike|cardio|jump rope)\b/i, 'Cardio'],
+  [/\b(sprint|bike|cardio|jump rope|treadmill|elliptical|stair|row(ing|er)?|swim|assault|fan bike|ski erg)\b/i, 'Cardio'],
 ];
 
 const REMIX_SPLIT_PREFIX = 'remix:';
@@ -87,6 +87,7 @@ export function isRemixCategory(category: string): category is RemixCategory {
 }
 
 export function remixCategoryOf(exercise: CatalogExercise): RemixCategory | null {
+  if (exercise.category && isRemixCategory(exercise.category)) return exercise.category;
   if (exercise.targetMuscle.trim().toLowerCase() === 'glutes') return 'Glutes';
   if (exercise.bodyPart === 'legs') return 'Legs';
   const mapped = BODY_PART_CATEGORY[exercise.bodyPart];

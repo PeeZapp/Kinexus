@@ -50,6 +50,30 @@ export async function fetchSharedWorkout(token: string): Promise<SharedWorkoutRe
   return getShared(`/train/shared/${encodeURIComponent(token.trim())}`);
 }
 
+export type SharedTrainingPlanResponse = {
+  name: string;
+  weekStart: string;
+  days: Array<{
+    day: string;
+    restDay: boolean;
+    focus: string[];
+    durationMin: number | null;
+    exercises: Array<{
+      name: string;
+      sets: number;
+      reps: string;
+      effort: string | null;
+      rpe: number | null;
+      note: string;
+      supersetId: string | null;
+    }>;
+  }>;
+};
+
+export async function fetchSharedTrainingPlan(token: string): Promise<SharedTrainingPlanResponse> {
+  return getShared(`/train/shared-plan/${encodeURIComponent(token.trim())}`);
+}
+
 export async function fetchSharedWatchlist(token: string): Promise<SharedWatchlistResponse> {
   return getShared(`/watchlist/shared/${encodeURIComponent(token.trim())}`);
 }

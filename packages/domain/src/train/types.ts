@@ -8,6 +8,12 @@ export type CatalogExercise = {
   bodyPart: string;
   equipment: string;
   targetMuscle: string;
+  /** Catalogue slug used for modality matching (walk, assault bike, …). */
+  canonicalKey?: string | null;
+  /** Explicit REMIX category; when set, wins over heuristics. */
+  category?: string | null;
+  /** When set, wins over the compound-name heuristic. */
+  isCompound?: boolean | null;
 };
 
 export type RemixPick = {

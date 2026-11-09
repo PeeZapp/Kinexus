@@ -2,6 +2,14 @@ import type { Day, GeneratedTrainDay, TrainGlobalGoal, TrainGlobalLevel } from '
 
 export type TrainSplitStyle = 'auto' | 'full_body' | 'upper_lower' | 'ppl' | 'bro' | 'custom';
 
+export const TRAIN_SPLIT_STYLE_OPTIONS: { id: TrainSplitStyle; label: string }[] = [
+  { id: 'auto', label: 'Auto' },
+  { id: 'full_body', label: 'Full body' },
+  { id: 'upper_lower', label: 'Upper / Lower' },
+  { id: 'ppl', label: 'Push / Pull / Legs' },
+  { id: 'bro', label: 'Bro split' },
+];
+
 export type TrainGenerateAudience = 'me' | 'household' | 'buddies';
 
 export type CardioAddon = 'none' | 'finisher' | 'separate_days';
@@ -27,6 +35,8 @@ export type TrainGeneratePrefs = {
   progressiveOverload: boolean;
   cardioAddon: CardioAddon;
   preferSavedWorkouts: boolean;
+  /** When false, plan days are intents only (no generated exercises / workouts). */
+  fillWorkouts: boolean;
   audience: TrainGenerateAudience;
   buddyUserIds: string[];
 };
@@ -54,7 +64,8 @@ export const DEFAULT_TRAIN_GENERATE_PREFS: TrainGeneratePrefs = {
   intensityRpe: null,
   progressiveOverload: true,
   cardioAddon: 'none',
-  preferSavedWorkouts: true,
+  preferSavedWorkouts: false,
+  fillWorkouts: false,
   audience: 'me',
   buddyUserIds: [],
 };

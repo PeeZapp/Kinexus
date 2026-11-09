@@ -1,7 +1,10 @@
 import type {
   CatalogExercise,
+  Day,
   EffortLevel,
+  ExerciseDifficulty,
   ExerciseRecord,
+  ExerciseSourceBadge,
   FamilyPlanShare,
   GeneratedTrainDay,
   LoggedSet,
@@ -20,9 +23,16 @@ import type {
 import {
   applyLoggedSets,
   buildTrainingPlanIcs,
+  canFillSessionType,
   effortLevelFrom,
+  exerciseSourceBadge as domainExerciseSourceBadge,
+  fillWorkoutFromSessionType,
   formatWeight,
+  handleAddTrainingPlanDay,
   handleApplyTrainingPlan,
+  handleAttachWorkoutToPlanDay,
+  handleCopySharedTrainingPlan,
+  handleDeleteTrainingPlan,
   handleDuplicateTrainingPlanToNextWeek,
   handleListTrainingPlansByWeek,
   handleMarkTrainingPlanDayFromSession,
@@ -33,6 +43,7 @@ import {
   handleSetTrainingPlanDayStatus,
   handleSyncTrainingPlanToCalendar,
   handleUpdateTrainingPlanDaySchedule,
+  handleUpdateTrainingPlanVisibility,
   handleUpsertTrainingPlanDayEvent,
   isFamilyPlanShare,
   isTrainGlobalGoal,
@@ -40,6 +51,7 @@ import {
   isTrainVisibility,
   normalizeTrainGlobalEquipment,
   parseWeight,
+  sessionTypeIdFromFocus,
   toStoredKg,
 } from '@kinexus/domain';
 
@@ -52,19 +64,31 @@ import {
 } from '@/src/features/calendar/google-sync';
 import { shareOrDownloadExport } from '@/src/features/lists/list-file-io';
 import { fetchPublicProfilesByIds, type PublicSocialUser } from '@/src/features/stash/watchlist-social';
+import { difficultyFrom, resolveExercisesForWorkoutCopy } from '@/src/features/train/custom-exercises-api';
 import { supabase } from '@/src/lib/supabase';
 
 type ExerciseRow = Database['public']['Tables']['exercises']['Row'];
 type WorkoutRow = Database['public']['Tables']['workouts']['Row'];
+
+export type { ExerciseSourceBadge };
 
 export type LibraryExercise = CatalogExercise & {
   mediaUrl: string | null;
   mediaUrls: string[];
   mediaKind: 'gif' | 'image' | null;
   source: ExerciseRow['source'];
+  sourceBadge: ExerciseSourceBadge;
+  scope: ExerciseRow['scope'];
+  status: ExerciseRow['status'];
   license: string;
   licenseAuthor: string | null;
   instructions: string[];
+  ownerId: string | null;
+  householdId: string | null;
+  groupId: string | null;
+  difficulty: ExerciseDifficulty | null;
+  secondaryMuscles: string[];
+  owner: PublicSocialUser | null;
 };
 
 export type WorkoutExercise = {
@@ -216,24 +240,42 @@ function rpeFromDb(value: number | null | undefined): number | null {
   return value;
 }
 
-function mapExercise(row: ExerciseRow): LibraryExercise {
+function exerciseSourceBadge(row: ExerciseRow): ExerciseSourceBadge {
+  return domainExerciseSourceBadge({ scope: row.scope, source: row.source });
+}
+
+function mapExercise(row: ExerciseRow, owner: PublicSocialUser | null = null): LibraryExercise {
   return {
     id: row.id,
     name: row.name,
     bodyPart: row.body_part,
     equipment: row.equipment,
     targetMuscle: row.target_muscle,
+    canonicalKey: row.canonical_key,
+    category: row.category,
+    isCompound: row.is_compound,
     mediaUrl: row.media_url,
     mediaUrls: row.media_urls?.length ? row.media_urls : row.media_url ? [row.media_url] : [],
     mediaKind: row.media_kind,
     source: row.source,
+    sourceBadge: exerciseSourceBadge(row),
+    scope: row.scope,
+    status: row.status,
     license: row.license,
     licenseAuthor: row.license_author,
     instructions: row.instructions ?? [],
+    ownerId: row.owner_id,
+    householdId: row.household_id,
+    groupId: row.group_id,
+    difficulty: difficultyFrom(row.difficulty),
+    secondaryMuscles: row.secondary_muscles ?? [],
+    owner,
   };
 }
 
 export async function loadLibrary(): Promise<LibraryExercise[]> {
+  // RLS returns global + visible custom scopes; active rows plus hidden ones
+  // referenced by the signed-in user's history so archived exercises still resolve.
   const rows: ExerciseRow[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await db()
@@ -245,7 +287,16 @@ export async function loadLibrary(): Promise<LibraryExercise[]> {
     rows.push(...(data ?? []));
     if (!data || data.length < 1000) break;
   }
-  return rows.map(mapExercise);
+  const ownerIds = [
+    ...new Set(
+      rows
+        .filter((row) => row.source === 'creator' || row.scope !== 'global')
+        .map((row) => row.owner_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const owners = ownerIds.length > 0 ? await fetchPublicProfilesByIds(ownerIds) : new Map();
+  return rows.map((row) => mapExercise(row, row.owner_id ? owners.get(row.owner_id) ?? null : null));
 }
 
 export async function loadWorkouts(householdId: string): Promise<WorkoutDraft[]> {
@@ -314,7 +365,7 @@ export async function loadWorkoutById(workoutId: string): Promise<WorkoutDraft |
     .select('*, workout_exercises(*), workout_people(person_id), workout_buddy_shares(buddy_user_id)')
     .eq('id', workoutId)
     .maybeSingle();
-  if (error) throw error;
+  if (error) throw new Error(error.message);
   if (!data) return null;
   return {
     id: data.id,
@@ -413,33 +464,62 @@ export async function createWorkout(input: {
   buddyUserIds?: string[];
   exercises: WorkoutExerciseInput[];
 }): Promise<string> {
-  const { data, error } = await db()
-    .from('workouts')
-    .insert({
-      household_id: input.householdId,
-      created_by: input.userId,
-      name: input.name,
-      visibility: input.visibility,
-      split_id: input.splitId,
-      duration_min: input.durationMin,
-      level: input.level ?? null,
-      goal: input.goal ?? null,
-      equipment: input.equipment ?? [],
-      source_workout_id: input.sourceWorkoutId ?? null,
-      source_creator_id: input.sourceCreatorId ?? null,
-    })
-    .select('id')
-    .single();
-  if (error) throw error;
-  await replaceWorkoutChildren(
-    data.id,
-    input.householdId,
-    input.visibility,
-    input.personIds,
-    input.buddyUserIds ?? [],
-    input.exercises,
-  );
-  return data.id;
+  const usePrivateRpc =
+    input.visibility === 'private' &&
+    !input.splitId &&
+    !input.sourceWorkoutId &&
+    !input.sourceCreatorId &&
+    (input.personIds?.length ?? 0) === 0 &&
+    (input.buddyUserIds?.length ?? 0) === 0;
+
+  let workoutId: string;
+  if (usePrivateRpc) {
+    const { data, error } = await db().rpc(rpc.createPrivateWorkout, {
+      p_household_id: input.householdId,
+      p_name: input.name,
+      p_duration_min: input.durationMin,
+    });
+    if (error) throw new Error(error.message);
+    if (!data || typeof data !== 'string') throw new Error('Could not create workout');
+    workoutId = data;
+  } else {
+    const { data, error } = await db()
+      .from('workouts')
+      .insert({
+        household_id: input.householdId,
+        created_by: input.userId,
+        name: input.name,
+        visibility: input.visibility,
+        split_id: input.splitId,
+        duration_min: input.durationMin,
+        level: input.level ?? null,
+        goal: input.goal ?? null,
+        equipment: input.equipment ?? [],
+        source_workout_id: input.sourceWorkoutId ?? null,
+        source_creator_id: input.sourceCreatorId ?? null,
+      })
+      .select('id')
+      .single();
+    if (error) throw new Error(error.message);
+    workoutId = data.id;
+  }
+
+  const needsChildren =
+    input.exercises.length > 0 ||
+    (input.visibility === 'people' && (input.personIds?.length ?? 0) > 0) ||
+    (input.visibility === 'buddies_selected' && (input.buddyUserIds?.length ?? 0) > 0);
+
+  if (needsChildren || !usePrivateRpc) {
+    await replaceWorkoutChildren(
+      workoutId,
+      input.householdId,
+      input.visibility,
+      input.personIds,
+      input.buddyUserIds ?? [],
+      input.exercises,
+    );
+  }
+  return workoutId;
 }
 
 export async function saveWorkout(
@@ -490,7 +570,7 @@ async function replaceWorkoutChildren(
   exercises: WorkoutExerciseInput[],
 ) {
   const { error: deleteExercises } = await db().from('workout_exercises').delete().eq('workout_id', workoutId);
-  if (deleteExercises) throw deleteExercises;
+  if (deleteExercises) throw new Error(deleteExercises.message);
   if (exercises.length > 0) {
     const { error } = await db()
       .from('workout_exercises')
@@ -510,18 +590,18 @@ async function replaceWorkoutChildren(
           superset_id: exercise.supersetId ?? null,
         })),
       );
-    if (error) throw error;
+    if (error) throw new Error(error.message);
   }
   const { error: deletePeople } = await db().from('workout_people').delete().eq('workout_id', workoutId);
-  if (deletePeople) throw deletePeople;
+  if (deletePeople) throw new Error(deletePeople.message);
   if (visibility === 'people' && personIds.length > 0) {
     const { error } = await db()
       .from('workout_people')
       .insert(personIds.map((personId) => ({ workout_id: workoutId, person_id: personId, household_id: householdId })));
-    if (error) throw error;
+    if (error) throw new Error(error.message);
   }
   const { error: deleteBuddies } = await db().from('workout_buddy_shares').delete().eq('workout_id', workoutId);
-  if (deleteBuddies) throw deleteBuddies;
+  if (deleteBuddies) throw new Error(deleteBuddies.message);
   if (visibility === 'buddies_selected' && buddyUserIds.length > 0) {
     const { error } = await db()
       .from('workout_buddy_shares')
@@ -532,7 +612,7 @@ async function replaceWorkoutChildren(
           household_id: householdId,
         })),
       );
-    if (error) throw error;
+    if (error) throw new Error(error.message);
   }
 }
 
@@ -757,8 +837,23 @@ export async function copyWorkoutToMyLibrary(input: {
   source: WorkoutDraft;
   householdId: string;
   userId: string;
-}): Promise<string> {
-  return createWorkout({
+}): Promise<{ workoutId: string; needsReplacement: { name: string; sourceExerciseId: string | null }[] }> {
+  const resolved = await resolveExercisesForWorkoutCopy({
+    exercises: input.source.exercises.map((exercise) => ({
+      exerciseId: exercise.exerciseId,
+      name: exercise.name,
+      targetSets: exercise.targetSets,
+      targetReps: exercise.targetReps,
+      targetWeight: exercise.targetWeight,
+      targetEffort: exercise.targetEffort,
+      targetRpe: exercise.targetRpe,
+      note: exercise.note,
+      supersetId: exercise.supersetId,
+    })),
+    userId: input.userId,
+    householdId: input.householdId,
+  });
+  const workoutId = await createWorkout({
     householdId: input.householdId,
     userId: input.userId,
     name: input.source.name,
@@ -772,18 +867,9 @@ export async function copyWorkoutToMyLibrary(input: {
     sourceCreatorId: input.source.createdBy,
     personIds: [],
     buddyUserIds: [],
-    exercises: input.source.exercises.map((exercise) => ({
-      exerciseId: exercise.exerciseId,
-      name: exercise.name,
-      targetSets: exercise.targetSets,
-      targetReps: exercise.targetReps,
-      targetWeight: exercise.targetWeight,
-      targetEffort: exercise.targetEffort,
-      targetRpe: exercise.targetRpe,
-      note: exercise.note,
-      supersetId: exercise.supersetId,
-    })),
+    exercises: resolved.exercises,
   });
+  return { workoutId, needsReplacement: resolved.needsReplacement };
 }
 
 export async function loadGlobalWorkouts(userId: string | null): Promise<GlobalWorkoutCard[]> {
@@ -880,8 +966,23 @@ export async function copyGlobalWorkoutToMine(input: {
   workout: GlobalWorkoutCard;
   householdId: string;
   userId: string;
-}): Promise<string> {
-  return createWorkout({
+}): Promise<{ workoutId: string; needsReplacement: { name: string; sourceExerciseId: string | null }[] }> {
+  const resolved = await resolveExercisesForWorkoutCopy({
+    exercises: input.workout.exercises.map((exercise) => ({
+      exerciseId: exercise.exerciseId,
+      name: exercise.name,
+      targetSets: exercise.targetSets,
+      targetReps: exercise.targetReps,
+      targetWeight: exercise.targetWeight,
+      targetEffort: exercise.targetEffort,
+      targetRpe: exercise.targetRpe,
+      note: exercise.note,
+      supersetId: exercise.supersetId,
+    })),
+    userId: input.userId,
+    householdId: input.householdId,
+  });
+  const workoutId = await createWorkout({
     householdId: input.householdId,
     userId: input.userId,
     name: input.workout.name,
@@ -895,18 +996,9 @@ export async function copyGlobalWorkoutToMine(input: {
     sourceCreatorId: input.workout.createdBy,
     personIds: [],
     buddyUserIds: [],
-    exercises: input.workout.exercises.map((exercise) => ({
-      exerciseId: exercise.exerciseId,
-      name: exercise.name,
-      targetSets: exercise.targetSets,
-      targetReps: exercise.targetReps,
-      targetWeight: exercise.targetWeight,
-      targetEffort: exercise.targetEffort,
-      targetRpe: exercise.targetRpe,
-      note: exercise.note,
-      supersetId: exercise.supersetId,
-    })),
+    exercises: resolved.exercises,
   });
+  return { workoutId, needsReplacement: resolved.needsReplacement };
 }
 
 export type RestGame = 'quiz' | 'memory';
@@ -978,40 +1070,16 @@ export async function clearOpenSession(userId: string, workoutId: string): Promi
   if (error) throw error;
 }
 
-export async function openSession(input: {
+function sessionSetRowsFromWorkout(input: {
+  sessionId: string;
   householdId: string;
   userId: string;
   workout: WorkoutDraft;
   records: Record<string, ExerciseRecord>;
-}): Promise<{ sessionId: string; sets: SessionSet[] }> {
-  const { data: existing, error: existingError } = await db()
-    .from('workout_sessions')
-    .select('id')
-    .eq('user_id', input.userId)
-    .eq('workout_id', input.workout.id)
-    .is('finished_at', null)
-    .order('started_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (existingError) throw existingError;
-  if (existing) {
-    const sets = await loadSets(existing.id);
-    return { sessionId: existing.id, sets };
-  }
-  const { data, error } = await db()
-    .from('workout_sessions')
-    .insert({
-      household_id: input.householdId,
-      user_id: input.userId,
-      workout_id: input.workout.id,
-      name: input.workout.name,
-    })
-    .select('id')
-    .single();
-  if (error) throw error;
-  const rows = input.workout.exercises.flatMap((exercise) =>
-    Array.from({ length: exercise.targetSets }, (_, setIndex) => ({
-      session_id: data.id,
+}) {
+  return input.workout.exercises.flatMap((exercise) =>
+    Array.from({ length: Math.max(1, exercise.targetSets || 1) }, (_, setIndex) => ({
+      session_id: input.sessionId,
       household_id: input.householdId,
       user_id: input.userId,
       exercise_id: exercise.exerciseId,
@@ -1029,11 +1097,37 @@ export async function openSession(input: {
       done: false,
     })),
   );
-  if (rows.length > 0) {
-    const { error: setError } = await db().from('workout_sets').insert(rows);
-    if (setError) throw setError;
-  }
-  return { sessionId: data.id, sets: await loadSets(data.id) };
+}
+
+export async function openSession(input: {
+  householdId: string;
+  userId: string;
+  workout: WorkoutDraft;
+  records: Record<string, ExerciseRecord>;
+}): Promise<{ sessionId: string; sets: SessionSet[] }> {
+  const seedRows = sessionSetRowsFromWorkout({
+    sessionId: '00000000-0000-0000-0000-000000000000',
+    householdId: input.householdId,
+    userId: input.userId,
+    workout: input.workout,
+    records: input.records,
+  });
+  const { data, error } = await db().rpc(rpc.startWorkoutSession, {
+    p_household_id: input.householdId,
+    p_name: input.workout.name,
+    p_workout_id: input.workout.id,
+    p_sets: seedRows.map((row) => ({
+      exercise_id: row.exercise_id,
+      exercise_name: row.exercise_name,
+      position: row.position,
+      set_index: row.set_index,
+      weight: row.weight,
+      reps: row.reps,
+    })),
+  });
+  if (error) throw new Error(error.message);
+  if (!data || typeof data !== 'string') throw new Error('Could not start workout');
+  return { sessionId: data, sets: await loadSets(data) };
 }
 
 export async function startRemixSession(input: {
@@ -1048,37 +1142,27 @@ export async function startRemixSession(input: {
     input.userId,
     input.exercises.map((exercise) => exercise.exerciseId),
   );
-  const { data, error } = await db()
-    .from('workout_sessions')
-    .insert({
-      household_id: input.householdId,
-      user_id: input.userId,
-      name: input.name,
-      remix_spec: input.remixSpec,
-      duration_min: input.durationMin,
-    })
-    .select('id')
-    .single();
-  if (error) throw error;
-  const rows = input.exercises.flatMap((exercise, position) =>
+  const sets = input.exercises.flatMap((exercise, position) =>
     Array.from({ length: exercise.targetSets }, (_, setIndex) => ({
-      session_id: data.id,
-      household_id: input.householdId,
-      user_id: input.userId,
       exercise_id: exercise.exerciseId,
       exercise_name: exercise.name,
       position,
       set_index: setIndex,
       weight: records[exercise.exerciseId]?.lastWeight ?? '',
       reps: exercise.targetReps,
-      done: false,
     })),
   );
-  if (rows.length > 0) {
-    const { error: setError } = await db().from('workout_sets').insert(rows);
-    if (setError) throw setError;
-  }
-  return data.id;
+  const { data, error } = await db().rpc(rpc.startWorkoutSession, {
+    p_household_id: input.householdId,
+    p_name: input.name,
+    p_workout_id: null,
+    p_remix_spec: input.remixSpec,
+    p_duration_min: input.durationMin,
+    p_sets: sets,
+  });
+  if (error) throw new Error(error.message);
+  if (!data || typeof data !== 'string') throw new Error('Could not start workout');
+  return data;
 }
 
 export type LiveSession = {
@@ -1122,7 +1206,7 @@ async function loadSets(sessionId: string): Promise<SessionSet[]> {
     .eq('session_id', sessionId)
     .order('position')
     .order('set_index');
-  if (error) throw error;
+  if (error) throw new Error(error.message);
   return (data ?? []).map((row) => ({
     id: row.id,
     exerciseId: row.exercise_id,
@@ -1204,6 +1288,132 @@ export async function replaceSessionExercise(input: {
     .eq('session_id', input.sessionId)
     .eq('position', input.position);
   if (error) throw error;
+}
+
+/** Append one exercise (N sets) to a live session without rewriting existing sets. */
+export async function appendSessionExercise(input: {
+  sessionId: string;
+  householdId: string;
+  userId: string;
+  exerciseId: string;
+  name: string;
+  targetSets: number;
+  targetReps: string;
+  lastWeight?: string;
+}): Promise<SessionSet[]> {
+  const existing = await loadSets(input.sessionId);
+  const nextPosition =
+    existing.length === 0 ? 0 : Math.max(...existing.map((set) => set.position)) + 1;
+  const sets = Math.max(1, Math.min(20, Math.round(input.targetSets)));
+  const rows = Array.from({ length: sets }, (_, setIndex) => ({
+    session_id: input.sessionId,
+    household_id: input.householdId,
+    user_id: input.userId,
+    exercise_id: input.exerciseId,
+    exercise_name: input.name,
+    position: nextPosition,
+    set_index: setIndex,
+    weight: input.lastWeight ?? '',
+    reps: input.targetReps,
+    done: false,
+  }));
+  const { error } = await db().from('workout_sets').insert(rows);
+  if (error) throw new Error(error.message);
+  return loadSets(input.sessionId);
+}
+
+/** Remove one exercise slot (all its sets) from a live session. */
+export async function removeSessionExercise(input: {
+  sessionId: string;
+  position: number;
+}): Promise<SessionSet[]> {
+  const { error } = await db()
+    .from('workout_sets')
+    .delete()
+    .eq('session_id', input.sessionId)
+    .eq('position', input.position);
+  if (error) throw error;
+  return loadSets(input.sessionId);
+}
+
+/** Swap one exercise with its neighbor in a live session. */
+export async function moveSessionExercise(input: {
+  sessionId: string;
+  position: number;
+  direction: -1 | 1;
+}): Promise<SessionSet[]> {
+  const existing = await loadSets(input.sessionId);
+  const positions = [...new Set(existing.map((set) => set.position))].sort((a, b) => a - b);
+  const index = positions.indexOf(input.position);
+  const target = index + input.direction;
+  if (index < 0 || target < 0 || target >= positions.length) return existing;
+  const from = positions[index]!;
+  const to = positions[target]!;
+  const temp = -1_000_000 - from;
+  const { error: park } = await db()
+    .from('workout_sets')
+    .update({ position: temp })
+    .eq('session_id', input.sessionId)
+    .eq('position', from);
+  if (park) throw park;
+  const { error: shift } = await db()
+    .from('workout_sets')
+    .update({ position: from })
+    .eq('session_id', input.sessionId)
+    .eq('position', to);
+  if (shift) throw shift;
+  const { error: land } = await db()
+    .from('workout_sets')
+    .update({ position: to })
+    .eq('session_id', input.sessionId)
+    .eq('position', temp);
+  if (land) throw land;
+  return loadSets(input.sessionId);
+}
+
+/** Append one set to an exercise in a live session. */
+export async function addSessionSet(input: {
+  sessionId: string;
+  householdId: string;
+  userId: string;
+  position: number;
+}): Promise<SessionSet[]> {
+  const existing = await loadSets(input.sessionId);
+  const group = existing
+    .filter((set) => set.position === input.position)
+    .sort((a, b) => a.setIndex - b.setIndex);
+  const last = group[group.length - 1];
+  if (!last || group.length >= 20) return existing;
+  const { error } = await db().from('workout_sets').insert({
+    session_id: input.sessionId,
+    household_id: input.householdId,
+    user_id: input.userId,
+    exercise_id: last.exerciseId,
+    exercise_name: last.exerciseName,
+    position: input.position,
+    set_index: last.setIndex + 1,
+    weight: last.weight,
+    reps: last.reps,
+    done: false,
+  });
+  if (error) throw error;
+  return loadSets(input.sessionId);
+}
+
+/** Remove the last set from an exercise (keeps at least one). */
+export async function removeSessionSet(input: {
+  sessionId: string;
+  position: number;
+}): Promise<SessionSet[]> {
+  const existing = await loadSets(input.sessionId);
+  const group = existing
+    .filter((set) => set.position === input.position)
+    .sort((a, b) => a.setIndex - b.setIndex);
+  if (group.length <= 1) return existing;
+  const last = group[group.length - 1]!;
+  const { error } = await db().from('workout_sets').delete().eq('id', last.id);
+  if (error) throw error;
+  return loadSets(input.sessionId);
 }
 
 export async function saveWorkoutUserNotes(input: {
@@ -1383,6 +1593,32 @@ export async function saveGeneratePrefs(userId: string, prefs: Record<string, un
   if (result.status !== 200) throw new Error(result.body.error);
 }
 
+export async function deleteTrainingPlan(userId: string, planId: string): Promise<void> {
+  const result = await handleDeleteTrainingPlan(db() as never, {
+    authUserId: userId,
+    planId,
+  });
+  if (result.status !== 200) throw new Error(result.body.error);
+}
+
+export async function addTrainingPlanDay(input: {
+  userId: string;
+  planId: string;
+  day: Day;
+  focus?: string[];
+  durationMin?: number | null;
+}): Promise<{ id: string; day: Day; position: number; focus: string[]; durationMin: number | null }> {
+  const result = await handleAddTrainingPlanDay(db() as never, {
+    authUserId: input.userId,
+    planId: input.planId,
+    day: input.day,
+    focus: input.focus,
+    durationMin: input.durationMin,
+  });
+  if (result.status !== 200) throw new Error(result.body.error);
+  return result.body;
+}
+
 export async function applyGeneratedTrainingPlan(input: {
   householdId: string;
   userId: string;
@@ -1393,7 +1629,39 @@ export async function applyGeneratedTrainingPlan(input: {
   buddyUserIds?: string[];
   prefs?: Record<string, unknown>;
   days: (GeneratedTrainDay & { scheduledTime?: string | null })[];
+  /** When true (default), replace any owned plan for this week instead of stacking. */
+  replaceExisting?: boolean;
 }): Promise<{ planId: string; workoutIds: Record<string, string> }> {
+  if (input.replaceExisting !== false) {
+    const existing = await listTrainingPlansByWeek(input.householdId, input.weekStart, input.userId);
+    for (const plan of existing) {
+      if (plan.ownerId === input.userId) {
+        await deleteTrainingPlan(input.userId, plan.id);
+      }
+    }
+  }
+
+  const audiencePersonIds =
+    input.visibility === 'people' ? (input.audiencePersonIds ?? []) : [];
+  const { data: createdPlanId, error: createError } = await db().rpc(rpc.createTrainingPlan, {
+    p_household_id: input.householdId,
+    p_week_start: input.weekStart,
+    p_name: (input.name ?? 'Training plan').trim() || 'Training plan',
+    p_visibility: input.visibility,
+    p_audience_person_ids: audiencePersonIds,
+    p_prefs: input.prefs ?? {},
+  });
+  if (createError) {
+    const detail = createError.message?.trim();
+    if (/row-level security|permission|not a member|not authenticated/i.test(detail || '')) {
+      throw new Error(detail ? `Not allowed to create this training plan (${detail})` : 'Not allowed to create this training plan');
+    }
+    throw new Error(detail || 'Could not create training plan');
+  }
+  if (!createdPlanId || typeof createdPlanId !== 'string') {
+    throw new Error('Could not create training plan');
+  }
+
   const result = await handleApplyTrainingPlan(db() as never, {
     householdId: input.householdId,
     ownerId: input.userId,
@@ -1405,6 +1673,7 @@ export async function applyGeneratedTrainingPlan(input: {
     buddyUserIds: input.buddyUserIds,
     prefs: input.prefs,
     days: input.days,
+    planId: createdPlanId,
   });
   if (result.status !== 200) throw new Error(result.body.error);
   return result.body;
@@ -1426,6 +1695,99 @@ export async function listTrainingPlansByWeek(
   return result.body.plans;
 }
 
+export async function updateTrainingPlanVisibility(input: {
+  userId: string;
+  planId: string;
+  visibility: TrainVisibility;
+  audiencePersonIds?: string[];
+  buddyUserIds?: string[];
+}): Promise<void> {
+  const result = await handleUpdateTrainingPlanVisibility(db() as never, {
+    authUserId: input.userId,
+    planId: input.planId,
+    visibility: input.visibility,
+    audiencePersonIds: input.audiencePersonIds,
+    buddyUserIds: input.buddyUserIds,
+  });
+  if (result.status !== 200) throw new Error(result.body.error);
+}
+
+export async function copySharedTrainingPlan(input: {
+  householdId: string;
+  userId: string;
+  name: string;
+  weekStart: string;
+  days: Array<{
+    day: import('@kinexus/domain').Day;
+    restDay: boolean;
+    focus: string[];
+    durationMin: number | null;
+    exercises: Array<{
+      name: string;
+      sets: number;
+      reps: string;
+      effort: string | null;
+      rpe: number | null;
+      note: string;
+      supersetId: string | null;
+    }>;
+  }>;
+}): Promise<{ planId: string }> {
+  const result = await handleCopySharedTrainingPlan(db() as never, {
+    householdId: input.householdId,
+    ownerId: input.userId,
+    authUserId: input.userId,
+    name: input.name,
+    weekStart: input.weekStart,
+    days: input.days,
+  });
+  if (result.status !== 200) throw new Error(result.body.error);
+  return { planId: result.body.planId };
+}
+
+/** Copy a shared plan day's workout into the buddy household, link via train-together, return local workout id. */
+export async function trainTogetherOnPlanDay(input: {
+  householdId: string;
+  userId: string;
+  ownerId: string;
+  workoutId: string;
+}): Promise<{ workoutId: string }> {
+  const workout = await loadWorkoutById(input.workoutId);
+  if (!workout) throw new Error('Workout not found');
+  const resolved = await resolveExercisesForWorkoutCopy({
+    exercises: workout.exercises.map((exercise) => ({
+      exerciseId: exercise.exerciseId,
+      name: exercise.name,
+      targetSets: exercise.targetSets,
+      targetReps: exercise.targetReps,
+      targetEffort: exercise.targetEffort,
+      targetRpe: exercise.targetRpe,
+      note: exercise.note,
+      supersetId: exercise.supersetId,
+    })),
+    userId: input.userId,
+    householdId: input.householdId,
+  });
+  const copyId = await createWorkout({
+    householdId: input.householdId,
+    userId: input.userId,
+    name: workout.name,
+    visibility: 'private',
+    splitId: null,
+    durationMin: workout.durationMin,
+    personIds: [],
+    exercises: resolved.exercises,
+  });
+
+  const { inviteTrainTogether } = await import('@/src/features/train/buddies-api');
+  await inviteTrainTogether({
+    workoutId: copyId,
+    inviteeIds: [input.ownerId],
+  });
+
+  return { workoutId: copyId };
+}
+
 export async function setTrainingPlanDayStatus(input: {
   userId: string;
   dayId: string;
@@ -1439,6 +1801,148 @@ export async function setTrainingPlanDayStatus(input: {
     sessionId: input.sessionId,
   });
   if (result.status !== 200) throw new Error(result.body.error);
+}
+
+export async function attachWorkoutToPlanDay(input: {
+  userId: string;
+  dayId: string;
+  workoutId: string | null;
+}): Promise<void> {
+  const result = await handleAttachWorkoutToPlanDay(db() as never, {
+    authUserId: input.userId,
+    dayId: input.dayId,
+    workoutId: input.workoutId,
+  });
+  if (result.status !== 200) throw new Error(result.body.error);
+}
+
+/** Create an empty workout for an intent day and attach it. Returns the workout id. */
+export async function ensurePlanDayWorkout(input: {
+  householdId: string;
+  userId: string;
+  dayId: string;
+  name: string;
+  durationMin: number | null;
+  existingWorkoutId?: string | null;
+}): Promise<string> {
+  if (input.existingWorkoutId) return input.existingWorkoutId;
+  const workoutId = await createWorkout({
+    householdId: input.householdId,
+    userId: input.userId,
+    name: input.name.trim() || 'Train',
+    visibility: 'private',
+    splitId: null,
+    durationMin: input.durationMin,
+    personIds: [],
+    exercises: [],
+  });
+  await attachWorkoutToPlanDay({
+    userId: input.userId,
+    dayId: input.dayId,
+    workoutId,
+  });
+  return workoutId;
+}
+
+/**
+ * Build a workout from the exercise library for a plan day's session type and attach it.
+ * Replaces an existing attached workout's exercises when one is already linked.
+ */
+export async function fillPlanDayFromLibrary(input: {
+  householdId: string;
+  userId: string;
+  dayId: string;
+  focus: string[];
+  durationMin: number | null;
+  existingWorkoutId?: string | null;
+  goal?: TrainGlobalGoal | null;
+  level?: TrainGlobalLevel | null;
+  equipment?: string[];
+  catalogue?: CatalogExercise[];
+}): Promise<{ workoutId: string; exerciseCount: number }> {
+  const focusLabel = input.focus[0]?.trim() || 'Train';
+  const sessionTypeId = sessionTypeIdFromFocus(focusLabel);
+  if (!sessionTypeId) {
+    throw new Error(`No workout template for “${focusLabel}”`);
+  }
+
+  const catalogue = input.catalogue ?? (await loadLibrary());
+  const equipmentPool =
+    input.equipment && input.equipment.length > 0
+      ? catalogue.filter((ex) => {
+          const eq = (ex.equipment || '').trim().toLowerCase();
+          if (!eq || eq === 'body weight' || eq === 'bodyweight') {
+            return input.equipment!.some((item) => {
+              const value = item.trim().toLowerCase();
+              return value === 'bodyweight' || value === 'body weight' || value === eq;
+            });
+          }
+          return input.equipment!.some((item) => {
+            const value = item.trim().toLowerCase();
+            return eq.includes(value) || value.includes(eq);
+          });
+        })
+      : catalogue;
+  // Prefer equipment filter; fall back to full catalogue so Start never leaves an empty shell.
+  const pool = canFillSessionType(sessionTypeId, equipmentPool) ? equipmentPool : catalogue;
+
+  if (!canFillSessionType(sessionTypeId, pool)) {
+    throw new Error(`Not enough exercises in the library for ${focusLabel}`);
+  }
+
+  const filled = fillWorkoutFromSessionType({
+    sessionTypeId,
+    durationMin: input.durationMin ?? 40,
+    catalogue: pool,
+    goal: input.goal ?? undefined,
+    level: input.level ?? undefined,
+    seed: Date.now() % 1_000_000,
+  });
+  if (filled.length === 0) {
+    throw new Error(`Could not build a workout for ${focusLabel}`);
+  }
+
+  const exercises: WorkoutExerciseInput[] = filled.map((ex) => ({
+    exerciseId: ex.exerciseId,
+    name: ex.name,
+    targetSets: ex.targetSets,
+    targetReps: ex.targetReps,
+    targetRpe: ex.targetRpe,
+  }));
+
+  let workoutId = input.existingWorkoutId ?? null;
+  if (workoutId) {
+    await saveWorkout(workoutId, input.householdId, {
+      name: focusLabel,
+      visibility: 'private',
+      splitId: null,
+      durationMin: input.durationMin,
+      goal: input.goal ?? null,
+      level: input.level ?? null,
+      personIds: [],
+      exercises,
+    });
+  } else {
+    workoutId = await createWorkout({
+      householdId: input.householdId,
+      userId: input.userId,
+      name: focusLabel,
+      visibility: 'private',
+      splitId: null,
+      durationMin: input.durationMin,
+      goal: input.goal ?? null,
+      level: input.level ?? null,
+      personIds: [],
+      exercises,
+    });
+    await attachWorkoutToPlanDay({
+      userId: input.userId,
+      dayId: input.dayId,
+      workoutId,
+    });
+  }
+
+  return { workoutId, exerciseCount: exercises.length };
 }
 
 export async function duplicateTrainingPlanToNextWeek(userId: string, planId: string): Promise<{ planId: string; weekStart: string }> {
@@ -1536,6 +2040,7 @@ export async function updateTrainingPlanDaySchedule(input: {
   durationMin?: number | null;
   day?: TrainingPlanWeekRow['days'][number]['day'];
   restDay?: boolean;
+  focus?: string[];
 }): Promise<{ synced: boolean; usedDefaultTime: boolean }> {
   const result = await handleUpdateTrainingPlanDaySchedule(db() as never, {
     authUserId: input.userId,
@@ -1544,6 +2049,7 @@ export async function updateTrainingPlanDaySchedule(input: {
     durationMin: input.durationMin,
     day: input.day,
     restDay: input.restDay,
+    focus: input.focus,
     pushToGoogle: pushHouseholdEventToGoogle,
     deleteFromGoogle: deleteHouseholdEventFromGoogle,
   });

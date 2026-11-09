@@ -17,6 +17,8 @@ export type ApplyTrainingPlanInput = {
   buddyUserIds?: string[];
   prefs?: Record<string, unknown>;
   days: readonly ApplyTrainingPlanDay[];
+  /** When set (e.g. from create_training_plan RPC), skip the training_plans insert. */
+  planId?: string;
 };
 
 export type ApplyTrainingPlanResult =
@@ -63,8 +65,7 @@ function isRlsOrOwnershipError(error: QueryError): boolean {
     error.code === '42501' ||
     msg.includes('row-level security') ||
     msg.includes('permission denied') ||
-    msg.includes('violates row-level security') ||
-    msg.includes('new row violates')
+    msg.includes('violates row-level security')
   );
 }
 
@@ -98,28 +99,46 @@ export async function handleApplyTrainingPlan(
       ? (input.buddyUserIds ?? []).filter((id) => id !== input.ownerId)
       : [];
 
-  const planInsert = await client
-    .from('training_plans')
-    .insert({
-      household_id: input.householdId,
-      owner_id: input.ownerId,
-      name: (input.name ?? 'Training plan').trim() || 'Training plan',
-      week_start: input.weekStart,
-      visibility,
-      audience_person_ids: audiencePersonIds,
-      prefs: input.prefs ?? {},
-    })
-    .select('id')
-    .single();
+  let planId = input.planId?.trim() || '';
+  if (!planId) {
+    const planInsert = await client
+      .from('training_plans')
+      .insert({
+        household_id: input.householdId,
+        owner_id: input.ownerId,
+        name: (input.name ?? 'Training plan').trim() || 'Training plan',
+        week_start: input.weekStart,
+        visibility,
+        audience_person_ids: audiencePersonIds,
+        prefs: input.prefs ?? {},
+      })
+      .select('id')
+      .single();
 
-  if (planInsert.error || !planInsert.data || typeof planInsert.data !== 'object' || !('id' in planInsert.data)) {
-    if (isRlsOrOwnershipError(planInsert.error)) {
-      return { status: 403, body: { error: 'Not allowed to create this training plan' } };
+    if (planInsert.error || !planInsert.data || typeof planInsert.data !== 'object' || !('id' in planInsert.data)) {
+      const detail = planInsert.error?.message?.trim();
+      if (isRlsOrOwnershipError(planInsert.error)) {
+        return {
+          status: 403,
+          body: {
+            error: detail
+              ? `Not allowed to create this training plan (${detail})`
+              : 'Not allowed to create this training plan',
+          },
+        };
+      }
+      // Insert can succeed under RLS while SELECT on the new row fails — treat as permission.
+      if (!planInsert.error && !planInsert.data) {
+        return { status: 403, body: { error: 'Not allowed to create this training plan' } };
+      }
+      if (detail && /0 rows|no rows|multiple \(or no\) rows/i.test(detail)) {
+        return { status: 403, body: { error: 'Not allowed to create this training plan' } };
+      }
+      return { status: 500, body: { error: detail ?? 'Could not create training plan' } };
     }
-    return { status: 500, body: { error: planInsert.error?.message ?? 'Could not create training plan' } };
-  }
 
-  const planId = String((planInsert.data as { id: string }).id);
+    planId = String((planInsert.data as { id: string }).id);
+  }
   const workoutIds: Record<string, string> = {};
   const createdWorkoutIds: string[] = [];
 

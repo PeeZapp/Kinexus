@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { handleGetSharedWorkout } from './shared-workout.js';
+import { handleGetSharedTrainingPlan } from './shared-training-plan.js';
 import { handleGetSharedWatchlist } from './shared-watchlist-link.js';
 
 type QueryResult = { data: unknown; error: { message: string } | null };
@@ -126,6 +127,115 @@ describe('handleGetSharedWorkout', () => {
     });
     expect(leakKeys(result.body)).toEqual([]);
     expect(JSON.stringify(result.body)).not.toMatch(/hh-secret|household|person/i);
+  });
+});
+
+describe('handleGetSharedTrainingPlan', () => {
+  it('returns week grid + exercises without personal fields', async () => {
+    const from = vi.fn((table: string) => {
+      if (table === 'training_plans') {
+        return chain({
+          data: {
+            id: 'p1',
+            name: 'Hypertrophy week',
+            week_start: '2026-11-02',
+            is_shared: true,
+            household_id: 'hh-secret',
+            owner_id: 'u-secret',
+            visibility: 'private',
+            audience_person_ids: ['person-secret'],
+            scheduled_time: '07:00',
+          },
+          error: null,
+        });
+      }
+      if (table === 'training_plan_days') {
+        return chain({
+          data: [
+            {
+              day: 'monday',
+              position: 0,
+              rest_day: false,
+              focus: ['Push'],
+              duration_min: 40,
+              generated_spec: null,
+              workout_id: 'w1',
+              scheduled_time: '07:00',
+              status: 'planned',
+              session_id: 'sess-secret',
+            },
+            {
+              day: 'tuesday',
+              position: 1,
+              rest_day: true,
+              focus: [],
+              duration_min: null,
+              generated_spec: null,
+              workout_id: null,
+            },
+          ],
+          error: null,
+        });
+      }
+      if (table === 'workout_exercises') {
+        return chain({
+          data: [
+            {
+              workout_id: 'w1',
+              name: 'Bench',
+              position: 0,
+              target_sets: 3,
+              target_reps: '8',
+              target_effort: null,
+              target_rpe: 8,
+              note: '',
+              superset_id: null,
+              household_id: 'hh-secret',
+            },
+          ],
+          error: null,
+        });
+      }
+      throw new Error(`unexpected table ${table}`);
+    });
+
+    const result = await handleGetSharedTrainingPlan('tok', {
+      isConfigured: () => true,
+      createClient: () => ({ from } as never),
+    });
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      name: 'Hypertrophy week',
+      weekStart: '2026-11-02',
+      days: [
+        {
+          day: 'monday',
+          restDay: false,
+          focus: ['Push'],
+          durationMin: 40,
+          exercises: [
+            {
+              name: 'Bench',
+              sets: 3,
+              reps: '8',
+              effort: null,
+              rpe: 8,
+              note: '',
+              supersetId: null,
+            },
+          ],
+        },
+        {
+          day: 'tuesday',
+          restDay: true,
+          focus: [],
+          durationMin: null,
+          exercises: [],
+        },
+      ],
+    });
+    expect(leakKeys(result.body)).toEqual([]);
+    expect(JSON.stringify(result.body)).not.toMatch(/hh-secret|person-secret|scheduled|session|visibility|audience/i);
   });
 });
 

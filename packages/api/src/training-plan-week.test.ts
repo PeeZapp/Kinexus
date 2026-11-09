@@ -56,6 +56,8 @@ const planRow = {
     preferSavedWorkouts: false,
   },
   calendar_auto_sync: false,
+  share_token: null,
+  is_shared: false,
   training_plan_days: [
     {
       id: 'day-mon',

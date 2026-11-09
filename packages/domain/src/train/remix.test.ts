@@ -7,6 +7,7 @@ import {
   generateFromCategoryMix,
   normalizeRemixSliderWeights,
   parseRemixSplit,
+  remixCategoryOf,
   remixExerciseCount,
   nextSimilarExercise,
 } from './remix';
@@ -52,6 +53,21 @@ describe('remix categories', () => {
     expect(exerciseMatchesRemixCategory(catalog.find((item) => item.id === 'g')!, 'Legs')).toBe(false);
     expect(exerciseMatchesRemixCategory(catalog.find((item) => item.id === 'm')!, 'Mobility')).toBe(true);
     expect(exerciseMatchesRemixCategory(catalog.find((item) => item.id === 'p')!, 'Plyometrics')).toBe(true);
+  });
+
+  it('honours explicit category on custom exercises', () => {
+    const custom: CatalogExercise = {
+      id: 'custom-1',
+      name: 'Weird Cable Thing',
+      bodyPart: 'other',
+      equipment: 'cable',
+      targetMuscle: '',
+      category: 'Shoulders',
+    };
+    expect(remixCategoryOf(custom)).toBe('Shoulders');
+    expect(exerciseMatchesRemixCategory(custom, 'Shoulders')).toBe(true);
+    const picks = generateFromCategoryMix(['Shoulders'], [100], 20, [custom, ...catalog], () => 0.1);
+    expect(picks.some((pick) => pick.exerciseId === 'custom-1')).toBe(true);
   });
 
   it('normalizes slider weights and round-trips the saved mix', () => {

@@ -3,6 +3,8 @@ import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 
 import {
+  EXERCISE_SOURCE_BADGE_LABEL,
+  EXERCISE_SOURCE_BADGES,
   exerciseSearchScore,
   filterTrainGlobalLibrary,
   TRAIN_GLOBAL_EQUIPMENT,
@@ -12,6 +14,7 @@ import {
   trainGlobalEquipmentLabel,
   trainGlobalGoalLabel,
   trainGlobalLevelLabel,
+  type ExerciseSourceBadge,
   type TrainGlobalEquipment,
   type TrainGlobalGoal,
   type TrainGlobalLevel,
@@ -25,6 +28,7 @@ import { ErrorBanner, LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
+import { useStaffAccess } from '@/src/features/staff/use-staff';
 import {
   copyGlobalWorkoutToMine,
   loadGlobalWorkouts,
@@ -33,8 +37,20 @@ import {
   type GlobalWorkoutCard,
   type LibraryExercise,
 } from '@/src/features/train/api';
+import { CustomExerciseForm } from '@/src/features/train/CustomExerciseForm';
+import { ExerciseGroupsSheet } from '@/src/features/train/ExerciseGroupsSheet';
+import { loadExerciseGroups, type ExerciseGroup } from '@/src/features/train/custom-exercises-api';
 import { exerciseFacts, exerciseTitle } from '@/src/features/train/format';
-import { ExerciseSteps, MediaGallery, Pill, SearchField, Segmented, TextAction, TrainPage } from '@/src/features/train/ui';
+import {
+  ExerciseSteps,
+  MediaGallery,
+  Pill,
+  SearchField,
+  Segmented,
+  TextAction,
+  TrainButton,
+  TrainPage,
+} from '@/src/features/train/ui';
 
 const PARTS = [
   ['all', 'All'],
@@ -71,40 +87,85 @@ export function LibraryScreen() {
 }
 
 function ExerciseLibraryPane() {
+  const { user } = useAuth();
+  const { activeHousehold, role, canManageHousehold } = useHousehold();
+  const staff = useStaffAccess();
+  const isStaff = staff.isStaff;
+  const userId = user && !user.isDevBypass ? user.id : null;
   const [rows, setRows] = useState<LibraryExercise[]>([]);
+  const [groups, setGroups] = useState<ExerciseGroup[]>([]);
   const [ready, setReady] = useState(false);
   const [query, setQuery] = useState('');
   const [part, setPart] = useState<(typeof PARTS)[number][0]>('all');
+  const [source, setSource] = useState<ExerciseSourceBadge | 'all'>('all');
   const [selected, setSelected] = useState<LibraryExercise | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<LibraryExercise | null>(null);
+  const [groupsOpen, setGroupsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { openMenu, toggleMenu, pick } = useFilterMenus();
   const partLabel = PARTS.find(([id]) => id === part)?.[1] ?? 'All';
+  const sourceLabel =
+    source === 'all' ? 'All' : EXERCISE_SOURCE_BADGE_LABEL[source];
+
+  const refresh = useCallback(async () => {
+    const next = await loadLibrary();
+    setRows(next);
+    if (userId) {
+      const nextGroups = await loadExerciseGroups(userId);
+      setGroups(nextGroups);
+    }
+  }, [userId]);
 
   useEffect(() => {
-    loadLibrary()
-      .then(setRows)
+    refresh()
       .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load exercises'))
       .finally(() => setReady(true));
-  }, []);
+  }, [refresh]);
 
   const visible = useMemo(() => {
     const ranked: { row: LibraryExercise; score: number }[] = [];
     for (const row of rows) {
+      if (row.status === 'hidden') continue;
       if (part !== 'all' && row.bodyPart !== part) continue;
+      if (source !== 'all' && row.sourceBadge !== source) continue;
       const score = exerciseSearchScore(query, `${row.name} ${row.equipment} ${row.targetMuscle} ${row.bodyPart}`);
       if (score === null) continue;
       ranked.push({ row, score });
     }
     ranked.sort((a, b) => a.score - b.score);
     return ranked.map((item) => item.row);
-  }, [part, query, rows]);
+  }, [part, query, rows, source]);
 
   const facts = selected ? exerciseFacts(selected) : [];
   const credit = selected ? creditFor(selected) : '';
+  const canEditSelected =
+    Boolean(selected && userId) &&
+    (selected?.ownerId === userId ||
+      (selected?.scope === 'household' && canManageHousehold) ||
+      (selected?.scope === 'group' &&
+        groups.some((group) => group.id === selected.groupId && group.ownerId === userId)) ||
+      (selected?.scope === 'global' &&
+        selected.source === 'creator' &&
+        (selected.ownerId === userId || isStaff)));
 
   return (
     <>
-      <SearchField value={query} onChangeText={setQuery} placeholder="Search exercises" />
+      <View style={styles.toolbar}>
+        <SearchField value={query} onChangeText={setQuery} placeholder="Search exercises" />
+        {userId ? (
+          <View style={styles.toolbarActions}>
+            <TrainButton
+              label="Add"
+              onPress={() => {
+                setEditing(null);
+                setFormOpen(true);
+              }}
+            />
+            <TrainButton label="Groups" tone="ghost" onPress={() => setGroupsOpen(true)} />
+          </View>
+        ) : null}
+      </View>
       <View style={styles.filters}>
         <FilterBar>
           <FilterDropdown
@@ -117,6 +178,23 @@ function ExerciseLibraryPane() {
             active={part !== 'all'}
             onToggle={toggleMenu}
             onSelect={pick(setPart)}
+          />
+          <FilterDropdown
+            id="source"
+            label="Source"
+            value={source}
+            valueLabel={sourceLabel}
+            open={openMenu === 'source'}
+            options={[
+              { value: 'all', label: 'All' },
+              ...EXERCISE_SOURCE_BADGES.map((value) => ({
+                value,
+                label: EXERCISE_SOURCE_BADGE_LABEL[value],
+              })),
+            ]}
+            active={source !== 'all'}
+            onToggle={toggleMenu}
+            onSelect={pick(setSource)}
           />
         </FilterBar>
         {ready ? <Text style={styles.count}>{visible.length.toLocaleString()}</Text> : null}
@@ -139,7 +217,13 @@ function ExerciseLibraryPane() {
                 onPress={() => setSelected(item)}
                 accessibilityRole="button"
                 style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
-                <Text style={styles.name}>{exerciseTitle(item.name)}</Text>
+                <View style={styles.rowTop}>
+                  <Text style={styles.name}>{exerciseTitle(item.name)}</Text>
+                  <Text style={styles.badge}>{EXERCISE_SOURCE_BADGE_LABEL[item.sourceBadge]}</Text>
+                </View>
+                {item.sourceBadge === 'creator' && item.owner ? (
+                  <PublicName user={item.owner} primaryStyle={styles.creatorName} />
+                ) : null}
                 {meta ? <Text style={styles.meta}>{meta}</Text> : null}
               </Pressable>
             );
@@ -150,18 +234,58 @@ function ExerciseLibraryPane() {
         {selected ? (
           <View style={styles.detail}>
             {selected.mediaUrls.length > 0 ? <MediaGallery urls={selected.mediaUrls} /> : null}
-            {facts.length > 0 ? (
-              <View style={styles.pills}>
-                {facts.map((fact) => (
-                  <Pill key={fact} label={fact} />
-                ))}
-              </View>
+            <View style={styles.pills}>
+              <Pill label={EXERCISE_SOURCE_BADGE_LABEL[selected.sourceBadge]} />
+              {facts.map((fact) => (
+                <Pill key={fact} label={fact} />
+              ))}
+            </View>
+            {selected.sourceBadge === 'creator' && selected.owner ? (
+              <PublicName user={selected.owner} />
             ) : null}
             <ExerciseSteps instructions={selected.instructions} />
             {credit ? <Text style={styles.credit}>{credit}</Text> : null}
+            {canEditSelected ? (
+              <TextAction
+                label="Edit"
+                tone="accent"
+                onPress={() => {
+                  setEditing(selected);
+                  setSelected(null);
+                  setFormOpen(true);
+                }}
+              />
+            ) : null}
           </View>
         ) : null}
       </Sheet>
+      {userId ? (
+        <>
+          <CustomExerciseForm
+            visible={formOpen}
+            onClose={() => {
+              setFormOpen(false);
+              setEditing(null);
+            }}
+            onSaved={() => {
+              void refresh();
+            }}
+            editing={editing}
+            catalog={rows}
+            groups={groups}
+            userId={userId}
+            householdId={activeHousehold?.id ?? null}
+            canManageHousehold={canManageHousehold || role === 'owner' || role === 'admin'}
+            isStaff={isStaff}
+          />
+          <ExerciseGroupsSheet
+            visible={groupsOpen}
+            onClose={() => setGroupsOpen(false)}
+            userId={userId}
+            onChanged={setGroups}
+          />
+        </>
+      ) : null}
     </>
   );
 }
@@ -254,13 +378,18 @@ function GlobalLibraryPane() {
     setBusyId(workout.id);
     setError(null);
     try {
-      const id = await copyGlobalWorkoutToMine({
+      const { workoutId, needsReplacement } = await copyGlobalWorkoutToMine({
         workout,
         householdId: activeHousehold.id,
         userId,
       });
       setSelected(null);
-      router.push(`/train/${id}` as Href);
+      if (needsReplacement.length > 0) {
+        setError(
+          `Copied with free-text names for ${needsReplacement.length} unavailable exercise${needsReplacement.length === 1 ? '' : 's'}`,
+        );
+      }
+      router.push(`/train/${workoutId}` as Href);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not copy workout');
     } finally {
@@ -420,6 +549,8 @@ function creditFor(exercise: LibraryExercise): string {
 }
 
 const styles = StyleSheet.create({
+  toolbar: { gap: 8 },
+  toolbarActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   filters: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, zIndex: 20 },
   count: { color: colors.textDim, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
   list: { flex: 1 },
@@ -433,8 +564,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     gap: 3,
   },
+  rowTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
   pressed: { backgroundColor: colors.bgHover },
-  name: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  name: { flex: 1, color: colors.text, fontSize: 16, fontWeight: '700' },
+  badge: { color: colors.accent, fontSize: 11, fontWeight: '800' },
+  creatorName: { fontSize: 13, fontWeight: '600' },
   meta: { color: colors.textMuted, fontSize: 13 },
   empty: { color: colors.textMuted, fontSize: 15, paddingVertical: space.lg },
   detail: { gap: space.md, paddingTop: 4, paddingBottom: space.lg },

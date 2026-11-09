@@ -5,7 +5,9 @@ import {
   allowedFamilyPlanShares,
   canCopySharedWorkout,
   canEditWorkoutVisibility,
+  canPublishTrainingPlanGlobal,
   canViewSessionVisibility,
+  canViewTrainingPlanVisibility,
   canViewWorkoutVisibility,
   canViewWorkoutWeights,
   normalizeTrainShare,
@@ -216,5 +218,50 @@ describe('copy + picker', () => {
     expect(trainVisibilityOptions({ isApprovedCreator: true }).some((o) => o.value === 'global')).toBe(true);
     expect(trainVisibilityLabel('household')).toBe('Family');
     expect(allowedFamilyPlanShares('child')).toEqual(['off', 'plan']);
+  });
+});
+
+describe('training plan visibility + Everyone guard', () => {
+  const planPerms = { ...perms, can_view_plan: true };
+  const planBase = {
+    viewerId: 'viewer',
+    ownerId: 'owner',
+    visibility: 'private' as const,
+    householdMember: false,
+    householdRole: null,
+    sharedWithViewer: false,
+    buddySharedWithViewer: false,
+    buddyStatus: 'accepted' as const,
+    buddyPermissions: planPerms,
+    familyPlanShare: null,
+  };
+
+  it('denies non-creator Everyone publish', () => {
+    expect(
+      canPublishTrainingPlanGlobal({ ownerId: 'owner', actorId: 'owner', isApprovedCreator: false }),
+    ).toBe(false);
+    expect(
+      canPublishTrainingPlanGlobal({ ownerId: 'owner', actorId: 'other', isApprovedCreator: true }),
+    ).toBe(false);
+    expect(
+      canPublishTrainingPlanGlobal({ ownerId: 'owner', actorId: 'owner', isApprovedCreator: true }),
+    ).toBe(true);
+  });
+
+  it('lets picked buddy see plan and hides from non-picked', () => {
+    expect(
+      canViewTrainingPlanVisibility({
+        ...planBase,
+        visibility: 'buddies_selected',
+        buddySharedWithViewer: true,
+      }),
+    ).toBe(true);
+    expect(
+      canViewTrainingPlanVisibility({
+        ...planBase,
+        visibility: 'buddies_selected',
+        buddySharedWithViewer: false,
+      }),
+    ).toBe(false);
   });
 });

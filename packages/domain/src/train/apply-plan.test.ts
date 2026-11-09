@@ -96,7 +96,7 @@ describe('handleApplyTrainingPlan', () => {
       days: [sampleDay()],
     });
     expect(result.status).toBe(403);
-    expect(result.body).toEqual({ error: 'Not allowed to create this training plan' });
+    expect(result.body.error).toMatch(/^Not allowed to create this training plan/);
   });
 
   it('creates plan, workouts, days, and buddy shares on happy path', async () => {
@@ -159,6 +159,62 @@ describe('handleApplyTrainingPlan', () => {
     expect(inserts.some((row) => row.table === 'training_plan_buddy_shares')).toBe(true);
     const workout = inserts.find((row) => row.table === 'workouts')?.payload as { name?: string };
     expect(workout?.name).toBe('Mon · Push');
+  });
+
+  it('creates intent-only days without workouts when exercises are empty', async () => {
+    const inserts: { table: string; payload: unknown }[] = [];
+    const from = vi.fn((table: string) => {
+      if (table === 'training_plans') {
+        return chain(
+          { data: { id: 'plan1' }, error: null },
+          {
+            track: (op, payload) => {
+              if (op === 'insert') inserts.push({ table, payload });
+            },
+          },
+        );
+      }
+      if (table === 'training_plan_days') {
+        return chain(
+          { data: null, error: null },
+          {
+            track: (op, payload) => {
+              if (op === 'insert') inserts.push({ table, payload });
+            },
+          },
+        );
+      }
+      if (table === 'workouts' || table === 'workout_exercises') {
+        throw new Error(`unexpected ${table}`);
+      }
+      throw new Error(`unexpected ${table}`);
+    });
+
+    const result = await handleApplyTrainingPlan({ from } as unknown as ApplyDbClient, {
+      householdId: 'hh1',
+      ownerId: 'user-a',
+      authUserId: 'user-a',
+      weekStart: '2026-11-02',
+      visibility: 'private',
+      days: [
+        sampleDay({
+          exercises: [],
+          focus: ['Upper Push'],
+          explanation: 'Intent only',
+          workoutId: null,
+        }),
+      ],
+    });
+
+    expect(result).toEqual({ status: 200, body: { planId: 'plan1', workoutIds: {} } });
+    const dayInsert = inserts.find((row) => row.table === 'training_plan_days')?.payload as {
+      workout_id?: string | null;
+      focus?: string[];
+      rest_day?: boolean;
+    };
+    expect(dayInsert?.workout_id).toBeNull();
+    expect(dayInsert?.focus).toEqual(['Upper Push']);
+    expect(dayInsert?.rest_day).toBe(false);
   });
 });
 

@@ -175,12 +175,17 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
     setBusy(true);
     setError(null);
     try {
-      const id = await copyWorkoutToMyLibrary({
+      const { workoutId, needsReplacement } = await copyWorkoutToMyLibrary({
         source: workout,
         householdId: activeHousehold.id,
         userId,
       });
-      router.push(`/train/${id}` as Href);
+      if (needsReplacement.length > 0) {
+        setError(
+          `Copied with free-text names for ${needsReplacement.length} unavailable exercise${needsReplacement.length === 1 ? '' : 's'}`,
+        );
+      }
+      router.push(`/train/${workoutId}` as Href);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not copy workout');
     } finally {

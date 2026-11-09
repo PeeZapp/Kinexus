@@ -3,6 +3,7 @@ import { useRouter, type Href } from 'expo-router';
 
 import {
   DAYS,
+  fillWorkoutFromSessionType,
   generateTrainPlan,
   mondayWeekStart,
   swapSimilarExercises,
@@ -221,6 +222,8 @@ export function GenerateScreen() {
       goal: prefs.goal,
       level: prefs.level,
       durationMin: prefs.durationMin,
+      splitStyle: prefs.splitStyle,
+      focusByDay: prefs.customFocusByDay,
       equipment: prefs.equipment.length > 0 ? prefs.equipment : undefined,
       avoidExerciseIds: prefs.avoidExerciseIds,
       preferSavedWorkouts: prefs.preferSavedWorkouts,
@@ -233,29 +236,34 @@ export function GenerateScreen() {
     if (prefs.cardioAddon === 'separate_days') {
       const rest = next.find((day) => day.restDay);
       if (rest) {
+        const walkDuration = Math.min(prefs.durationMin, 30);
+        const walkExercises = prefs.fillWorkouts
+          ? fillWorkoutFromSessionType({
+              sessionTypeId: 'walk',
+              durationMin: walkDuration,
+              catalogue,
+              goal: prefs.goal,
+              level: prefs.level,
+              seed: seed + 99,
+            })
+          : [];
         next = next.map((day) =>
           day.day === rest.day
             ? {
                 ...day,
                 restDay: false,
-                focus: ['Cardio'],
-                durationMin: Math.min(prefs.durationMin, 30),
-                exercises: [
-                  {
-                    exerciseId: `cardio-${day.day}`,
-                    name: 'Zone 2 cardio',
-                    targetSets: 1,
-                    targetReps: '20-30 min',
-                    targetRpe: 6,
-                    category: 'Cardio',
-                  },
-                ],
-                explanation: 'Cardio day',
+                focus: ['Walk'],
+                durationMin: walkDuration,
+                exercises: walkExercises,
+                explanation: 'Walk day',
                 seed: seed + 99,
               }
             : day,
         );
       }
+    }
+    if (!prefs.fillWorkouts) {
+      next = next.map((day) => (day.restDay ? day : { ...day, exercises: [], workoutId: null }));
     }
     setPreview(next);
   }
@@ -298,6 +306,8 @@ export function GenerateScreen() {
       goal: prefs.goal,
       level: prefs.level,
       durationMin: prefs.durationMin,
+      splitStyle: prefs.splitStyle,
+      focusByDay: prefs.customFocusByDay,
       equipment: prefs.equipment.length > 0 ? prefs.equipment : undefined,
       avoidExerciseIds: prefs.avoidExerciseIds,
       preferSavedWorkouts: prefs.preferSavedWorkouts,

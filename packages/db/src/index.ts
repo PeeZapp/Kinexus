@@ -8,6 +8,9 @@ export type {
 } from './types';
 
 export const rpc = {
+  createTrainingPlan: 'create_training_plan',
+  createPrivateWorkout: 'create_private_workout',
+  startWorkoutSession: 'start_workout_session',
   createHousehold: 'create_household',
   createInvite: 'create_household_invite',
   peekInvite: 'peek_household_invite',
@@ -32,6 +35,11 @@ export const rpc = {
   revokeCreator: 'revoke_creator',
   publishCreatorRecipe: 'publish_creator_recipe',
   unpublishCreatorRecipe: 'unpublish_creator_recipe',
+  publishGlobalExercise: 'publish_global_exercise',
+  archiveExercise: 'archive_exercise',
+  isExerciseGroupMember: 'is_exercise_group_member',
+  canEditExerciseGroup: 'can_edit_exercise_group',
+  exerciseReferencedByMe: 'exercise_referenced_by_me',
   staffCreatorContentDigest: 'staff_creator_content_digest',
   checkUsernameAvailable: 'check_username_available',
   setUsername: 'set_username',

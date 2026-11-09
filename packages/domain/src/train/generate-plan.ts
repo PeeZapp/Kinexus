@@ -7,6 +7,11 @@ import {
   type RemixCategory,
 } from './remix';
 import type { CatalogExercise, RemixPick } from './types';
+import {
+  displayFocusLabel,
+  fillWorkoutFromSessionType,
+  sessionTypeIdFromFocus,
+} from './workout-templates';
 
 /** Muscle / focus groups used for recovery and weekly caps. */
 export type TrainFocus =
@@ -32,6 +37,8 @@ export type SavedWorkoutCandidate = {
   exerciseIds: readonly string[];
 };
 
+export type TrainSplitStyleId = 'auto' | 'full_body' | 'upper_lower' | 'ppl' | 'bro' | 'custom';
+
 export type GeneratePlanInput = {
   /** Training sessions per week (2–6). Ignored when `days` is provided. */
   daysPerWeek: number;
@@ -40,6 +47,10 @@ export type GeneratePlanInput = {
   goal: GeneratePlanGoal;
   level: GeneratePlanLevel;
   durationMin: number;
+  /** When set, overrides auto focus sequence from daysPerWeek × goal. */
+  splitStyle?: TrainSplitStyleId | string | null;
+  /** Per-day focus overrides (session-type or legacy labels). */
+  focusByDay?: Partial<Record<Day, string>>;
   /** Allowed equipment strings; empty/omitted = all. */
   equipment?: readonly string[];
   /** Catalogue exercise ids to never pick. */
@@ -203,6 +214,127 @@ export function splitTemplateFor(daysPerWeek: number, goal: GeneratePlanGoal): T
   return ['Push', 'Pull', 'Legs', 'Push', 'Pull', 'Legs'];
 }
 
+/**
+ * Ordered focus labels for N training days from a named split.
+ * Labels are session-type vocabulary (or legacy generate focuses).
+ */
+export function focusSequenceForSplit(
+  style: string | null | undefined,
+  daysPerWeek: number,
+  goal: GeneratePlanGoal = 'hypertrophy',
+): string[] {
+  const n = Math.max(1, Math.min(7, Math.round(daysPerWeek)));
+  if (style === 'full_body') return Array.from({ length: n }, () => 'Full Body');
+  if (style === 'upper_lower') {
+    return Array.from({ length: n }, (_, i) => (i % 2 === 0 ? 'Upper' : 'Lower'));
+  }
+  if (style === 'ppl') {
+    const cycle = ['Push', 'Pull', 'Legs'] as const;
+    return Array.from({ length: n }, (_, i) => cycle[i % 3]!);
+  }
+  if (style === 'bro') {
+    const cycle = ['Chest & Triceps', 'Back & Biceps', 'Legs', 'Shoulders', 'Arms'] as const;
+    return Array.from({ length: n }, (_, i) => cycle[i % cycle.length]!);
+  }
+  if (n === 1) {
+    if (goal === 'mobility') return ['Mobility'];
+    if (goal === 'conditioning' || goal === 'fat_loss') return ['Full Body'];
+    return ['Full Body'];
+  }
+  return splitTemplateFor(n, goal);
+}
+
+/** Map free-form / session-type labels onto recovery-aware TrainFocus values. */
+export function coerceTrainFocus(label: string): TrainFocus {
+  if (isTrainFocus(label)) return label;
+  const id = sessionTypeIdFromFocus(label);
+  switch (id) {
+    case 'upper_push':
+    case 'push':
+    case 'chest_tris':
+    case 'shoulders':
+      return 'Push';
+    case 'upper_pull':
+    case 'pull':
+    case 'back_bis':
+      return 'Pull';
+    case 'legs':
+    case 'lower':
+    case 'glutes':
+      return 'Legs';
+    case 'upper':
+    case 'arms':
+      return 'Upper';
+    case 'full_body':
+    case 'circuit':
+      return 'Full Body';
+    case 'core':
+      return 'Core';
+    case 'mobility':
+    case 'stretch':
+    case 'active_recovery':
+      return 'Mobility';
+    case 'walk':
+    case 'jog':
+    case 'run':
+    case 'cycle':
+    case 'assault_bike':
+    case 'row':
+    case 'swim':
+    case 'stair_climber':
+    case 'elliptical':
+    case 'jump_rope':
+    case 'hiit':
+    case 'zone2':
+    case 'plyometrics':
+      return 'Cardio';
+    default:
+      return 'Full Body';
+  }
+}
+
+/** Intent-only week: real session types on training days, no exercises. */
+export function buildIntentWeekDays(input: {
+  trainingDays: readonly Day[];
+  durationMin: number;
+  goal?: GeneratePlanGoal;
+  splitStyle?: string | null;
+  customFocusByDay?: Partial<Record<Day, string>>;
+}): GeneratedTrainDay[] {
+  const preferred = new Set(input.trainingDays);
+  const ordered = DAYS.filter((day) => preferred.has(day));
+  const sequence = focusSequenceForSplit(
+    input.splitStyle,
+    ordered.length,
+    input.goal ?? 'hypertrophy',
+  );
+  let index = 0;
+  return DAYS.map((day) => {
+    if (!preferred.has(day)) {
+      return {
+        day,
+        restDay: true,
+        focus: [],
+        durationMin: 0,
+        exercises: [],
+        workoutId: null,
+        explanation: 'Rest',
+      };
+    }
+    const raw = input.customFocusByDay?.[day] ?? sequence[index++] ?? 'Full Body';
+    const label = displayFocusLabel(raw);
+    return {
+      day,
+      restDay: false,
+      focus: [label],
+      durationMin: input.durationMin,
+      exercises: [],
+      workoutId: null,
+      explanation: label,
+    };
+  });
+}
+
 /** Spread N sessions across the week with gaps when possible. */
 export function pickTrainingDays(daysPerWeek: number, random: () => number = () => 0): Day[] {
   const n = Math.max(1, Math.min(7, Math.round(daysPerWeek)));
@@ -256,6 +388,7 @@ export function prescriptionFor(
 }
 
 export function isCompoundExercise(exercise: CatalogExercise): boolean {
+  if (exercise.isCompound != null) return exercise.isCompound;
   if (COMPOUND_NAME.test(exercise.name)) return true;
   const cat = remixCategoryOf(exercise);
   if (cat === 'Full Body' || cat === 'Legs' || cat === 'Back' || cat === 'Chest') {
@@ -341,7 +474,8 @@ function volumeCategory(ex: CatalogExercise): string {
 }
 
 /**
- * Rules-based weekly train plan. Pure — no DB. Catalogue only (no custom-exercise model).
+ * Rules-based weekly train plan. Pure — no DB. Pool may include custom exercises
+ * (optional category / isCompound on CatalogExercise).
  */
 export function generateTrainPlan(input: GeneratePlanInput): GeneratedTrainDay[] {
   const random = mulberry32(input.seed);
@@ -356,7 +490,8 @@ export function generateTrainPlan(input: GeneratePlanInput): GeneratedTrainDay[]
       : pickTrainingDays(input.daysPerWeek, random)
   ).sort((a, b) => DAY_INDEX[a] - DAY_INDEX[b]);
 
-  const focuses = splitTemplateFor(trainingDays.length, input.goal);
+  const sequenceLabels = focusSequenceForSplit(input.splitStyle, trainingDays.length, input.goal);
+  const focuses = sequenceLabels.map((label) => coerceTrainFocus(label));
   const maxSessions = MAX_SESSIONS_PER_GROUP[input.level];
   const volumeTarget = WEEKLY_VOLUME_TARGET[input.level];
 
@@ -367,11 +502,14 @@ export function generateTrainPlan(input: GeneratePlanInput): GeneratedTrainDay[]
   const usedSaved = new Set<string>();
 
   const dayFocus = new Map<Day, TrainFocus | null>();
+  const dayFocusLabel = new Map<Day, string>();
   const dayRecoveryNote = new Map<Day, string>();
 
   for (let i = 0; i < trainingDays.length; i += 1) {
     const day = trainingDays[i]!;
-    const preferred = focuses[i] ?? 'Full Body';
+    const override = input.focusByDay?.[day]?.trim();
+    const preferredLabel = override || sequenceLabels[i] || 'Full Body';
+    const preferred = coerceTrainFocus(preferredLabel);
     // Enforce max sessions + 48h recovery by swapping toward a compatible focus.
     const tryOrder: TrainFocus[] = [
       preferred,
@@ -381,7 +519,8 @@ export function generateTrainPlan(input: GeneratePlanInput): GeneratedTrainDay[]
       'Mobility',
     ];
     let chosen: TrainFocus | null = null;
-    let note: string = preferred;
+    let chosenLabel = preferredLabel;
+    let note: string = preferredLabel;
     for (const candidate of tryOrder) {
       const groups = recoveryGroupsForFocus([candidate]);
       let ok = true;
@@ -400,6 +539,7 @@ export function generateTrainPlan(input: GeneratePlanInput): GeneratedTrainDay[]
       }
       if (ok) {
         chosen = candidate;
+        chosenLabel = candidate === preferred ? preferredLabel : candidate;
         const prior = [...groups]
           .map((g) => groupLastDay.get(g))
           .filter((d): d is Day => !!d && d !== day)
@@ -411,6 +551,7 @@ export function generateTrainPlan(input: GeneratePlanInput): GeneratedTrainDay[]
     }
     dayFocus.set(day, chosen);
     if (chosen) {
+      dayFocusLabel.set(day, chosenLabel);
       dayRecoveryNote.set(day, note);
       for (const g of recoveryGroupsForFocus([chosen])) {
         groupSessionCounts.set(g, (groupSessionCounts.get(g) ?? 0) + 1);
@@ -436,15 +577,16 @@ export function generateTrainPlan(input: GeneratePlanInput): GeneratedTrainDay[]
       continue;
     }
 
+    const labelForDay = dayFocusLabel.get(day) ?? focus;
     const focusLabels = [focus];
-    const explanation = dayRecoveryNote.get(day) ?? focus;
+    const explanation = dayRecoveryNote.get(day) ?? labelForDay;
 
     // preferSavedWorkouts
     if (input.preferSavedWorkouts && input.savedWorkouts?.length) {
       const candidates = input.savedWorkouts.filter(
         (w) =>
           !usedSaved.has(w.id) &&
-          savedFitsFocus(w, focusLabels) &&
+          savedFitsFocus(w, [labelForDay, ...focusLabels]) &&
           (w.durationMin == null || Math.abs(w.durationMin - input.durationMin) <= 20),
       );
       const pick = candidates[Math.floor(random() * Math.max(candidates.length, 1))];
@@ -454,61 +596,84 @@ export function generateTrainPlan(input: GeneratePlanInput): GeneratedTrainDay[]
         results.push({
           day,
           restDay: false,
-          focus: focusLabels,
+          focus: [displayFocusLabel(labelForDay)],
           durationMin: pick.durationMin ?? input.durationMin,
           exercises: [],
           workoutId: pick.id,
-          explanation: `${explanation} · saved workout`,
+          explanation: `${displayFocusLabel(labelForDay)} · saved workout`,
         });
         continue;
       }
     }
 
-    const cats = categoriesForFocus(focusLabels);
-    // Prefer under-target volume categories first in weights.
-    const weights = cats.map((cat) => {
-      const group = RECOVERY_GROUP[cat] ?? cat;
-      const sets = weeklySets.get(group) ?? 0;
-      const deficit = Math.max(0, volumeTarget - sets);
-      return 40 + deficit * 8 + random() * 10;
-    });
-
+    const displayFocus = [displayFocusLabel(labelForDay)];
+    const sessionTypeId = sessionTypeIdFromFocus(labelForDay) ?? sessionTypeIdFromFocus(focus);
     let dayPool = pool;
     if (!allowDup) {
       dayPool = pool.filter((ex) => !usedExerciseIds.has(ex.id));
       if (dayPool.length < 3) dayPool = pool;
     }
 
-    const raw = generateFromCategoryMix(cats, weights, input.durationMin, dayPool, random);
-    const ordered = compoundFirstOrder(raw, byId);
+    let exercises: GeneratedTrainExercise[] = [];
+    if (sessionTypeId) {
+      const filled = fillWorkoutFromSessionType({
+        sessionTypeId,
+        durationMin: input.durationMin,
+        catalogue: dayPool,
+        goal: input.goal,
+        level: input.level,
+        seed: Math.floor(random() * 1_000_000),
+        avoidExerciseIds: allowDup ? [] : [...usedExerciseIds],
+      });
+      exercises = filled.map((pick) => {
+        if (!allowDup) usedExerciseIds.add(pick.exerciseId);
+        const ex = byId.get(pick.exerciseId);
+        if (ex) {
+          const group = volumeCategory(ex);
+          weeklySets.set(group, (weeklySets.get(group) ?? 0) + pick.targetSets);
+        }
+        return pick;
+      });
+    }
 
-    const exercises: GeneratedTrainExercise[] = ordered.map((pick: RemixPick) => {
-      const ex = byId.get(pick.exerciseId);
-      const category = ex ? remixCategoryOf(ex) : null;
-      const rx = prescriptionFor(input.goal, input.level, category);
-      if (!allowDup) usedExerciseIds.add(pick.exerciseId);
-      if (ex) {
-        const group = volumeCategory(ex);
-        weeklySets.set(group, (weeklySets.get(group) ?? 0) + rx.sets);
-      }
-      return {
-        exerciseId: pick.exerciseId,
-        name: pick.name,
-        targetSets: rx.sets,
-        targetReps: rx.reps,
-        targetRpe: rx.rpe,
-        category,
-      };
-    });
+    if (exercises.length === 0) {
+      const cats = categoriesForFocus(focusLabels);
+      const weights = cats.map((cat) => {
+        const group = RECOVERY_GROUP[cat] ?? cat;
+        const sets = weeklySets.get(group) ?? 0;
+        const deficit = Math.max(0, volumeTarget - sets);
+        return 40 + deficit * 8 + random() * 10;
+      });
+      const raw = generateFromCategoryMix(cats, weights, input.durationMin, dayPool, random);
+      const ordered = compoundFirstOrder(raw, byId);
+      exercises = ordered.map((pick: RemixPick) => {
+        const ex = byId.get(pick.exerciseId);
+        const category = ex ? remixCategoryOf(ex) : null;
+        const rx = prescriptionFor(input.goal, input.level, category);
+        if (!allowDup) usedExerciseIds.add(pick.exerciseId);
+        if (ex) {
+          const group = volumeCategory(ex);
+          weeklySets.set(group, (weeklySets.get(group) ?? 0) + rx.sets);
+        }
+        return {
+          exerciseId: pick.exerciseId,
+          name: pick.name,
+          targetSets: rx.sets,
+          targetReps: rx.reps,
+          targetRpe: rx.rpe,
+          category,
+        };
+      });
+    }
 
     results.push({
       day,
       restDay: false,
-      focus: focusLabels,
+      focus: displayFocus,
       durationMin: input.durationMin,
       exercises,
       workoutId: null,
-      explanation,
+      explanation: displayFocusLabel(explanation),
     });
   }
 

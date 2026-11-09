@@ -7,10 +7,14 @@ import {
   canCreateShared,
   canPublishTrainGlobal,
   clusterExercises,
+  exerciseSearchScore,
   generateFromCategoryMix,
+  getRemixDefaultsForCategory,
+  isDurationTarget,
   nextSimilarExercise,
   parseRemixSplit,
   parseWeight,
+  remixCategoryOf,
   shuffledRestQuiz,
   toStoredKg,
   type RestExtra,
@@ -20,6 +24,8 @@ import { useWakeLock } from '@/src/features/cook/use-wake-lock';
 import { Sheet } from '@/src/features/meals/meals-kit';
 import { AppModal } from '@/src/features/shell/AppModal';
 import {
+  addSessionSet,
+  appendSessionExercise,
   createWorkout,
   displayWeight,
   finishSession,
@@ -29,8 +35,12 @@ import {
   loadMyRestScores,
   loadRecords,
   loadRestTops,
+  loadWorkoutById,
   loadWorkouts,
+  moveSessionExercise,
   openSession,
+  removeSessionExercise,
+  removeSessionSet,
   replaceSessionExercise,
   rewriteSessionExercises,
   saveRestBest,
@@ -191,6 +201,9 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
   const [topScores, setTopScores] = useState<RestGameScore[]>([]);
   const [shownScore, setShownScore] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addQuery, setAddQuery] = useState('');
+  const [adding, setAdding] = useState(false);
   const liveScore = useRef(0);
   const remixingRef = useRef(false);
   const finishRestRef = useRef<() => void>(() => undefined);
@@ -246,22 +259,25 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
           return;
         }
         if (!workoutId) return;
-        const workouts = await loadWorkouts(householdId);
-        const found = workouts.find((item) => item.id === workoutId);
+        const byId = await loadWorkoutById(workoutId);
+        const workouts = byId ? [] : await loadWorkouts(householdId);
+        const found = byId ?? workouts.find((item) => item.id === workoutId);
         if (!found) {
           setError('Workout is not available');
           return;
         }
-        const ids = found.exercises.flatMap((exercise) => (exercise.exerciseId ? [exercise.exerciseId] : []));
-        const nextRecords = await loadRecords(userId, ids);
-        const opened = await openSession({ householdId, userId, workout: found, records: nextRecords });
         if (cancelled) return;
-        setRecords(nextRecords);
         setWorkout(found);
         setSavedSignature(templateSignature(found));
+        void loadLibrary().then(setLibrary).catch(() => undefined);
+        const ids = found.exercises.flatMap((exercise) => (exercise.exerciseId ? [exercise.exerciseId] : []));
+        const nextRecords = await loadRecords(userId, ids);
+        if (cancelled) return;
+        setRecords(nextRecords);
+        const opened = await openSession({ householdId, userId, workout: found, records: nextRecords });
+        if (cancelled) return;
         setSessionId(opened.sessionId);
         setSets(opened.sets);
-        void loadLibrary().then(setLibrary).catch(() => undefined);
       } catch (err: unknown) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Could not start');
       }
@@ -295,6 +311,132 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
 
   const remix = parseRemixSplit(workout?.splitId);
   const remixDirty = Boolean(remix) && savedSignature !== exerciseSignature(sets);
+
+  const addResults = useMemo(() => {
+    const query = addQuery.trim();
+    const taken = new Set(sets.flatMap((set) => (set.exerciseId ? [set.exerciseId] : [])));
+    const scored = library
+      .map((exercise) => {
+        const haystack = [exercise.name, exercise.bodyPart, exercise.targetMuscle, exercise.equipment, exercise.category]
+          .filter(Boolean)
+          .join(' ');
+        const score = query ? exerciseSearchScore(query, haystack) : 1;
+        return score == null ? null : { exercise, score };
+      })
+      .filter((row): row is { exercise: LibraryExercise; score: number } => Boolean(row))
+      .filter((row) => !taken.has(row.exercise.id))
+      .sort((a, b) => b.score - a.score || a.exercise.name.localeCompare(b.exercise.name));
+    return scored.slice(0, query ? 40 : 30).map((row) => row.exercise);
+  }, [addQuery, library, sets]);
+
+  async function openAddExercise() {
+    setAddOpen(true);
+    setAddQuery('');
+    setError(null);
+    try {
+      await ensureLibrary();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not load exercises');
+    }
+  }
+
+  async function addExerciseToSession(exercise: LibraryExercise) {
+    if (!sessionId || !activeHousehold || !userId || adding) return;
+    setAdding(true);
+    setError(null);
+    try {
+      const category = remixCategoryOf(exercise);
+      const defaults = getRemixDefaultsForCategory(category ?? 'Full Body');
+      const loaded = records[exercise.id]
+        ? records
+        : { ...records, ...(await loadRecords(userId, [exercise.id])) };
+      if (loaded !== records) setRecords(loaded);
+      const nextSets = await appendSessionExercise({
+        sessionId,
+        householdId: activeHousehold.id,
+        userId,
+        exerciseId: exercise.id,
+        name: exercise.name,
+        targetSets: defaults.sets,
+        targetReps: defaults.reps,
+        lastWeight: loaded[exercise.id]?.lastWeight ?? '',
+      });
+      setSets(nextSets);
+      setAddOpen(false);
+      setAddQuery('');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not add exercise');
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  function askRemoveExercise(position: number, name: string) {
+    if (!sessionId) return;
+    Alert.alert('Remove exercise?', exerciseTitle(name), [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            setError(null);
+            try {
+              const nextSets = await removeSessionExercise({ sessionId, position });
+              setSets(nextSets);
+              setOffered((current) => {
+                if (!(position in current)) return current;
+                const next = { ...current };
+                delete next[position];
+                return next;
+              });
+            } catch (err: unknown) {
+              setError(err instanceof Error ? err.message : 'Could not remove exercise');
+            }
+          })();
+        },
+      },
+    ]);
+  }
+
+  async function moveExercise(position: number, direction: -1 | 1) {
+    if (!sessionId) return;
+    setError(null);
+    try {
+      const nextSets = await moveSessionExercise({ sessionId, position, direction });
+      setSets(nextSets);
+      setOffered({});
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not move exercise');
+    }
+  }
+
+  async function addSet(position: number) {
+    if (!sessionId || !activeHousehold || !userId) return;
+    setError(null);
+    try {
+      const nextSets = await addSessionSet({
+        sessionId,
+        householdId: activeHousehold.id,
+        userId,
+        position,
+      });
+      setSets(nextSets);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not add set');
+    }
+  }
+
+  async function dropSet(position: number) {
+    if (!sessionId) return;
+    setError(null);
+    try {
+      const nextSets = await removeSessionSet({ sessionId, position });
+      setSets(nextSets);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not remove set');
+    }
+  }
 
   async function rememberScore(uid: string, game: RestGame, seconds: number, score: number) {
     const previousMine = scoresRef.current.mine;
@@ -600,6 +742,40 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
     setFinishing(true);
     setError(null);
     try {
+      const ownsWorkout = Boolean(activeHousehold && workout?.id && workout.createdBy === userId);
+      if (ownsWorkout && activeHousehold && workout) {
+        const sessionExercises = groups.flatMap(([, group]) => {
+          const exerciseId = group[0]?.exerciseId;
+          if (!exerciseId) return [];
+          return [
+            {
+              exerciseId,
+              name: group[0]?.exerciseName ?? 'Exercise',
+              targetSets: group.length,
+              targetReps: group[0]?.reps || '10',
+              targetWeight: null as number | null,
+              targetEffort: null,
+              targetRpe: null,
+            },
+          ];
+        });
+        const templateEmpty = workout.exercises.length === 0;
+        const signatureChanged = savedSignature !== exerciseSignature(sets);
+        if (sessionExercises.length > 0 && (templateEmpty || signatureChanged || remixDirty)) {
+          await saveWorkout(workout.id, activeHousehold.id, {
+            name: workout.name,
+            visibility: workout.visibility,
+            splitId: workout.splitId,
+            durationMin: workout.durationMin,
+            level: workout.level,
+            goal: workout.goal,
+            equipment: workout.equipment,
+            personIds: workout.personIds,
+            buddyUserIds: workout.buddyUserIds,
+            exercises: sessionExercises,
+          });
+        }
+      }
       await finishSession({ sessionId, userId, sets, records, workoutId: workout?.id ?? null });
       if (score !== null && activeHousehold && workout?.id) {
         await saveWorkoutRating({ workoutId: workout.id, userId, householdId: activeHousehold.id, score });
@@ -654,6 +830,12 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
           ]}
           onChange={setMode}
         />
+        {groups.length === 0 ? (
+          <View style={styles.emptySession}>
+            <Text style={styles.emptyTitle}>Add exercises as you go</Text>
+            <TrainButton label="Add exercise" fill onPress={() => void openAddExercise()} disabled={!sessionId} />
+          </View>
+        ) : null}
         {mode === 'full' && userId && workout?.id ? (
           <NoteLine
             label="Mine"
@@ -678,6 +860,7 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
             const progress = applyLoggedSets(record ?? null, group);
             const doneCount = group.filter((set) => set.done).length;
             const targetReps = group[0]?.reps || '';
+            const durationMode = isDurationTarget(targetReps);
             const plan = savedPlan(position, exerciseId);
             const part = cluster.type === 'superset' ? `Part ${cluster.indices.indexOf(slot) + 1}` : '';
             if (mode === 'compact') {
@@ -694,11 +877,36 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
                       {exerciseTitle(name)}
                     </Text>
                     <Text style={styles.compactMeta}>
-                      {group.length} × {targetReps || '–'}
+                      {durationMode ? targetReps || '–' : `${group.length} × ${targetReps || '–'}`}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Move ${exerciseTitle(name)} up`}
+                    disabled={groups[0]?.[0] === position}
+                    onPress={() => void moveExercise(position, -1)}
+                    hitSlop={8}>
+                    <Text style={[styles.swap, groups[0]?.[0] === position && styles.actionDisabled]}>Up</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Move ${exerciseTitle(name)} down`}
+                    disabled={groups[groups.length - 1]?.[0] === position}
+                    onPress={() => void moveExercise(position, 1)}
+                    hitSlop={8}>
+                    <Text style={[styles.swap, groups[groups.length - 1]?.[0] === position && styles.actionDisabled]}>
+                      Down
                     </Text>
                   </Pressable>
                   <Pressable accessibilityRole="button" accessibilityLabel={`Swap ${exerciseTitle(name)}`} onPress={() => void swapSlot(position, group)} hitSlop={8}>
                     <Text style={styles.swap}>Swap</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${exerciseTitle(name)}`}
+                    onPress={() => askRemoveExercise(position, name)}
+                    hitSlop={8}>
+                    <Text style={styles.remove}>Remove</Text>
                   </Pressable>
                   <Pressable
                     accessibilityRole="checkbox"
@@ -716,11 +924,15 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
                 </View>
               );
             }
-            const targetLabel = weightLabel(plan?.targetWeight, weightUnit);
-            const lastLabel = weightLabel(record?.lastWeight, weightUnit);
-            const metaBits = [part, `${doneCount}/${group.length}`, plan?.targetRpe != null ? `RPE ${plan.targetRpe}` : '', targetLabel, lastLabel ? `Last ${lastLabel}` : ''].filter(
-              Boolean,
-            );
+            const targetLabel = durationMode ? '' : weightLabel(plan?.targetWeight, weightUnit);
+            const lastLabel = durationMode ? '' : weightLabel(record?.lastWeight, weightUnit);
+            const metaBits = [
+              part,
+              durationMode ? null : `${doneCount}/${group.length}`,
+              plan?.targetRpe != null ? `RPE ${plan.targetRpe}` : '',
+              targetLabel,
+              lastLabel ? `Last ${lastLabel}` : '',
+            ].filter(Boolean);
             return (
               <View key={position} style={styles.exercise}>
                 <View style={styles.exerciseHead}>
@@ -737,8 +949,37 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
                     </View>
                   </Pressable>
                   {progress?.isPr ? <Badge label="PR" /> : null}
-                  <Pressable accessibilityRole="button" onPress={() => void swapSlot(position, group)} hitSlop={8}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Move ${exerciseTitle(name)} up`}
+                    disabled={groups[0]?.[0] === position}
+                    onPress={() => void moveExercise(position, -1)}
+                    hitSlop={8}>
+                    <Text style={[styles.swap, groups[0]?.[0] === position && styles.actionDisabled]}>Up</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Move ${exerciseTitle(name)} down`}
+                    disabled={groups[groups.length - 1]?.[0] === position}
+                    onPress={() => void moveExercise(position, 1)}
+                    hitSlop={8}>
+                    <Text style={[styles.swap, groups[groups.length - 1]?.[0] === position && styles.actionDisabled]}>
+                      Down
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Swap ${exerciseTitle(name)}`}
+                    onPress={() => void swapSlot(position, group)}
+                    hitSlop={8}>
                     <Text style={styles.swap}>Swap</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${exerciseTitle(name)}`}
+                    onPress={() => askRemoveExercise(position, name)}
+                    hitSlop={8}>
+                    <Text style={styles.remove}>Remove</Text>
                   </Pressable>
                 </View>
                 {plan?.note ? <NoteLine label="Note" value={plan.note} editable={false} onSave={() => undefined} /> : null}
@@ -754,24 +995,47 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
                 <View style={styles.sets}>
                   {group.map((set, index) => (
                     <View key={set.id} style={[styles.setRow, set.done && styles.setRowDone]}>
-                      <Text style={styles.setIndex}>{index + 1}</Text>
-                      <View style={styles.setField}>
-                        <Text style={styles.setFieldLabel}>{weightUnit}</Text>
-                        <TextInput
-                          value={weightDraft[set.id] ?? displayWeight(set.weight, weightUnit)}
-                          keyboardType="decimal-pad"
-                          onChangeText={(weight) => void patch(set, {}, weight)}
-                          style={styles.setInput}
-                        />
-                      </View>
-                      <View style={styles.setField}>
-                        <Text style={styles.setFieldLabel}>Reps</Text>
-                        <TextInput value={set.reps} onChangeText={(reps) => void patch(set, { reps })} style={styles.setInput} />
-                      </View>
+                      {durationMode ? null : <Text style={styles.setIndex}>{index + 1}</Text>}
+                      {durationMode ? (
+                        <View style={styles.setField}>
+                          <Text style={styles.setFieldLabel}>Duration</Text>
+                          <TextInput
+                            value={set.reps}
+                            onChangeText={(reps) => void patch(set, { reps })}
+                            style={styles.setInput}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                          />
+                        </View>
+                      ) : (
+                        <>
+                          <View style={styles.setField}>
+                            <Text style={styles.setFieldLabel}>{weightUnit}</Text>
+                            <TextInput
+                              value={weightDraft[set.id] ?? displayWeight(set.weight, weightUnit)}
+                              keyboardType="decimal-pad"
+                              onChangeText={(weight) => void patch(set, {}, weight)}
+                              style={styles.setInput}
+                            />
+                          </View>
+                          <View style={styles.setField}>
+                            <Text style={styles.setFieldLabel}>Reps</Text>
+                            <TextInput value={set.reps} onChangeText={(reps) => void patch(set, { reps })} style={styles.setInput} />
+                          </View>
+                        </>
+                      )}
                       <Pressable
                         accessibilityRole="checkbox"
                         accessibilityState={{ checked: set.done }}
-                        accessibilityLabel={set.done ? `Set ${index + 1} done` : `Check off set ${index + 1}`}
+                        accessibilityLabel={
+                          set.done
+                            ? durationMode
+                              ? `${exerciseTitle(name)} done`
+                              : `Set ${index + 1} done`
+                            : durationMode
+                              ? `Check off ${exerciseTitle(name)}`
+                              : `Check off set ${index + 1}`
+                        }
                         onPress={() => {
                           const done = !set.done;
                           void patch(set, { done });
@@ -784,6 +1048,25 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
                     </View>
                   ))}
                 </View>
+                {durationMode ? null : (
+                  <View style={styles.setActions}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Add set to ${exerciseTitle(name)}`}
+                      onPress={() => void addSet(position)}
+                      hitSlop={8}>
+                      <Text style={styles.swap}>+ Set</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove set from ${exerciseTitle(name)}`}
+                      disabled={group.length <= 1}
+                      onPress={() => void dropSet(position)}
+                      hitSlop={8}>
+                      <Text style={[styles.remove, group.length <= 1 && styles.actionDisabled]}>− Set</Text>
+                    </Pressable>
+                  </View>
+                )}
               </View>
             );
           });
@@ -797,10 +1080,34 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
         })}
       </ScrollView>
       <View style={styles.dock}>
+        <TrainButton label="Add" tone="ghost" fill disabled={!sessionId || adding} onPress={() => void openAddExercise()} />
         <TrainButton label="Rest" tone="ghost" fill onPress={() => setRestOpen(true)} />
         {remix ? <TrainButton label="Remix" tone="ghost" fill disabled={remixing || !sessionId} onPress={confirmRemix} /> : null}
         <TrainButton label="Finish" fill disabled={finishing || !sessionId} onPress={askFinish} />
       </View>
+      <Sheet visible={addOpen} title="Add exercise" onClose={() => setAddOpen(false)}>
+        <View style={styles.addSheet}>
+          <Field value={addQuery} onChangeText={setAddQuery} placeholder="Search exercises" editable={!adding} />
+          <ScrollView style={styles.addList} keyboardShouldPersistTaps="handled">
+            {addResults.map((exercise) => (
+              <Pressable
+                key={exercise.id}
+                accessibilityRole="button"
+                disabled={adding}
+                onPress={() => void addExerciseToSession(exercise)}
+                style={styles.addRow}>
+                <Text style={styles.addName} numberOfLines={1}>
+                  {exerciseTitle(exercise.name)}
+                </Text>
+                <Text style={styles.addMeta} numberOfLines={1}>
+                  {[exercise.bodyPart, exercise.equipment].filter(Boolean).join(' · ')}
+                </Text>
+              </Pressable>
+            ))}
+            {addResults.length === 0 ? <Text style={styles.addEmpty}>No matches</Text> : null}
+          </ScrollView>
+        </View>
+      </Sheet>
       <Sheet visible={restOpen} title="Rest" onClose={() => setRestOpen(false)}>
         <View style={styles.restPicker}>
           <View style={styles.durations}>
@@ -1081,6 +1388,19 @@ const styles = StyleSheet.create({
   pageBack: { color: colors.accent, fontWeight: '700', fontSize: 15 },
   scroll: { flex: 1 },
   scrollContent: { gap: 10, paddingBottom: 12 },
+  emptySession: { gap: 12, paddingVertical: 28, alignItems: 'stretch' },
+  emptyTitle: { color: colors.textMuted, fontSize: 15, fontWeight: '600' },
+  addSheet: { gap: 12, maxHeight: 420 },
+  addList: { maxHeight: 340 },
+  addRow: {
+    gap: 2,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  addName: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  addMeta: { color: colors.textMuted, fontSize: 12 },
+  addEmpty: { color: colors.textMuted, fontSize: 13, paddingVertical: 16 },
   superset: {
     gap: 8,
     borderWidth: 1,
@@ -1120,6 +1440,9 @@ const styles = StyleSheet.create({
   exerciseMetaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
   exerciseMeta: { color: colors.textMuted, fontSize: 12 },
   swap: { color: colors.accent, fontSize: 13, fontWeight: '700' },
+  remove: { color: colors.danger, fontSize: 13, fontWeight: '700' },
+  actionDisabled: { opacity: 0.35 },
+  setActions: { flexDirection: 'row', gap: 16, marginTop: 8 },
   sets: { gap: 4 },
   setRow: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.sm, paddingVertical: 2, paddingHorizontal: 2 },
   setRowDone: { backgroundColor: colors.accentSoft },

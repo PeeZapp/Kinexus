@@ -160,6 +160,60 @@ export function canCopySharedWorkout(opts: {
   return buddyCan(opts.buddyStatus, opts.buddyPermissions, 'can_copy_workouts');
 }
 
+export type TrainingPlanVisibilityAccess = {
+  viewerId: string | null;
+  ownerId: string | null;
+  visibility: TrainVisibility;
+  householdMember: boolean;
+  householdRole: HouseholdRole | null;
+  sharedWithViewer: boolean;
+  buddySharedWithViewer: boolean;
+  buddyStatus: TrainBuddyStatus | null | undefined;
+  buddyPermissions: Partial<TrainBuddyPermissions> | null | undefined;
+  /** Owner's family_plan_share pref (plan | plan_activity enables household read). */
+  familyPlanShare?: FamilyPlanShare | null;
+  isApprovedCreator?: boolean;
+};
+
+/** Domain mirror of can_view_training_plan (buddies use can_view_plan). */
+export function canViewTrainingPlanVisibility(opts: TrainingPlanVisibilityAccess): boolean {
+  const viewer = opts.viewerId;
+  if (!viewer) return false;
+  if (opts.ownerId && opts.ownerId === viewer) return true;
+
+  if (opts.visibility === 'global') return true;
+
+  if (opts.householdMember) {
+    if (opts.householdRole === 'owner' || opts.householdRole === 'admin') return true;
+    if (opts.visibility === 'household') return true;
+    if (opts.visibility === 'people' && opts.sharedWithViewer) return true;
+    if (opts.familyPlanShare === 'plan' || opts.familyPlanShare === 'plan_activity') return true;
+  }
+
+  if (opts.visibility === 'buddies') {
+    return buddyCan(opts.buddyStatus, opts.buddyPermissions, 'can_view_plan');
+  }
+
+  if (opts.visibility === 'buddies_selected') {
+    return (
+      opts.buddySharedWithViewer &&
+      buddyCan(opts.buddyStatus, opts.buddyPermissions, 'can_view_plan')
+    );
+  }
+
+  return false;
+}
+
+/** Everyone publish requires owner + verified creator (mirrors training_plan_global_publish_guard). */
+export function canPublishTrainingPlanGlobal(opts: {
+  ownerId: string | null;
+  actorId: string | null;
+  isApprovedCreator: boolean;
+}): boolean {
+  if (!opts.ownerId || !opts.actorId) return false;
+  return opts.ownerId === opts.actorId && opts.isApprovedCreator;
+}
+
 export function canViewSessionVisibility(opts: {
   viewerId: string | null;
   ownerId: string | null;

@@ -1,13 +1,16 @@
 export {
   dayDateIso,
+  handleCopySharedTrainingPlan,
   handleDuplicateTrainingPlanToNextWeek,
   handleListTrainingPlansByWeek,
   handleMarkTrainingPlanDayFromSession,
   handleRegenerateRemainingDays,
   handleSetTrainingPlanDayStatus,
+  handleUpdateTrainingPlanVisibility,
   isRegeneratableDay,
 } from '@kinexus/domain';
 export type {
+  CopySharedTrainingPlanResult,
   DuplicateTrainingPlanResult,
   ListTrainingPlansByWeekResult,
   MarkPlanDayFromSessionResult,
@@ -15,7 +18,9 @@ export type {
   RegenerateRemainingPreviewDay,
   RegenerateRemainingResult,
   SetTrainingPlanDayStatusResult,
+  SharedTrainingPlanCopyDay,
   TrainingPlanDayRow,
   TrainingPlanDayStatus,
   TrainingPlanWeekRow,
+  UpdateTrainingPlanVisibilityResult,
 } from '@kinexus/domain';

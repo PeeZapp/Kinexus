@@ -2369,14 +2369,23 @@ export type Database = {
           media_url: string | null;
           media_urls: string[];
           media_kind: 'gif' | 'image' | null;
-          source: 'exercisedb' | 'public_domain' | 'wger';
+          source: 'exercisedb' | 'public_domain' | 'wger' | 'user' | 'creator';
           license: string;
           license_author: string | null;
+          scope: 'global' | 'household' | 'group' | 'private';
+          owner_id: string | null;
+          household_id: string | null;
+          group_id: string | null;
+          status: 'active' | 'hidden';
+          category: string | null;
+          difficulty: string | null;
+          is_compound: boolean | null;
           created_at: string;
+          updated_at: string;
         };
         Insert: {
-          id: string;
-          canonical_key: string;
+          id?: string;
+          canonical_key?: string;
           name: string;
           body_part?: string;
           equipment?: string;
@@ -2386,21 +2395,89 @@ export type Database = {
           media_url?: string | null;
           media_urls?: string[];
           media_kind?: 'gif' | 'image' | null;
-          source: 'exercisedb' | 'public_domain' | 'wger';
+          source: 'exercisedb' | 'public_domain' | 'wger' | 'user' | 'creator';
           license: string;
           license_author?: string | null;
+          scope?: 'global' | 'household' | 'group' | 'private';
+          owner_id?: string | null;
+          household_id?: string | null;
+          group_id?: string | null;
+          status?: 'active' | 'hidden';
+          category?: string | null;
+          difficulty?: string | null;
+          is_compound?: boolean | null;
           created_at?: string;
+          updated_at?: string;
         };
         Update: {
           name?: string;
           body_part?: string;
           equipment?: string;
           target_muscle?: string;
+          secondary_muscles?: string[];
           instructions?: string[];
           media_url?: string | null;
           media_urls?: string[];
+          media_kind?: 'gif' | 'image' | null;
+          scope?: 'global' | 'household' | 'group' | 'private';
+          owner_id?: string | null;
+          household_id?: string | null;
+          group_id?: string | null;
+          status?: 'active' | 'hidden';
+          category?: string | null;
+          difficulty?: string | null;
+          is_compound?: boolean | null;
+          source?: 'exercisedb' | 'public_domain' | 'wger' | 'user' | 'creator';
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'exercises_group_id_fkey';
+            columns: ['group_id'];
+            isOneToOne: false;
+            referencedRelation: 'exercise_groups';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      exercise_groups: {
+        Row: {
+          id: string;
+          owner_id: string;
+          name: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          owner_id: string;
+          name: string;
+          created_at?: string;
+        };
+        Update: {
+          name?: string;
         };
         Relationships: [];
+      };
+      exercise_group_members: {
+        Row: {
+          group_id: string;
+          user_id: string;
+        };
+        Insert: {
+          group_id: string;
+          user_id: string;
+        };
+        Update: {
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'exercise_group_members_group_id_fkey';
+            columns: ['group_id'];
+            isOneToOne: false;
+            referencedRelation: 'exercise_groups';
+            referencedColumns: ['id'];
+          },
+        ];
       };
       workouts: {
         Row: {
@@ -2758,6 +2835,8 @@ export type Database = {
           audience_person_ids: string[];
           prefs: Record<string, unknown>;
           calendar_auto_sync: boolean;
+          share_token: string | null;
+          is_shared: boolean;
           created_at: string;
         };
         Insert: {
@@ -2770,6 +2849,8 @@ export type Database = {
           audience_person_ids?: string[];
           prefs?: Record<string, unknown>;
           calendar_auto_sync?: boolean;
+          share_token?: string | null;
+          is_shared?: boolean;
           created_at?: string;
         };
         Update: {
@@ -2779,6 +2860,8 @@ export type Database = {
           audience_person_ids?: string[];
           prefs?: Record<string, unknown>;
           calendar_auto_sync?: boolean;
+          share_token?: string | null;
+          is_shared?: boolean;
         };
         Relationships: [];
       };
@@ -3271,6 +3354,36 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      create_training_plan: {
+        Args: {
+          p_household_id: string;
+          p_week_start: string;
+          p_name?: string;
+          p_visibility?: string;
+          p_audience_person_ids?: string[];
+          p_prefs?: Record<string, unknown>;
+        };
+        Returns: string;
+      };
+      create_private_workout: {
+        Args: {
+          p_household_id: string;
+          p_name?: string;
+          p_duration_min?: number | null;
+        };
+        Returns: string;
+      };
+      start_workout_session: {
+        Args: {
+          p_household_id: string;
+          p_name?: string;
+          p_workout_id?: string | null;
+          p_remix_spec?: string | null;
+          p_duration_min?: number | null;
+          p_sets?: unknown;
+        };
+        Returns: string;
+      };
       create_household: {
         Args: {
           p_name: string;
@@ -3439,6 +3552,26 @@ export type Database = {
       unpublish_creator_recipe: {
         Args: { p_recipe_id: string };
         Returns: undefined;
+      };
+      publish_global_exercise: {
+        Args: { p_source_exercise_id: string };
+        Returns: string;
+      };
+      archive_exercise: {
+        Args: { p_exercise_id: string };
+        Returns: string;
+      };
+      is_exercise_group_member: {
+        Args: { _group_id: string };
+        Returns: boolean;
+      };
+      can_edit_exercise_group: {
+        Args: { _group_id: string };
+        Returns: boolean;
+      };
+      exercise_referenced_by_me: {
+        Args: { _exercise_id: string };
+        Returns: boolean;
       };
       rest_game_tops: {
         Args: Record<string, never>;

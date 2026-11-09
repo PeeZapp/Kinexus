@@ -273,11 +273,16 @@ export { clusterExercises, linkSuperset, normalizeSupersets, unlinkSuperset } fr
 export type { ExerciseCluster, SupersetMember } from './supersets';
 export {
   EFFORT_COLOR,
+  EFFORT_GUIDE_OPTIONS,
   EFFORT_LABEL,
   EFFORT_LEVELS,
+  LOAD_GUIDE_OPTIONS,
   effortLevelFrom,
+  exerciseGuideKind,
+  guideOptionsFor,
+  guideTitleFor,
 } from './effort';
-export type { EffortLevel } from './effort';
+export type { EffortLevel, ExerciseGuideKind, GuideOption } from './effort';
 export {
   defaultsForRegion,
   formatWeight,

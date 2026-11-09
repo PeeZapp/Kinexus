@@ -4,12 +4,12 @@ import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindow
 import {
   canPublishTrainGlobal,
   clusterExercises,
-  EFFORT_LEVELS,
-  EFFORT_LABEL,
+  exerciseGuideKind,
+  guideOptionsFor,
+  guideTitleFor,
   linkSuperset,
   normalizeSupersets,
   normalizeTrainShare,
-  parseWeight,
   REMIX_CATEGORIES,
   REMIX_CATEGORY_COLOR,
   exerciseMatchesRemixCategory,
@@ -17,7 +17,6 @@ import {
   estimateWorkout,
   getRemixDefaultsForCategory,
   remixCategoryOf,
-  toStoredKg,
   TRAIN_GLOBAL_EQUIPMENT,
   TRAIN_GLOBAL_GOALS,
   TRAIN_GLOBAL_LEVELS,
@@ -32,7 +31,6 @@ import {
   type TrainGlobalGoal,
   type TrainGlobalLevel,
   type TrainVisibility,
-  type WeightUnit,
 } from '@kinexus/domain';
 
 import { AppModal } from '@/src/features/shell/AppModal';
@@ -40,10 +38,9 @@ import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/
 import { ErrorBanner, LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
-import { useUnits } from '@/src/lib/use-units';
 import { useCreator } from '@/src/features/creators/use-creator';
 import { useStaffAccess } from '@/src/features/staff/use-staff';
-import { displayWeight, loadLibrary, type LibraryExercise, type WorkoutDraft } from '@/src/features/train/api';
+import { loadLibrary, type LibraryExercise, type WorkoutDraft } from '@/src/features/train/api';
 import { CustomExerciseForm } from '@/src/features/train/CustomExerciseForm';
 import {
   loadExerciseGroups,
@@ -243,12 +240,6 @@ export function WorkoutBuilder({
   const [mobilePane, setMobilePane] = useState<'workout' | 'library'>(seed.exercises.length > 0 ? 'workout' : 'library');
   const { openMenu, toggleMenu, pick } = useFilterMenus();
   const split = useExperienceMode().mode === 'desktop';
-  const { weightUnit } = useUnits();
-  const [weightDraft, setWeightDraft] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    setWeightDraft({});
-  }, [weightUnit]);
 
   useEffect(() => {
     if (cachedLibrary) return;
@@ -658,8 +649,6 @@ export function WorkoutBuilder({
                       onCancelPair={() => setPairFrom(null)}
                       onPair={() => pairWith(exercise.key)}
                       onUnlink={() => unlink(exercise.key)}
-                      weightUnit={weightUnit}
-                      weightDraft={weightDraft[exercise.key]}
                       onSets={(value) => {
                         const targetSets = Math.max(1, Math.min(20, Number.parseInt(value, 10) || 1));
                         setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetSets } : row)));
@@ -667,23 +656,8 @@ export function WorkoutBuilder({
                       onReps={(targetReps) => {
                         setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetReps } : row)));
                       }}
-                      onWeight={(text) => {
-                        setWeightDraft((current) => ({ ...current, [exercise.key]: text }));
-                        const trimmed = text.trim();
-                        if (!trimmed) {
-                          setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetWeight: null } : row)));
-                          return;
-                        }
-                        const parsed = parseWeight(trimmed);
-                        if (parsed == null) return;
-                        const targetWeight = toStoredKg(parsed, weightUnit);
-                        setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetWeight } : row)));
-                      }}
                       onEffort={(targetEffort) => {
                         setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetEffort } : row)));
-                      }}
-                      onRpe={(targetRpe) => {
-                        setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetRpe } : row)));
                       }}
                       onNote={(note) => {
                         setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, note: note.slice(0, 160) } : row)));
@@ -1031,8 +1005,6 @@ function SelectedExercise({
   isSource,
   editable,
   canPair,
-  weightUnit,
-  weightDraft,
   onRemove,
   onSuperset,
   onCancelPair,
@@ -1042,9 +1014,7 @@ function SelectedExercise({
   detailsReady,
   onSets,
   onReps,
-  onWeight,
   onEffort,
-  onRpe,
   onNote,
   onPersonalNote,
 }: {
@@ -1054,8 +1024,6 @@ function SelectedExercise({
   isSource: boolean;
   editable: boolean;
   canPair: boolean;
-  weightUnit: WeightUnit;
-  weightDraft?: string;
   onRemove: () => void;
   onSuperset: () => void;
   onCancelPair: () => void;
@@ -1065,13 +1033,12 @@ function SelectedExercise({
   detailsReady: boolean;
   onSets: (value: string) => void;
   onReps: (value: string) => void;
-  onWeight: (value: string) => void;
   onEffort: (value: EffortLevel | null) => void;
-  onRpe: (value: number | null) => void;
   onNote: (value: string) => void;
   onPersonalNote?: (value: string) => void;
 }) {
-  const weightValue = weightDraft ?? displayWeight(exercise.targetWeight, weightUnit);
+  const guideKind = exerciseGuideKind(exercise.category);
+  const guideOptions = guideOptionsFor(guideKind);
   return (
     <View style={[styles.selectedRow, isSource && styles.selectedRowActive]}>
       <View style={styles.selectedTop}>
@@ -1105,57 +1072,19 @@ function SelectedExercise({
         <LabeledSlot label="Reps" editable={editable} value={exercise.targetReps ?? ''} onChangeText={onReps} width={78} />
       </View>
       <View style={styles.loadGuide}>
-        <Text style={styles.loadGuideLabel}>Load guide</Text>
+        <Text style={styles.loadGuideLabel}>{guideTitleFor(guideKind)}</Text>
         <View style={styles.effortRow}>
-          {EFFORT_LEVELS.map((level) => (
+          {guideOptions.map((option) => (
             <Choice
-              key={level}
-              label={EFFORT_LABEL[level]}
-              active={exercise.targetEffort === level}
+              key={option.level}
+              label={option.label}
+              active={exercise.targetEffort === option.level}
               onPress={() => {
                 if (!editable) return;
-                onEffort(exercise.targetEffort === level ? null : level);
+                onEffort(exercise.targetEffort === option.level ? null : option.level);
               }}
             />
           ))}
-        </View>
-        <View style={styles.loadGuideRow}>
-          <View style={styles.rpeStepper}>
-            <Text style={styles.slotLabel}>RPE</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Decrease RPE"
-              disabled={!editable}
-              onPress={() => {
-                if (!editable) return;
-                if (exercise.targetRpe == null) return;
-                onRpe(exercise.targetRpe <= 1 ? null : exercise.targetRpe - 1);
-              }}
-              style={({ pressed }) => [styles.stepBtn, pressed && editable && styles.pressed]}>
-              <Text style={styles.stepGlyph}>−</Text>
-            </Pressable>
-            <Text style={styles.rpeValue}>{exercise.targetRpe ?? '–'}</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Increase RPE"
-              disabled={!editable}
-              onPress={() => {
-                if (!editable) return;
-                if (exercise.targetRpe == null) onRpe(1);
-                else if (exercise.targetRpe < 10) onRpe(exercise.targetRpe + 1);
-              }}
-              style={({ pressed }) => [styles.stepBtn, pressed && editable && styles.pressed]}>
-              <Text style={styles.stepGlyph}>+</Text>
-            </Pressable>
-          </View>
-          <LabeledSlot
-            label={weightUnit}
-            editable={editable}
-            keyboard="decimal-pad"
-            value={weightValue}
-            onChangeText={onWeight}
-            width={96}
-          />
         </View>
       </View>
       <NoteLine label="Note" value={exercise.note} editable={editable} onSave={onNote} />
@@ -1236,26 +1165,6 @@ const styles = StyleSheet.create({
   loadGuide: { gap: 6, minWidth: 0, maxWidth: '100%' },
   loadGuideLabel: { color: colors.textDim, fontSize: 11, fontWeight: '700' },
   effortRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, minWidth: 0 },
-  loadGuideRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, minWidth: 0 },
-  rpeStepper: {
-    height: 32,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: colors.bg,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 8,
-  },
-  stepBtn: {
-    width: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepGlyph: { color: colors.textMuted, fontSize: 16, fontWeight: '700', lineHeight: 18 },
-  rpeValue: { minWidth: 18, color: colors.text, fontSize: 14, fontWeight: '700', textAlign: 'center', fontVariant: ['tabular-nums'] },
   times: { color: colors.textDim, fontSize: 14, fontWeight: '700' },
   slot: {
     height: 32,

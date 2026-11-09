@@ -1,4 +1,6 @@
 import type { FetchPublicHtmlOptions } from '../../scrape/index.js';
+import { RecipeImportFailure } from '../errors.js';
+import { TIKTOK_LINK_OPEN_FAILED } from '../resolve-tiktok.js';
 import {
   extractOutboundRecipeUrls,
   findCrosspostedRecipeUrl,
@@ -11,37 +13,46 @@ export async function fetchTiktokMetadata(
   canonicalUrl: string,
   options: FetchPublicHtmlOptions = {},
 ): Promise<VideoMetadata | null> {
+  const host = hostOnly(canonicalUrl);
+  const videoId = canonicalUrl.match(/\/(?:video|photo)\/(\d+)/)?.[1] ?? '';
   const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(canonicalUrl)}`;
-  const oembed =
-    (await fetchOembedJson(oembedUrl, options)) ??
-    (await fetchOembedJson(oembedUrl, {
-      ...options,
-      headers: {
-        Accept: 'application/json, text/javascript;q=0.9, */*;q=0.8',
-        'User-Agent':
-          'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-      },
-    }));
+  const oembed = await fetchOembedJson(oembedUrl, {
+    ...options,
+    maxAttempts: 1,
+    headers: {
+      Accept: 'application/json, text/javascript;q=0.9, */*;q=0.8',
+      'User-Agent':
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    },
+  });
+  const oembedStatus = oembed?.title ? 'ok' : 'failed';
+  const caption = oembed?.title?.replace(/\s+/g, ' ').trim();
+  console.info('[recipe-import:tiktok]', {
+    inputHost: host,
+    resolvedHost: host,
+    hops: 0,
+    videoId: videoId || null,
+    oembedStatus,
+    captionChars: caption?.length ?? null,
+  });
 
-  const page =
-    oembed?.title && oembed.title.trim().length >= 40 && !isRecipeTeaser(oembed.title)
-      ? null
-      : await fetchOgTags(canonicalUrl, options);
-  const videoId = canonicalUrl.match(/\/video\/(\d+)/)?.[1] ?? '';
-  const embedded = page?.html && !isChallengeHtml(page.html) ? parseTiktokEmbedded(page.html, videoId) : null;
-  const description =
-    embedded?.description ||
-    (page && !isChallengeHtml(page.html) ? page.description : undefined) ||
-    oembed?.title;
-  const title = (
-    embedded?.title ||
-    (page && !isChallengeHtml(page.html) ? page.title : undefined) ||
-    oembed?.title ||
-    'TikTok video'
-  )
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!description && !oembed && !embedded) return null;
+  let page: Awaited<ReturnType<typeof fetchOgTags>> = null;
+  const oembedUsable = Boolean(caption && caption.length >= 40 && !isRecipeTeaser(caption));
+  if (!oembedUsable) {
+    page = await fetchOgTags(canonicalUrl, options);
+    if (page?.html && isChallengeHtml(page.html)) {
+      page = null;
+    }
+  }
+
+  const embedded = page?.html ? parseTiktokEmbedded(page.html, videoId) : null;
+  const description = embedded?.description || page?.description || caption;
+  const title = (embedded?.title || page?.title || caption || 'TikTok video').replace(/\s+/g, ' ').trim();
+
+  if (!oembed && !embedded && !page?.description && !page?.title) {
+    throw new RecipeImportFailure('fetch_failed', TIKTOK_LINK_OPEN_FAILED);
+  }
+
   const linkedUrls = await recipeLinks(canonicalUrl, description, options);
   return {
     title,
@@ -70,6 +81,14 @@ async function recipeLinks(
 
 export function isChallengeHtml(html: string): boolean {
   return /wafchallengeid|slardarClient|slardar_us_waf/i.test(html) && html.length < 12_000;
+}
+
+function hostOnly(raw: string): string {
+  try {
+    return new URL(raw).hostname.replace(/^www\./i, '');
+  } catch {
+    return 'unknown';
+  }
 }
 
 function parseTiktokEmbedded(html: string, videoId: string): {

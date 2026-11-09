@@ -29,8 +29,9 @@ import {
   deleteWorkoutSetsAtPositionCall,
   effortLevelFrom,
   exerciseSourceBadge as domainExerciseSourceBadge,
-  fillWorkoutFromSessionType,
+  fillWorkoutFromSessionTypeWidened,
   finishWorkoutSessionCall,
+  isStaleEmptySession,
   formatWeight,
   handleAddTrainingPlanDay,
   handleApplyTrainingPlan,
@@ -55,6 +56,7 @@ import {
   moveSessionExerciseCall,
   replaceSessionExerciseCall,
   rewriteSessionSetsCall,
+  sessionHasLoggedSets,
   updateWorkoutSetCall,
   isTrainVisibility,
   normalizeTrainGlobalEquipment,
@@ -96,6 +98,8 @@ export type LibraryExercise = CatalogExercise & {
   groupId: string | null;
   difficulty: ExerciseDifficulty | null;
   secondaryMuscles: string[];
+  aliases: string[];
+  mergedInto: string | null;
   owner: PublicSocialUser | null;
 };
 
@@ -277,18 +281,27 @@ function mapExercise(row: ExerciseRow, owner: PublicSocialUser | null = null): L
     groupId: row.group_id,
     difficulty: difficultyFrom(row.difficulty),
     secondaryMuscles: row.secondary_muscles ?? [],
+    aliases: row.aliases ?? [],
+    mergedInto: row.merged_into ?? null,
     owner,
   };
 }
 
+/** Active catalogue / custom rows used for pickers, search, remix, and generators. */
+export function isPickableLibraryExercise(exercise: Pick<LibraryExercise, 'status' | 'mergedInto'>): boolean {
+  return exercise.status === 'active' && exercise.mergedInto == null;
+}
+
 export async function loadLibrary(): Promise<LibraryExercise[]> {
-  // RLS returns global + visible custom scopes; active rows plus hidden ones
-  // referenced by the signed-in user's history so archived exercises still resolve.
+  // RLS returns global + visible custom scopes; active rows plus hidden customs
+  // referenced by history. Near-dupe merges (merged_into set) are excluded so
+  // pickers/search/generators see one row; workout_exercises still keep their FKs.
   const rows: ExerciseRow[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await db()
       .from('exercises')
       .select('*')
+      .is('merged_into', null)
       .order('name')
       .range(from, from + 999);
     if (error) throw error;
@@ -1138,6 +1151,81 @@ export async function openSession(input: {
   return { sessionId: data, sets: await loadSets(data) };
 }
 
+export type OpenLiveSessionSummary = {
+  id: string;
+  name: string;
+  workoutId: string | null;
+  startedAt: string;
+  hasLoggedSets: boolean;
+};
+
+export async function listOpenLiveSessions(userId: string): Promise<OpenLiveSessionSummary[]> {
+  const { data, error } = await db()
+    .from('workout_sessions')
+    .select('id, name, workout_id, started_at, workout_sets(done)')
+    .eq('user_id', userId)
+    .is('finished_at', null)
+    .order('started_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => {
+    const sets = (row.workout_sets ?? []) as { done: boolean | null }[];
+    return {
+      id: row.id,
+      name: row.name,
+      workoutId: row.workout_id,
+      startedAt: row.started_at,
+      hasLoggedSets: sessionHasLoggedSets(sets.map((set) => ({ done: Boolean(set.done) }))),
+    };
+  });
+}
+
+export async function abandonWorkoutSession(sessionId: string): Promise<void> {
+  const { error } = await db().rpc(rpc.abandonWorkoutSession, { p_session_id: sessionId });
+  if (error) throw new Error(error.message);
+}
+
+/** Abandon stale empty sessions; if another has logged sets, return it for Resume / Start new. */
+export async function prepareToStartWorkout(userId: string): Promise<{
+  resume: OpenLiveSessionSummary | null;
+}> {
+  const open = await listOpenLiveSessions(userId);
+  const staleEmpty = open.filter((row) =>
+    isStaleEmptySession({ startedAt: row.startedAt, hasLoggedSets: row.hasLoggedSets }),
+  );
+  for (const row of staleEmpty) {
+    await abandonWorkoutSession(row.id);
+  }
+  const remaining = open.filter((row) => !staleEmpty.some((stale) => stale.id === row.id));
+  const withLogs = remaining.find((row) => row.hasLoggedSets) ?? null;
+  return { resume: withLogs };
+}
+
+/** Quietly abandon empty open sessions (e.g. superseded when starting another). */
+export async function abandonEmptyOpenSessions(userId: string): Promise<void> {
+  const open = await listOpenLiveSessions(userId);
+  for (const row of open) {
+    if (!row.hasLoggedSets) await abandonWorkoutSession(row.id);
+  }
+}
+
+export async function startEmptyLiveSession(input: {
+  householdId: string;
+  name: string;
+  durationMin?: number | null;
+}): Promise<string> {
+  const { data, error } = await db().rpc(rpc.startWorkoutSession, {
+    p_household_id: input.householdId,
+    p_name: input.name,
+    p_workout_id: null,
+    p_remix_spec: null,
+    p_duration_min: input.durationMin ?? null,
+    p_sets: [],
+  });
+  if (error) throw new Error(error.message);
+  if (!data || typeof data !== 'string') throw new Error('Could not start workout');
+  return data;
+}
+
 export async function startRemixSession(input: {
   householdId: string;
   userId: string;
@@ -1831,10 +1919,17 @@ export async function fillPlanDayFromLibrary(input: {
   const focusLabel = input.focus[0]?.trim() || 'Train';
   const sessionTypeId = sessionTypeIdFromFocus(focusLabel);
   if (!sessionTypeId) {
-    throw new Error(`No workout template for “${focusLabel}”`);
+    throw new Error('No matching exercises');
   }
 
-  const catalogue = input.catalogue ?? (await loadLibrary());
+  const catalogue = (input.catalogue ?? (await loadLibrary())).filter((ex) => {
+    const row = ex as Partial<LibraryExercise>;
+    if (row.status == null && row.mergedInto == null) return true;
+    return isPickableLibraryExercise({
+      status: row.status ?? 'active',
+      mergedInto: row.mergedInto ?? null,
+    });
+  });
   const equipmentPool =
     input.equipment && input.equipment.length > 0
       ? catalogue.filter((ex) => {
@@ -1851,14 +1946,10 @@ export async function fillPlanDayFromLibrary(input: {
           });
         })
       : catalogue;
-  // Prefer equipment filter; fall back to full catalogue so Start never leaves an empty shell.
+  // Prefer equipment filter; fall back to full catalogue when the filtered pool is too thin.
   const pool = canFillSessionType(sessionTypeId, equipmentPool) ? equipmentPool : catalogue;
 
-  if (!canFillSessionType(sessionTypeId, pool)) {
-    throw new Error(`Not enough exercises in the library for ${focusLabel}`);
-  }
-
-  const filled = fillWorkoutFromSessionType({
+  const filled = fillWorkoutFromSessionTypeWidened({
     sessionTypeId,
     durationMin: input.durationMin ?? 40,
     catalogue: pool,
@@ -1867,7 +1958,7 @@ export async function fillPlanDayFromLibrary(input: {
     seed: Date.now() % 1_000_000,
   });
   if (filled.length === 0) {
-    throw new Error(`Could not build a workout for ${focusLabel}`);
+    throw new Error('No matching exercises');
   }
 
   const exercises: WorkoutExerciseInput[] = filled.map((ex) => ({

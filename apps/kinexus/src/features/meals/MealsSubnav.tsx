@@ -1,6 +1,9 @@
 import type { Href } from 'expo-router';
+import { mondayWeekStart } from '@kinexus/domain';
 
+import { useMealsWeek } from '@/src/features/meals/MealsWeekContext';
 import { canManageMealPlan } from '@/src/features/meals/picker-access';
+import { WeekSwitcher } from '@/src/features/meals/plan/PlanShared';
 import { SubnavTabs } from '@/src/features/shell/SubnavTabs';
 import { useHousehold } from '@/src/lib/household';
 
@@ -35,5 +38,20 @@ const TABS = [
 export function MealsSubnav() {
   const { role } = useHousehold();
   const manage = canManageMealPlan(role);
-  return <SubnavTabs title="Meals" tabs={TABS.filter((tab) => manage || !tab.managersOnly)} />;
+  const { weekStart, setWeek, shiftWeek } = useMealsWeek();
+  return (
+    <SubnavTabs
+      title="Meals"
+      tabs={TABS.filter((tab) => manage || !tab.managersOnly)}
+      accessory={
+        <WeekSwitcher
+          compact
+          weekStart={weekStart}
+          onPrev={() => shiftWeek(-1)}
+          onNext={() => shiftWeek(1)}
+          onJumpCurrent={() => setWeek(mondayWeekStart())}
+        />
+      }
+    />
+  );
 }

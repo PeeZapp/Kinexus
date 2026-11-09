@@ -25,16 +25,17 @@ export type OembedPayload = {
 
 export async function fetchOembedJson(
   endpoint: string,
-  options: FetchPublicHtmlOptions = {},
+  options: FetchPublicHtmlOptions & { maxAttempts?: number } = {},
 ): Promise<OembedPayload | null> {
   try {
     const parsed = new URL(endpoint);
     if (!OEMBED_HOSTS.has(parsed.hostname)) return null;
+    const attempts = Math.max(1, options.maxAttempts ?? 3);
     let last: OembedPayload | null = null;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       last = await fetchOembedOnce(endpoint, options);
       if (last?.title) return last;
-      if (attempt < 2) await sleep(300 * (attempt + 1));
+      if (attempt < attempts - 1) await sleep(300 * (attempt + 1));
     }
     return last;
   } catch {

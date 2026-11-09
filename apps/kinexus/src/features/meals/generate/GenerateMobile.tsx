@@ -14,7 +14,6 @@ import {
 } from '@/src/features/meals/generate/controls';
 import { generatedMealFacts, type GenerateViewProps } from '@/src/features/meals/generate/GenerateDesktop';
 import { GenerateMealFooter } from '@/src/features/meals/generate/GenerateMealFooter';
-import { WeekSwitcher } from '@/src/features/meals/plan/PlanShared';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
 import { weekApplyLabel } from '@/src/features/meals/week-labels';
 import { DayPicker, GenerateAudiencePicker } from '@/src/features/shell/generate-controls';
@@ -29,8 +28,6 @@ export function GenerateMobile(props: GenerateViewProps) {
       style={styles.root}
       contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 28 }]}
       keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>Generate</Text>
-      <WeekSwitcher weekStart={props.weekStart} onPrev={props.onPrevWeek} onNext={props.onNextWeek} />
       <GenerateModePicker mode={props.mode} onChange={props.onChangeMode} />
 
       <View style={styles.form}>
@@ -150,14 +147,8 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: {
     paddingHorizontal: space.md,
-    paddingTop: space.md,
+    paddingTop: space.sm,
     gap: 14,
-  },
-  title: {
-    color: colors.text,
-    fontSize: 28,
-    fontWeight: '700',
-    letterSpacing: -0.3,
   },
   form: {
     backgroundColor: colors.bgCard,

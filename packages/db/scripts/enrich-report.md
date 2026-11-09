@@ -1,9 +1,21 @@
 # Exercise catalogue enrichment report
 
-Generated: 2026-11-09T05:36:13.887Z
-Migration: `20261109150000_enrich_exercise_catalog.sql`
+Generated: 2026-11-09T07:29:05.962Z
+Migrations:
+- `20261109150001_enrich_exercise_catalog_01_of_11.sql`
+- `20261109150002_enrich_exercise_catalog_02_of_11.sql`
+- `20261109150003_enrich_exercise_catalog_03_of_11.sql`
+- `20261109150004_enrich_exercise_catalog_04_of_11.sql`
+- `20261109150005_enrich_exercise_catalog_05_of_11.sql`
+- `20261109150006_enrich_exercise_catalog_06_of_11.sql`
+- `20261109150007_enrich_exercise_catalog_07_of_11.sql`
+- `20261109150008_enrich_exercise_catalog_08_of_11.sql`
+- `20261109150009_enrich_exercise_catalog_09_of_11.sql`
+- `20261109150010_enrich_exercise_catalog_10_of_11.sql`
+- `20261109150011_enrich_exercise_catalog_11_of_11.sql`
 Rows parsed: 2670
 Rows with at least one update: 2563
+Chunk size: 250
 
 ## Gap counts (allowed sources)
 

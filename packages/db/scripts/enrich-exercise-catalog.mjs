@@ -6,7 +6,7 @@
  *   node packages/db/scripts/enrich-exercise-catalog.mjs
  *   node packages/db/scripts/enrich-exercise-catalog.mjs --dry-run
  */
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -21,6 +21,10 @@ const root = join(__dirname, '..');
 const migrationsDir = join(root, 'supabase', 'migrations');
 const dryRun = process.argv.includes('--dry-run');
 
+/** Keep each shard small enough for Supabase SQL editor / snippet save limits. */
+const CHUNK_SIZE = 250;
+const CHUNK_TS_BASE = 20261109150001;
+
 const CATALOG_FILES = [
   '20261027120101_exercise_catalog_01.sql',
   '20261027120102_exercise_catalog_02.sql',
@@ -29,6 +33,7 @@ const CATALOG_FILES = [
 ];
 
 const ALLOWED_SOURCES = new Set(['exercisedb', 'wger', 'public_domain']);
+const ENRICH_FILE_RE = /^\d{14}_enrich_exercise_catalog(?:_.+)?\.sql$/;
 
 function unquote(v) {
   const s = String(v).trim();
@@ -90,18 +95,40 @@ function sqlStr(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
 
-function nextMigrationName() {
-  const preferred = '20261109150000_enrich_exercise_catalog.sql';
-  const files = readdirSync(migrationsDir).filter((f) => /^\d{14}_.+\.sql$/.test(f));
-  // Idempotent regenerate: overwrite our own enrich migration when present.
-  if (files.includes(preferred) || !files.some((f) => f.includes('enrich_exercise_catalog'))) {
-    return preferred;
+function removePriorEnrichMigrations() {
+  for (const name of readdirSync(migrationsDir)) {
+    if (!ENRICH_FILE_RE.test(name)) continue;
+    unlinkSync(join(migrationsDir, name));
   }
-  const latest = files.sort().at(-1);
-  const latestTs = latest.slice(0, 14);
-  let ts = String(Number(latestTs) + 10000);
-  while (files.some((f) => f.startsWith(ts))) ts = String(Number(ts) + 1);
-  return `${ts}_enrich_exercise_catalog.sql`;
+}
+
+function chunkUpdates(updates, size) {
+  const chunks = [];
+  for (let i = 0; i < updates.length; i += size) chunks.push(updates.slice(i, i + size));
+  return chunks;
+}
+
+function chunkMigrationName(index, total) {
+  const pad = String(index + 1).padStart(2, '0');
+  const ts = String(CHUNK_TS_BASE + index);
+  return `${ts}_enrich_exercise_catalog_${pad}_of_${String(total).padStart(2, '0')}.sql`;
+}
+
+function buildChunkSql(chunk, index, total) {
+  const header = [
+    `-- Enrich incomplete catalogue metadata (rules-only gap fill).`,
+    `-- Shard ${index + 1}/${total} (${chunk.length} rows).`,
+    `-- Only fills body_part/equipment/target_muscle when empty or body_part=other;`,
+    `-- only sets category/is_compound when null. Never overwrites good data.`,
+    `-- Touches source in (exercisedb, wger, public_domain) only.`,
+    `-- Idempotent: safe to re-run.`,
+    '',
+  ];
+  const bulk = buildBulkUpdateSql(chunk);
+  const parts = [...header];
+  if (bulk) parts.push(bulk, '');
+  if (index === total - 1) parts.push(`notify pgrst, 'reload schema';`, '');
+  return parts.join('\n');
 }
 
 function countGaps(rows) {
@@ -131,33 +158,50 @@ function applyPatch(row, patch) {
   return next;
 }
 
-function buildUpdateSql(id, patch) {
-  const sets = [];
-  if (patch.bodyPart != null) {
-    sets.push(
-      `body_part = case when coalesce(body_part, '') in ('', 'other') then ${sqlStr(patch.bodyPart)} else body_part end`,
-    );
-  }
-  if (patch.equipment != null) {
-    sets.push(
-      `equipment = case when coalesce(equipment, '') = '' then ${sqlStr(patch.equipment)} else equipment end`,
-    );
-  }
-  if (patch.targetMuscle != null) {
-    sets.push(
-      `target_muscle = case when coalesce(target_muscle, '') = '' then ${sqlStr(patch.targetMuscle)} else target_muscle end`,
-    );
-  }
-  if (patch.category != null) {
-    sets.push(`category = case when category is null then ${sqlStr(patch.category)} else category end`);
-  }
-  if (patch.isCompound != null) {
-    sets.push(
-      `is_compound = case when is_compound is null then ${patch.isCompound ? 'true' : 'false'} else is_compound end`,
-    );
-  }
-  if (!sets.length) return null;
-  return `update public.exercises\nset\n  ${sets.join(',\n  ')}\nwhere id = ${sqlStr(id)}\n  and source in ('exercisedb', 'wger', 'public_domain');`;
+function sqlTextOrNull(value) {
+  return value == null ? 'null::text' : `${sqlStr(value)}::text`;
+}
+
+function sqlBoolOrNull(value) {
+  if (value == null) return 'null::boolean';
+  return `${value ? 'true' : 'false'}::boolean`;
+}
+
+function buildValuesRow(id, patch) {
+  return `  (${sqlStr(id)}::uuid, ${sqlTextOrNull(patch.bodyPart)}, ${sqlTextOrNull(patch.equipment)}, ${sqlTextOrNull(patch.targetMuscle)}, ${sqlTextOrNull(patch.category)}, ${sqlBoolOrNull(patch.isCompound)})`;
+}
+
+/** Compact idempotent bulk update (safe to re-run). */
+function buildBulkUpdateSql(updates) {
+  if (!updates.length) return null;
+  const values = updates.map((u) => buildValuesRow(u.id, u.patch)).join(',\n');
+  return `update public.exercises as e
+set
+  body_part = case
+    when v.body_part is not null and coalesce(e.body_part, '') in ('', 'other') then v.body_part
+    else e.body_part
+  end,
+  equipment = case
+    when v.equipment is not null and coalesce(e.equipment, '') = '' then v.equipment
+    else e.equipment
+  end,
+  target_muscle = case
+    when v.target_muscle is not null and coalesce(e.target_muscle, '') = '' then v.target_muscle
+    else e.target_muscle
+  end,
+  category = case
+    when v.category is not null and e.category is null then v.category
+    else e.category
+  end,
+  is_compound = case
+    when v.is_compound is not null and e.is_compound is null then v.is_compound
+    else e.is_compound
+  end
+from (values
+${values}
+) as v(id, body_part, equipment, target_muscle, category, is_compound)
+where e.id = v.id
+  and e.source in ('exercisedb', 'wger', 'public_domain');`;
 }
 
 function main() {
@@ -198,21 +242,8 @@ function main() {
     return isBodyPartGap(r.bodyPart) || isEmptyField(r.equipment) || isEmptyField(r.targetMuscle);
   });
 
-  const migrationName = nextMigrationName();
-  const migrationPath = join(migrationsDir, migrationName);
-
-  const sqlParts = [
-    '-- Enrich incomplete catalogue metadata (rules-only gap fill).',
-    '-- Only fills body_part/equipment/target_muscle when empty or body_part=other;',
-    '-- only sets category/is_compound when null. Never overwrites good data.',
-    '-- Touches source in (exercisedb, wger, public_domain) only.',
-    '',
-  ];
-  for (const u of updates) {
-    const stmt = buildUpdateSql(u.id, u.patch);
-    if (stmt) sqlParts.push(stmt, '');
-  }
-  sqlParts.push(`notify pgrst, 'reload schema';`, '');
+  const chunks = chunkUpdates(updates, CHUNK_SIZE);
+  const migrationNames = chunks.map((_, i) => chunkMigrationName(i, chunks.length));
 
   const sampleNames = stillUnresolved.slice(0, 30).map((r) => `- ${r.name} (${r.source})`);
 
@@ -220,9 +251,11 @@ function main() {
     '# Exercise catalogue enrichment report',
     '',
     `Generated: ${new Date().toISOString()}`,
-    `Migration: \`${migrationName}\``,
+    `Migrations:`,
+    ...migrationNames.map((n) => `- \`${n}\``),
     `Rows parsed: ${allRows.length}`,
     `Rows with at least one update: ${updates.length}`,
+    `Chunk size: ${CHUNK_SIZE}`,
     '',
     '## Gap counts (allowed sources)',
     '',
@@ -255,10 +288,12 @@ function main() {
         dryRun,
         parsed: allRows.length,
         updates: updates.length,
+        chunks: chunks.length,
+        chunkSize: CHUNK_SIZE,
         before,
         after,
         unresolved: stillUnresolved.length,
-        migration: dryRun ? null : migrationName,
+        migrations: dryRun ? null : migrationNames,
         ruleHits,
       },
       null,
@@ -267,13 +302,18 @@ function main() {
   );
 
   if (!dryRun) {
-    writeFileSync(migrationPath, sqlParts.join('\n'));
+    removePriorEnrichMigrations();
+    for (let i = 0; i < chunks.length; i += 1) {
+      const name = migrationNames[i];
+      const path = join(migrationsDir, name);
+      writeFileSync(path, buildChunkSql(chunks[i], i, chunks.length));
+      console.error(`wrote ${path}`);
+    }
     writeFileSync(reportPath, report);
-    console.error(`wrote ${migrationPath}`);
     console.error(`wrote ${reportPath}`);
   } else {
     writeFileSync(reportPath, report);
-    console.error(`dry-run: skipped migration; wrote ${reportPath}`);
+    console.error(`dry-run: skipped migrations; wrote ${reportPath}`);
   }
 }
 

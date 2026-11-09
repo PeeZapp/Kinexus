@@ -237,7 +237,8 @@ export function WorkoutBuilder({
   const [pairFrom, setPairFrom] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mobilePane, setMobilePane] = useState<'workout' | 'library'>(seed.exercises.length > 0 ? 'workout' : 'library');
+  const [mobilePane, setMobilePane] = useState<'details' | 'workout' | 'library'>('workout');
+  const [detailsOpen, setDetailsOpen] = useState(() => !seed.name.trim());
   const { openMenu, toggleMenu, pick } = useFilterMenus();
   const split = useExperienceMode().mode === 'desktop';
 
@@ -273,11 +274,13 @@ export function WorkoutBuilder({
 
   const catalog = useMemo<CatalogRow[]>(
     () =>
-      library.map((exercise) => ({
-        exercise,
-        category: remixCategoryOf(exercise),
-        haystack: `${exercise.name} ${exercise.equipment} ${exercise.targetMuscle} ${exercise.bodyPart}`.toLowerCase(),
-      })),
+      library
+        .filter((exercise) => exercise.status === 'active' && !exercise.mergedInto)
+        .map((exercise) => ({
+          exercise,
+          category: remixCategoryOf(exercise),
+          haystack: `${exercise.name} ${exercise.aliases.join(' ')} ${exercise.equipment} ${exercise.targetMuscle} ${exercise.bodyPart}`.toLowerCase(),
+        })),
     [library],
   );
 
@@ -330,6 +333,13 @@ export function WorkoutBuilder({
       ),
     [selected],
   );
+
+  const summaryText = [
+    name.trim() || 'Workout',
+    `${estimate.minutes} min`,
+    `~${estimate.calories} kcal`,
+    `${selected.length} exercise${selected.length === 1 ? '' : 's'}`,
+  ].join(' · ');
 
   const globalReady =
     visibility !== 'global' || canPublishTrainGlobal({ level, goal, equipment });
@@ -551,11 +561,234 @@ export function WorkoutBuilder({
     </>
   );
 
+  const detailsFields = (
+    <>
+      <Field value={name} onChangeText={setName} placeholder="Workout name" editable={editable} />
+      {visibilityControls}
+      {onPersonalNotes ? (
+        <NoteLine
+          label="Mine"
+          value={workoutNote}
+          editable
+          maxLength={280}
+          onSave={(bodyText) => {
+            setWorkoutNote(bodyText);
+            void persistPersonal(selected, bodyText);
+          }}
+        />
+      ) : null}
+    </>
+  );
+
+  const selectedList = (
+    <ScrollView
+      style={styles.selectedScrollSplit}
+      contentContainerStyle={styles.selectedContent}
+      nestedScrollEnabled
+      keyboardShouldPersistTaps="handled">
+      {selected.length === 0 ? <Text style={styles.empty}>No exercises</Text> : null}
+      {clusterExercises(selected).map((cluster) => {
+        const rows = cluster.indices.map((index) => selected[index]).filter((exercise): exercise is BuiltExercise => Boolean(exercise));
+        const cards = rows.map((exercise, part) => {
+          const info =
+            (exercise.exerciseId ? library.find((item) => item.id === exercise.exerciseId) : undefined) ??
+            library.find((item) => item.name.toLowerCase() === exercise.name.toLowerCase());
+          if (!editable) {
+            return (
+              <View key={exercise.key} style={styles.selectedRow}>
+                <Text style={[styles.exerciseName, styles.selectedName]} numberOfLines={1}>
+                  {exerciseTitle(exercise.name)}
+                  {cluster.type === 'superset' ? ` · Part ${part + 1}` : ''}
+                </Text>
+                <Text style={styles.meta}>
+                  {exercise.targetSets} × {exercise.targetReps}
+                </Text>
+              </View>
+            );
+          }
+          return (
+            <SelectedExercise
+              key={exercise.key}
+              exercise={exercise}
+              part={cluster.type === 'superset' ? part + 1 : null}
+              pairing={pairFrom !== null}
+              isSource={pairFrom === exercise.key}
+              editable={editable}
+              canPair={selected.length > 1}
+              onDetails={() => {
+                if (!info) return;
+                if (split && preview?.id === info.id) {
+                  setPreview(null);
+                  return;
+                }
+                setReturnToWorkout(!split);
+                setPreview(info);
+                if (!split) setMobilePane('library');
+              }}
+              detailsReady={Boolean(info)}
+              onRemove={() => removeExercise(exercise.key)}
+              onSuperset={() => setPairFrom(exercise.key)}
+              onCancelPair={() => setPairFrom(null)}
+              onPair={() => pairWith(exercise.key)}
+              onUnlink={() => unlink(exercise.key)}
+              onSets={(value) => {
+                const targetSets = Math.max(1, Math.min(20, Number.parseInt(value, 10) || 1));
+                setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetSets } : row)));
+              }}
+              onReps={(targetReps) => {
+                setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetReps } : row)));
+              }}
+              onEffort={(targetEffort) => {
+                setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetEffort } : row)));
+              }}
+              onNote={(note) => {
+                setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, note: note.slice(0, 160) } : row)));
+              }}
+              onPersonalNote={
+                onPersonalNotes
+                  ? (personalNote) => {
+                      setSelected((current) => {
+                        const next = current.map((row) =>
+                          row.key === exercise.key ? { ...row, personalNote: personalNote.slice(0, 280) } : row,
+                        );
+                        void persistPersonal(next, workoutNote);
+                        return next;
+                      });
+                    }
+                  : undefined
+              }
+            />
+          );
+        });
+        if (cluster.type === 'single') return cards;
+        return (
+          <View key={rows.map((exercise) => exercise.key).join('-')} style={styles.superset}>
+            <Text style={styles.supersetLabel}>Superset</Text>
+            {cards}
+          </View>
+        );
+      })}
+    </ScrollView>
+  );
+
+  const libraryPane = (
+    <View style={styles.pane}>
+      <View style={styles.sectionRow}>
+        <Text style={styles.section}>Add exercises</Text>
+        {libraryReady ? <Text style={styles.count}>{matches.length.toLocaleString()}</Text> : null}
+      </View>
+      <SearchField value={query} onChangeText={setQuery} placeholder="Search exercises" />
+      {editable && userId ? (
+        <TextAction label="Can't find it? Add custom exercise" tone="accent" onPress={() => setCustomOpen(true)} />
+      ) : null}
+      <View style={styles.filters}>
+        <FilterBar>
+          <FilterDropdown
+            id="muscle"
+            label="Muscle"
+            value={category}
+            valueLabel={category || 'All'}
+            open={openMenu === 'muscle'}
+            options={[{ value: '' as const, label: 'All' }, ...REMIX_CATEGORIES.map((item) => ({ value: item, label: item }))]}
+            active={category !== ''}
+            onToggle={toggleMenu}
+            onSelect={pick(setCategory)}
+          />
+        </FilterBar>
+      </View>
+      <View style={[styles.listWrap, split && preview ? styles.listWrapSplit : null]}>
+        {preview && split ? (
+          <View style={styles.previewDock}>
+            <ExercisePreview
+              exercise={preview}
+              editable={editable && !selectedIds.has(preview.id)}
+              onClose={() => setPreview(null)}
+              onAdd={() => addExercise(preview)}
+            />
+          </View>
+        ) : null}
+        {preview && !split ? (
+          <ExercisePreview
+            exercise={preview}
+            editable={editable && !selectedIds.has(preview.id)}
+            onClose={() => {
+              setPreview(null);
+              if (returnToWorkout) {
+                setReturnToWorkout(false);
+                setMobilePane('workout');
+              }
+            }}
+            onAdd={() => addExercise(preview)}
+          />
+        ) : !libraryReady && !error ? (
+          <LoadingState label="Loading exercises" />
+        ) : (
+          <FlatList
+            data={matches}
+            keyExtractor={(row) => row.exercise.id}
+            keyboardShouldPersistTaps="handled"
+            style={styles.list}
+            contentContainerStyle={styles.listContent}
+            initialNumToRender={16}
+            windowSize={8}
+            ListEmptyComponent={<Text style={styles.empty}>No exercises</Text>}
+            renderItem={({ item }) => {
+              const taken = selectedIds.has(item.exercise.id);
+              const line = taken ? 'Selected' : [item.category, prettyLabel(item.exercise.equipment)].filter(Boolean).join(' · ');
+              return (
+                <View style={styles.libraryRow}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      taken
+                        ? `${exerciseTitle(item.exercise.name)} selected`
+                        : editable
+                          ? `Add ${exerciseTitle(item.exercise.name)}`
+                          : exerciseTitle(item.exercise.name)
+                    }
+                    disabled={!editable || taken}
+                    onPress={() => addExercise(item.exercise)}
+                    style={({ pressed }) => [
+                      styles.libraryCopy,
+                      taken && styles.libraryTaken,
+                      pressed && editable && !taken && styles.pressed,
+                    ]}>
+                    <Text style={[styles.exerciseName, taken && styles.takenName]} numberOfLines={2}>
+                      {exerciseTitle(item.exercise.name)}
+                    </Text>
+                    {line ? <Text style={[styles.meta, taken && styles.takenName]}>{line}</Text> : null}
+                  </Pressable>
+                  <TrainButton
+                    label="Details"
+                    onPress={() => {
+                      if (preview?.id === item.exercise.id) {
+                        setPreview(null);
+                        setReturnToWorkout(false);
+                        return;
+                      }
+                      setReturnToWorkout(false);
+                      setPreview(item.exercise);
+                    }}
+                  />
+                </View>
+              );
+            }}
+          />
+        )}
+      </View>
+    </View>
+  );
+
   const body = (
-    <View style={[styles.column, presentation === 'modal' && styles.columnModal]}>
+    <View
+      style={[
+        styles.column,
+        presentation === 'modal' && styles.columnModal,
+        !split && styles.columnCompact,
+      ]}>
       {onClose ? (
-        <View style={styles.head}>
-          <Text style={styles.title} numberOfLines={1}>
+        <View style={[styles.head, !split && styles.headCompact]}>
+          <Text style={[styles.title, !split && styles.titleCompact]} numberOfLines={1}>
             {presentation === 'modal' ? 'Build workout' : name.trim() || 'Workout'}
           </Text>
           <Pressable
@@ -568,231 +801,58 @@ export function WorkoutBuilder({
         </View>
       ) : null}
       <ErrorBanner message={error} />
-      {!split ? (
+      <Text style={styles.summaryStrip} numberOfLines={1}>
+        {summaryText}
+      </Text>
+      {!editable ? (
+        <View style={[styles.selectedBlock, styles.selectedBlockSplit]}>{selectedList}</View>
+      ) : (
         <>
-          <Field value={name} onChangeText={setName} placeholder="Workout name" editable={editable} />
-          {visibilityControls}
-          <Segmented
-            value={mobilePane}
-            options={[
-              { value: 'workout', label: 'Workout' },
-              { value: 'library', label: 'Library' },
-            ]}
-            onChange={setMobilePane}
-          />
-        </>
-      ) : null}
-      <View style={split ? styles.split : styles.stack}>
-        {split || mobilePane === 'workout' ? (
-        <View style={split ? [styles.pane, styles.paneLeft] : styles.pane}>
-          {split ? (
-            <>
-              <Field value={name} onChangeText={setName} placeholder="Workout name" editable={editable} />
-              {visibilityControls}
-            </>
-          ) : null}
-          <View style={[styles.selectedBlock, styles.selectedBlockSplit]}>
-              <View style={styles.sectionRow}>
-                <Text style={styles.section}>Selected · {selected.length}</Text>
-                {estimate.minutes > 0 ? (
-                  <Text style={styles.count}>
-                    {estimate.minutes} min · ~{estimate.calories} kcal
-                  </Text>
-                ) : null}
-              </View>
-              {onPersonalNotes ? (
-                <NoteLine
-                  label="Mine"
-                  value={workoutNote}
-                  editable
-                  maxLength={280}
-                  onSave={(body) => {
-                    setWorkoutNote(body);
-                    void persistPersonal(selected, body);
-                  }}
-                />
-              ) : null}
-              <ScrollView
-                style={styles.selectedScrollSplit}
-                contentContainerStyle={styles.selectedContent}
-                nestedScrollEnabled
-                keyboardShouldPersistTaps="handled">
-                {selected.length === 0 ? <Text style={styles.empty}>No exercises</Text> : null}
-                {clusterExercises(selected).map((cluster) => {
-                  const rows = cluster.indices.map((index) => selected[index]).filter((exercise): exercise is BuiltExercise => Boolean(exercise));
-                  const cards = rows.map((exercise, part) => {
-                    const info =
-                      (exercise.exerciseId ? library.find((item) => item.id === exercise.exerciseId) : undefined) ??
-                      library.find((item) => item.name.toLowerCase() === exercise.name.toLowerCase());
-                    return (
-                    <SelectedExercise
-                      key={exercise.key}
-                      exercise={exercise}
-                      part={cluster.type === 'superset' ? part + 1 : null}
-                      pairing={pairFrom !== null}
-                      isSource={pairFrom === exercise.key}
-                      editable={editable}
-                      canPair={selected.length > 1}
-                      onDetails={() => {
-                        if (!info) return;
-                        if (split && preview?.id === info.id) {
-                          setPreview(null);
-                          return;
-                        }
-                        setReturnToWorkout(!split);
-                        setPreview(info);
-                        if (!split) setMobilePane('library');
-                      }}
-                      detailsReady={Boolean(info)}
-                      onRemove={() => removeExercise(exercise.key)}
-                      onSuperset={() => setPairFrom(exercise.key)}
-                      onCancelPair={() => setPairFrom(null)}
-                      onPair={() => pairWith(exercise.key)}
-                      onUnlink={() => unlink(exercise.key)}
-                      onSets={(value) => {
-                        const targetSets = Math.max(1, Math.min(20, Number.parseInt(value, 10) || 1));
-                        setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetSets } : row)));
-                      }}
-                      onReps={(targetReps) => {
-                        setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetReps } : row)));
-                      }}
-                      onEffort={(targetEffort) => {
-                        setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetEffort } : row)));
-                      }}
-                      onNote={(note) => {
-                        setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, note: note.slice(0, 160) } : row)));
-                      }}
-                      onPersonalNote={
-                        onPersonalNotes
-                          ? (personalNote) => {
-                              setSelected((current) => {
-                                const next = current.map((row) => (row.key === exercise.key ? { ...row, personalNote: personalNote.slice(0, 280) } : row));
-                                void persistPersonal(next, workoutNote);
-                                return next;
-                              });
-                            }
-                          : undefined
-                      }
-                    />
-                    );
-                  });
-                  if (cluster.type === 'single') return cards;
-                  return (
-                    <View key={rows.map((exercise) => exercise.key).join('-')} style={styles.superset}>
-                      <Text style={styles.supersetLabel}>Superset</Text>
-                      {cards}
-                    </View>
-                  );
-                })}
-              </ScrollView>
-            </View>
-        </View>
-        ) : null}
-        {split || mobilePane === 'library' ? (
-        <View style={styles.pane}>
-          <View style={styles.sectionRow}>
-            <Text style={styles.section}>Add exercises</Text>
-            {libraryReady ? <Text style={styles.count}>{matches.length.toLocaleString()}</Text> : null}
-          </View>
-          <SearchField value={query} onChangeText={setQuery} placeholder="Search exercises" />
-          {editable && userId ? (
-            <TextAction
-              label="Can't find it? Add custom exercise"
-              tone="accent"
-              onPress={() => setCustomOpen(true)}
+          {!split ? (
+            <Segmented
+              compact
+              value={mobilePane}
+              options={[
+                { value: 'details', label: 'Details' },
+                { value: 'workout', label: 'Workout' },
+                { value: 'library', label: 'Library' },
+              ]}
+              onChange={setMobilePane}
             />
           ) : null}
-          <View style={styles.filters}>
-            <FilterBar>
-              <FilterDropdown
-                id="muscle"
-                label="Muscle"
-                value={category}
-                valueLabel={category || 'All'}
-                open={openMenu === 'muscle'}
-                options={[{ value: '' as const, label: 'All' }, ...REMIX_CATEGORIES.map((item) => ({ value: item, label: item }))]}
-                active={category !== ''}
-                onToggle={toggleMenu}
-                onSelect={pick(setCategory)}
-              />
-            </FilterBar>
-          </View>
-          <View style={[styles.listWrap, split && preview ? styles.listWrapSplit : null]}>
-            {preview && split ? (
-              <View style={styles.previewDock}>
-                <ExercisePreview
-                  exercise={preview}
-                  editable={editable && !selectedIds.has(preview.id)}
-                  onClose={() => setPreview(null)}
-                  onAdd={() => addExercise(preview)}
-                />
+          <View style={split ? styles.split : styles.stack}>
+            {split || mobilePane === 'workout' || mobilePane === 'details' ? (
+              <View style={split ? [styles.pane, styles.paneLeft] : styles.pane}>
+                {split ? (
+                  <View style={styles.detailsPanel}>
+                    <Pressable
+                      onPress={() => setDetailsOpen((open) => !open)}
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: detailsOpen }}
+                      style={styles.detailsToggle}>
+                      <Text style={styles.section}>Details</Text>
+                      <Text style={styles.count}>{detailsOpen ? 'Hide' : 'Show'}</Text>
+                    </Pressable>
+                    {detailsOpen ? detailsFields : null}
+                  </View>
+                ) : null}
+                {!split && mobilePane === 'details' ? (
+                  <ScrollView contentContainerStyle={styles.detailsContent} keyboardShouldPersistTaps="handled">
+                    {detailsFields}
+                  </ScrollView>
+                ) : null}
+                {split || mobilePane === 'workout' ? (
+                  <View style={[styles.selectedBlock, styles.selectedBlockSplit]}>{selectedList}</View>
+                ) : null}
               </View>
             ) : null}
-            {preview && !split ? (
-              <ExercisePreview
-                exercise={preview}
-                editable={editable && !selectedIds.has(preview.id)}
-                onClose={() => {
-                  setPreview(null);
-                  if (returnToWorkout) {
-                    setReturnToWorkout(false);
-                    setMobilePane('workout');
-                  }
-                }}
-                onAdd={() => addExercise(preview)}
-              />
-            ) : !libraryReady && !error ? (
-              <LoadingState label="Loading exercises" />
-            ) : (
-              <FlatList
-                data={matches}
-                keyExtractor={(row) => row.exercise.id}
-                keyboardShouldPersistTaps="handled"
-                style={styles.list}
-                contentContainerStyle={styles.listContent}
-                initialNumToRender={16}
-                windowSize={8}
-                ListEmptyComponent={<Text style={styles.empty}>No exercises</Text>}
-                renderItem={({ item }) => {
-                  const taken = selectedIds.has(item.exercise.id);
-                  const line = taken ? 'Selected' : [item.category, prettyLabel(item.exercise.equipment)].filter(Boolean).join(' · ');
-                  return (
-                    <View style={styles.libraryRow}>
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={taken ? `${exerciseTitle(item.exercise.name)} selected` : editable ? `Add ${exerciseTitle(item.exercise.name)}` : exerciseTitle(item.exercise.name)}
-                        disabled={!editable || taken}
-                        onPress={() => addExercise(item.exercise)}
-                        style={({ pressed }) => [styles.libraryCopy, taken && styles.libraryTaken, pressed && editable && !taken && styles.pressed]}>
-                        <Text style={[styles.exerciseName, taken && styles.takenName]} numberOfLines={2}>
-                          {exerciseTitle(item.exercise.name)}
-                        </Text>
-                        {line ? <Text style={[styles.meta, taken && styles.takenName]}>{line}</Text> : null}
-                      </Pressable>
-                      <TrainButton
-                        label="Details"
-                        onPress={() => {
-                          if (preview?.id === item.exercise.id) {
-                            setPreview(null);
-                            setReturnToWorkout(false);
-                            return;
-                          }
-                          setReturnToWorkout(false);
-                          setPreview(item.exercise);
-                        }}
-                      />
-                    </View>
-                  );
-                }}
-              />
-            )}
+            {split || mobilePane === 'library' ? libraryPane : null}
           </View>
-        </View>
-        ) : null}
-      </View>
-      <View style={styles.footer}>
-        {onDelete ? <TrainButton label="Delete" tone="danger" onPress={() => void removeWorkout()} disabled={busy} /> : null}
-        {onShare ? <TrainButton label="Share" tone="ghost" onPress={onShare} disabled={busy} /> : null}
+        </>
+      )}
+      <View style={[styles.footer, !editable && styles.footerViewer]}>
+        {editable && onDelete ? <TrainButton label="Delete" tone="danger" onPress={() => void removeWorkout()} disabled={busy} /> : null}
+        {editable && onShare ? <TrainButton label="Share" tone="ghost" onPress={onShare} disabled={busy} /> : null}
         {onCopy ? (
           <TrainButton
             label="Copy to my workouts"
@@ -806,7 +866,7 @@ export function WorkoutBuilder({
           />
         ) : null}
         <View style={styles.footerActions}>
-          {onClose ? (
+          {editable && onClose ? (
             <TrainButton label={presentation === 'modal' ? 'Cancel' : 'Back'} tone="ghost" fill onPress={onClose} disabled={busy} />
           ) : null}
           {editable ? <TrainButton label="Save" tone="ghost" fill disabled={!canSubmit} onPress={() => void submit(false)} /> : null}
@@ -1116,15 +1176,34 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.xl,
   },
   column: { flex: 1, minWidth: 0, minHeight: 0, gap: 10 },
-  columnModal: { paddingHorizontal: space.md, paddingTop: space.md, paddingBottom: space.md, maxWidth: '100%' },
+  columnCompact: { gap: 6 },
+  columnModal: { paddingHorizontal: space.md, paddingTop: space.sm, paddingBottom: space.md, maxWidth: '100%' },
   split: { flex: 1, flexDirection: 'row', minHeight: 0, gap: 20 },
-  stack: { flex: 1, minWidth: 0, minHeight: 0, gap: 10 },
+  stack: { flex: 1, minWidth: 0, minHeight: 0, gap: 6 },
   pane: { flex: 1, minWidth: 0, minHeight: 0, gap: 10 },
   paneStacked: { flexGrow: 0, flexShrink: 1, gap: 10 },
   paneLeft: { borderRightWidth: 1, borderRightColor: colors.border, paddingRight: 16 },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  headCompact: { minHeight: 28 },
   title: { flex: 1, color: colors.text, fontSize: 18, fontWeight: '700' },
+  titleCompact: { fontSize: 16 },
   close: { color: colors.accent, fontWeight: '700', fontSize: 15 },
+  summaryStrip: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+    lineHeight: 18,
+  },
+  detailsPanel: { gap: 8, flexShrink: 0 },
+  detailsToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    minHeight: 32,
+  },
+  detailsContent: { gap: 10, paddingBottom: 8 },
   people: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   globalTags: { gap: 8 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
@@ -1223,6 +1302,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
+  footerViewer: { justifyContent: 'flex-end' },
   footerActions: { flex: 1, flexDirection: 'row', gap: 8 },
   mark: { borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 },
   markLabel: { fontSize: 11, fontWeight: '800' },

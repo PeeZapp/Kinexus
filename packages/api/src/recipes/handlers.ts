@@ -13,10 +13,12 @@ import { cronAuthorized } from '../prices.js';
 import { failureFromUnknown } from './errors.js';
 import { processRecipeImport } from './pipeline.js';
 import { assertImportRateLimit } from './rate-limit.js';
+import { TIKTOK_LINK_OPEN_FAILED, resolveTiktokRecipeUrl } from './resolve-tiktok.js';
 import { getImportByCanonical, getImportById, saveImport, type RecipeImportRecord } from './store.js';
 
 const CACHE_MS = 30 * 24 * 60 * 60 * 1000;
 const RETRY_FAILED_MS = 15 * 60 * 1000;
+const TIKTOK_RESOLVE_FAILED_MS = 60 * 1000;
 const JOB_TTL_MS = 3 * 60 * 1000;
 const BLOG_SYNC_MS = 10_000;
 
@@ -52,6 +54,21 @@ export async function handleCreateRecipeImport(
     return { status: 429, body: { error: message, errorCode: 'rate_limited' } };
   }
 
+  const shortExisting = normalized.needsResolve ? await getImportByCanonical(normalized.canonicalUrl) : null;
+  if (shortExisting?.status === 'failed' && shortExisting.errorCode !== 'timeout') {
+    const age = Date.now() - Date.parse(shortExisting.updatedAt);
+    if (age < failedCacheMs(shortExisting)) {
+      return { status: 200, body: { job: shortExisting } };
+    }
+  }
+
+  try {
+    normalized = await resolveTiktokRecipeUrl(normalized);
+  } catch (err) {
+    const failure = failureFromUnknown(err);
+    return saveTiktokResolveFailure(normalized, failure.code, failure.message);
+  }
+
   const existing = await getImportByCanonical(normalized.canonicalUrl);
   if (existing) {
     const age = Date.now() - Date.parse(existing.updatedAt);
@@ -62,7 +79,7 @@ export async function handleCreateRecipeImport(
       scheduleJob(existing.id, normalized);
       return { status: 202, body: { job: existing } };
     }
-    if (existing.status === 'failed' && age < RETRY_FAILED_MS && existing.errorCode !== 'timeout') {
+    if (existing.status === 'failed' && existing.errorCode !== 'timeout' && age < failedCacheMs(existing)) {
       return { status: 200, body: { job: existing } };
     }
   }
@@ -136,16 +153,51 @@ export async function handleRecipeImportWork(
   let normalized: NormalizedRecipeUrl;
   try {
     normalized = normalizeRecipeUrl(job.inputUrl || job.canonicalUrl);
-  } catch {
-    normalized = {
-      inputUrl: job.inputUrl,
-      canonicalUrl: job.canonicalUrl,
-      sourceKind: job.sourceKind ?? 'web',
-      displayHost: new URL(job.canonicalUrl).hostname.replace(/^www\./, ''),
-    };
+    normalized = await resolveTiktokRecipeUrl(normalized);
+  } catch (err) {
+    const failure = failureFromUnknown(err);
+    await saveImport({
+      ...job,
+      status: 'failed',
+      progress: 100,
+      phaseLabel: 'Failed',
+      errorCode: failure.code,
+      errorMessage: failure.message,
+    });
+    return { status: 200, body: { ok: true } };
   }
   await kickJob(id, normalized);
   return { status: 200, body: { ok: true } };
+}
+
+function failedCacheMs(existing: RecipeImportRecord): number {
+  if (existing.errorMessage === TIKTOK_LINK_OPEN_FAILED) return TIKTOK_RESOLVE_FAILED_MS;
+  return RETRY_FAILED_MS;
+}
+
+async function saveTiktokResolveFailure(
+  normalized: NormalizedRecipeUrl,
+  errorCode: RecipeImportRecord['errorCode'],
+  errorMessage: string,
+): Promise<{ status: number; body: { job: RecipeImportJob } }> {
+  const existing = await getImportByCanonical(normalized.canonicalUrl);
+  const now = new Date();
+  const job = await saveImport({
+    id: existing?.id ?? randomUUID(),
+    status: 'failed',
+    sourceKind: normalized.sourceKind,
+    inputUrl: normalized.inputUrl,
+    canonicalUrl: normalized.canonicalUrl,
+    progress: 100,
+    phaseLabel: 'Failed',
+    createdAt: existing?.createdAt ?? now.toISOString(),
+    updatedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + TIKTOK_RESOLVE_FAILED_MS).toISOString(),
+    errorCode,
+    errorMessage,
+    recipe: undefined,
+  });
+  return { status: 422, body: { job } };
 }
 
 function scheduleJob(id: string, normalized: NormalizedRecipeUrl): void {

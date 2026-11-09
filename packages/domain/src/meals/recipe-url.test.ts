@@ -64,11 +64,41 @@ describe('normalizeRecipeUrl', () => {
 
   it('canonicalizes TikTok @user/video ids and strips query params', () => {
     const result = normalizeRecipeUrl(
-      'https://www.tiktok.com/@cook/video/7123456789012345678?is_from_webapp=1&sender_device=pc',
+      'https://www.tiktok.com/@user/video/1234567890123456789?is_from_webapp=1&sender_device=pc',
     );
     expect(result.sourceKind).toBe('tiktok');
-    expect(result.canonicalUrl).toBe('https://www.tiktok.com/@cook/video/7123456789012345678');
-    expect(result.videoId).toBe('7123456789012345678');
+    expect(result.canonicalUrl).toBe('https://www.tiktok.com/@user/video/1234567890123456789');
+    expect(result.videoId).toBe('1234567890123456789');
+    expect(result.needsResolve).toBeUndefined();
+  });
+
+  it('leaves TikTok short links untouched and flags needsResolve', () => {
+    const vm = normalizeRecipeUrl('https://vm.tiktok.com/ZMxxxxxxx/');
+    expect(vm.sourceKind).toBe('tiktok');
+    expect(vm.needsResolve).toBe(true);
+    expect(vm.videoId).toBeUndefined();
+    expect(vm.canonicalUrl).toBe('https://vm.tiktok.com/ZMxxxxxxx');
+
+    const vt = normalizeRecipeUrl('https://vt.tiktok.com/ZSxxxxxxx/');
+    expect(vt.needsResolve).toBe(true);
+    expect(vt.canonicalUrl).toBe('https://vt.tiktok.com/ZSxxxxxxx');
+
+    const share = normalizeRecipeUrl('https://www.tiktok.com/t/ZTxxxxxxx/');
+    expect(share.needsResolve).toBe(true);
+    expect(share.videoId).toBeUndefined();
+    expect(share.canonicalUrl).toBe('https://www.tiktok.com/t/ZTxxxxxxx');
+  });
+
+  it('canonicalizes m.tiktok.com /v/ ids and @user/photo posts', () => {
+    const mobile = normalizeRecipeUrl('https://m.tiktok.com/v/1234567890123456789.html');
+    expect(mobile.canonicalUrl).toBe('https://www.tiktok.com/video/1234567890123456789');
+    expect(mobile.videoId).toBe('1234567890123456789');
+    expect(mobile.needsResolve).toBeUndefined();
+
+    const photo = normalizeRecipeUrl('https://www.tiktok.com/@user/photo/1234567890123456789');
+    expect(photo.canonicalUrl).toBe('https://www.tiktok.com/@user/photo/1234567890123456789');
+    expect(photo.videoId).toBe('1234567890123456789');
+    expect(photo.needsResolve).toBeUndefined();
   });
 
   it('canonicalizes Instagram reel/p/tv share links', () => {

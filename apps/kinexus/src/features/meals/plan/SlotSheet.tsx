@@ -38,12 +38,12 @@ type Props = {
   target?: { calories: number; protein: number } | null;
   onClose: () => void;
   onAssign: (recipe: Recipe) => void;
-  onClear: () => void;
-  onHide: () => void;
+  onClear: () => void | Promise<void>;
+  onHide: () => void | Promise<void>;
   onShuffle: () => void | Promise<Recipe | null>;
   onOpenRecipe: (id: string, serves?: number) => void;
   onEditRecipe: (id: string) => void;
-  onSetSides?: (sideRecipeIds: string[]) => void;
+  onSetSides?: (sideRecipeIds: string[]) => void | Promise<void>;
   onUseTitle: (name: string) => void | Promise<void>;
   onSaveManual: (draft: Omit<Recipe, 'id' | 'householdId'>) => Promise<void>;
 };

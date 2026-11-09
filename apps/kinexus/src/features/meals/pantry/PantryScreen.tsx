@@ -25,6 +25,7 @@ export function PantryScreen() {
   const [pantry, setPantry] = useState<string[]>([]);
   const [draft, setDraft] = useState('');
   const [ready, setReady] = useState(false);
+  const [tipOpen, setTipOpen] = useState(false);
 
   useEffect(() => {
     if (!meals.householdId) return;
@@ -88,11 +89,20 @@ export function PantryScreen() {
         !desktop && { paddingBottom: insets.bottom + 24 },
       ]}
       keyboardShouldPersistTaps="handled">
-      <Text style={styles.kicker}>Kitchen</Text>
-      <Text style={[styles.title, desktop && styles.titleDesktop]}>What can I make</Text>
-      <Text style={styles.lede}>
-        Add what’s in the kitchen. We’ll match it to your recipe library and show dishes you can cook now, plus ones you’re an ingredient or two away from.
-      </Text>
+      <View style={styles.tipRow}>
+        <Pressable
+          onPress={() => setTipOpen((open) => !open)}
+          style={styles.tipBtn}
+          accessibilityRole="button"
+          accessibilityLabel="About pantry matching">
+          <Text style={styles.tipGlyph}>?</Text>
+        </Pressable>
+      </View>
+      {tipOpen ? (
+        <Text style={styles.lede}>
+          Add what’s in the kitchen. We’ll match it to your recipe library and show dishes you can cook now, plus ones you’re an ingredient or two away from.
+        </Text>
+      ) : null}
       <Field
         label="Ingredients"
         value={draft}
@@ -214,10 +224,19 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { padding: space.md, gap: 12, paddingBottom: 48 },
   contentDesktop: { paddingHorizontal: 48, maxWidth: 880 },
-  kicker: { color: colors.accent, fontSize: 12, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' },
-  title: { color: colors.text, fontSize: 28, fontWeight: '700' },
-  titleDesktop: { fontSize: 40 },
-  lede: { color: colors.textMuted, fontSize: 15, lineHeight: 22 },
+  tipRow: { flexDirection: 'row', justifyContent: 'flex-end' },
+  tipBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgHover,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tipGlyph: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
+  lede: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
   actions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {

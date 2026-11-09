@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, usePathname, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -14,7 +14,15 @@ export type SubnavTab = {
   match: (path: string) => boolean;
 };
 
-export function SubnavTabs({ tabs, title = 'Go to' }: { tabs: SubnavTab[]; title?: string }) {
+export function SubnavTabs({
+  tabs,
+  title = 'Go to',
+  accessory,
+}: {
+  tabs: SubnavTab[];
+  title?: string;
+  accessory?: ReactNode;
+}) {
   const pathname = usePathname();
   const { mode } = useExperienceMode();
   const desktop = mode === 'desktop';
@@ -37,10 +45,18 @@ export function SubnavTabs({ tabs, title = 'Go to' }: { tabs: SubnavTab[]; title
     );
   }
 
-  return <MobileSectionMenu tabs={tabs} title={title} />;
+  return <MobileSectionMenu tabs={tabs} title={title} accessory={accessory} />;
 }
 
-function MobileSectionMenu({ tabs, title }: { tabs: SubnavTab[]; title: string }) {
+function MobileSectionMenu({
+  tabs,
+  title,
+  accessory,
+}: {
+  tabs: SubnavTab[];
+  title: string;
+  accessory?: ReactNode;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -53,15 +69,18 @@ function MobileSectionMenu({ tabs, title }: { tabs: SubnavTab[]; title: string }
 
   return (
     <View style={styles.mobileWrap}>
-      <Pressable
-        onPress={() => setOpen(true)}
-        style={({ pressed }) => [styles.trigger, pressed && styles.triggerPressed]}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-        accessibilityLabel={`${title} menu, ${current?.label ?? title}`}>
-        <HamburgerIcon />
-        <Text style={styles.triggerLabel}>{current?.label ?? title}</Text>
-      </Pressable>
+      <View style={styles.mobileRow}>
+        <Pressable
+          onPress={() => setOpen(true)}
+          style={({ pressed }) => [styles.trigger, pressed && styles.triggerPressed]}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: open }}
+          accessibilityLabel={`${title} menu, ${current?.label ?? title}`}>
+          <HamburgerIcon />
+          <Text style={styles.triggerLabel}>{current?.label ?? title}</Text>
+        </Pressable>
+        {accessory ? <View style={styles.accessory}>{accessory}</View> : null}
+      </View>
 
       <AppModal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setOpen(false)} accessibilityLabel="Close menu">
@@ -150,16 +169,26 @@ const styles = StyleSheet.create({
     flexGrow: 0,
     flexShrink: 0,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 4,
   },
-  trigger: {
-    alignSelf: 'flex-start',
+  mobileRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    minHeight: 44,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+  },
+  accessory: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'flex-end',
+  },
+  trigger: {
+    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 36,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,

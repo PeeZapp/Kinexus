@@ -176,3 +176,40 @@ export function canFillSessionType(
   }
   return count >= minExercises;
 }
+
+/** Broader fallbacks when a narrow session type cannot fill (e.g. Upper Push → Upper). */
+const SESSION_TYPE_WIDEN: Partial<Record<TrainSessionTypeId, TrainSessionTypeId>> = {
+  upper_push: 'upper',
+  upper_pull: 'upper',
+  push: 'upper',
+  pull: 'upper',
+  chest_tris: 'upper',
+  back_bis: 'upper',
+  shoulders: 'upper',
+  arms: 'upper',
+  legs: 'lower',
+  glutes: 'lower',
+};
+
+/** Ordered session-type ids to try: exact first, then quiet widen parents. */
+export function widenSessionTypeIds(sessionTypeId: string): string[] {
+  const out: string[] = [];
+  let current: string | undefined = sessionTypeId;
+  while (current && !out.includes(current)) {
+    out.push(current);
+    current = SESSION_TYPE_WIDEN[current as TrainSessionTypeId];
+  }
+  return out;
+}
+
+/** Fill a session type, quietly widening to a broader type when the exact pool is too thin. */
+export function fillWorkoutFromSessionTypeWidened(
+  input: FillWorkoutTemplateInput,
+): FilledTemplateExercise[] {
+  for (const sessionTypeId of widenSessionTypeIds(input.sessionTypeId)) {
+    if (!canFillSessionType(sessionTypeId, input.catalogue)) continue;
+    const filled = fillWorkoutFromSessionType({ ...input, sessionTypeId });
+    if (filled.length > 0) return filled;
+  }
+  return [];
+}

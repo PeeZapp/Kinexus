@@ -189,7 +189,9 @@ export {
   canFillSessionType,
   displayFocusLabel,
   fillWorkoutFromSessionType,
+  fillWorkoutFromSessionTypeWidened,
   sessionTypeIdFromFocus,
+  widenSessionTypeIds,
 } from './workout-templates';
 export type { FillWorkoutTemplateInput, FilledTemplateExercise } from './workout-templates';
 export {
@@ -224,14 +226,17 @@ export {
 export type { PlanIcsDay, PlanIcsInput } from './plan-ics';
 export { applyLoggedSets, parseWeight } from './records';
 export {
+  abandonWorkoutSessionCall,
   appendWorkoutSetCall,
   deleteWorkoutSetCall,
   deleteWorkoutSetsAtPositionCall,
   finishWorkoutSessionCall,
+  isStaleEmptySession,
   linkWorkoutSessionCall,
   moveSessionExerciseCall,
   replaceSessionExerciseCall,
   rewriteSessionSetsCall,
+  sessionHasLoggedSets,
   updateWorkoutSetCall,
 } from './session-writes';
 export type { SessionSetWrite } from './session-writes';

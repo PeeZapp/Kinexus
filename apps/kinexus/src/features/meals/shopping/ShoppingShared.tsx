@@ -416,8 +416,7 @@ export function ShoppingChrome({
 }) {
   return (
     <ScrollView style={styles.root} contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}>
-      <Text style={[styles.title, desktop && styles.titleDesktop]}>Shopping</Text>
-      <WeekSwitcher weekStart={weekStart} onPrev={onPrevWeek} onNext={onNextWeek} />
+      {desktop ? <WeekSwitcher weekStart={weekStart} onPrev={onPrevWeek} onNext={onNextWeek} /> : null}
       <OfflineBanner online={online} pendingCount={pendingCount} extra={importBlockedReason} />
       <ErrorText message={error} />
       <ErrorText message={shoppingError} />
@@ -446,8 +445,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { padding: space.md, gap: 14, paddingBottom: 48 },
   contentDesktop: { paddingHorizontal: 48, paddingTop: 8, maxWidth: 1100 },
-  title: { color: colors.text, fontSize: 28, fontWeight: '700' },
-  titleDesktop: { fontSize: 40 },
   toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
   toolbarDesktop: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'center' },
   totalCard: {

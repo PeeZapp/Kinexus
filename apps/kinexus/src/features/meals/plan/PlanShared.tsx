@@ -158,19 +158,38 @@ export function WeekSwitcher({
   weekStart,
   onPrev,
   onNext,
+  onJumpCurrent,
+  compact = false,
 }: {
   weekStart: string;
   onPrev: () => void;
   onNext: () => void;
+  onJumpCurrent?: () => void;
+  compact?: boolean;
 }) {
+  const label = (
+    <Text style={[styles.weekLabel, compact && styles.weekLabelCompact]} numberOfLines={1}>
+      {weekRangeLabel(weekStart)}
+    </Text>
+  );
   return (
-    <View style={styles.weekBar}>
-      <Pressable onPress={onPrev} style={styles.weekBtn} hitSlop={8}>
-        <Text style={styles.weekBtnText}>‹</Text>
+    <View style={[styles.weekBar, compact && styles.weekBarCompact]}>
+      <Pressable onPress={onPrev} style={[styles.weekBtn, compact && styles.weekBtnCompact]} hitSlop={8}>
+        <Text style={[styles.weekBtnText, compact && styles.weekBtnTextCompact]}>‹</Text>
       </Pressable>
-      <Text style={styles.weekLabel}>{weekRangeLabel(weekStart)}</Text>
-      <Pressable onPress={onNext} style={styles.weekBtn} hitSlop={8}>
-        <Text style={styles.weekBtnText}>›</Text>
+      {onJumpCurrent ? (
+        <Pressable
+          onPress={onJumpCurrent}
+          style={compact ? styles.weekLabelHitCompact : styles.weekLabelHit}
+          accessibilityRole="button"
+          accessibilityLabel="Jump to current week">
+          {label}
+        </Pressable>
+      ) : (
+        label
+      )}
+      <Pressable onPress={onNext} style={[styles.weekBtn, compact && styles.weekBtnCompact]} hitSlop={8}>
+        <Text style={[styles.weekBtnText, compact && styles.weekBtnTextCompact]}>›</Text>
       </Pressable>
     </View>
   );
@@ -182,12 +201,14 @@ export function DayStrip({
   today,
   dateNums,
   onSelect,
+  compact = false,
 }: {
   days: readonly Day[];
   selected: Day;
   today: Day | null;
   dateNums: ReadonlyMap<Day, string>;
   onSelect: (day: Day) => void;
+  compact?: boolean;
 }) {
   return (
     <View style={styles.dayStrip}>
@@ -198,11 +219,20 @@ export function DayStrip({
           <Pressable
             key={day}
             onPress={() => onSelect(day)}
-            style={[styles.dayStripItem, active && styles.dayStripItemActive, isToday && !active && styles.dayStripItemToday]}
+            style={[
+              styles.dayStripItem,
+              compact && styles.dayStripItemCompact,
+              active && styles.dayStripItemActive,
+              isToday && !active && styles.dayStripItemToday,
+            ]}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}>
-            <Text style={[styles.dayStripDow, active && styles.dayStripTextActive]}>{DAY_LABELS[day].slice(0, 3)}</Text>
-            <Text style={[styles.dayStripNum, active && styles.dayStripTextActive]}>{dateNums.get(day) ?? ''}</Text>
+            <Text style={[styles.dayStripDow, compact && styles.dayStripDowCompact, active && styles.dayStripTextActive]}>
+              {DAY_LABELS[day].slice(0, 3)}
+            </Text>
+            <Text style={[styles.dayStripNum, compact && styles.dayStripNumCompact, active && styles.dayStripTextActive]}>
+              {dateNums.get(day) ?? ''}
+            </Text>
           </Pressable>
         );
       })}
@@ -246,6 +276,8 @@ export function PlanMealCard({
   sides,
   footer,
   blank = false,
+  syncError,
+  onRetrySync,
 }: {
   slot: MealSlotKey;
   slotLabel?: string;
@@ -260,6 +292,8 @@ export function PlanMealCard({
   sides?: readonly { id: string; name: string }[];
   footer?: ReactNode;
   blank?: boolean;
+  syncError?: boolean;
+  onRetrySync?: () => void;
 }) {
   return (
     <View style={styles.meal}>
@@ -273,6 +307,11 @@ export function PlanMealCard({
           <Text style={styles.slotLabel}>{slotLabel ?? slotTitle(slot)}</Text>
           {title ? <Text style={styles.mealName}>{title}</Text> : null}
           {meta.trim() ? <Text style={styles.mealMeta}>{meta}</Text> : null}
+          {syncError ? (
+            <Pressable onPress={onRetrySync} hitSlop={6} accessibilityRole="button" accessibilityLabel="Couldn't sync, Retry">
+              <Text style={styles.syncError}>Couldn't sync · Retry</Text>
+            </Pressable>
+          ) : null}
         </View>
       </Pressable>
       {filled && onAddSide ? (
@@ -614,6 +653,14 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 8,
   },
+  weekBarCompact: {
+    alignSelf: 'stretch',
+    height: 36,
+    gap: 4,
+    paddingVertical: 0,
+    paddingHorizontal: 4,
+    borderRadius: radius.md,
+  },
   weekBtn: {
     width: 36,
     height: 36,
@@ -622,8 +669,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.bgHover,
   },
+  weekBtnCompact: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'transparent',
+  },
   weekBtnText: { color: colors.text, fontSize: 22, fontWeight: '600', marginTop: -2 },
+  weekBtnTextCompact: { fontSize: 18, marginTop: -1 },
   weekLabel: { color: colors.text, fontWeight: '700', fontSize: 14, minWidth: 168, textAlign: 'center' },
+  weekLabelCompact: { minWidth: 0, flexShrink: 1, fontSize: 12 },
+  weekLabelHit: { minWidth: 168 },
+  weekLabelHitCompact: { flexShrink: 1, minWidth: 0, maxWidth: 148, paddingHorizontal: 2 },
   dayStrip: { flexDirection: 'row', gap: 6 },
   dayStripItem: {
     flex: 1,
@@ -637,10 +694,13 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.bgCard,
   },
+  dayStripItemCompact: { gap: 1, paddingVertical: 5 },
   dayStripItemActive: { backgroundColor: colors.accent, borderColor: colors.accent },
   dayStripItemToday: { borderColor: colors.accent },
   dayStripDow: { color: colors.textDim, fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+  dayStripDowCompact: { fontSize: 9 },
   dayStripNum: { color: colors.text, fontSize: 16, fontWeight: '800' },
+  dayStripNumCompact: { fontSize: 13 },
   dayStripTextActive: { color: colors.bg },
   meal: {
     backgroundColor: colors.bgElevated,
@@ -687,6 +747,7 @@ const styles = StyleSheet.create({
   },
   mealName: { color: colors.text, fontSize: 17, fontWeight: '700', lineHeight: 22 },
   mealMeta: { color: colors.textDim, fontSize: 13, lineHeight: 18, minHeight: 18 },
+  syncError: { color: colors.danger, fontSize: 13, fontWeight: '700', marginTop: 4 },
   actionTile: {
     flexDirection: 'row',
     minHeight: 92,

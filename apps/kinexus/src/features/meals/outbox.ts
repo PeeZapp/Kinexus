@@ -2,45 +2,24 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import { Platform } from 'react-native';
 
-import { mealSlotRecordKey, normalizeAudiencePersonIds, type Day, type MealSlotKey } from '@kinexus/domain';
+import { mealSlotRecordKey, normalizeAudiencePersonIds } from '@kinexus/domain';
+
+import type { SlotOutboxOp } from '@/src/features/meals/slot-outbox-ops';
+
+export type { PlanOverlaySlot, SlotOutboxOp } from '@/src/features/meals/slot-outbox-ops';
+export {
+  applySlotOpToList,
+  findOverlaySlot,
+  inverseSlotOp,
+  overlayPendingSlotOps,
+  slotOpTouchesShopping,
+} from '@/src/features/meals/slot-outbox-ops';
 
 function canUseStorage() {
   return !(Platform.OS === 'web' && typeof window === 'undefined');
 }
 
 const OUTBOX_KEY = 'kinexus.slotOutbox.v2';
-
-export type SlotOutboxOp = {
-  id: string;
-  householdId: string;
-  weekStart: string;
-  day: Day;
-  slotKey: MealSlotKey;
-  /** Stable row id once known; preferred match key. */
-  slotId?: string | null;
-  audiencePersonIds?: string[];
-  kind: 'assign' | 'clear' | 'hide' | 'allocate' | 'audience' | 'delete' | 'reset-week';
-  recipeId?: string | null;
-  recipeName?: string | null;
-  emoji?: string | null;
-  protein?: number | null;
-  calories?: number | null;
-  carbs?: number | null;
-  fat?: number | null;
-  cookTime?: number | null;
-  hidden?: boolean;
-  /** Hide that also empties the meal. One outbox op per slot, so clear and hide have to travel together. */
-  clearMeal?: boolean;
-  assignedPersonId?: string | null;
-  /** Set on assign when the caller is replacing sides. Omitted leaves the current sides. */
-  sideRecipeIds?: string[];
-  /**
-   * Serves to cook. Set on assign. `null` clears back to the recipe yield.
-   * Omitted leaves the current value.
-   */
-  targetServings?: number | null;
-  clientUpdatedAt: string;
-};
 
 function opCellKey(op: Pick<SlotOutboxOp, 'day' | 'slotKey' | 'slotId' | 'audiencePersonIds'>): string {
   if (op.slotId) return `id:${op.slotId}`;
@@ -64,10 +43,10 @@ export async function writeSlotOutbox(ops: SlotOutboxOp[]): Promise<void> {
   await AsyncStorage.setItem(OUTBOX_KEY, JSON.stringify(ops));
 }
 
-export async function enqueueSlotOp(op: Omit<SlotOutboxOp, 'id'>): Promise<SlotOutboxOp> {
+export async function enqueueSlotOp(op: Omit<SlotOutboxOp, 'id'> & { id?: string }): Promise<SlotOutboxOp> {
   const full: SlotOutboxOp = {
     ...op,
-    id: Crypto.randomUUID(),
+    id: op.id ?? Crypto.randomUUID(),
     audiencePersonIds: normalizeAudiencePersonIds(op.audiencePersonIds),
   };
   const current = await readSlotOutbox();

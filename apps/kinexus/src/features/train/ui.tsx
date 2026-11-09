@@ -101,13 +101,15 @@ export function Segmented<T extends string>({
   value,
   options,
   onChange,
+  compact = false,
 }: {
   value: T;
   options: { value: T; label: string }[];
   onChange: (value: T) => void;
+  compact?: boolean;
 }) {
   return (
-    <View style={styles.segment}>
+    <View style={[styles.segment, compact && styles.segmentCompact]}>
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -116,8 +118,10 @@ export function Segmented<T extends string>({
             onPress={() => onChange(option.value)}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
-            style={[styles.segmentItem, active && styles.segmentItemOn]}>
-            <Text style={[styles.segmentLabel, active && styles.segmentLabelOn]}>{option.label}</Text>
+            style={[styles.segmentItem, compact && styles.segmentItemCompact, active && styles.segmentItemOn]}>
+            <Text style={[styles.segmentLabel, compact && styles.segmentLabelCompact, active && styles.segmentLabelOn]}>
+              {option.label}
+            </Text>
           </Pressable>
         );
       })}
@@ -481,6 +485,7 @@ const styles = StyleSheet.create({
     padding: 3,
     gap: 3,
   },
+  segmentCompact: { padding: 2, gap: 2 },
   segmentItem: {
     flex: 1,
     minHeight: 36,
@@ -489,8 +494,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 8,
   },
+  segmentItemCompact: { minHeight: 30, paddingHorizontal: 6 },
   segmentItemOn: { backgroundColor: colors.accentSoft },
   segmentLabel: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
+  segmentLabelCompact: { fontSize: 12 },
   segmentLabelOn: { color: colors.accent },
   field: {
     backgroundColor: colors.bgCard,

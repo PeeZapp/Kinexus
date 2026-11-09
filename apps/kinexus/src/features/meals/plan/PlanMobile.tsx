@@ -1,10 +1,10 @@
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DAYS, DAY_LABELS, mondayWeekStart, recipeForHouseholdView, slotHasMeal, type Day, type MealSlotKey } from '@kinexus/domain';
 
-import { Btn, ErrorText } from '@/src/features/household/ui';
-import { Chip, OfflineBanner } from '@/src/features/meals/meals-kit';
+import { OfflineBanner } from '@/src/features/meals/meals-kit';
 import {
   audienceLabel,
   planBoardCells,
@@ -13,7 +13,6 @@ import {
   PlanActionTile,
   PlanMealCard,
   planMealCardMeta,
-  WeekSwitcher,
   WhoPicksMenu,
   type PlanCellView,
   type PlanPersonFilter,
@@ -21,7 +20,9 @@ import {
 import { recipePhotoUrl } from '@/src/features/meals/RecipePhoto';
 import type { PlanSlot, useMealsSync } from '@/src/features/meals/use-meals-sync';
 import { isoDayNumber, todayDay, weekDayIso } from '@/src/features/meals/week-labels';
-import { colors, space } from '@/src/features/shell/theme';
+import { AppModal } from '@/src/features/shell/AppModal';
+import { FilterDropdown, useFilterMenus } from '@/src/features/shell/FilterMenu';
+import { colors, radius, space } from '@/src/features/shell/theme';
 
 type Meals = ReturnType<typeof useMealsSync>;
 
@@ -85,50 +86,81 @@ export function PlanMobile({
   );
   const applied = planBoardCells(cells);
   const dayLabel = thisWeek && selectedDay === today ? 'Today' : DAY_LABELS[selectedDay];
+  const { openMenu, toggleMenu, pick } = useFilterMenus();
+  const [moreOpen, setMoreOpen] = useState(false);
+  const showingLabel =
+    personFilter === 'all' ? 'Everyone' : peopleOptions.find((person) => person.id === personFilter)?.name ?? 'Everyone';
+  const dayLine = removed
+    ? `${dayLabel} · Not on plan`
+    : `${dayLabel} · ${filled} meal${filled === 1 ? '' : 's'}${kcal ? ` · ${Math.round(kcal).toLocaleString()} kcal` : ''}`;
 
   return (
     <ScrollView
       style={styles.root}
       contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}>
-      <WeekSwitcher
-        weekStart={meals.weekStart}
-        onPrev={() => meals.shiftWeek(-1)}
-        onNext={() => meals.shiftWeek(1)}
-      />
       <DayStrip
+        compact
         days={DAYS}
         selected={selectedDay}
         today={thisWeek ? today : null}
         dateNums={dateNums}
         onSelect={onSelectDay}
       />
-      <View style={styles.filterRow}>
-        <Chip label="Everyone" active={personFilter === 'all'} onPress={() => onPersonFilter('all')} />
-        {peopleOptions.map((person) => (
-          <Chip
-            key={person.id}
-            label={person.name}
-            active={personFilter === person.id}
-            onPress={() => onPersonFilter(person.id)}
+      <View style={styles.hud}>
+        <View style={styles.hudFilter}>
+          <FilterDropdown<PlanPersonFilter>
+            id="showing"
+            label="Showing"
+            value={personFilter}
+            valueLabel={showingLabel}
+            open={openMenu === 'showing'}
+            options={[
+              { value: 'all', label: 'Everyone' },
+              ...peopleOptions.map((person) => ({ value: person.id, label: person.name })),
+            ]}
+            onToggle={toggleMenu}
+            onSelect={pick(onPersonFilter)}
           />
-        ))}
-      </View>
-      <View style={styles.actions}>
-        {showGenerate ? <Btn label="Generate plan" onPress={onGenerate} /> : null}
-        <Btn label="Shopping list" variant="secondary" onPress={onShopping} />
-        {canManage ? <Btn label="Clear week" variant="danger" onPress={onClearWeek} busy={clearingWeek} /> : null}
+        </View>
+        <View style={styles.hudActions}>
+          {showGenerate ? (
+            <Pressable
+              onPress={onGenerate}
+              style={({ pressed }) => [styles.hudGen, pressed && styles.hudPressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Generate plan">
+              <Text style={styles.hudGenLabel}>Generate</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            onPress={onShopping}
+            style={({ pressed }) => [styles.hudIconBtn, pressed && styles.hudPressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Shopping list">
+            <Text style={styles.hudIcon}>☰</Text>
+          </Pressable>
+          {canManage ? (
+            <Pressable
+              onPress={() => setMoreOpen(true)}
+              style={({ pressed }) => [styles.hudIconBtn, pressed && styles.hudPressed]}
+              accessibilityRole="button"
+              accessibilityLabel="More plan actions"
+              disabled={clearingWeek}>
+              <Text style={styles.hudIcon}>⋯</Text>
+            </Pressable>
+          ) : null}
+        </View>
       </View>
       <OfflineBanner online={meals.online} pendingCount={meals.pendingCount} extra={meals.importBlockedReason} />
-      <ErrorText message={clearError ?? meals.error} />
+      {clearError || meals.error ? (
+        <Text style={styles.compactError} numberOfLines={1}>
+          {clearError ?? meals.error}
+        </Text>
+      ) : null}
       <View style={styles.dayMeta}>
-        <View style={styles.dayMetaCopy}>
-          <Text style={styles.dayTitle}>{dayLabel}</Text>
-          <Text style={styles.daySubtitle}>
-            {removed
-              ? "Not on this week's plan"
-              : `${filled} meal${filled === 1 ? '' : 's'}${kcal ? ` · ${Math.round(kcal).toLocaleString()} kcal` : ''}`}
-          </Text>
-        </View>
+        <Text style={styles.dayLine} numberOfLines={1}>
+          {dayLine}
+        </Text>
         {canManage ? (
           removed ? (
             <Pressable onPress={() => onRestoreDay(selectedDay)} hitSlop={6}>
@@ -163,6 +195,26 @@ export function PlanMobile({
           ) : null}
         </View>
       ) : null}
+
+      <AppModal visible={moreOpen} transparent animationType="fade" onRequestClose={() => setMoreOpen(false)}>
+        <Pressable style={styles.moreBackdrop} onPress={() => setMoreOpen(false)} accessibilityLabel="Close menu">
+          <Pressable onPress={() => undefined} style={styles.moreCard} accessibilityViewIsModal>
+            <Pressable
+              onPress={() => {
+                setMoreOpen(false);
+                onClearWeek();
+              }}
+              style={styles.moreItem}
+              accessibilityRole="button"
+              disabled={clearingWeek}>
+              <Text style={styles.moreDanger}>{clearingWeek ? 'Clearing…' : 'Clear week'}</Text>
+            </Pressable>
+            <Pressable onPress={() => setMoreOpen(false)} style={styles.moreClose} accessibilityRole="button">
+              <Text style={styles.moreCloseLabel}>Close</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </AppModal>
     </ScrollView>
   );
 }
@@ -200,6 +252,11 @@ function MealCardFromView({
     const recipe = recipeForHouseholdView(meals.recipes, id);
     return recipe ? [{ id: recipe.id, name: recipe.name }] : [];
   });
+  const syncFailure = meals.slotSyncFailures.find(
+    (row) =>
+      (cell?.id && row.slotId === cell.id) ||
+      (row.day === cell?.day && row.slotKey === view.slotKey && !row.slotId),
+  );
   return (
     <PlanMealCard
       slot={view.slotKey}
@@ -227,6 +284,10 @@ function MealCardFromView({
       onPress={onPress}
       onAddSide={cell && cell.id && hasRecipe && canEditCell(cell) ? () => onAddSide(cell) : undefined}
       sides={sides}
+      syncError={Boolean(syncFailure)}
+      onRetrySync={() => {
+        void meals.retrySlotSync();
+      }}
       footer={
         canManage && cell && !hasMeal ? (
           <WhoPicksMenu
@@ -246,14 +307,84 @@ function slotTitleCase(slot: MealSlotKey): string {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: space.md, paddingTop: space.sm, gap: 16 },
-  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  actions: { gap: 8 },
-  dayMeta: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  dayMetaCopy: { flex: 1, minWidth: 0, gap: 2 },
-  dayTitle: { color: colors.text, fontSize: 22, fontWeight: '700' },
-  daySubtitle: { color: colors.textMuted, fontSize: 13 },
-  dayAction: { color: colors.accent, fontSize: 13, fontWeight: '700' },
-  dayActionMuted: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
+  content: { paddingHorizontal: space.md, paddingTop: 4, gap: 8 },
+  hud: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 40,
+    zIndex: 30,
+  },
+  hudFilter: {
+    flex: 1,
+    minWidth: 0,
+    maxWidth: 220,
+    zIndex: 30,
+  },
+  hudActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
+  hudGen: {
+    minHeight: 32,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.sm,
+    backgroundColor: colors.accent,
+    justifyContent: 'center',
+  },
+  hudGenLabel: { color: colors.bg, fontSize: 12, fontWeight: '700' },
+  hudIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgHover,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hudIcon: { color: colors.text, fontSize: 16, fontWeight: '700', marginTop: -1 },
+  hudPressed: { opacity: 0.78 },
+  compactError: {
+    color: colors.danger,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  dayMeta: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  dayLine: { flex: 1, minWidth: 0, color: colors.text, fontSize: 13, fontWeight: '700' },
+  dayAction: { color: colors.accent, fontSize: 12, fontWeight: '700' },
+  dayActionMuted: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
   stack: { gap: 12 },
+  moreBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  moreCard: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: colors.bgElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+  },
+  moreItem: {
+    minHeight: 52,
+    paddingHorizontal: space.md,
+    justifyContent: 'center',
+  },
+  moreDanger: { color: colors.danger, fontSize: 16, fontWeight: '700' },
+  moreClose: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  moreCloseLabel: { color: colors.accent, fontSize: 15, fontWeight: '700' },
 });

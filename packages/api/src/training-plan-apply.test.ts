@@ -92,7 +92,7 @@ describe('handleApplyTrainingPlan', () => {
       days: [sampleDay()],
     });
     expect(result.status).toBe(403);
-    expect(result.body).toEqual({ error: 'Not allowed to create this training plan' });
+    expect(result.body.error).toMatch(/^Not allowed to create this training plan/);
   });
 
   it('creates plan, workouts, days, and buddy shares on happy path', async () => {

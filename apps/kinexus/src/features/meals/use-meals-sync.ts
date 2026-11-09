@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo } from 'react';
+import * as Crypto from 'expo-crypto';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { Day, GeneratedSlot, MealSlot, MealSlotKey, NutritionGoals, PersonSlotApproval, Recipe, StoredGroceryQuote } from '@kinexus/domain';
+import type { Day, GeneratedSlot, MealSlotKey, NutritionGoals, PersonSlotApproval, Recipe, StoredGroceryQuote } from '@kinexus/domain';
 import {
   attachRecipeCost,
   audienceOverlapsExisting,
@@ -42,10 +43,16 @@ import {
 } from '@/src/features/meals/mappers';
 import { useMealsWeek } from '@/src/features/meals/MealsWeekContext';
 import {
+  applySlotOpToList,
   dropHouseholdWeekOutbox,
   enqueueSlotOp,
+  findOverlaySlot,
   householdOutbox,
+  inverseSlotOp,
+  overlayPendingSlotOps,
   removeSlotOps,
+  slotOpTouchesShopping,
+  type PlanOverlaySlot,
   type SlotOutboxOp,
 } from '@/src/features/meals/outbox';
 import { useAuth } from '@/src/lib/auth';
@@ -55,12 +62,15 @@ import { retainPostgresChannel } from '@/src/lib/realtime';
 import { mirrorRecipeImage } from '@/src/lib/meals-api';
 import { supabase } from '@/src/lib/supabase';
 
-export type PlanSlot = MealSlot & { id: string; updatedAt: string };
+export type PlanSlot = PlanOverlaySlot;
 
 const SLOT_KEYS = new Set<string>(MEAL_SLOTS.map((s) => s.key));
 const WEEK_RESET_SLOT_ID = 'week-reset';
 
 let slotSyncChain: Promise<unknown> = Promise.resolve();
+let slotFlushDepth = 0;
+let deferredSlotsInvalidate: (() => void) | null = null;
+const planIdCache = new Map<string, string>();
 
 /** Slot outbox reads and writes must not interleave with a week reset. */
 function runSlotSync<T>(task: () => Promise<T>): Promise<T> {
@@ -70,6 +80,15 @@ function runSlotSync<T>(task: () => Promise<T>): Promise<T> {
     () => undefined,
   );
   return run;
+}
+
+function planIdCacheKey(householdId: string, weekStart: string) {
+  return `${householdId}:${weekStart}`;
+}
+
+function rememberPlanId(householdId: string, weekStart: string, planId: string) {
+  planIdCache.set(planIdCacheKey(householdId, weekStart), planId);
+  return planId;
 }
 
 function recipesKey(householdId: string, country: string, currency: string) {
@@ -160,6 +179,8 @@ function overlayHiddenRecipes(recipes: Recipe[], hiddenIds: readonly string[]): 
 }
 
 async function ensurePlan(householdId: string, weekStart: string): Promise<string> {
+  const cached = planIdCache.get(planIdCacheKey(householdId, weekStart));
+  if (cached) return cached;
   if (!supabase) throw new Error('Supabase is not configured');
   const { data, error } = await supabase.rpc('get_or_create_meal_plan', {
     p_household_id: householdId,
@@ -167,7 +188,7 @@ async function ensurePlan(householdId: string, weekStart: string): Promise<strin
   });
   if (error) throw error;
   if (!data) throw new Error('Could not create meal plan');
-  return data;
+  return rememberPlanId(householdId, weekStart, data);
 }
 
 async function fetchSlots(householdId: string, weekStart: string): Promise<{ planId: string; slots: PlanSlot[] }> {
@@ -188,16 +209,24 @@ function findPlanSlot(
   list: readonly PlanSlot[],
   opts: { slotId?: string | null; day: Day; slotKey: MealSlotKey; audiencePersonIds?: readonly string[] | null },
 ): PlanSlot | undefined {
-  if (opts.slotId) {
-    const byId = list.find((slot) => slot.id === opts.slotId);
-    if (byId) return byId;
+  return findOverlaySlot(list, opts);
+}
+
+export type SlotSyncFailure = {
+  key: string;
+  day: Day;
+  slotKey: MealSlotKey;
+  slotId?: string | null;
+  message: string;
+};
+
+export class SlotSyncError extends Error {
+  failureKey: string;
+  constructor(message: string, failureKey: string) {
+    super(message);
+    this.name = 'SlotSyncError';
+    this.failureKey = failureKey;
   }
-  return list.find(
-    (slot) =>
-      slot.day === opts.day &&
-      slot.slotKey === opts.slotKey &&
-      audienceEqual(slot.audiencePersonIds, opts.audiencePersonIds),
-  );
 }
 
 function throwDbError(error: { message?: string } | null): void {
@@ -369,7 +398,12 @@ export function useMealsSync() {
     queryKey: householdId ? planKey(householdId, weekStart) : ['meals', 'plan', 'none'],
     enabled: Boolean(householdId && supabase && online),
     queryFn: async () => {
-      const planId = await ensurePlan(householdId!, weekStart);
+      const known = queryClient.getQueryData<{ planId: string; activeSlots: MealSlotKey[] }>(
+        planKey(householdId!, weekStart),
+      )?.planId;
+      const planId = known
+        ? rememberPlanId(householdId!, weekStart, known)
+        : await ensurePlan(householdId!, weekStart);
       const pending = await householdOutbox(householdId!);
       if (pending.some((op) => op.kind === 'reset-week' && op.weekStart === weekStart)) {
         return { planId, activeSlots: [...CORE_SLOTS] };
@@ -390,7 +424,9 @@ export function useMealsSync() {
     queryFn: async () => {
       const pending = await householdOutbox(householdId!);
       if (pending.some((op) => op.kind === 'reset-week' && op.weekStart === weekStart)) return [];
-      return fetchSlots(householdId!, weekStart).then((r) => r.slots);
+      const { planId, slots } = await fetchSlots(householdId!, weekStart);
+      rememberPlanId(householdId!, weekStart, planId);
+      return overlayPendingSlotOps(slots, pending, weekStart);
     },
   });
 
@@ -544,6 +580,12 @@ export function useMealsSync() {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'meal_slots', filter: `household_id=eq.${householdId}` },
           () => {
+            if (slotFlushDepth > 0) {
+              deferredSlotsInvalidate = () => {
+                void queryClient.invalidateQueries({ queryKey: slotsKey(householdId, weekStart) });
+              };
+              return;
+            }
             void queryClient.invalidateQueries({ queryKey: slotsKey(householdId, weekStart) });
           },
         )
@@ -564,23 +606,80 @@ export function useMealsSync() {
     );
   }, [householdId, online, queryClient, weekStart]);
 
+  const [slotSyncFailures, setSlotSyncFailures] = useState<SlotSyncFailure[]>([]);
+  const rollbackByFailureKey = useRef(
+    new Map<
+      string,
+      {
+        previous: PlanSlot[] | undefined;
+        opIds: string[];
+        previousPlan?: { planId: string; activeSlots: MealSlotKey[] };
+      }
+    >(),
+  );
+
   const flushPending = useCallback(async () => {
     if (!householdId || !online || !supabase) return;
+    slotFlushDepth += 1;
     const pending = await householdOutbox(householdId);
-    const done: string[] = [];
+    const done: SlotOutboxOp[] = [];
     let firstError: unknown = null;
-    for (const op of pending) {
-      try {
-        await flushOne(op);
-        done.push(op.id);
-      } catch (err) {
-        firstError = err;
-        break;
+    let failedOp: SlotOutboxOp | null = null;
+    try {
+      for (const op of pending) {
+        try {
+          await flushOne(op);
+          done.push(op);
+        } catch (err) {
+          firstError = err;
+          failedOp = op;
+          break;
+        }
+      }
+      if (done.length) await removeSlotOps(done.map((op) => op.id));
+      const weeks = new Set(done.map((op) => op.weekStart));
+      if (failedOp) weeks.add(failedOp.weekStart);
+      const shoppingTouched = done.some(slotOpTouchesShopping);
+      await Promise.all(
+        [...weeks].flatMap((week) => [
+          queryClient.invalidateQueries({ queryKey: slotsKey(householdId, week) }),
+          queryClient.invalidateQueries({ queryKey: planKey(householdId, week) }),
+        ]),
+      );
+      await queryClient.invalidateQueries({ queryKey: outboxKey(householdId) });
+      if (shoppingTouched) {
+        await Promise.all(
+          [...weeks].map((week) => queryClient.invalidateQueries({ queryKey: shoppingKey(householdId, week) })),
+        );
+      }
+      if (firstError) {
+        if (failedOp) {
+          const key = failedOp.slotId ? `id:${failedOp.slotId}` : mealSlotRecordKey(failedOp.day, failedOp.slotKey, failedOp.audiencePersonIds);
+          const message = firstError instanceof Error && firstError.message ? firstError.message : "Couldn't sync";
+          setSlotSyncFailures((current) => {
+            const next = current.filter((row) => row.key !== key);
+            next.push({
+              key,
+              day: failedOp.day,
+              slotKey: failedOp.slotKey,
+              slotId: failedOp.slotId,
+              message,
+            });
+            return next;
+          });
+        }
+        throw firstError instanceof Error ? firstError : new Error("Couldn't sync");
+      }
+      setSlotSyncFailures([]);
+      rollbackByFailureKey.current.clear();
+    } finally {
+      slotFlushDepth -= 1;
+      if (slotFlushDepth === 0 && deferredSlotsInvalidate) {
+        const run = deferredSlotsInvalidate;
+        deferredSlotsInvalidate = null;
+        run();
       }
     }
-    if (done.length) await removeSlotOps(done);
-    await queryClient.invalidateQueries({ queryKey: ['meals'] });
-    if (firstError) throw firstError;
   }, [householdId, online, queryClient]);
 
   const flush = useCallback(() => runSlotSync(() => flushPending()), [flushPending]);
@@ -603,70 +702,52 @@ export function useMealsSync() {
         );
         return;
       }
-      queryClient.setQueryData<PlanSlot[]>(slotsKey(householdId, weekStart), (current) => {
-        const list = current ?? [];
-        if (op.kind === 'delete') {
-          if (!op.slotId) return list;
-          return list.filter((slot) => slot.id !== op.slotId);
-        }
-        const existing = findPlanSlot(list, op);
-        const idx = existing ? list.indexOf(existing) : -1;
-        const clearsMeal = op.kind === 'clear' || op.clearMeal === true;
-        const replacingMeal = op.kind === 'assign';
-        const mealField = <T,>(incoming: T | null | undefined, previous: T | undefined): T | undefined => {
-          if (clearsMeal) return undefined;
-          if (replacingMeal) return incoming ?? undefined;
-          return incoming ?? previous;
-        };
-        const audiencePersonIds =
-          op.kind === 'audience'
-            ? normalizeAudiencePersonIds(op.audiencePersonIds)
-            : normalizeAudiencePersonIds(op.audiencePersonIds ?? existing?.audiencePersonIds);
-        const next: PlanSlot = {
-          id: existing?.id ?? op.slotId ?? op.id,
-          day: op.day,
-          slotKey: op.slotKey,
-          recipeId: mealField(op.recipeId, existing?.recipeId),
-          recipeName: mealField(op.recipeName, existing?.recipeName),
-          emoji: mealField(op.emoji, existing?.emoji),
-          protein: mealField(op.protein, existing?.protein),
-          calories: mealField(op.calories, existing?.calories),
-          carbs: mealField(op.carbs, existing?.carbs),
-          fat: mealField(op.fat, existing?.fat),
-          cookTime: mealField(op.cookTime, existing?.cookTime),
-          hidden:
-            op.kind === 'hide'
-              ? Boolean(op.hidden)
-              : op.kind === 'assign' || op.kind === 'clear' || op.kind === 'audience'
-                ? false
-                : existing?.hidden,
-          assignedPersonId:
-            op.kind === 'allocate' || op.clearMeal === true
-              ? (op.assignedPersonId ?? undefined)
-              : (op.assignedPersonId ?? existing?.assignedPersonId),
-          audiencePersonIds,
-          sideRecipeIds:
-            op.clearMeal === true
-              ? []
-              : op.kind === 'assign' && op.sideRecipeIds != null
-                ? op.sideRecipeIds
-                : existing?.sideRecipeIds,
-          targetServings: clearsMeal
-            ? undefined
-            : op.targetServings !== undefined
-              ? (op.targetServings ?? undefined)
-              : existing?.targetServings,
-          updatedAt: op.clientUpdatedAt,
-        };
-        if (idx >= 0) {
-          const copy = [...list];
-          copy[idx] = next;
-          return copy;
-        }
-        return [...list, next];
-      });
+      queryClient.setQueryData<PlanSlot[]>(slotsKey(householdId, weekStart), (current) =>
+        applySlotOpToList(current ?? [], op),
+      );
     },
     [householdId, queryClient, weekStart],
+  );
+
+  const mutateSlots = useCallback(
+    async (
+      partials: Array<Omit<SlotOutboxOp, 'id' | 'householdId' | 'weekStart' | 'clientUpdatedAt'>>,
+      opts?: { flushNow?: boolean },
+    ) => {
+      if (!householdId) throw new Error('No household');
+      if (partials.length === 0) return [] as SlotOutboxOp[];
+      const key = slotsKey(householdId, weekStart);
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<PlanSlot[]>(key);
+      const clientUpdatedAt = new Date().toISOString();
+      const ops: SlotOutboxOp[] = partials.map((partial) => ({
+        ...partial,
+        id: Crypto.randomUUID(),
+        householdId,
+        weekStart,
+        audiencePersonIds: normalizeAudiencePersonIds(partial.audiencePersonIds),
+        clientUpdatedAt,
+      }));
+      for (const op of ops) applyLocal(op);
+      try {
+        await runSlotSync(async () => {
+          for (const op of ops) await enqueueSlotOp(op);
+          await queryClient.invalidateQueries({ queryKey: outboxKey(householdId) });
+          if (opts?.flushNow !== false && online) await flushPending();
+        });
+        return ops;
+      } catch (err) {
+        const failureKey = ops[0]
+          ? ops[0].slotId
+            ? `id:${ops[0].slotId}`
+            : mealSlotRecordKey(ops[0].day, ops[0].slotKey, ops[0].audiencePersonIds)
+          : 'unknown';
+        rollbackByFailureKey.current.set(failureKey, { previous, opIds: ops.map((op) => op.id) });
+        const message = err instanceof Error && err.message ? err.message : "Couldn't sync";
+        throw new SlotSyncError(message, failureKey);
+      }
+    },
+    [applyLocal, flushPending, householdId, online, queryClient, weekStart],
   );
 
   const mutateSlot = useCallback(
@@ -674,41 +755,78 @@ export function useMealsSync() {
       partial: Omit<SlotOutboxOp, 'id' | 'householdId' | 'weekStart' | 'clientUpdatedAt'>,
       opts?: { flushNow?: boolean },
     ) => {
-      if (!householdId) throw new Error('No household');
-      await runSlotSync(async () => {
-        const op = await enqueueSlotOp({
-          ...partial,
-          householdId,
-          weekStart,
-          clientUpdatedAt: new Date().toISOString(),
-        });
-        applyLocal(op);
-        await queryClient.invalidateQueries({ queryKey: outboxKey(householdId) });
-        if (opts?.flushNow !== false && online) await flushPending();
-      });
+      const ops = await mutateSlots([partial], opts);
+      return ops[0]!;
     },
-    [applyLocal, flushPending, householdId, online, queryClient, weekStart],
+    [mutateSlots],
   );
+
+  const dismissSlotSyncFailure = useCallback(
+    async (failureKey: string) => {
+      if (!householdId) return;
+      const entry = rollbackByFailureKey.current.get(failureKey);
+      rollbackByFailureKey.current.delete(failureKey);
+      setSlotSyncFailures((current) => current.filter((row) => row.key !== failureKey));
+      if (entry?.opIds.length) await removeSlotOps(entry.opIds);
+      if (entry) {
+        queryClient.setQueryData(slotsKey(householdId, weekStart), entry.previous);
+        if (entry.previousPlan) {
+          queryClient.setQueryData(planKey(householdId, weekStart), entry.previousPlan);
+        }
+      }
+      await queryClient.invalidateQueries({ queryKey: outboxKey(householdId) });
+    },
+    [householdId, queryClient, weekStart],
+  );
+
+  const retrySlotSync = useCallback(async () => {
+    try {
+      await flush();
+      setSlotSyncFailures([]);
+      rollbackByFailureKey.current.clear();
+    } catch (err) {
+      throw err instanceof Error ? err : new Error("Couldn't sync");
+    }
+  }, [flush]);
 
   const clearWeek = useCallback(async () => {
     if (!householdId) throw new Error('No household');
-    await runSlotSync(async () => {
-      await dropHouseholdWeekOutbox(householdId, weekStart);
-      const op = await enqueueSlotOp({
-        kind: 'reset-week',
-        householdId,
-        weekStart,
-        day: 'monday',
-        slotKey: 'breakfast',
-        slotId: WEEK_RESET_SLOT_ID,
-        audiencePersonIds: [],
-        clientUpdatedAt: new Date().toISOString(),
+    const key = slotsKey(householdId, weekStart);
+    await queryClient.cancelQueries({ queryKey: key });
+    const previousSlots = queryClient.getQueryData<PlanSlot[]>(key) ?? [];
+    const previousActive = planQuery.data?.activeSlots ?? [...CORE_SLOTS];
+    const previousPlanId = planQuery.data?.planId ?? planIdCache.get(planIdCacheKey(householdId, weekStart)) ?? '';
+    const op: SlotOutboxOp = {
+      id: Crypto.randomUUID(),
+      kind: 'reset-week',
+      householdId,
+      weekStart,
+      day: 'monday',
+      slotKey: 'breakfast',
+      slotId: WEEK_RESET_SLOT_ID,
+      audiencePersonIds: [],
+      clientUpdatedAt: new Date().toISOString(),
+    };
+    applyLocal(op);
+    try {
+      await runSlotSync(async () => {
+        await dropHouseholdWeekOutbox(householdId, weekStart);
+        await enqueueSlotOp(op);
+        await queryClient.invalidateQueries({ queryKey: outboxKey(householdId) });
+        if (online) await flushPending();
       });
-      applyLocal(op);
-      await queryClient.invalidateQueries({ queryKey: outboxKey(householdId) });
-      if (online) await flushPending();
-    });
-  }, [applyLocal, flushPending, householdId, online, queryClient, weekStart]);
+      return { previousSlots, previousActive, previousPlanId };
+    } catch (err) {
+      const failureKey = `id:${WEEK_RESET_SLOT_ID}`;
+      rollbackByFailureKey.current.set(failureKey, {
+        previous: previousSlots,
+        opIds: [op.id],
+        previousPlan: { planId: previousPlanId, activeSlots: previousActive },
+      });
+      const message = err instanceof Error && err.message ? err.message : "Couldn't sync";
+      throw new SlotSyncError(message, failureKey);
+    }
+  }, [applyLocal, flushPending, householdId, online, planQuery.data?.activeSlots, planQuery.data?.planId, queryClient, weekStart]);
 
   const slotsList = useCallback(() => {
     if (!householdId) return [] as PlanSlot[];
@@ -809,7 +927,7 @@ export function useMealsSync() {
       opts?: { slotId?: string | null; audiencePersonIds?: readonly string[] | null },
     ) => {
       const current = resolveSlot(day, slotKey, opts);
-      await mutateSlot({
+      return mutateSlot({
         kind: 'hide',
         day,
         slotKey,
@@ -861,19 +979,17 @@ export function useMealsSync() {
         audiencePersonIds: audience,
         assignedPersonId: null,
       });
-      if (online) await flush();
       return findPlanSlot(slotsList(), { day, slotKey, audiencePersonIds: audience }) ?? null;
     },
-    [flush, mutateSlot, online, slotsList],
+    [mutateSlot, slotsList],
   );
 
   const deleteAudienceSlot = useCallback(
     async (slot: PlanSlot) => {
       if (isHouseholdAudience(slot.audiencePersonIds)) {
-        await hideSlot(slot.day, slot.slotKey, true, { slotId: slot.id, audiencePersonIds: [] });
-        return;
+        return hideSlot(slot.day, slot.slotKey, true, { slotId: slot.id, audiencePersonIds: [] });
       }
-      await mutateSlot({
+      return mutateSlot({
         kind: 'delete',
         day: slot.day,
         slotKey: slot.slotKey,
@@ -891,11 +1007,60 @@ export function useMealsSync() {
         current ? { ...current, activeSlots: slots } : current,
       );
       if (!online || !supabase) return;
-      const planId = planQuery.data?.planId ?? (await ensurePlan(householdId, weekStart));
+      const planId =
+        planQuery.data?.planId ??
+        planIdCache.get(planIdCacheKey(householdId, weekStart)) ??
+        (await ensurePlan(householdId, weekStart));
+      rememberPlanId(householdId, weekStart, planId);
       const { error } = await supabase.from('meal_plans').update({ active_slots: slots }).eq('id', planId);
       if (error) throw error;
     },
     [householdId, online, planQuery.data?.planId, queryClient, weekStart],
+  );
+
+  const restoreClearedWeek = useCallback(
+    async (snapshot: { previousSlots: readonly PlanSlot[]; previousActive: readonly MealSlotKey[]; previousPlanId: string }) => {
+      if (!householdId) throw new Error('No household');
+      queryClient.setQueryData(planKey(householdId, weekStart), {
+        planId: snapshot.previousPlanId,
+        activeSlots: [...snapshot.previousActive],
+      });
+      const partials = snapshot.previousSlots.map((slot) => {
+        if (slot.recipeId || slot.recipeName) {
+          return {
+            kind: 'assign' as const,
+            day: slot.day,
+            slotKey: slot.slotKey,
+            slotId: slot.id,
+            audiencePersonIds: normalizeAudiencePersonIds(slot.audiencePersonIds),
+            recipeId: slot.recipeId ?? null,
+            recipeName: slot.recipeName ?? null,
+            emoji: slot.emoji ?? null,
+            protein: slot.protein ?? null,
+            calories: slot.calories ?? null,
+            carbs: slot.carbs ?? null,
+            fat: slot.fat ?? null,
+            cookTime: slot.cookTime ?? null,
+            sideRecipeIds: slot.sideRecipeIds ?? [],
+            targetServings: slot.targetServings ?? null,
+            assignedPersonId: slot.assignedPersonId ?? null,
+            hidden: Boolean(slot.hidden),
+          };
+        }
+        return {
+          kind: 'hide' as const,
+          day: slot.day,
+          slotKey: slot.slotKey,
+          slotId: slot.id,
+          audiencePersonIds: normalizeAudiencePersonIds(slot.audiencePersonIds),
+          hidden: Boolean(slot.hidden),
+          assignedPersonId: slot.assignedPersonId ?? null,
+        };
+      });
+      await setActiveSlots([...snapshot.previousActive]);
+      await mutateSlots(partials);
+    },
+    [householdId, mutateSlots, queryClient, setActiveSlots, weekStart],
   );
 
   const addSlotToDay = useCallback(
@@ -905,40 +1070,35 @@ export function useMealsSync() {
       const cell = findPlanSlot(existing, { day, slotKey, audiencePersonIds: [] });
       if (active.includes(slotKey) && cell && !cell.hidden) return;
 
+      const partials: Array<Omit<SlotOutboxOp, 'id' | 'householdId' | 'weekStart' | 'clientUpdatedAt'>> = [];
       for (const other of otherDaysToHideForNewSlot(slotKey, day, active)) {
         const otherCell = findPlanSlot(existing, { day: other, slotKey, audiencePersonIds: [] });
         if (otherCell && !otherCell.hidden) continue;
-        await mutateSlot(
-          {
-            kind: 'hide',
-            day: other,
-            slotKey,
-            slotId: otherCell?.id,
-            audiencePersonIds: [],
-            hidden: true,
-            assignedPersonId: otherCell?.assignedPersonId ?? null,
-          },
-          { flushNow: false },
-        );
+        partials.push({
+          kind: 'hide',
+          day: other,
+          slotKey,
+          slotId: otherCell?.id,
+          audiencePersonIds: [],
+          hidden: true,
+          assignedPersonId: otherCell?.assignedPersonId ?? null,
+        });
       }
       if (!active.includes(slotKey)) {
         await setActiveSlots(orderedMealSlotKeys([...active, slotKey]));
       }
-      await mutateSlot(
-        {
-          kind: 'hide',
-          day,
-          slotKey,
-          slotId: cell?.id,
-          audiencePersonIds: [],
-          hidden: false,
-          assignedPersonId: cell?.assignedPersonId ?? null,
-        },
-        { flushNow: false },
-      );
-      if (online) await flush();
+      partials.push({
+        kind: 'hide',
+        day,
+        slotKey,
+        slotId: cell?.id,
+        audiencePersonIds: [],
+        hidden: false,
+        assignedPersonId: cell?.assignedPersonId ?? null,
+      });
+      await mutateSlots(partials);
     },
-    [flush, mutateSlot, online, planQuery.data?.activeSlots, setActiveSlots, slotsList],
+    [mutateSlots, planQuery.data?.activeSlots, setActiveSlots, slotsList],
   );
 
   const removeSlotFromDay = useCallback(
@@ -947,7 +1107,7 @@ export function useMealsSync() {
       const existing = slotsList();
       const hideMap = householdHideSlotMap(existing);
       const household = findPlanSlot(existing, { day, slotKey, audiencePersonIds: [] });
-      await mutateSlot(
+      const partials: Array<Omit<SlotOutboxOp, 'id' | 'householdId' | 'weekStart' | 'clientUpdatedAt'>> = [
         {
           kind: 'hide',
           day,
@@ -957,89 +1117,95 @@ export function useMealsSync() {
           hidden: true,
           assignedPersonId: household?.assignedPersonId ?? null,
         },
-        { flushNow: false },
-      );
+      ];
       for (const slot of existing) {
         if (slot.day !== day || slot.slotKey !== slotKey || isHouseholdAudience(slot.audiencePersonIds)) continue;
-        await mutateSlot(
-          {
-            kind: 'delete',
-            day: slot.day,
-            slotKey: slot.slotKey,
-            slotId: slot.id,
-            audiencePersonIds: normalizeAudiencePersonIds(slot.audiencePersonIds),
-          },
-          { flushNow: false },
-        );
+        partials.push({
+          kind: 'delete',
+          day: slot.day,
+          slotKey: slot.slotKey,
+          slotId: slot.id,
+          audiencePersonIds: normalizeAudiencePersonIds(slot.audiencePersonIds),
+        });
       }
+      const ops = await mutateSlots(partials);
       if (shouldDropSlotFromActive(slotKey, day, active, hideMap)) {
         await setActiveSlots(orderedMealSlotKeys(active.filter((key) => key !== slotKey)));
       }
-      if (online) await flush();
+      return { ops, previousSlots: existing };
     },
-    [flush, mutateSlot, online, planQuery.data?.activeSlots, setActiveSlots, slotsList],
+    [mutateSlots, planQuery.data?.activeSlots, setActiveSlots, slotsList],
   );
 
   const hideDay = useCallback(
     async (day: Day) => {
       const active = orderedMealSlotKeys(planQuery.data?.activeSlots ?? [...CORE_SLOTS]);
       const existing = slotsList();
+      const partials: Array<Omit<SlotOutboxOp, 'id' | 'householdId' | 'weekStart' | 'clientUpdatedAt'>> = [];
       for (const slotKey of active) {
         const household = findPlanSlot(existing, { day, slotKey, audiencePersonIds: [] });
-        await mutateSlot(
-          {
-            kind: 'hide',
-            day,
-            slotKey,
-            slotId: household?.id,
-            audiencePersonIds: [],
-            hidden: true,
-            clearMeal: true,
-            assignedPersonId: null,
-          },
-          { flushNow: false },
-        );
+        partials.push({
+          kind: 'hide',
+          day,
+          slotKey,
+          slotId: household?.id,
+          audiencePersonIds: [],
+          hidden: true,
+          clearMeal: true,
+          assignedPersonId: null,
+        });
       }
       for (const slot of existing) {
         if (slot.day !== day || isHouseholdAudience(slot.audiencePersonIds)) continue;
-        await mutateSlot(
-          {
-            kind: 'delete',
-            day: slot.day,
-            slotKey: slot.slotKey,
-            slotId: slot.id,
-            audiencePersonIds: normalizeAudiencePersonIds(slot.audiencePersonIds),
-          },
-          { flushNow: false },
-        );
+        partials.push({
+          kind: 'delete',
+          day: slot.day,
+          slotKey: slot.slotKey,
+          slotId: slot.id,
+          audiencePersonIds: normalizeAudiencePersonIds(slot.audiencePersonIds),
+        });
       }
-      if (online) await flush();
+      const ops = await mutateSlots(partials);
+      return { ops, previousSlots: existing };
     },
-    [flush, mutateSlot, online, planQuery.data?.activeSlots, slotsList],
+    [mutateSlots, planQuery.data?.activeSlots, slotsList],
   );
 
   const restoreDay = useCallback(
     async (day: Day) => {
       const active = orderedMealSlotKeys(planQuery.data?.activeSlots ?? [...CORE_SLOTS]);
       const existing = slotsList();
+      const partials: Array<Omit<SlotOutboxOp, 'id' | 'householdId' | 'weekStart' | 'clientUpdatedAt'>> = [];
       for (const slotKey of active) {
         const household = findPlanSlot(existing, { day, slotKey, audiencePersonIds: [] });
-        await mutateSlot(
-          {
-            kind: 'hide',
-            day,
-            slotKey,
-            slotId: household?.id,
-            audiencePersonIds: [],
-            hidden: false,
-            assignedPersonId: household?.assignedPersonId ?? null,
-          },
-          { flushNow: false },
-        );
+        partials.push({
+          kind: 'hide',
+          day,
+          slotKey,
+          slotId: household?.id,
+          audiencePersonIds: [],
+          hidden: false,
+          assignedPersonId: household?.assignedPersonId ?? null,
+        });
       }
-      if (online) await flush();
+      await mutateSlots(partials);
     },
-    [flush, mutateSlot, online, planQuery.data?.activeSlots, slotsList],
+    [mutateSlots, planQuery.data?.activeSlots, slotsList],
+  );
+
+  const undoSlotOps = useCallback(
+    async (ops: readonly SlotOutboxOp[], previousSlots: readonly PlanSlot[]) => {
+      const partials = ops.flatMap((op) => {
+        const previous = findPlanSlot(previousSlots, op) ?? null;
+        const inverse = inverseSlotOp(op, previous);
+        if (!inverse) return [];
+        const { householdId: _h, weekStart: _w, ...rest } = inverse;
+        return [rest];
+      });
+      if (partials.length === 0) return;
+      await mutateSlots(partials);
+    },
+    [mutateSlots],
   );
 
   const saveGoals = useCallback(
@@ -1086,79 +1252,20 @@ export function useMealsSync() {
         return removedDays.has(day) || assignedKeys.has(key) || hiddenKeys.has(key);
       };
 
+      type PartialOp = Omit<SlotOutboxOp, 'id' | 'householdId' | 'weekStart' | 'clientUpdatedAt'>;
+      const partials: PartialOp[] = [];
+
       if (personal) {
         for (const row of results) {
           if (skipKey(row.day, row.slot)) continue;
-          const existing = findPlanSlot(slotsList(), { day: row.day, slotKey: row.slot, audiencePersonIds: audience });
-          if (!existing && audienceOverlapsExisting(slotsList(), row.day, row.slot, audience)) continue;
-          await mutateSlot(
-            {
-              kind: 'assign',
-              day: row.day,
-              slotKey: row.slot,
-              audiencePersonIds: audience,
-              slotId: existing?.id,
-              recipeId: row.recipe.id,
-              recipeName: row.recipe.name,
-              emoji: row.recipe.emoji ?? null,
-              protein: row.recipe.protein ?? null,
-              calories: row.recipe.calories ?? null,
-              carbs: row.recipe.carbs ?? null,
-              fat: row.recipe.fat ?? null,
-              cookTime: row.recipe.cookTime ?? null,
-              sideRecipeIds: (row.sides ?? []).map((side) => side.id),
-              targetServings: opts?.targetServings ?? null,
-            },
-            { flushNow: false },
-          );
-        }
-        if (online) await flush();
-        return;
-      }
-
-      for (const slot of scope) {
-        if (skipKey(slot.day, slot.slotKey)) continue;
-        if (!keep.has(mealSlotRecordKey(slot.day, slot.slotKey, audience))) {
-          await mutateSlot(
-            {
-              kind: 'clear',
-              day: slot.day,
-              slotKey: slot.slotKey,
-              slotId: slot.id,
-              audiencePersonIds: audience,
-              assignedPersonId: slot.assignedPersonId ?? null,
-            },
-            { flushNow: false },
-          );
-        }
-      }
-      for (const day of DAYS) {
-        for (const slotKey of selectedSlots) {
-          if (skipKey(day, slotKey) || keep.has(mealSlotRecordKey(day, slotKey, audience))) continue;
-          const existing = findPlanSlot(slotsList(), { day, slotKey, audiencePersonIds: audience });
-          await mutateSlot(
-            {
-              kind: 'clear',
-              day,
-              slotKey,
-              slotId: existing?.id,
-              audiencePersonIds: audience,
-              assignedPersonId: existing?.assignedPersonId ?? null,
-            },
-            { flushNow: false },
-          );
-        }
-      }
-      for (const row of results) {
-        if (skipKey(row.day, row.slot)) continue;
-        const existing = findPlanSlot(slotsList(), { day: row.day, slotKey: row.slot, audiencePersonIds: audience });
-        await mutateSlot(
-          {
+          const existing = findPlanSlot(current, { day: row.day, slotKey: row.slot, audiencePersonIds: audience });
+          if (!existing && audienceOverlapsExisting(current, row.day, row.slot, audience)) continue;
+          partials.push({
             kind: 'assign',
             day: row.day,
             slotKey: row.slot,
-            slotId: existing?.id,
             audiencePersonIds: audience,
+            slotId: existing?.id,
             recipeId: row.recipe.id,
             recipeName: row.recipe.name,
             emoji: row.recipe.emoji ?? null,
@@ -1167,16 +1274,66 @@ export function useMealsSync() {
             carbs: row.recipe.carbs ?? null,
             fat: row.recipe.fat ?? null,
             cookTime: row.recipe.cookTime ?? null,
-            assignedPersonId: existing?.assignedPersonId ?? null,
             sideRecipeIds: (row.sides ?? []).map((side) => side.id),
             targetServings: opts?.targetServings ?? null,
-          },
-          { flushNow: false },
-        );
+          });
+        }
+        await mutateSlots(partials);
+        return;
       }
-      if (online) await flush();
+
+      for (const slot of scope) {
+        if (skipKey(slot.day, slot.slotKey)) continue;
+        if (!keep.has(mealSlotRecordKey(slot.day, slot.slotKey, audience))) {
+          partials.push({
+            kind: 'clear',
+            day: slot.day,
+            slotKey: slot.slotKey,
+            slotId: slot.id,
+            audiencePersonIds: audience,
+            assignedPersonId: slot.assignedPersonId ?? null,
+          });
+        }
+      }
+      for (const day of DAYS) {
+        for (const slotKey of selectedSlots) {
+          if (skipKey(day, slotKey) || keep.has(mealSlotRecordKey(day, slotKey, audience))) continue;
+          const existing = findPlanSlot(current, { day, slotKey, audiencePersonIds: audience });
+          partials.push({
+            kind: 'clear',
+            day,
+            slotKey,
+            slotId: existing?.id,
+            audiencePersonIds: audience,
+            assignedPersonId: existing?.assignedPersonId ?? null,
+          });
+        }
+      }
+      for (const row of results) {
+        if (skipKey(row.day, row.slot)) continue;
+        const existing = findPlanSlot(current, { day: row.day, slotKey: row.slot, audiencePersonIds: audience });
+        partials.push({
+          kind: 'assign',
+          day: row.day,
+          slotKey: row.slot,
+          slotId: existing?.id,
+          audiencePersonIds: audience,
+          recipeId: row.recipe.id,
+          recipeName: row.recipe.name,
+          emoji: row.recipe.emoji ?? null,
+          protein: row.recipe.protein ?? null,
+          calories: row.recipe.calories ?? null,
+          carbs: row.recipe.carbs ?? null,
+          fat: row.recipe.fat ?? null,
+          cookTime: row.recipe.cookTime ?? null,
+          assignedPersonId: existing?.assignedPersonId ?? null,
+          sideRecipeIds: (row.sides ?? []).map((side) => side.id),
+          targetServings: opts?.targetServings ?? null,
+        });
+      }
+      await mutateSlots(partials);
     },
-    [flush, householdId, mutateSlot, online, planQuery.data?.activeSlots, setActiveSlots, slotsList],
+    [householdId, mutateSlots, planQuery.data?.activeSlots, setActiveSlots, slotsList],
   );
 
   const toggleShoppingItem = useCallback(
@@ -1831,6 +1988,8 @@ export function useMealsSync() {
     restoreDay,
     addSlotToDay,
     removeSlotFromDay,
+    undoSlotOps,
+    restoreClearedWeek,
     createAudienceSlot,
     deleteAudienceSlot,
     setActiveSlots,
@@ -1857,6 +2016,9 @@ export function useMealsSync() {
     setSlotSides,
     shoppingBusy: rebuildShopping.isPending,
     shoppingError: rebuildShopping.error?.message ?? null,
+    slotSyncFailures,
+    retrySlotSync,
+    dismissSlotSyncFailure,
     flush,
     importBlockedReason: online ? null : 'Recipe import and AI generate need a connection.',
   };

@@ -83,7 +83,6 @@ export function ImportView(props: ImportRecipeViewProps) {
         <View style={[styles.page, { paddingHorizontal: pad, paddingTop: pad }]}>
           <View style={styles.header}>
             <BackLink label="Library" onPress={goBack} />
-            <Text style={styles.title}>Import recipe</Text>
           </View>
           {!props.online ? <ErrorText message={props.blockedReason} /> : null}
           <View
@@ -386,7 +385,6 @@ const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1 },
   page: { width: '100%', maxWidth: 1120, alignSelf: 'center', gap: 16, paddingBottom: 24 },
   header: { gap: 10 },
-  title: { color: colors.text, fontSize: 28, fontWeight: '700' },
   columns: { gap: 16, minWidth: 0 },
   columnsRail: { flexDirection: 'row', alignItems: 'flex-start' },
   sourceCol: { minWidth: 0 },

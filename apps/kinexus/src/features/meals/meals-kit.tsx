@@ -7,13 +7,14 @@ import { useExperienceMode } from '@/src/lib/experience-mode';
 
 export function OfflineBanner({ online, pendingCount, extra }: { online: boolean; pendingCount: number; extra?: string | null }) {
   if (online && pendingCount === 0) return null;
+  const detail = !online
+    ? `Slot edits queue locally${extra ? ` · ${extra}` : ''}`
+    : `${pendingCount} slot change(s) waiting to sync`;
   return (
     <View style={[styles.banner, !online && styles.bannerOffline]}>
-      <Text style={styles.bannerTitle}>{online ? 'Syncing' : 'Offline'}</Text>
-      <Text style={styles.bannerBody}>
-        {!online
-          ? `Slot edits queue locally. ${extra ?? ''}`.trim()
-          : `${pendingCount} slot change(s) waiting to sync.`}
+      <Text style={styles.bannerLine} numberOfLines={1}>
+        <Text style={styles.bannerTitle}>{online ? 'Syncing' : 'Offline'}</Text>
+        {` · ${detail}`}
       </Text>
     </View>
   );
@@ -112,16 +113,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accentSoft,
     borderColor: colors.accentMuted,
     borderWidth: 1,
-    borderRadius: radius.md,
-    padding: space.sm,
-    gap: 4,
+    borderRadius: radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   bannerOffline: {
     backgroundColor: colors.warningBg,
     borderColor: colors.warning,
   },
-  bannerTitle: { color: colors.warning, fontWeight: '800', fontSize: 12, letterSpacing: 1 },
-  bannerBody: { color: colors.text, fontSize: 13, lineHeight: 18 },
+  bannerLine: { color: colors.text, fontSize: 12, fontWeight: '600' },
+  bannerTitle: { color: colors.warning, fontWeight: '800', fontSize: 12, letterSpacing: 0.6 },
   sheetBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',

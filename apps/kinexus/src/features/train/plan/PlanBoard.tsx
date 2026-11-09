@@ -15,6 +15,9 @@ function SessionCard({
   canManage,
   sharedWithMe,
   onStart,
+  onPickWorkout,
+  onBuildWorkout,
+  onSuggestWorkout,
   onOpenWorkoutMenu,
   onTrainTogether,
   onMarkDone,
@@ -25,6 +28,9 @@ function SessionCard({
   canManage: boolean;
   sharedWithMe: boolean;
   onStart: () => void;
+  onPickWorkout: () => void;
+  onBuildWorkout: () => void;
+  onSuggestWorkout: () => void;
   onOpenWorkoutMenu: () => void;
   onTrainTogether: () => void;
   onMarkDone: () => void;
@@ -42,17 +48,24 @@ function SessionCard({
     );
   }
 
+  const emptyIntent = !card.workoutId && card.focus.length > 0;
+
   return (
     <View style={styles.slot}>
       <View style={styles.slotTop}>
         <Text style={styles.slotTitle}>{card.focus.join(' · ') || 'Train'}</Text>
-        <Pill label={card.status === 'planned' ? 'Planned' : card.status === 'done' ? 'Done' : 'Skipped'} />
+        <View style={styles.slotTopRight}>
+          <Pill label={card.status === 'planned' ? 'Planned' : card.status === 'done' ? 'Done' : 'Skipped'} />
+          {canManage && card.status === 'planned' ? (
+            <TextAction label="⋯" onPress={onOpenWorkoutMenu} />
+          ) : null}
+        </View>
       </View>
       <Text style={styles.slotMeta}>
         {[
           card.scheduledTime?.slice(0, 5) ?? null,
           card.durationMin != null ? `${card.durationMin} min` : null,
-          card.workoutName ?? (card.workoutId ? 'Workout ready' : 'No workout yet'),
+          emptyIntent ? null : card.workoutName ?? (card.workoutId ? 'Workout ready' : 'No workout yet'),
         ]
           .filter(Boolean)
           .join(' · ') || '—'}
@@ -60,14 +73,24 @@ function SessionCard({
       {canManage ? (
         <View style={styles.slotActions}>
           {card.status === 'planned' ? (
-            <>
-              <TrainButton label="Start" onPress={onStart} fill />
-              <View style={styles.rowActions}>
-                <TextAction label="Workout" onPress={onOpenWorkoutMenu} />
-                <TextAction label="Done" onPress={onMarkDone} tone="accent" />
-                <TextAction label="Skip" onPress={onMarkSkipped} />
-              </View>
-            </>
+            emptyIntent ? (
+              <>
+                <TrainButton label="Start workout" onPress={onStart} fill />
+                <View style={styles.rowActions}>
+                  <TextAction label="Pick workout" onPress={onPickWorkout} />
+                  <TextAction label="Build workout" onPress={onBuildWorkout} />
+                </View>
+                <TextAction label="Suggest one" onPress={onSuggestWorkout} />
+              </>
+            ) : (
+              <>
+                <TrainButton label="Start" onPress={onStart} fill />
+                <View style={styles.rowActions}>
+                  <TextAction label="Done" onPress={onMarkDone} tone="accent" />
+                  <TextAction label="Skip" onPress={onMarkSkipped} />
+                </View>
+              </>
+            )
           ) : (
             <TextAction label="Undo" onPress={onUndo} />
           )}
@@ -179,6 +202,9 @@ export function PlanBoard(props: TrainPlanViewProps & { compact?: boolean }) {
                 canManage={manage}
                 sharedWithMe={owned.sharedWithMe}
                 onStart={() => props.onStart(card)}
+                onPickWorkout={() => props.onPickWorkout(card)}
+                onBuildWorkout={() => props.onBuildWorkout(card)}
+                onSuggestWorkout={() => props.onSuggestWorkout(card)}
                 onOpenWorkoutMenu={() => props.onOpenWorkoutMenu(card)}
                 onTrainTogether={() => props.onTrainTogether(owned.plan, card)}
                 onMarkDone={() => props.onMarkDone(card)}
@@ -213,6 +239,9 @@ export function PlanBoard(props: TrainPlanViewProps & { compact?: boolean }) {
                   canManage={false}
                   sharedWithMe
                   onStart={() => undefined}
+                  onPickWorkout={() => undefined}
+                  onBuildWorkout={() => undefined}
+                  onSuggestWorkout={() => undefined}
                   onOpenWorkoutMenu={() => undefined}
                   onTrainTogether={() => props.onTrainTogether(row.plan, card)}
                   onMarkDone={() => undefined}
@@ -252,6 +281,7 @@ const styles = StyleSheet.create({
     padding: space.md,
   },
   slotTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  slotTopRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   slotTitle: { color: colors.text, fontSize: 16, fontWeight: '700', flex: 1 },
   slotMeta: { color: colors.textDim, fontSize: 13 },
   slotActions: { gap: 8 },

@@ -126,10 +126,14 @@ function ExerciseLibraryPane() {
   const visible = useMemo(() => {
     const ranked: { row: LibraryExercise; score: number }[] = [];
     for (const row of rows) {
-      if (row.status === 'hidden') continue;
+      if (row.status === 'hidden' || row.mergedInto) continue;
       if (part !== 'all' && row.bodyPart !== part) continue;
       if (source !== 'all' && row.sourceBadge !== source) continue;
-      const score = exerciseSearchScore(query, `${row.name} ${row.equipment} ${row.targetMuscle} ${row.bodyPart}`);
+      const aliasText = row.aliases?.length ? ` ${row.aliases.join(' ')}` : '';
+      const score = exerciseSearchScore(
+        query,
+        `${row.name} ${row.equipment} ${row.targetMuscle} ${row.bodyPart}${aliasText}`,
+      );
       if (score === null) continue;
       ranked.push({ row, score });
     }
@@ -156,7 +160,7 @@ function ExerciseLibraryPane() {
         {userId ? (
           <View style={styles.toolbarActions}>
             <TrainButton
-              label="Add"
+              label="Add exercise"
               onPress={() => {
                 setEditing(null);
                 setFormOpen(true);

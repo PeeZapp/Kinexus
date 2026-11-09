@@ -1,4 +1,5 @@
 import {
+  abandonWorkoutSessionCall,
   appendWorkoutSetCall,
   deleteWorkoutSetCall,
   deleteWorkoutSetsAtPositionCall,
@@ -97,5 +98,13 @@ export async function callFinishWorkoutSession(
   sessionId: string,
 ): Promise<void> {
   const call = finishWorkoutSessionCall(sessionId);
+  await callRpc(client, call.rpc, call.args);
+}
+
+export async function callAbandonWorkoutSession(
+  client: WorkoutSessionRpcClient,
+  sessionId: string,
+): Promise<void> {
+  const call = abandonWorkoutSessionCall(sessionId);
   await callRpc(client, call.rpc, call.args);
 }

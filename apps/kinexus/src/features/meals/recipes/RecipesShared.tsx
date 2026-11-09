@@ -119,15 +119,6 @@ export function RecipesChrome({
       scrollEventThrottle={16}
       onScroll={onScroll}
       onContentSizeChange={restoreScroll}>
-      <Text style={styles.kicker}>Library</Text>
-      <Text style={[styles.title, desktop && styles.titleDesktop]}>Recipes</Text>
-      <Text style={styles.count}>
-        {loading && totalCount === 0
-          ? 'Loading recipes…'
-          : shownCount === totalCount
-            ? `${totalCount.toLocaleString()} recipes in library`
-            : `Showing ${shownCount.toLocaleString()} of ${totalCount.toLocaleString()} recipes in library`}
-      </Text>
       <OfflineBanner online={online} pendingCount={pendingCount} extra={extra} />
       {showImport ? (
         <Btn
@@ -136,7 +127,18 @@ export function RecipesChrome({
           disabled={!online}
         />
       ) : null}
-      <Field label="Search" value={query} onChangeText={setQuery} placeholder="Name or cuisine" />
+      <View style={styles.searchRow}>
+        <View style={styles.searchField}>
+          <Field label="Search" value={query} onChangeText={setQuery} placeholder="Name or cuisine" />
+        </View>
+        <Text style={styles.count} numberOfLines={2}>
+          {loading && totalCount === 0
+            ? 'Loading…'
+            : shownCount === totalCount
+              ? `${totalCount.toLocaleString()} recipes`
+              : `${shownCount.toLocaleString()} of ${totalCount.toLocaleString()}`}
+        </Text>
+      </View>
       <FilterBar>
         <FilterDropdown<RecipeMealFilter>
           id="meal"
@@ -279,10 +281,9 @@ const styles = StyleSheet.create({
   rootDesktop: { width: '100%', maxWidth: '100%', minWidth: 0, alignSelf: 'stretch' },
   content: { padding: space.md, gap: 12, paddingBottom: 48 },
   contentDesktop: { paddingHorizontal: 48, width: '100%', alignSelf: 'stretch' },
-  kicker: { color: colors.accent, fontSize: 12, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' },
-  title: { color: colors.text, fontSize: 28, fontWeight: '700' },
-  titleDesktop: { fontSize: 40 },
-  count: { color: colors.textMuted, fontSize: 14, marginTop: -4 },
+  searchRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
+  searchField: { flex: 1, minWidth: 0 },
+  count: { color: colors.textMuted, fontSize: 12, fontWeight: '600', paddingBottom: 10, maxWidth: 110, textAlign: 'right' },
   card: {
     width: 220,
     backgroundColor: colors.bgCard,

@@ -17,31 +17,36 @@ import { disableEntityShare, enableEntityShare, resetEntityShare, sharePreview }
 import { LinkShareSheet } from '@/src/features/share/LinkShareSheet';
 import { buildShareUrl } from '@/src/features/share/share-url';
 import {
+  abandonEmptyOpenSessions,
+  abandonWorkoutSession,
   addTrainingPlanDay,
   addTrainingPlanDayToCalendar,
   addTrainingPlanToCalendar,
   applyGeneratedTrainingPlan,
   attachWorkoutToPlanDay,
+  createWorkout,
   deleteTrainingPlan,
   downloadTrainingPlanIcs,
   duplicateTrainingPlanToNextWeek,
-  ensurePlanDayWorkout,
   fillPlanDayFromLibrary,
   listTrainingPlansByWeek,
   loadGeneratePrefs,
   loadLibrary,
-  loadWorkoutById,
   loadWorkouts,
+  prepareToStartWorkout,
   regenerateRemainingTrainingDays,
   setTrainingPlanCalendarAutoSync,
   setTrainingPlanDayStatus,
+  startEmptyLiveSession,
   trainTogetherOnPlanDay,
   updateTrainingPlanDaySchedule,
   updateTrainingPlanVisibility,
   type LibraryExercise,
+  type OpenLiveSessionSummary,
   type TrainingPlanWeekRow,
   type WorkoutDraft,
 } from '@/src/features/train/api';
+import { EMPTY_WORKOUT_SEED, WorkoutBuilder, type WorkoutBuilderResult } from '@/src/features/train/WorkoutBuilder';
 import { loadTrainBuddies } from '@/src/features/train/buddies-api';
 import {
   DEFAULT_TRAIN_GENERATE_PREFS,
@@ -129,6 +134,7 @@ export function PlanScreen() {
   const [typeCard, setTypeCard] = useState<PlanDayCardModel | null>(null);
   const [savedCard, setSavedCard] = useState<PlanDayCardModel | null>(null);
   const [menuCard, setMenuCard] = useState<PlanDayCardModel | null>(null);
+  const [buildCard, setBuildCard] = useState<PlanDayCardModel | null>(null);
 
   const peopleOptions = useMemo(
     () => people.map((person) => ({ id: person.id, name: person.name, userId: person.userId })),
@@ -417,51 +423,32 @@ export function PlanScreen() {
     }
   }
 
-  async function ensureWorkoutForCard(
-    card: PlanDayCardModel,
-    opts?: { fillFromFocus?: boolean },
-  ): Promise<string | null> {
-    if (!userId || !activeHousehold || card.restDay) return null;
-
-    if (opts?.fillFromFocus && card.focus.length > 0) {
-      let needsFill = !card.workoutId;
-      if (card.workoutId) {
-        const existing = await loadWorkoutById(card.workoutId);
-        needsFill = !existing || existing.exercises.length === 0;
-      }
-      if (needsFill) {
-        try {
-          const catalogue = library.length > 0 ? library : await loadLibrary();
-          if (library.length === 0) setLibrary(catalogue);
-          const filled = await fillPlanDayFromLibrary({
-            householdId: activeHousehold.id,
-            userId,
-            dayId: card.id,
-            focus: card.focus,
-            durationMin: card.durationMin ?? profile.durationMin,
-            existingWorkoutId: card.workoutId,
-            goal: profile.goal,
-            level: profile.level,
-            equipment: profile.equipment,
-            catalogue,
-          });
-          return filled.workoutId;
-        } catch {
-          // Fall through to empty shell when library can't fill this focus.
-        }
-      }
-    }
-
-    if (card.workoutId) return card.workoutId;
-    const name = card.focus[0] ? `${card.focus[0]}` : 'Train';
-    return ensurePlanDayWorkout({
-      householdId: activeHousehold.id,
-      userId,
-      dayId: card.id,
-      name,
-      durationMin: card.durationMin,
-      existingWorkoutId: card.workoutId,
+  function askResumeOrStartNew(resume: OpenLiveSessionSummary): Promise<'resume' | 'start' | 'cancel'> {
+    return new Promise((resolve) => {
+      Alert.alert('You have a workout in progress', undefined, [
+        { text: 'Resume', onPress: () => resolve('resume') },
+        { text: 'Start new', onPress: () => resolve('start') },
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve('cancel') },
+      ]);
     });
+  }
+
+  async function beginWorkoutStart(): Promise<'proceed' | 'cancel'> {
+    if (!userId) return 'cancel';
+    const { resume } = await prepareToStartWorkout(userId);
+    if (!resume) {
+      await abandonEmptyOpenSessions(userId);
+      return 'proceed';
+    }
+    const choice = await askResumeOrStartNew(resume);
+    if (choice === 'cancel') return 'cancel';
+    if (choice === 'resume') {
+      router.push(`/train/session/live/${resume.id}` as Href);
+      return 'cancel';
+    }
+    await abandonWorkoutSession(resume.id);
+    await abandonEmptyOpenSessions(userId);
+    return 'proceed';
   }
 
   async function onStart(card: PlanDayCardModel) {
@@ -469,10 +456,19 @@ export function PlanScreen() {
     setBusy(true);
     setError(null);
     try {
-      const workoutId = await ensureWorkoutForCard(card, { fillFromFocus: true });
-      if (!workoutId) return;
-      await refresh();
-      router.push(`/train/session/${workoutId}` as Href);
+      const gate = await beginWorkoutStart();
+      if (gate !== 'proceed') return;
+      if (card.workoutId) {
+        router.push(`/train/session/${card.workoutId}` as Href);
+        return;
+      }
+      const name = card.focus[0]?.trim() || 'Train';
+      const sessionId = await startEmptyLiveSession({
+        householdId: activeHousehold.id,
+        name,
+        durationMin: card.durationMin,
+      });
+      router.push(`/train/session/live/${sessionId}?dayId=${encodeURIComponent(card.id)}` as Href);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not start workout');
     } finally {
@@ -480,33 +476,70 @@ export function PlanScreen() {
     }
   }
 
-  async function onBuild(card: PlanDayCardModel) {
-    if (!userId || !activeHousehold || busy || card.restDay) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const workoutId = await ensureWorkoutForCard(card, { fillFromFocus: true });
-      if (!workoutId) return;
-      await refresh();
-      router.push(`/train/${workoutId}` as Href);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Could not open workout');
-    } finally {
-      setBusy(false);
-    }
+  function onPickWorkout(card: PlanDayCardModel) {
+    if (busy || card.restDay) return;
+    setSavedCard(card);
   }
 
-  async function onFill(card: PlanDayCardModel) {
+  function onBuildWorkout(card: PlanDayCardModel) {
+    if (!userId || !activeHousehold || busy || card.restDay) return;
+    if (card.workoutId) {
+      router.push(`/train/${card.workoutId}` as Href);
+      return;
+    }
+    setBuildCard(card);
+  }
+
+  async function submitBuild(result: WorkoutBuilderResult) {
+    if (!userId || !activeHousehold || !buildCard) throw new Error('Sign in to save a workout');
+    if (result.exercises.every((exercise) => !exercise.exerciseId)) {
+      throw new Error('Add at least one exercise');
+    }
+    const workoutId = await createWorkout({
+      householdId: activeHousehold.id,
+      userId,
+      name: result.name.trim() || buildCard.focus[0] || 'Train',
+      visibility: result.visibility,
+      splitId: result.splitId,
+      durationMin: result.durationMin,
+      level: result.level,
+      goal: result.goal,
+      equipment: result.equipment,
+      personIds: result.personIds,
+      buddyUserIds: result.buddyUserIds,
+      exercises: result.exercises.flatMap((exercise) =>
+        exercise.exerciseId
+          ? [
+              {
+                exerciseId: exercise.exerciseId,
+                name: exercise.name,
+                targetSets: exercise.targetSets,
+                targetReps: exercise.targetReps,
+                targetWeight: exercise.targetWeight,
+                targetEffort: exercise.targetEffort,
+                targetRpe: exercise.targetRpe,
+                note: exercise.note,
+                supersetId: exercise.supersetId,
+              },
+            ]
+          : [],
+      ),
+    });
+    await attachWorkoutToPlanDay({ userId, dayId: buildCard.id, workoutId });
+    setBuildCard(null);
+    await refresh();
+    if (result.start) router.push(`/train/session/${workoutId}` as Href);
+  }
+
+  async function onSuggestWorkout(card: PlanDayCardModel) {
     if (!userId || !activeHousehold || busy || card.restDay) return;
     if (card.focus.length === 0) {
       setError('Set a session type first');
-      setMenuCard(null);
       setTypeCard(card);
       return;
     }
     setBusy(true);
     setError(null);
-    setMenuCard(null);
     try {
       const catalogue = library.length > 0 ? library : await loadLibrary();
       if (library.length === 0) setLibrary(catalogue);
@@ -524,7 +557,7 @@ export function PlanScreen() {
       });
       await refresh();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Could not fill workout');
+      setError(err instanceof Error ? err.message : 'No matching exercises');
     } finally {
       setBusy(false);
     }
@@ -785,6 +818,9 @@ export function PlanScreen() {
     onConfirmRegen: () => void onConfirmRegen(),
     onCancelRegen: () => setRegenPreview(null),
     onStart: (card: PlanDayCardModel) => void onStart(card),
+    onPickWorkout: (card: PlanDayCardModel) => onPickWorkout(card),
+    onBuildWorkout: (card: PlanDayCardModel) => onBuildWorkout(card),
+    onSuggestWorkout: (card: PlanDayCardModel) => void onSuggestWorkout(card),
     onOpenWorkoutMenu: (card: PlanDayCardModel) => {
       if (card.restDay) setTypeCard(card);
       else setMenuCard(card);
@@ -812,21 +848,8 @@ export function PlanScreen() {
   return (
     <TrainPage>
       {desktop ? <PlanDesktop {...viewProps} /> : <PlanMobile {...viewProps} />}
-      <Sheet visible={Boolean(menuCard)} title="Workout" onClose={() => setMenuCard(null)}>
+      <Sheet visible={Boolean(menuCard)} title="Day" onClose={() => setMenuCard(null)}>
         <View style={styles.menuList}>
-          <TextAction
-            label="Fill from library"
-            tone="accent"
-            onPress={() => menuCard && void onFill(menuCard)}
-          />
-          <TextAction
-            label={menuCard?.workoutId ? 'Edit workout' : 'Build workout'}
-            onPress={() => {
-              if (!menuCard) return;
-              setMenuCard(null);
-              void onBuild(menuCard);
-            }}
-          />
           <TextAction
             label="Change type"
             onPress={() => {
@@ -835,22 +858,65 @@ export function PlanScreen() {
               setTypeCard(menuCard);
             }}
           />
-          <TextAction
-            label="Attach saved"
-            onPress={() => {
-              if (!menuCard) return;
-              setMenuCard(null);
-              setSavedCard(menuCard);
-            }}
-          />
           {menuCard?.workoutId ? (
-            <TextAction
-              label="Clear workout"
-              onPress={() => menuCard && void onAttachSaved(menuCard, null)}
-            />
+            <>
+              <TextAction
+                label="Edit workout"
+                onPress={() => {
+                  if (!menuCard?.workoutId) return;
+                  setMenuCard(null);
+                  router.push(`/train/${menuCard.workoutId}` as Href);
+                }}
+              />
+              <TextAction
+                label="Pick workout"
+                onPress={() => {
+                  if (!menuCard) return;
+                  setMenuCard(null);
+                  setSavedCard(menuCard);
+                }}
+              />
+              <TextAction
+                label="Clear workout"
+                onPress={() => menuCard && void onAttachSaved(menuCard, null)}
+              />
+              <TextAction
+                label="Done"
+                tone="accent"
+                onPress={() => {
+                  if (!menuCard) return;
+                  setMenuCard(null);
+                  void mutateStatus(menuCard, 'done');
+                }}
+              />
+              <TextAction
+                label="Skip"
+                onPress={() => {
+                  if (!menuCard) return;
+                  setMenuCard(null);
+                  void mutateStatus(menuCard, 'skipped');
+                }}
+              />
+            </>
           ) : null}
         </View>
       </Sheet>
+      {buildCard ? (
+        <WorkoutBuilder
+          presentation="modal"
+          seed={{
+            ...EMPTY_WORKOUT_SEED,
+            name: buildCard.focus[0] || 'Train',
+            durationMin: buildCard.durationMin,
+            visibility: 'private',
+          }}
+          people={people}
+          buddies={buddies}
+          editable
+          onClose={() => setBuildCard(null)}
+          onSubmit={submitBuild}
+        />
+      ) : null}
       <Sheet visible={Boolean(typeCard)} title="Session type" onClose={() => setTypeCard(null)}>
         <ScrollView style={styles.sheetList} keyboardShouldPersistTaps="handled">
           {PLAN_SESSION_TYPES.map((row) => (

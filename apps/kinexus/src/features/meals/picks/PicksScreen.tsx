@@ -25,6 +25,7 @@ export function PicksScreen() {
   const [slotKey, setSlotKey] = useState<MealSlotKey>('dinner');
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [tipOpen, setTipOpen] = useState(false);
   const canManage = canManageMealPlan(role);
   const { openMenu, toggleMenu, pick } = useFilterMenus();
 
@@ -102,12 +103,21 @@ export function PicksScreen() {
         !desktop && { paddingBottom: insets.bottom + 24 },
       ]}
       keyboardShouldPersistTaps="handled">
-      <Text style={styles.kicker}>Family</Text>
-      <Text style={[styles.title, desktop && styles.titleDesktop]}>Approved picks</Text>
-      <Text style={styles.lede}>
-        Choose which recipes each person can pick when you assign a meal slot to them. Use All to apply
-        the same lunch or dinner list to every kid at once.
-      </Text>
+      <View style={styles.tipRow}>
+        <Pressable
+          onPress={() => setTipOpen((open) => !open)}
+          style={styles.tipBtn}
+          accessibilityRole="button"
+          accessibilityLabel="About approved picks">
+          <Text style={styles.tipGlyph}>?</Text>
+        </Pressable>
+      </View>
+      {tipOpen ? (
+        <Text style={styles.lede}>
+          Choose which recipes each person can pick when you assign a meal slot to them. Use All to apply
+          the same lunch or dinner list to every kid at once.
+        </Text>
+      ) : null}
       <ErrorText message={error ?? meals.error} />
       {people.length === 0 ? (
         <Text style={styles.hint}>Add people in Settings first, then come back to curate their lists.</Text>
@@ -190,16 +200,19 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { paddingHorizontal: space.md, paddingTop: space.sm, gap: 12 },
   contentDesktop: { paddingHorizontal: 32, paddingBottom: 48, maxWidth: 720 },
-  kicker: {
-    color: colors.accent,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1.4,
-    textTransform: 'uppercase',
+  tipRow: { flexDirection: 'row', justifyContent: 'flex-end' },
+  tipBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgHover,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  title: { color: colors.text, fontSize: 28, fontWeight: '700' },
-  titleDesktop: { fontSize: 40 },
-  lede: { color: colors.textMuted, fontSize: 15, lineHeight: 22 },
+  tipGlyph: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
+  lede: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
   hint: { color: colors.textMuted },
   meta: { color: colors.textDim, fontSize: 13 },
   row: {

@@ -5,8 +5,11 @@ import {
   canFillSessionType,
   displayFocusLabel,
   fillWorkoutFromSessionType,
+  fillWorkoutFromSessionTypeWidened,
   sessionTypeIdFromFocus,
+  widenSessionTypeIds,
 } from './workout-templates.js';
+import { isStaleEmptySession, sessionHasLoggedSets } from './session-writes.js';
 
 function ex(
   id: string,
@@ -94,5 +97,34 @@ describe('workout-templates', () => {
     expect(walk[0]?.targetReps).toBe('30 min');
     expect(walk[0]?.targetSets).toBe(1);
     expect(walk[0]?.name.toLowerCase()).toContain('walk');
+  });
+
+  it('quietly widens Upper Push when the narrow pool is empty', () => {
+    expect(widenSessionTypeIds('upper_push')).toEqual(['upper_push', 'upper']);
+    const backOnly = [
+      ...Array.from({ length: 6 }, (_, i) =>
+        ex(`b${i}`, `Row ${i}`, 'back', 'lats', { category: 'Back' }),
+      ),
+      ...Array.from({ length: 6 }, (_, i) =>
+        ex(`bi${i}`, `Curl ${i}`, 'biceps', 'biceps', { category: 'Biceps' }),
+      ),
+    ];
+    expect(canFillSessionType('upper_push', backOnly)).toBe(false);
+    expect(canFillSessionType('upper', backOnly)).toBe(true);
+    const filled = fillWorkoutFromSessionTypeWidened({
+      sessionTypeId: 'upper_push',
+      durationMin: 40,
+      catalogue: backOnly,
+      seed: 5,
+    });
+    expect(filled.length).toBeGreaterThan(0);
+  });
+
+  it('detects logged sets and stale empty sessions', () => {
+    expect(sessionHasLoggedSets([{ done: false }, { done: true }])).toBe(true);
+    expect(sessionHasLoggedSets([{ done: false }])).toBe(false);
+    const startedAt = new Date(Date.now() - 13 * 60 * 60 * 1000).toISOString();
+    expect(isStaleEmptySession({ startedAt, hasLoggedSets: false })).toBe(true);
+    expect(isStaleEmptySession({ startedAt, hasLoggedSets: true })).toBe(false);
   });
 });

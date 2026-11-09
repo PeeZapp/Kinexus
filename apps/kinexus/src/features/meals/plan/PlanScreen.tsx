@@ -41,13 +41,22 @@ import {
   personName,
 } from '@/src/features/meals/picker-access';
 import { recipeEditHref, recipeHref } from '@/src/features/meals/recipe-href';
+import { Toast } from '@/src/features/meals/Toast';
 import { useMealsSync, type PlanSlot } from '@/src/features/meals/use-meals-sync';
+import type { SlotOutboxOp } from '@/src/features/meals/outbox';
 import { todayDay } from '@/src/features/meals/week-labels';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 
 const FALLBACK_GOALS: NutritionGoals = { calories: 2000, protein: 120, carbs: 250, fat: 65 };
+
+type PlanToast = {
+  message: string;
+  actionLabel: string;
+  onAction: () => void | Promise<void>;
+  onDismiss?: () => void | Promise<void>;
+};
 
 function defaultSelectedDay(weekStart: string): Day {
   return weekStart === mondayWeekStart() ? todayDay() : 'monday';
@@ -73,8 +82,47 @@ export function PlanScreen() {
   const [selectedDay, setSelectedDay] = useState<Day>(() => defaultSelectedDay(meals.weekStart));
   const [clearingWeek, setClearingWeek] = useState(false);
   const [clearError, setClearError] = useState<string | null>(null);
+  const [toast, setToast] = useState<PlanToast | null>(null);
   const recentSwaps = useRef(new Map<string, string[]>());
   const userId = user && !user.isDevBypass ? user.id : null;
+
+  function showUndoToast(
+    message: string,
+    ops: readonly SlotOutboxOp[],
+    previousSlots: readonly PlanSlot[],
+  ) {
+    setToast({
+      message,
+      actionLabel: 'Undo',
+      onAction: async () => {
+        setToast(null);
+        await meals.undoSlotOps(ops, previousSlots);
+      },
+    });
+  }
+
+  function showSyncToast(err: unknown) {
+    const failureKey =
+      err && typeof err === 'object' && 'failureKey' in err && typeof (err as { failureKey: unknown }).failureKey === 'string'
+        ? (err as { failureKey: string }).failureKey
+        : meals.slotSyncFailures[0]?.key;
+    setToast({
+      message: "Couldn't sync",
+      actionLabel: 'Retry',
+      onAction: async () => {
+        setToast(null);
+        try {
+          await meals.retrySlotSync();
+        } catch (retryErr) {
+          showSyncToast(retryErr);
+        }
+      },
+      onDismiss: async () => {
+        setToast(null);
+        if (failureKey) await meals.dismissSlotSyncFailure(failureKey);
+      },
+    });
+  }
   const canAssign = canManageMealPlan(role);
   const restricted = isRestrictedPicker({ role, people, userId });
   const linked = linkedPersonForUser(people, userId);
@@ -257,26 +305,42 @@ export function PlanScreen() {
       }
       onClose={closeSlotSheet}
       onAssign={(recipe) => void assign(recipe)}
-      onClear={() => {
-        if (sheetDay && sheetSlot && sheetCanEdit) void meals.clearSlot(sheetDay, sheetSlot, slotOpts);
+      onClear={async () => {
+        if (!sheetDay || !sheetSlot || !sheetCanEdit) return;
         closeSlotSheet();
-      }}
-      onHide={() => {
-        if (!sheetDay || !sheetSlot || !canAssign) return;
-        if (sheetSlotRow && !isHouseholdAudience(sheetSlotRow.audiencePersonIds)) {
-          void meals.deleteAudienceSlot(sheetSlotRow);
-        } else {
-          void meals.removeSlotFromDay(sheetDay, sheetSlot);
+        try {
+          await meals.clearSlot(sheetDay, sheetSlot, slotOpts);
+        } catch (err) {
+          showSyncToast(err);
         }
+      }}
+      onHide={async () => {
+        if (!sheetDay || !sheetSlot || !canAssign) return;
         closeSlotSheet();
+        try {
+          if (sheetSlotRow && !isHouseholdAudience(sheetSlotRow.audiencePersonIds)) {
+            const previousSlots = [...meals.slots];
+            const op = await meals.deleteAudienceSlot(sheetSlotRow);
+            showUndoToast('Meal removed', op ? [op] : [], previousSlots);
+          } else {
+            const result = await meals.removeSlotFromDay(sheetDay, sheetSlot);
+            showUndoToast('Meal removed', result.ops, result.previousSlots);
+          }
+        } catch (err) {
+          showSyncToast(err);
+        }
       }}
       onShuffle={() => void shuffle()}
       onOpenRecipe={(id, serves) => openRecipePage(recipeHref(id, serves ? { serves } : undefined))}
       onEditRecipe={(id) => openRecipePage(recipeEditHref(id))}
       onSetSides={
         sheetSlotRow
-          ? (sideRecipeIds) => {
-              void meals.setSlotSides(sheetSlotRow.id, sideRecipeIds);
+          ? async (sideRecipeIds) => {
+              try {
+                await meals.setSlotSides(sheetSlotRow.id, sideRecipeIds);
+              } catch (err) {
+                showSyncToast(err);
+              }
             }
           : undefined
       }
@@ -322,9 +386,18 @@ export function PlanScreen() {
     setClearError(null);
     setClearingWeek(true);
     try {
-      await meals.clearWeek();
+      const snapshot = await meals.clearWeek();
+      setToast({
+        message: 'Week cleared',
+        actionLabel: 'Undo',
+        onAction: async () => {
+          setToast(null);
+          await meals.restoreClearedWeek(snapshot);
+        },
+      });
     } catch (err) {
       setClearError(messageFromUnknown(err, 'Could not clear this week'));
+      showSyncToast(err);
     } finally {
       setClearingWeek(false);
     }
@@ -349,13 +422,22 @@ export function PlanScreen() {
       setPlaceError(null);
       setPickOpen(true);
     },
-    onRemoveDay: (day: Day) => {
+    onRemoveDay: async (day: Day) => {
       if (!canAssign) return;
-      void meals.hideDay(day);
+      try {
+        const result = await meals.hideDay(day);
+        showUndoToast('Day cleared', result.ops, result.previousSlots);
+      } catch (err) {
+        showSyncToast(err);
+      }
     },
-    onRestoreDay: (day: Day) => {
+    onRestoreDay: async (day: Day) => {
       if (!canAssign) return;
-      void meals.restoreDay(day);
+      try {
+        await meals.restoreDay(day);
+      } catch (err) {
+        showSyncToast(err);
+      }
     },
     onClearWeek: () => {
       if (!canAssign || clearingWeek) return;
@@ -370,12 +452,16 @@ export function PlanScreen() {
       setSideCellId(cell.id);
       setSideListToken((token) => token + 1);
     },
-    onAllocate: (cell: PlanSlot, personId: string | null) => {
+    onAllocate: async (cell: PlanSlot, personId: string | null) => {
       if (!canAssign) return;
-      void meals.allocateSlot(cell.day, cell.slotKey, personId, {
-        slotId: cell.id,
-        audiencePersonIds: cell.audiencePersonIds,
-      });
+      try {
+        await meals.allocateSlot(cell.day, cell.slotKey, personId, {
+          slotId: cell.id,
+          audiencePersonIds: cell.audiencePersonIds,
+        });
+      } catch (err) {
+        showSyncToast(err);
+      }
     },
     canEditCell: (cell: PlanSlot) =>
       canEditSlot({
@@ -485,6 +571,22 @@ export function PlanScreen() {
     </>
   );
 
+  const toastNode = (
+    <Toast
+      visible={toast !== null}
+      message={toast?.message ?? ''}
+      actionLabel={toast?.actionLabel}
+      onAction={() => {
+        void toast?.onAction();
+      }}
+      onDismiss={() => {
+        const dismiss = toast?.onDismiss;
+        setToast(null);
+        if (dismiss) void dismiss();
+      }}
+    />
+  );
+
   if (mode === 'desktop') {
     return (
       <>
@@ -492,6 +594,7 @@ export function PlanScreen() {
         {sheet}
         {sideSheet}
         {planModals}
+        {toastNode}
       </>
     );
   }
@@ -502,6 +605,7 @@ export function PlanScreen() {
       {sheet}
       {sideSheet}
       {planModals}
+      {toastNode}
     </>
   );
 }

@@ -207,6 +207,7 @@ export function GenerateScreen() {
 
   const catalogue = useMemo(() => {
     return library.filter((ex) => {
+      if (ex.status !== 'active' || ex.mergedInto) return false;
       if (prefs.avoidExerciseIds.includes(ex.id)) return false;
       if (prefs.avoidBodyParts.length === 0) return true;
       return !prefs.avoidBodyParts.includes(ex.bodyPart);

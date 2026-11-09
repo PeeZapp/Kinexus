@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  callAbandonWorkoutSession,
   callAppendWorkoutSet,
   callDeleteWorkoutSet,
   callDeleteWorkoutSetsAtPosition,
@@ -203,6 +204,20 @@ describe('workout session rpc wrappers', () => {
     }));
     await expect(callFinishWorkoutSession({ rpc: denied }, 'sess-1')).rejects.toThrow(
       'Not allowed to modify this session',
+    );
+  });
+
+  it('abandon_workout_session happy path + another user rejected', async () => {
+    const ok = okRpc('abandon_workout_session');
+    await callAbandonWorkoutSession({ rpc: ok }, 'sess-1');
+    expect(ok).toHaveBeenCalledWith('abandon_workout_session', { p_session_id: 'sess-1' });
+
+    const denied = vi.fn(async () => ({
+      data: null,
+      error: { message: 'Not allowed to abandon this session' },
+    }));
+    await expect(callAbandonWorkoutSession({ rpc: denied }, 'sess-1')).rejects.toThrow(
+      'Not allowed to abandon this session',
     );
   });
 });

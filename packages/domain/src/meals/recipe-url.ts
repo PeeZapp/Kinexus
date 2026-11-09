@@ -42,6 +42,8 @@ export type NormalizedRecipeUrl = {
   displayHost: string;
   /** Stable platform id (YouTube video id, TikTok video id, Instagram shortcode). */
   videoId?: string;
+  /** TikTok share short-links need a server-side redirect resolve before oEmbed. */
+  needsResolve?: boolean;
 };
 
 export function classifyRecipeHost(hostname: string): RecipeSourceKind {
@@ -97,12 +99,14 @@ export function normalizeRecipeUrl(
   const canonical = canonicalizeRecipeUrl(parsed);
   const sourceKind = classifyRecipeHost(canonical.hostname);
   const videoId = videoIdFromCanonical(canonical, sourceKind);
+  const needsResolve = sourceKind === 'tiktok' && isTiktokShortLink(canonical);
   return {
     inputUrl: trimmed,
     canonicalUrl: canonical.href,
     sourceKind,
     displayHost: canonical.hostname.replace(/^www\./i, ''),
     videoId,
+    ...(needsResolve ? { needsResolve: true } : {}),
   };
 }
 
@@ -160,12 +164,17 @@ function canonicalizeRecipeUrl(url: URL): URL {
   }
 
   if (kind === 'tiktok') {
-    const userVideo = next.pathname.match(/\/(@[^/]+\/video\/\d+)/);
-    if (userVideo?.[1]) return new URL(`https://www.tiktok.com/${userVideo[1]}`);
-    const video = next.pathname.match(/\/video\/(\d+)/);
-    if (video?.[1]) return new URL(`https://www.tiktok.com/video/${video[1]}`);
+    const userMedia = next.pathname.match(/\/(@[^/]+\/(?:video|photo)\/\d+)/);
+    if (userMedia?.[1]) return new URL(`https://www.tiktok.com/${userMedia[1]}`);
+    const media = next.pathname.match(/\/(video|photo)\/(\d+)/);
+    if (media?.[1] && media[2]) return new URL(`https://www.tiktok.com/${media[1]}/${media[2]}`);
+    const mobile = next.pathname.match(/^\/v\/(\d+)/i);
+    if (mobile?.[1]) return new URL(`https://www.tiktok.com/video/${mobile[1]}`);
+    if (isTiktokShortLink(next)) {
+      stripTrackingParams(next);
+      return next;
+    }
     stripTrackingParams(next);
-    next.hostname = 'www.tiktok.com';
     return next;
   }
 
@@ -220,10 +229,20 @@ function cleanYoutubeId(raw: string | null | undefined): string | null {
   return id;
 }
 
+/** vm./vt. hosts and /t/<code> share links — keep host/path; API resolves redirects. */
+export function isTiktokShortLink(url: URL): boolean {
+  const host = url.hostname.replace(/^www\./i, '').toLowerCase();
+  if (host === 'vm.tiktok.com' || host === 'vt.tiktok.com') return true;
+  if (host === 'tiktok.com' || host.endsWith('.tiktok.com')) {
+    return /^\/t\/[^/]+/i.test(url.pathname);
+  }
+  return false;
+}
+
 function videoIdFromCanonical(url: URL, kind: RecipeSourceKind): string | undefined {
   if (kind === 'youtube') return youtubeVideoId(url) ?? undefined;
   if (kind === 'tiktok') {
-    const match = url.pathname.match(/\/video\/(\d+)/);
+    const match = url.pathname.match(/\/(?:video|photo)\/(\d+)/) ?? url.pathname.match(/^\/v\/(\d+)/i);
     return match?.[1];
   }
   if (kind === 'instagram') {

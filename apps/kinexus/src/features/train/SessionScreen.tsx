@@ -15,6 +15,7 @@ import {
   parseRemixSplit,
   parseWeight,
   remixCategoryOf,
+  sessionHasLoggedSets,
   shuffledRestQuiz,
   toStoredKg,
   type RestExtra,
@@ -24,8 +25,11 @@ import { useWakeLock } from '@/src/features/cook/use-wake-lock';
 import { Sheet } from '@/src/features/meals/meals-kit';
 import { AppModal } from '@/src/features/shell/AppModal';
 import {
+  abandonEmptyOpenSessions,
+  abandonWorkoutSession,
   addSessionSet,
   appendSessionExercise,
+  attachWorkoutToPlanDay,
   createWorkout,
   displayWeight,
   finishSession,
@@ -39,6 +43,7 @@ import {
   loadWorkouts,
   moveSessionExercise,
   openSession,
+  prepareToStartWorkout,
   removeSessionExercise,
   removeSessionSet,
   replaceSessionExercise,
@@ -143,7 +148,15 @@ function draftFromLive(live: LiveSession, userId: string): WorkoutDraft {
   };
 }
 
-export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string; liveSessionId?: string }) {
+export function SessionScreen({
+  workoutId,
+  liveSessionId,
+  planDayId,
+}: {
+  workoutId?: string;
+  liveSessionId?: string;
+  planDayId?: string;
+}) {
   const router = useRouter();
   const { user } = useAuth();
   const { activeHousehold, people, role } = useHousehold();
@@ -267,6 +280,29 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
           return;
         }
         if (cancelled) return;
+        const { resume } = await prepareToStartWorkout(userId);
+        if (cancelled) return;
+        if (resume && resume.workoutId !== found.id) {
+          const choice = await new Promise<'resume' | 'start' | 'cancel'>((resolve) => {
+            Alert.alert('You have a workout in progress', undefined, [
+              { text: 'Resume', onPress: () => resolve('resume') },
+              { text: 'Start new', onPress: () => resolve('start') },
+              { text: 'Cancel', style: 'cancel', onPress: () => resolve('cancel') },
+            ]);
+          });
+          if (cancelled) return;
+          if (choice === 'resume') {
+            router.replace(`/train/session/live/${resume.id}` as Href);
+            return;
+          }
+          if (choice === 'cancel') {
+            router.back();
+            return;
+          }
+          await abandonWorkoutSession(resume.id);
+        }
+        await abandonEmptyOpenSessions(userId);
+        if (cancelled) return;
         setWorkout(found);
         setSavedSignature(templateSignature(found));
         void loadLibrary().then(setLibrary).catch(() => undefined);
@@ -316,8 +352,16 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
     const query = addQuery.trim();
     const taken = new Set(sets.flatMap((set) => (set.exerciseId ? [set.exerciseId] : [])));
     const scored = library
+      .filter((exercise) => exercise.status === 'active' && !exercise.mergedInto)
       .map((exercise) => {
-        const haystack = [exercise.name, exercise.bodyPart, exercise.targetMuscle, exercise.equipment, exercise.category]
+        const haystack = [
+          exercise.name,
+          ...exercise.aliases,
+          exercise.bodyPart,
+          exercise.targetMuscle,
+          exercise.equipment,
+          exercise.category,
+        ]
           .filter(Boolean)
           .join(' ');
         const score = query ? exerciseSearchScore(query, haystack) : 1;
@@ -742,27 +786,28 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
     setFinishing(true);
     setError(null);
     try {
-      const ownsWorkout = Boolean(activeHousehold && workout?.id && workout.createdBy === userId);
-      if (ownsWorkout && activeHousehold && workout) {
-        const sessionExercises = groups.flatMap(([, group]) => {
-          const exerciseId = group[0]?.exerciseId;
-          if (!exerciseId) return [];
-          return [
-            {
-              exerciseId,
-              name: group[0]?.exerciseName ?? 'Exercise',
-              targetSets: group.length,
-              targetReps: group[0]?.reps || '10',
-              targetWeight: null as number | null,
-              targetEffort: null,
-              targetRpe: null,
-            },
-          ];
-        });
+      const sessionExercises = groups.flatMap(([, group]) => {
+        const exerciseId = group[0]?.exerciseId;
+        if (!exerciseId) return [];
+        return [
+          {
+            exerciseId,
+            name: group[0]?.exerciseName ?? 'Exercise',
+            targetSets: group.length,
+            targetReps: group[0]?.reps || '10',
+            targetWeight: null as number | null,
+            targetEffort: null,
+            targetRpe: null,
+          },
+        ];
+      });
+      let linkedWorkoutId = workout?.id || null;
+      const ownsWorkout = Boolean(activeHousehold && linkedWorkoutId && workout?.createdBy === userId);
+      if (ownsWorkout && activeHousehold && workout && linkedWorkoutId) {
         const templateEmpty = workout.exercises.length === 0;
         const signatureChanged = savedSignature !== exerciseSignature(sets);
         if (sessionExercises.length > 0 && (templateEmpty || signatureChanged || remixDirty)) {
-          await saveWorkout(workout.id, activeHousehold.id, {
+          await saveWorkout(linkedWorkoutId, activeHousehold.id, {
             name: workout.name,
             visibility: workout.visibility,
             splitId: workout.splitId,
@@ -775,10 +820,41 @@ export function SessionScreen({ workoutId, liveSessionId }: { workoutId?: string
             exercises: sessionExercises,
           });
         }
+      } else if (
+        planDayId &&
+        activeHousehold &&
+        !linkedWorkoutId &&
+        sessionHasLoggedSets(sets) &&
+        sessionExercises.length > 0
+      ) {
+        const name = (workout?.name || 'Train').trim() || 'Train';
+        linkedWorkoutId = await createWorkout({
+          householdId: activeHousehold.id,
+          userId,
+          name,
+          visibility: 'private',
+          splitId: null,
+          durationMin: workout?.durationMin ?? null,
+          personIds: [],
+          exercises: sessionExercises,
+        });
+        await attachWorkoutToPlanDay({ userId, dayId: planDayId, workoutId: linkedWorkoutId });
+        await linkSessionWorkout(sessionId, linkedWorkoutId, name);
       }
-      await finishSession({ sessionId, userId, sets, records, workoutId: workout?.id ?? null });
-      if (score !== null && activeHousehold && workout?.id) {
-        await saveWorkoutRating({ workoutId: workout.id, userId, householdId: activeHousehold.id, score });
+      await finishSession({
+        sessionId,
+        userId,
+        sets,
+        records,
+        workoutId: linkedWorkoutId,
+      });
+      if (score !== null && activeHousehold && linkedWorkoutId) {
+        await saveWorkoutRating({
+          workoutId: linkedWorkoutId,
+          userId,
+          householdId: activeHousehold.id,
+          score,
+        });
       }
       router.replace('/train' as Href);
     } catch (err: unknown) {

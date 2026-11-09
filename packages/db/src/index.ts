@@ -11,6 +11,7 @@ export const rpc = {
   createTrainingPlan: 'create_training_plan',
   createPrivateWorkout: 'create_private_workout',
   startWorkoutSession: 'start_workout_session',
+  abandonWorkoutSession: 'abandon_workout_session',
   appendWorkoutSet: 'append_workout_set',
   updateWorkoutSet: 'update_workout_set',
   deleteWorkoutSet: 'delete_workout_set',

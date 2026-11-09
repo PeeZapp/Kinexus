@@ -15,7 +15,12 @@ import {
 } from '@kinexus/domain';
 
 import { Sheet } from '@/src/features/meals/meals-kit';
-import { loadLibrary, startRemixSession, type LibraryExercise } from '@/src/features/train/api';
+import {
+  isPickableLibraryExercise,
+  loadLibrary,
+  startRemixSession,
+  type LibraryExercise,
+} from '@/src/features/train/api';
 import { TrainButton, TrainPage } from '@/src/features/train/ui';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
@@ -60,7 +65,12 @@ export function RemixScreen() {
       setError('Sign in to build a workout.');
       return;
     }
-    const picks = generateFromCategoryMix(categories, weights, duration, library);
+    const picks = generateFromCategoryMix(
+      categories,
+      weights,
+      duration,
+      library.filter(isPickableLibraryExercise),
+    );
     if (picks.length < 3) {
       setError('Not enough exercises for this mix.');
       return;

@@ -87,3 +87,29 @@ export function finishWorkoutSessionCall(sessionId: string) {
     args: { p_session_id: sessionId },
   };
 }
+
+export function abandonWorkoutSessionCall(sessionId: string) {
+  return {
+    rpc: 'abandon_workout_session' as const,
+    args: { p_session_id: sessionId },
+  };
+}
+
+const STALE_EMPTY_MS = 12 * 60 * 60 * 1000;
+
+/** True when any set was marked done (a real logged set). */
+export function sessionHasLoggedSets(sets: readonly { done: boolean }[]): boolean {
+  return sets.some((set) => set.done);
+}
+
+/** Empty live sessions older than 12h should be abandoned quietly. */
+export function isStaleEmptySession(input: {
+  startedAt: string;
+  hasLoggedSets: boolean;
+  nowMs?: number;
+}): boolean {
+  if (input.hasLoggedSets) return false;
+  const started = Date.parse(input.startedAt);
+  if (!Number.isFinite(started)) return false;
+  return (input.nowMs ?? Date.now()) - started >= STALE_EMPTY_MS;
+}

@@ -5,6 +5,8 @@ import type { ExerciseMatchCandidate, ImportRowStatus, WorkoutImportExercise } f
 export type ExerciseCatalogEntry = {
   id: string;
   name: string;
+  /** Hidden near-duplicate titles that should still match this row. */
+  aliases?: readonly string[];
 };
 
 /** Deterministic normalize for exercise titles (equipment suffixes, casing, punctuation). */
@@ -64,7 +66,10 @@ export function rankExerciseMatches(
 ): ExerciseMatchCandidate[] {
   const scored: ExerciseMatchCandidate[] = [];
   for (const entry of catalog) {
-    const confidence = exerciseMatchConfidence(query, entry.name);
+    let confidence = exerciseMatchConfidence(query, entry.name);
+    for (const alias of entry.aliases ?? []) {
+      confidence = Math.max(confidence, exerciseMatchConfidence(query, alias));
+    }
     if (confidence < MATCH_NEEDS_CONFIRM - 0.15) continue;
     scored.push({ exerciseId: entry.id, name: entry.name, confidence });
   }

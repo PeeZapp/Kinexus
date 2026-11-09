@@ -2380,6 +2380,8 @@ export type Database = {
           category: string | null;
           difficulty: string | null;
           is_compound: boolean | null;
+          merged_into: string | null;
+          aliases: string[];
           created_at: string;
           updated_at: string;
         };
@@ -2406,6 +2408,8 @@ export type Database = {
           category?: string | null;
           difficulty?: string | null;
           is_compound?: boolean | null;
+          merged_into?: string | null;
+          aliases?: string[];
           created_at?: string;
           updated_at?: string;
         };
@@ -2428,6 +2432,8 @@ export type Database = {
           difficulty?: string | null;
           is_compound?: boolean | null;
           source?: 'exercisedb' | 'public_domain' | 'wger' | 'user' | 'creator';
+          merged_into?: string | null;
+          aliases?: string[];
         };
         Relationships: [
           {
@@ -2435,6 +2441,13 @@ export type Database = {
             columns: ['group_id'];
             isOneToOne: false;
             referencedRelation: 'exercise_groups';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'exercises_merged_into_fkey';
+            columns: ['merged_into'];
+            isOneToOne: false;
+            referencedRelation: 'exercises';
             referencedColumns: ['id'];
           },
         ];
@@ -3383,6 +3396,12 @@ export type Database = {
           p_sets?: unknown;
         };
         Returns: string;
+      };
+      abandon_workout_session: {
+        Args: {
+          p_session_id: string;
+        };
+        Returns: undefined;
       };
       append_workout_set: {
         Args: {

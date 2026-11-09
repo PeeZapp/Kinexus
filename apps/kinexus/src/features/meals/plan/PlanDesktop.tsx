@@ -206,6 +206,11 @@ function MealCardFromView({
     const recipe = recipeForHouseholdView(meals.recipes, id);
     return recipe ? [{ id: recipe.id, name: recipe.name }] : [];
   });
+  const syncFailure = meals.slotSyncFailures.find(
+    (row) =>
+      (cell?.id && row.slotId === cell.id) ||
+      (row.day === cell?.day && row.slotKey === view.slotKey && !row.slotId),
+  );
   return (
     <PlanMealCard
       slot={view.slotKey}
@@ -233,6 +238,10 @@ function MealCardFromView({
       onPress={onPress}
       onAddSide={cell && cell.id && hasRecipe && canEditCell(cell) ? () => onAddSide(cell) : undefined}
       sides={sides}
+      syncError={Boolean(syncFailure)}
+      onRetrySync={() => {
+        void meals.retrySlotSync();
+      }}
       footer={
         canManage && cell && !hasMeal ? (
           <WhoPicksMenu

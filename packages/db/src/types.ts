@@ -3384,6 +3384,74 @@ export type Database = {
         };
         Returns: string;
       };
+      append_workout_set: {
+        Args: {
+          p_session_id: string;
+          p_sets?: unknown;
+        };
+        Returns: undefined;
+      };
+      update_workout_set: {
+        Args: {
+          p_set_id: string;
+          p_weight?: string | null;
+          p_reps?: string | null;
+          p_done?: boolean | null;
+        };
+        Returns: undefined;
+      };
+      delete_workout_set: {
+        Args: {
+          p_set_id: string;
+        };
+        Returns: undefined;
+      };
+      delete_workout_sets_at_position: {
+        Args: {
+          p_session_id: string;
+          p_position: number;
+        };
+        Returns: undefined;
+      };
+      move_session_exercise: {
+        Args: {
+          p_session_id: string;
+          p_position: number;
+          p_direction: number;
+        };
+        Returns: undefined;
+      };
+      replace_session_exercise: {
+        Args: {
+          p_session_id: string;
+          p_position: number;
+          p_exercise_id: string;
+          p_name: string;
+          p_weight?: string;
+        };
+        Returns: undefined;
+      };
+      rewrite_session_sets: {
+        Args: {
+          p_session_id: string;
+          p_sets?: unknown;
+        };
+        Returns: undefined;
+      };
+      link_workout_session: {
+        Args: {
+          p_session_id: string;
+          p_workout_id: string;
+          p_name?: string;
+        };
+        Returns: undefined;
+      };
+      finish_workout_session: {
+        Args: {
+          p_session_id: string;
+        };
+        Returns: undefined;
+      };
       create_household: {
         Args: {
           p_name: string;

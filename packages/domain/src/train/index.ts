@@ -223,6 +223,18 @@ export {
 } from './plan-ics';
 export type { PlanIcsDay, PlanIcsInput } from './plan-ics';
 export { applyLoggedSets, parseWeight } from './records';
+export {
+  appendWorkoutSetCall,
+  deleteWorkoutSetCall,
+  deleteWorkoutSetsAtPositionCall,
+  finishWorkoutSessionCall,
+  linkWorkoutSessionCall,
+  moveSessionExerciseCall,
+  replaceSessionExerciseCall,
+  rewriteSessionSetsCall,
+  updateWorkoutSetCall,
+} from './session-writes';
+export type { SessionSetWrite } from './session-writes';
 export { memoryPairs, quizForRest, shuffledRestQuiz } from './quiz';
 export type { QuizQuestion } from './quiz';
 export { REST_EXTRAS, restExtraFrom } from './rest';

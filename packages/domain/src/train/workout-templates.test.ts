@@ -68,4 +68,31 @@ describe('workout-templates', () => {
     expect(canFillSessionType('upper_push', catalogue)).toBe(true);
     expect(canFillSessionType('swim', catalogue)).toBe(true);
   });
+
+  it('Start-fill returns exercises for Upper Push and a duration target for Walk', () => {
+    const pushId = sessionTypeIdFromFocus('Upper Push');
+    expect(pushId).toBe('upper_push');
+    const push = fillWorkoutFromSessionType({
+      sessionTypeId: pushId!,
+      durationMin: 45,
+      catalogue,
+      goal: 'hypertrophy',
+      level: 'intermediate',
+      seed: 11,
+    });
+    expect(push.length).toBeGreaterThan(0);
+
+    const walkId = sessionTypeIdFromFocus('Walk');
+    expect(walkId).toBe('walk');
+    const walk = fillWorkoutFromSessionType({
+      sessionTypeId: walkId!,
+      durationMin: 30,
+      catalogue,
+      seed: 2,
+    });
+    expect(walk).toHaveLength(1);
+    expect(walk[0]?.targetReps).toBe('30 min');
+    expect(walk[0]?.targetSets).toBe(1);
+    expect(walk[0]?.name.toLowerCase()).toContain('walk');
+  });
 });

@@ -21,12 +21,16 @@ import type {
   WeightUnit,
 } from '@kinexus/domain';
 import {
+  appendWorkoutSetCall,
   applyLoggedSets,
   buildTrainingPlanIcs,
   canFillSessionType,
+  deleteWorkoutSetCall,
+  deleteWorkoutSetsAtPositionCall,
   effortLevelFrom,
   exerciseSourceBadge as domainExerciseSourceBadge,
   fillWorkoutFromSessionType,
+  finishWorkoutSessionCall,
   formatWeight,
   handleAddTrainingPlanDay,
   handleApplyTrainingPlan,
@@ -35,7 +39,6 @@ import {
   handleDeleteTrainingPlan,
   handleDuplicateTrainingPlanToNextWeek,
   handleListTrainingPlansByWeek,
-  handleMarkTrainingPlanDayFromSession,
   handleRegenerateRemainingDays,
   handleRemoveTrainingPlanDayEvent,
   handleSaveGeneratePrefs,
@@ -48,6 +51,11 @@ import {
   isFamilyPlanShare,
   isTrainGlobalGoal,
   isTrainGlobalLevel,
+  linkWorkoutSessionCall,
+  moveSessionExerciseCall,
+  replaceSessionExerciseCall,
+  rewriteSessionSetsCall,
+  updateWorkoutSetCall,
   isTrainVisibility,
   normalizeTrainGlobalEquipment,
   parseWeight,
@@ -1195,8 +1203,9 @@ export async function loadLiveSession(sessionId: string): Promise<LiveSession | 
 }
 
 export async function linkSessionWorkout(sessionId: string, workoutId: string, name: string): Promise<void> {
-  const { error } = await db().from('workout_sessions').update({ workout_id: workoutId, name }).eq('id', sessionId);
-  if (error) throw error;
+  const call = linkWorkoutSessionCall(sessionId, workoutId, name);
+  const { error } = await db().rpc(rpc.linkWorkoutSession, call.args);
+  if (error) throw new Error(error.message);
 }
 
 async function loadSets(sessionId: string): Promise<SessionSet[]> {
@@ -1236,8 +1245,9 @@ export async function updateSet(
       row.weight = parsed == null ? trimmed : String(toStoredKg(parsed, weightUnit));
     }
   }
-  const { error } = await db().from('workout_sets').update(row).eq('id', setId);
-  if (error) throw error;
+  const call = updateWorkoutSetCall(setId, row);
+  const { error } = await db().rpc(rpc.updateWorkoutSet, call.args);
+  if (error) throw new Error(error.message);
 }
 
 export async function rewriteSessionExercises(input: {
@@ -1247,13 +1257,8 @@ export async function rewriteSessionExercises(input: {
   exercises: { exerciseId: string; name: string; targetSets: number; targetReps: string }[];
   records: Record<string, ExerciseRecord>;
 }): Promise<SessionSet[]> {
-  const { error: deleteError } = await db().from('workout_sets').delete().eq('session_id', input.sessionId);
-  if (deleteError) throw deleteError;
   const rows = input.exercises.flatMap((exercise, position) =>
     Array.from({ length: exercise.targetSets }, (_, setIndex) => ({
-      session_id: input.sessionId,
-      household_id: input.householdId,
-      user_id: input.userId,
       exercise_id: exercise.exerciseId,
       exercise_name: exercise.name,
       position,
@@ -1263,10 +1268,9 @@ export async function rewriteSessionExercises(input: {
       done: false,
     })),
   );
-  if (rows.length > 0) {
-    const { error } = await db().from('workout_sets').insert(rows);
-    if (error) throw error;
-  }
+  const call = rewriteSessionSetsCall(input.sessionId, rows);
+  const { error } = await db().rpc(rpc.rewriteSessionSets, call.args);
+  if (error) throw new Error(error.message);
   return loadSets(input.sessionId);
 }
 
@@ -1277,17 +1281,15 @@ export async function replaceSessionExercise(input: {
   name: string;
   lastWeight: string;
 }): Promise<void> {
-  const { error } = await db()
-    .from('workout_sets')
-    .update({
-      exercise_id: input.exerciseId,
-      exercise_name: input.name,
-      weight: input.lastWeight,
-      done: false,
-    })
-    .eq('session_id', input.sessionId)
-    .eq('position', input.position);
-  if (error) throw error;
+  const call = replaceSessionExerciseCall({
+    sessionId: input.sessionId,
+    position: input.position,
+    exerciseId: input.exerciseId,
+    name: input.name,
+    weight: input.lastWeight,
+  });
+  const { error } = await db().rpc(rpc.replaceSessionExercise, call.args);
+  if (error) throw new Error(error.message);
 }
 
 /** Append one exercise (N sets) to a live session without rewriting existing sets. */
@@ -1306,9 +1308,6 @@ export async function appendSessionExercise(input: {
     existing.length === 0 ? 0 : Math.max(...existing.map((set) => set.position)) + 1;
   const sets = Math.max(1, Math.min(20, Math.round(input.targetSets)));
   const rows = Array.from({ length: sets }, (_, setIndex) => ({
-    session_id: input.sessionId,
-    household_id: input.householdId,
-    user_id: input.userId,
     exercise_id: input.exerciseId,
     exercise_name: input.name,
     position: nextPosition,
@@ -1317,7 +1316,8 @@ export async function appendSessionExercise(input: {
     reps: input.targetReps,
     done: false,
   }));
-  const { error } = await db().from('workout_sets').insert(rows);
+  const call = appendWorkoutSetCall(input.sessionId, rows);
+  const { error } = await db().rpc(rpc.appendWorkoutSet, call.args);
   if (error) throw new Error(error.message);
   return loadSets(input.sessionId);
 }
@@ -1327,12 +1327,9 @@ export async function removeSessionExercise(input: {
   sessionId: string;
   position: number;
 }): Promise<SessionSet[]> {
-  const { error } = await db()
-    .from('workout_sets')
-    .delete()
-    .eq('session_id', input.sessionId)
-    .eq('position', input.position);
-  if (error) throw error;
+  const call = deleteWorkoutSetsAtPositionCall(input.sessionId, input.position);
+  const { error } = await db().rpc(rpc.deleteWorkoutSetsAtPosition, call.args);
+  if (error) throw new Error(error.message);
   return loadSets(input.sessionId);
 }
 
@@ -1347,27 +1344,9 @@ export async function moveSessionExercise(input: {
   const index = positions.indexOf(input.position);
   const target = index + input.direction;
   if (index < 0 || target < 0 || target >= positions.length) return existing;
-  const from = positions[index]!;
-  const to = positions[target]!;
-  const temp = -1_000_000 - from;
-  const { error: park } = await db()
-    .from('workout_sets')
-    .update({ position: temp })
-    .eq('session_id', input.sessionId)
-    .eq('position', from);
-  if (park) throw park;
-  const { error: shift } = await db()
-    .from('workout_sets')
-    .update({ position: from })
-    .eq('session_id', input.sessionId)
-    .eq('position', to);
-  if (shift) throw shift;
-  const { error: land } = await db()
-    .from('workout_sets')
-    .update({ position: to })
-    .eq('session_id', input.sessionId)
-    .eq('position', temp);
-  if (land) throw land;
+  const call = moveSessionExerciseCall(input.sessionId, input.position, input.direction);
+  const { error } = await db().rpc(rpc.moveSessionExercise, call.args);
+  if (error) throw new Error(error.message);
   return loadSets(input.sessionId);
 }
 
@@ -1384,19 +1363,19 @@ export async function addSessionSet(input: {
     .sort((a, b) => a.setIndex - b.setIndex);
   const last = group[group.length - 1];
   if (!last || group.length >= 20) return existing;
-  const { error } = await db().from('workout_sets').insert({
-    session_id: input.sessionId,
-    household_id: input.householdId,
-    user_id: input.userId,
-    exercise_id: last.exerciseId,
-    exercise_name: last.exerciseName,
-    position: input.position,
-    set_index: last.setIndex + 1,
-    weight: last.weight,
-    reps: last.reps,
-    done: false,
-  });
-  if (error) throw error;
+  const call = appendWorkoutSetCall(input.sessionId, [
+    {
+      exercise_id: last.exerciseId,
+      exercise_name: last.exerciseName,
+      position: input.position,
+      set_index: last.setIndex + 1,
+      weight: last.weight,
+      reps: last.reps,
+      done: false,
+    },
+  ]);
+  const { error } = await db().rpc(rpc.appendWorkoutSet, call.args);
+  if (error) throw new Error(error.message);
   return loadSets(input.sessionId);
 }
 
@@ -1411,8 +1390,9 @@ export async function removeSessionSet(input: {
     .sort((a, b) => a.setIndex - b.setIndex);
   if (group.length <= 1) return existing;
   const last = group[group.length - 1]!;
-  const { error } = await db().from('workout_sets').delete().eq('id', last.id);
-  if (error) throw error;
+  const call = deleteWorkoutSetCall(last.id);
+  const { error } = await db().rpc(rpc.deleteWorkoutSet, call.args);
+  if (error) throw new Error(error.message);
   return loadSets(input.sessionId);
 }
 
@@ -1489,24 +1469,12 @@ export async function finishSession(input: {
       best_weight: update.bestWeight,
       best_reps: update.bestReps,
     });
-    if (error) throw error;
+    if (error) throw new Error(error.message);
   }
-  const { error } = await db().from('workout_sessions').update({ finished_at: new Date().toISOString() }).eq('id', input.sessionId);
-  if (error) throw error;
-
-  let workoutId = input.workoutId ?? null;
-  if (!workoutId) {
-    const { data } = await db().from('workout_sessions').select('workout_id').eq('id', input.sessionId).maybeSingle();
-    workoutId = data?.workout_id ?? null;
-  }
-  const marked = await handleMarkTrainingPlanDayFromSession(db() as never, {
-    authUserId: input.userId,
-    sessionId: input.sessionId,
-    workoutId,
-  });
-  if (marked.status !== 200 && marked.status !== 403) {
-    throw new Error(marked.body.error);
-  }
+  // Finish + mark plan day done (idempotent) inside security-definer RPC.
+  const call = finishWorkoutSessionCall(input.sessionId);
+  const { error } = await db().rpc(rpc.finishWorkoutSession, call.args);
+  if (error) throw new Error(error.message);
 }
 
 export async function loadHistoryDedupeKeys(

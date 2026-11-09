@@ -111,7 +111,27 @@
     },
     {
       "path": "/api/grocery/catalogue/refresh",
-      "schedule": "0,20,40 17-18 * * *"
+      "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/grocery/catalogue/refresh",
+      "schedule": "20 17 * * *"
+    },
+    {
+      "path": "/api/grocery/catalogue/refresh",
+      "schedule": "40 17 * * *"
+    },
+    {
+      "path": "/api/grocery/catalogue/refresh",
+      "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/grocery/catalogue/refresh",
+      "schedule": "20 18 * * *"
+    },
+    {
+      "path": "/api/grocery/catalogue/refresh",
+      "schedule": "40 18 * * *"
     }
   ]
 }

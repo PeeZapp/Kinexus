@@ -1381,6 +1381,7 @@ export {
   importRowsToExportItems,
   isHevyHost,
   isHevyWorkoutImportUrl,
+  isLetterboxdShortListHost,
   isListImportFileName,
   isWatchlistListImportUrl,
   keepExerciseFreeText,

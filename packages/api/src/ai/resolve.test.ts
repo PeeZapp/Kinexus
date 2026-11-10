@@ -57,6 +57,7 @@ describe('WEB_SEARCH_FEATURES', () => {
     expect(WEB_SEARCH_FEATURES).toContain('generate_recipe_from_name');
     expect(WEB_SEARCH_FEATURES).toContain('estimate_recipe_nutrition');
     expect(WEB_SEARCH_FEATURES).not.toContain('classify_budget');
+    expect(WEB_SEARCH_FEATURES).not.toContain('extract_recipe_from_photo');
   });
 });
 
@@ -247,6 +248,34 @@ describe('resolveAiClient', () => {
     await client.complete({ prompt: 'price' });
     expect(platformComplete).toHaveBeenCalled();
     expect(householdComplete).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a platform vision provider when household key cannot read photos', async () => {
+    const prev = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    mockAdmin.rpc.mockImplementation(async (name: string) => {
+      if (name === 'internal_get_household_ai_key_material') {
+        return {
+          data: [{ provider: 'deepseek', key_status: 'valid', secret: 'sk-test-deepseek' }],
+          error: null,
+        };
+      }
+      if (name === 'can_use_household_ai_key') return { data: true, error: null };
+      return { data: null, error: null };
+    });
+    try {
+      const { resolveVisionAiClient } = await import('./resolve.js');
+      const resolved = await resolveVisionAiClient({
+        userId: 'u1',
+        householdId: 'h1',
+        feature: 'extract_recipe_from_photo',
+      });
+      expect(resolved.provider).toBe('anthropic');
+      expect(resolved.keySource).toBe('platform');
+    } finally {
+      if (prev == null) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = prev;
+    }
   });
 });
 

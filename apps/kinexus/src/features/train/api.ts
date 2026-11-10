@@ -1080,6 +1080,19 @@ export async function loadOpenWorkoutIds(userId: string, householdId: string): P
   return [...new Set((data ?? []).flatMap((row) => (row.workout_id ? [row.workout_id] : [])))];
 }
 
+/** Workout ids the user has finished at least once in this household. */
+export async function loadCompletedWorkoutIds(userId: string, householdId: string): Promise<string[]> {
+  const { data, error } = await db()
+    .from('workout_sessions')
+    .select('workout_id')
+    .eq('user_id', userId)
+    .eq('household_id', householdId)
+    .not('finished_at', 'is', null)
+    .not('workout_id', 'is', null);
+  if (error) throw error;
+  return [...new Set((data ?? []).flatMap((row) => (row.workout_id ? [row.workout_id] : [])))];
+}
+
 export async function clearOpenSession(userId: string, workoutId: string): Promise<void> {
   const { error } = await db()
     .from('workout_sessions')

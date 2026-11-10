@@ -1,5 +1,5 @@
-import { PlanScreen } from '@/src/features/train/PlanScreen';
+import { Redirect } from 'expo-router';
 
 export default function TrainPlanRoute() {
-  return <PlanScreen />;
+  return <Redirect href="/train" />;
 }

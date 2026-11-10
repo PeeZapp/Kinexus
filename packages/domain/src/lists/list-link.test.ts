@@ -72,6 +72,37 @@ describe('watchlist list import URL classify', () => {
     expect(isWatchlistListImportUrl('https://letterboxd.com/alice/watchlist/')).toBe(true);
   });
 
+  it('accepts scheme-less IMDb and Letterboxd list links', () => {
+    expect(isWatchlistListImportUrl('www.imdb.com/list/ls000123456/')).toBe(true);
+    expect(classifyWatchlistListImportUrl('letterboxd.com/alice/watchlist/')).toEqual({
+      source: 'letterboxd',
+      canonicalUrl: 'https://letterboxd.com/alice/watchlist/',
+    });
+  });
+
+  it('accepts boxd.it short links and Letterboxd /detail share URLs', () => {
+    expect(classifyWatchlistListImportUrl('https://boxd.it/gaHVO/detail')).toEqual({
+      source: 'letterboxd',
+      canonicalUrl: 'https://boxd.it/gaHVO',
+    });
+    expect(
+      classifyWatchlistListImportUrl(
+        'https://letterboxd.com/dfromero/list/massive-cinemas-100-best-british-films-of/detail/',
+      ),
+    ).toEqual({
+      source: 'letterboxd',
+      canonicalUrl: 'https://letterboxd.com/dfromero/list/massive-cinemas-100-best-british-films-of/',
+    });
+  });
+
+  it('accepts IMDb chart URLs', () => {
+    expect(classifyWatchlistListImportUrl('https://www.imdb.com/chart/top/')).toEqual({
+      source: 'imdb',
+      canonicalUrl: 'https://www.imdb.com/chart/top/',
+    });
+    expect(isWatchlistListImportUrl('https://www.imdb.com/chart/toptv')).toBe(true);
+  });
+
   it('rejects single-title links', () => {
     expect(isWatchlistListImportUrl('https://www.imdb.com/title/tt0133093/')).toBe(false);
     expect(isWatchlistListImportUrl('https://letterboxd.com/film/the-matrix/')).toBe(false);
@@ -87,6 +118,45 @@ describe('IMDb list HTML parser', () => {
       { imdbId: 'tt0816692', title: 'Interstellar', year: 2014 },
     ]);
     expect(parsed.nextPageUrl).toBe('https://www.imdb.com/list/ls000123456/?page=2');
+  });
+
+  it('extracts chart titles from __NEXT_DATA__', () => {
+    const chartHtml = `<html><head><title>IMDb Top 250 Movies</title>
+<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
+      props: {
+        pageProps: {
+          pageData: {
+            chartTitles: {
+              edges: [
+                {
+                  currentRank: 1,
+                  node: {
+                    id: 'tt0111161',
+                    titleText: { text: 'The Shawshank Redemption' },
+                    releaseYear: { year: 1994 },
+                  },
+                },
+                {
+                  currentRank: 2,
+                  node: {
+                    id: 'tt0068646',
+                    titleText: { text: 'The Godfather' },
+                    releaseYear: { year: 1972 },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    })}</script></head><body><h1>Top 250 Movies</h1></body></html>`;
+    const parsed = parseImdbListHtml(chartHtml, 'https://www.imdb.com/chart/top/');
+    expect(parsed.listName).toMatch(/Top 250/i);
+    expect(parsed.items).toEqual([
+      { imdbId: 'tt0111161', title: 'The Shawshank Redemption', year: 1994 },
+      { imdbId: 'tt0068646', title: 'The Godfather', year: 1972 },
+    ]);
+    expect(parsed.nextPageUrl).toBeNull();
   });
 
   it('marks private pages', () => {
@@ -119,6 +189,20 @@ describe('Letterboxd list HTML parser', () => {
     const parsed = parseLetterboxdListHtml(LB_PRIVATE_HTML, 'https://letterboxd.com/alice/list/secret/');
     expect(parsed.privateOrBlocked).toBe(true);
     expect(parsed.items).toEqual([]);
+  });
+
+  it('does not treat Letterboxd chrome "private list" copy as blocked', () => {
+    const html = `
+      <html><head><title>Favourites, a list of films by alice</title></head>
+      <body>
+      <script>polarity: { 'you': { 'label': 'private', 'description': 'you (private list)' } }</script>
+      <h1 class="title-1">Favourites</h1>
+      <div class="react-component" data-item-name="Heat (1995)" data-item-full-display-name="Heat (1995)"></div>
+      </body></html>
+    `;
+    const parsed = parseLetterboxdListHtml(html, 'https://letterboxd.com/alice/list/favourites/');
+    expect(parsed.privateOrBlocked).toBe(false);
+    expect(parsed.items).toEqual([{ title: 'Heat', year: 1995, imdbId: null }]);
   });
 });
 

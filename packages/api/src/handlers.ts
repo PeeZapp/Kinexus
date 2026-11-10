@@ -1,15 +1,23 @@
 import { budgetCategoryOptions, isWatchlistMediaType, isWatchlistScore, normalizeCountryCode, normalizeStreamingProviderIds, type BudgetCategoryOption, type FinanceBudgetLineKind, type WatchlistMediaType, type WatchlistRecommendSeed } from '@kinexus/domain';
 
-import { extractRecipeFromText, extractRecipeFromUrlHint, generateRecipeFromName } from './ai/extract.js';
+import {
+  extractRecipeFromPhoto,
+  extractRecipeFromText,
+  extractRecipeFromUrlHint,
+  generateRecipeFromName,
+} from './ai/extract.js';
 import { estimateRecipeNutritionWithAi } from './ai/nutrition.js';
 import { classifyBudgetMerchantsWithAi, type BudgetClassifyMerchant } from './ai/classify-budget.js';
+import type { AiImageInput } from './ai/provider.js';
 import {
   AiBlockedError,
   aiBlockedHttp,
   resolveAiClient,
+  resolveVisionAiClient,
   type AiFeature,
 } from './ai/resolve.js';
 import { scrubErrorMessage } from './ai/scrub.js';
+import { fetchImageFile } from './recipes/source-image.js';
 import { scrapeLinkUrl } from './scrape/link.js';
 import { scrapeProductUrl } from './scrape/product.js';
 import { fetchReaderDocument } from './scrape/reader.js';
@@ -34,12 +42,19 @@ import { assertWatchlistImportMatchRateLimit } from './watchlist-import-rate-lim
 import { loadWatchlistWatchingContext, parsePersonIds } from './watchlist-watching.js';
 import type { RecipeDraft } from './recipe-draft.js';
 
-export type AiTask = 'extract_recipe' | 'extract_recipe_from_url' | 'generate_recipe_from_name' | 'estimate_recipe_nutrition';
+export type AiTask =
+  | 'extract_recipe'
+  | 'extract_recipe_from_url'
+  | 'extract_recipe_from_photo'
+  | 'generate_recipe_from_name'
+  | 'estimate_recipe_nutrition';
 
 export type AiRequestBody = {
   task?: string;
   content?: string;
   url?: string;
+  /** Public https image URL for photo extract (preferred). */
+  imageUrl?: string;
   name?: string;
   servings?: number;
   ingredients?: { name?: string; amount?: string }[];
@@ -144,6 +159,7 @@ export async function handleAi(
   if (
     task !== 'extract_recipe' &&
     task !== 'extract_recipe_from_url' &&
+    task !== 'extract_recipe_from_photo' &&
     task !== 'generate_recipe_from_name' &&
     task !== 'estimate_recipe_nutrition'
   ) {
@@ -151,7 +167,7 @@ export async function handleAi(
       status: 400,
       body: {
         error:
-          'task must be extract_recipe, extract_recipe_from_url, generate_recipe_from_name, or estimate_recipe_nutrition',
+          'task must be extract_recipe, extract_recipe_from_url, extract_recipe_from_photo, generate_recipe_from_name, or estimate_recipe_nutrition',
       },
     };
   }
@@ -161,6 +177,40 @@ export async function handleAi(
 
   try {
     const feature = task as AiFeature;
+    if (task === 'extract_recipe_from_photo') {
+      const imageUrl = typeof body.imageUrl === 'string' ? body.imageUrl.trim() : '';
+      if (!imageUrl) return { status: 400, body: { error: 'Upload a recipe photo first' } };
+      if (!/^https:\/\//i.test(imageUrl)) {
+        return { status: 400, body: { error: 'Photo URL must be https' } };
+      }
+      const file = await fetchImageFile(imageUrl);
+      if (!file) return { status: 400, body: { error: 'Could not read that photo. Try a clearer JPEG, PNG, or WebP.' } };
+      const mime = file.mime as AiImageInput['mime'];
+      if (mime !== 'image/jpeg' && mime !== 'image/png' && mime !== 'image/webp') {
+        return { status: 400, body: { error: 'Use a JPEG, PNG, or WebP photo' } };
+      }
+      const resolved = await resolveVisionAiClient({ userId, householdId, feature });
+      const image: AiImageInput = {
+        mime,
+        base64: Buffer.from(file.bytes).toString('base64'),
+      };
+      const result = await extractRecipeFromPhoto(resolved, [image]);
+      const recipe = {
+        ...result.value,
+        imageUrl: result.value.imageUrl || imageUrl,
+        imageCandidates: result.value.imageCandidates?.length
+          ? result.value.imageCandidates
+          : [imageUrl],
+      };
+      return {
+        status: 200,
+        body: {
+          recipe,
+          provider: result.provider,
+          ...(result.resultsMayVary ? { resultsMayVary: true } : {}),
+        },
+      };
+    }
     const resolved = await resolveAiClient({ userId, householdId, feature });
     if (task === 'extract_recipe') {
       const content = body.content?.trim() ?? '';

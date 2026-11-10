@@ -29,7 +29,13 @@ export type ScrapeResponse =
   | { source: 'blocked'; blocked: true }
   | { source: 'not-found'; url: string; recipeUrl: string; dishName?: string };
 
-export type ImportSource = 'json-ld' | 'text-scraped' | 'blocked-ai' | 'text-paste' | 'generated-name';
+export type ImportSource =
+  | 'json-ld'
+  | 'text-scraped'
+  | 'blocked-ai'
+  | 'text-paste'
+  | 'photo'
+  | 'generated-name';
 
 export type MissingRecipe = {
   url: string;
@@ -93,6 +99,18 @@ export async function extractRecipeFromText(
   const data = await post<{ recipe: ImportedRecipe; resultsMayVary?: boolean }>('/ai', {
     task: 'extract_recipe',
     content,
+    householdId,
+  });
+  return { value: data.recipe, resultsMayVary: data.resultsMayVary };
+}
+
+export async function extractRecipeFromPhoto(
+  imageUrl: string,
+  householdId: string,
+): Promise<AiCallResult<ImportedRecipe>> {
+  const data = await post<{ recipe: ImportedRecipe; resultsMayVary?: boolean }>('/ai', {
+    task: 'extract_recipe_from_photo',
+    imageUrl,
     householdId,
   });
   return { value: data.recipe, resultsMayVary: data.resultsMayVary };

@@ -92,6 +92,7 @@ export {
   LIST_LINK_PUBLIC_ERROR,
   buildImportPlanFromListLink,
   classifyWatchlistListImportUrl,
+  isLetterboxdShortListHost,
   isWatchlistListImportUrl,
   listLinkItemsToImportRows,
   mergeListLinkItems,

@@ -195,6 +195,41 @@ export function resolvePlatformAiClient(provider?: AiProvider): AiClient {
   return createPlatformAiClient(provider);
 }
 
+const VISION_PROVIDERS = ['anthropic', 'openai', 'gemini'] as const;
+
+function platformVisionKeyPresent(provider: (typeof VISION_PROVIDERS)[number]): boolean {
+  if (provider === 'anthropic') return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+  if (provider === 'openai') return Boolean(process.env.OPENAI_API_KEY?.trim());
+  return Boolean(process.env.GEMINI_API_KEY?.trim());
+}
+
+function firstPlatformVisionClient(input: ResolveAiInput): ResolvedAiClient | null {
+  for (const provider of VISION_PROVIDERS) {
+    if (!platformVisionKeyPresent(provider)) continue;
+    return platformResolved(input, provider);
+  }
+  return null;
+}
+
+/**
+ * Resolve a vision-capable client for photo extract.
+ * Uses the household key when it supports vision; otherwise falls back to a platform vision provider.
+ * Still respects no_access / key_paused from resolveAiClient.
+ */
+export async function resolveVisionAiClient(input: ResolveAiInput): Promise<ResolvedAiClient> {
+  const preferred =
+    input.preferredProvider && providerDefinition(input.preferredProvider).supportsVision
+      ? input.preferredProvider
+      : VISION_PROVIDERS.find(platformVisionKeyPresent);
+  const resolved = await resolveAiClient({ ...input, preferredProvider: preferred });
+  if (providerDefinition(resolved.provider).supportsVision) return resolved;
+  const vision = firstPlatformVisionClient(input);
+  if (vision) return vision;
+  throw new Error(
+    'Photo import needs Anthropic, OpenAI, or Gemini. DeepSeek and Perplexity cannot read photos.',
+  );
+}
+
 export type AiCompleteResult = {
   text: string;
   resultsMayVary: boolean;

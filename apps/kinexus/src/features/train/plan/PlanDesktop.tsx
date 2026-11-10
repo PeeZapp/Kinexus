@@ -23,7 +23,6 @@ export type TrainPlanViewProps = {
   buddies: readonly { id: string; name: string }[];
   isApprovedCreator: boolean;
   onGenerate: () => void;
-  onBlankWeek: () => void;
   onClearWeek: (plan: TrainingPlanWeekRow) => void;
   onAddToDay: (plan: TrainingPlanWeekRow, day: Day) => void;
   onDuplicate: (plan: TrainingPlanWeekRow) => void;
@@ -32,14 +31,19 @@ export type TrainPlanViewProps = {
   onConfirmRegen: () => void;
   onCancelRegen: () => void;
   onStart: (card: PlanDayCardModel) => void;
+  onStartBlank: (card: PlanDayCardModel) => void;
   onPickWorkout: (card: PlanDayCardModel) => void;
   onBuildWorkout: (card: PlanDayCardModel) => void;
   onSuggestWorkout: (card: PlanDayCardModel) => void;
+  onStartBlankDay: (day: Day) => void;
+  onPickForDay: (day: Day) => void;
+  onBuildForDay: (day: Day) => void;
   onViewWorkout: (card: PlanDayCardModel) => void;
   onOpenWorkoutMenu: (card: PlanDayCardModel) => void;
   onTrainTogether: (plan: TrainingPlanWeekRow, card: PlanDayCardModel) => void;
   onMarkDone: (card: PlanDayCardModel) => void;
   onMarkSkipped: (card: PlanDayCardModel) => void;
+  onRemoveWorkout: (card: PlanDayCardModel) => void;
   onUndo: (card: PlanDayCardModel) => void;
   onAddPlanToCalendar: (plan: TrainingPlanWeekRow) => void;
   onAddDayToCalendar: (card: PlanDayCardModel) => void;

@@ -14,12 +14,23 @@ export class OpenAiClient implements AiClient {
   }
 
   async complete(input: AiCompleteInput): Promise<string> {
-    const messages: Array<{ role: string; content: string }> = [];
+    const messages: Array<{ role: string; content: unknown }> = [];
     const system = input.json
       ? `${input.system ?? 'You are a helpful assistant.'}\nAlways respond with valid JSON only — no markdown, no code fences.`
       : input.system;
     if (system) messages.push({ role: 'system', content: system });
-    messages.push({ role: 'user', content: input.prompt });
+    const images = input.images ?? [];
+    const userContent =
+      images.length === 0
+        ? input.prompt
+        : [
+            { type: 'text', text: input.prompt },
+            ...images.map((image) => ({
+              type: 'image_url',
+              image_url: { url: `data:${image.mime};base64,${image.base64}` },
+            })),
+          ];
+    messages.push({ role: 'user', content: userContent });
 
     const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
       method: 'POST',

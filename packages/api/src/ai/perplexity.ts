@@ -14,6 +14,9 @@ export class PerplexityClient implements AiClient {
   }
 
   async complete(input: AiCompleteInput): Promise<string> {
+    if (input.images?.length) {
+      throw new Error('Perplexity cannot read photos. Use Anthropic, OpenAI, or Gemini.');
+    }
     const messages: Array<{ role: string; content: string }> = [];
     const system = input.json
       ? `${input.system ?? 'You are a helpful assistant.'}\nAlways respond with valid JSON only — no markdown, no code fences.`

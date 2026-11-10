@@ -189,6 +189,7 @@ export function CustomExerciseForm({
   visible,
   onClose,
   onSaved,
+  onPickExisting,
   seedName = '',
   editing = null,
   catalog,
@@ -201,6 +202,8 @@ export function CustomExerciseForm({
   visible: boolean;
   onClose: () => void;
   onSaved: (exerciseId: string) => void;
+  /** When creating, let the user adopt a close library match instead. */
+  onPickExisting?: (exerciseId: string) => void;
   seedName?: string;
   editing?: LibraryExercise | null;
   catalog: readonly LibraryExercise[];
@@ -282,7 +285,7 @@ export function CustomExerciseForm({
       return;
     }
     if (!editing && suggestions.length > 0 && !dupAck) {
-      setError('Review “Did you mean…?” then save again');
+      setError('Similar exercises found — check them above, or tap Create anyway');
       return;
     }
     setBusy(true);
@@ -364,26 +367,47 @@ export function CustomExerciseForm({
       <View style={styles.form}>
         <Field label="Name" value={draft.name} onChangeText={(name) => patch({ name })} />
         {!editing && suggestions.length > 0 ? (
-          <View style={styles.dupBox}>
-            <Text style={styles.dupTitle}>Did you mean…?</Text>
-            {suggestions.map((row) => (
-              <Pressable
-                key={row.id}
-                onPress={() => {
-                  const match = catalog.find((item) => item.id === row.id);
-                  if (match) patch({ name: match.name });
-                }}
-                style={styles.dupRow}>
-                <Text style={styles.dupName}>{exerciseTitle(row.name)}</Text>
-                <Text style={styles.dupMeta}>
-                  {EXERCISE_SOURCE_BADGE_LABEL[
-                    catalog.find((item) => item.id === row.id)?.sourceBadge ?? 'kinexus'
-                  ]}
-                </Text>
-              </Pressable>
-            ))}
-            <TrainButton label="Create anyway" tone="ghost" onPress={() => setDupAck(true)} />
-            {dupAck ? <Text style={styles.dupAck}>Will create a new exercise</Text> : null}
+          <View style={[styles.dupBox, dupAck && styles.dupBoxAcked]}>
+            <Text style={styles.dupTitle}>Similar exercises already in the library</Text>
+            <Text style={styles.dupBody}>Check these before creating a new one — you may already have what you need.</Text>
+            {suggestions.map((row) => {
+              const match = catalog.find((item) => item.id === row.id);
+              return (
+                <View key={row.id} style={styles.dupRow}>
+                  <View style={styles.dupCopy}>
+                    <Text style={styles.dupName}>{exerciseTitle(row.name)}</Text>
+                    <Text style={styles.dupMeta}>
+                      {EXERCISE_SOURCE_BADGE_LABEL[match?.sourceBadge ?? 'kinexus']}
+                    </Text>
+                  </View>
+                  {onPickExisting ? (
+                    <TrainButton
+                      label="Use this"
+                      tone="ghost"
+                      compact
+                      onPress={() => {
+                        onPickExisting(row.id);
+                        onClose();
+                      }}
+                    />
+                  ) : (
+                    <TrainButton
+                      label="Use name"
+                      tone="ghost"
+                      compact
+                      onPress={() => {
+                        if (match) patch({ name: match.name });
+                      }}
+                    />
+                  )}
+                </View>
+              );
+            })}
+            {!dupAck ? (
+              <TrainButton label="Create anyway" tone="ghost" compact onPress={() => setDupAck(true)} />
+            ) : (
+              <Text style={styles.dupAck}>Creating a new custom exercise</Text>
+            )}
           </View>
         ) : null}
 
@@ -598,14 +622,25 @@ const styles = StyleSheet.create({
   actions: { gap: 10 },
   dupBox: {
     borderWidth: 1,
-    borderColor: colors.accentMuted,
-    backgroundColor: colors.accentSoft,
+    borderColor: colors.warning,
+    backgroundColor: colors.warningBg,
     borderRadius: radius.md,
     padding: space.sm,
     gap: 8,
   },
-  dupTitle: { color: colors.text, fontWeight: '700', fontSize: 14 },
-  dupRow: { gap: 2 },
+  dupBoxAcked: {
+    borderColor: colors.accentMuted,
+    backgroundColor: colors.accentSoft,
+  },
+  dupTitle: { color: colors.text, fontWeight: '800', fontSize: 14 },
+  dupBody: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
+  dupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  dupCopy: { flex: 1, minWidth: 0, gap: 2 },
   dupName: { color: colors.text, fontSize: 14, fontWeight: '600' },
   dupMeta: { color: colors.textMuted, fontSize: 12 },
   dupAck: { color: colors.accent, fontSize: 12, fontWeight: '700' },

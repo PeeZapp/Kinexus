@@ -35,6 +35,8 @@ import {
 } from '@/src/features/train/api';
 import { loadTrainBuddies } from '@/src/features/train/buddies-api';
 import { createCustomExercise } from '@/src/features/train/custom-exercises-api';
+import { BodyMap } from '@/src/features/train/plan/BodyMap';
+import { ShareGlyph } from '@/src/features/train/plan/PlanVisibilityBar';
 import { EMPTY_WORKOUT_SEED, WorkoutBuilder, type WorkoutBuilderResult } from '@/src/features/train/WorkoutBuilder';
 import { CreatorSearchHits } from '@/src/features/creators/CreatorSearchHits';
 import { SearchField, TrainButton, TrainPage } from '@/src/features/train/ui';
@@ -47,7 +49,7 @@ import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useHousehold } from '@/src/lib/household';
 import { useUnits } from '@/src/lib/use-units';
 
-const SHOWN_EXERCISES = 4;
+const SHOWN_EXERCISES = 5;
 
 type LengthFilter = 'any' | 'short' | 'medium' | 'long';
 
@@ -329,69 +331,113 @@ export function WorkoutsScreen() {
               {visible.map((workout) => {
                 const plan = plans.get(workout.id);
                 const minutes = plan?.minutes || workout.durationMin || 0;
-                const calories = plan?.calories ?? 0;
-                const names = workout.exercises.map((exercise) => exercise.name);
-                const extra = Math.max(0, names.length - SHOWN_EXERCISES);
+                const focuses = plan?.focuses ?? [];
+                const muscles = focuses.slice(0, 4).join(' · ');
+                const names = workout.exercises.map((exercise) => exerciseTitle(exercise.name));
+                const listed = names.slice(0, SHOWN_EXERCISES);
+                const extra = Math.max(0, names.length - listed.length);
                 const scores = [...workout.ratings].sort((a, b) => (a.userId === userId ? -1 : b.userId === userId ? 1 : 0));
                 const mine = userId ? workout.ratings.find((rating) => rating.userId === userId)?.score : undefined;
                 const open = openIds.has(workout.id);
+                const ratingLabel =
+                  scores.length > 0
+                    ? scores.map((rating) => `${rating.userId === userId ? 'You' : nameFor(rating.userId)} ${rating.score}/10`).join(' · ')
+                    : 'Rate';
+                const openWorkout = () => router.push(`/train/${workout.id}` as Href);
                 return (
                   <View key={workout.id} style={[styles.card, wide && styles.cardWide]}>
-                    <View style={styles.head}>
-                      <Pressable accessibilityRole="button" onPress={() => router.push(`/train/${workout.id}` as Href)} style={styles.copy}>
-                        <Text style={styles.name} numberOfLines={2}>
-                          {workout.name}
-                        </Text>
-                        {plan && plan.focuses.length > 0 ? (
-                          <Text style={styles.focus} numberOfLines={1}>
-                            {plan.focuses.join(' · ')}
-                          </Text>
-                        ) : null}
-                      </Pressable>
-                      <View style={styles.actions}>
-                        <TrainButton label="Share" tone="ghost" onPress={() => setExportWorkout(workout)} />
-                        {open ? (
-                          <TrainButton label="Clear" tone="ghost" disabled={clearingId === workout.id} onPress={() => void clearWorkout(workout.id)} />
-                        ) : null}
-                        <TrainButton label={open ? 'Resume' : 'Start'} onPress={() => router.push(`/train/session/${workout.id}` as Href)} />
-                      </View>
-                    </View>
-                    <Pressable accessibilityRole="button" onPress={() => router.push(`/train/${workout.id}` as Href)} style={styles.body}>
-                      {minutes > 0 ? (
-                        <Text style={styles.meta}>
-                          {minutes} min{calories > 0 ? ` · ~${calories} kcal` : ''}
-                        </Text>
-                      ) : null}
-                      {names.slice(0, SHOWN_EXERCISES).map((name, index) => (
-                        <Text key={`${name}-${index}`} style={styles.exercise} numberOfLines={1}>
-                          {exerciseTitle(name)}
-                        </Text>
-                      ))}
-                      {extra > 0 ? <Text style={styles.more}>+{extra}</Text> : null}
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Share ${workout.name}`}
+                      onPress={() => setExportWorkout(workout)}
+                      hitSlop={6}
+                      style={({ pressed }) => [styles.shareBtn, pressed && styles.shareBtnPressed]}>
+                      <ShareGlyph />
                     </Pressable>
-                    {userId ? (
-                      <View style={styles.scoreBlock}>
-                        <Pressable accessibilityRole="button" onPress={() => setRatingId((current) => (current === workout.id ? null : workout.id))} hitSlop={6}>
-                          <Text style={styles.scoreLine} numberOfLines={2}>
-                            {scores.length > 0 ? scores.map((rating) => `${rating.userId === userId ? 'You' : nameFor(rating.userId)} ${rating.score}/10`).join(' · ') : 'Rate'}
+
+                    <View style={styles.cardBody}>
+                      <BodyMap muscleGroups={focuses} />
+                      <View style={styles.cardCopy}>
+                        <Pressable accessibilityRole="button" onPress={openWorkout}>
+                          <Text style={styles.name} numberOfLines={2}>
+                            {workout.name}
                           </Text>
                         </Pressable>
-                        {ratingId === workout.id ? (
-                          <View style={styles.scores}>
-                            {Array.from({ length: 10 }, (_, index) => index + 1).map((score) => (
-                              <Pressable
-                                key={score}
-                                accessibilityRole="button"
-                                accessibilityLabel={`Score ${score}`}
-                                onPress={() => void rate(workout, score)}
-                                style={[styles.score, mine === score && styles.scoreOn]}>
-                                <Text style={[styles.scoreLabel, mine === score && styles.scoreLabelOn]}>{score}</Text>
-                              </Pressable>
-                            ))}
-                          </View>
-                        ) : null}
+                        <View style={styles.metaRow}>
+                          {minutes > 0 ? (
+                            <Pressable accessibilityRole="button" onPress={openWorkout}>
+                              <Text style={styles.meta}>{minutes} min</Text>
+                            </Pressable>
+                          ) : null}
+                          {minutes > 0 && userId ? <Text style={styles.meta}> · </Text> : null}
+                          {userId ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              onPress={() => setRatingId((current) => (current === workout.id ? null : workout.id))}
+                              hitSlop={6}
+                              style={styles.scoreHit}>
+                              <Text style={styles.scoreLine} numberOfLines={1}>
+                                {ratingLabel}
+                              </Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                        <Pressable accessibilityRole="button" onPress={openWorkout}>
+                          {muscles ? (
+                            <Text style={styles.focus} numberOfLines={1}>
+                              {muscles}
+                            </Text>
+                          ) : null}
+                          {listed.length > 0 ? (
+                            <View style={styles.exerciseList}>
+                              {listed.map((name, index) => (
+                                <View key={`${name}-${index}`} style={styles.exerciseRow}>
+                                  <Text style={styles.exerciseDot}>•</Text>
+                                  <Text style={styles.exercise} numberOfLines={1}>
+                                    {name}
+                                  </Text>
+                                </View>
+                              ))}
+                              {extra > 0 ? <Text style={styles.more}>+{extra} more</Text> : null}
+                            </View>
+                          ) : null}
+                        </Pressable>
+                      </View>
+                    </View>
+
+                    {userId && ratingId === workout.id ? (
+                      <View style={styles.scores}>
+                        {Array.from({ length: 10 }, (_, index) => index + 1).map((score) => (
+                          <Pressable
+                            key={score}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Score ${score}`}
+                            onPress={() => void rate(workout, score)}
+                            style={[styles.score, mine === score && styles.scoreOn]}>
+                            <Text style={[styles.scoreLabel, mine === score && styles.scoreLabelOn]}>{score}</Text>
+                          </Pressable>
+                        ))}
                       </View>
                     ) : null}
+
+                    <View style={styles.actions}>
+                      <TrainButton
+                        label={open ? 'Resume' : 'Start'}
+                        onPress={() => router.push(`/train/session/${workout.id}` as Href)}
+                        fill
+                        compact
+                      />
+                      {open ? (
+                        <TrainButton
+                          label="Clear"
+                          tone="ghost"
+                          disabled={clearingId === workout.id}
+                          onPress={() => void clearWorkout(workout.id)}
+                          fill
+                          compact
+                        />
+                      ) : null}
+                    </View>
                   </View>
                 );
               })}
@@ -651,21 +697,46 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.lg,
-    padding: space.md,
+    paddingTop: 10,
+    paddingHorizontal: 10,
+    paddingBottom: 10,
     gap: 8,
+    position: 'relative',
   },
   cardWide: { flexBasis: 320, maxWidth: 480 },
-  head: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  copy: { flex: 1, minWidth: 0, gap: 2 },
-  name: { color: colors.text, fontSize: 18, fontWeight: '800' },
-  focus: { color: colors.accent, fontSize: 13, fontWeight: '700' },
-  body: { gap: 2 },
-  meta: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
-  exercise: { color: colors.text, fontSize: 14 },
-  more: { color: colors.textDim, fontSize: 13, fontWeight: '700' },
-  scoreBlock: { gap: 8 },
-  scoreLine: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  shareBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    zIndex: 2,
+    width: 32,
+    height: 32,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgElevated,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shareBtnPressed: { opacity: 0.82 },
+  cardBody: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingRight: 28,
+  },
+  cardCopy: { flex: 1, gap: 2, minWidth: 0 },
+  name: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  metaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', minWidth: 0 },
+  meta: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
+  scoreHit: { flexShrink: 1, minWidth: 0 },
+  scoreLine: { color: colors.text, fontSize: 12, fontWeight: '700' },
+  focus: { color: colors.accent, fontSize: 12, fontWeight: '600' },
+  exerciseList: { gap: 1, marginTop: 4 },
+  exerciseRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  exerciseDot: { color: colors.textDim, fontSize: 12, lineHeight: 16, width: 8 },
+  exercise: { color: colors.textDim, fontSize: 12, lineHeight: 16, flex: 1 },
+  more: { color: colors.textMuted, fontSize: 11, fontWeight: '600', marginTop: 2, marginLeft: 14 },
   scores: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   score: {
     width: 28,
@@ -680,5 +751,6 @@ const styles = StyleSheet.create({
   scoreOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   scoreLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
   scoreLabelOn: { color: colors.accent },
+  actions: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },
   empty: { color: colors.textMuted, fontSize: 15, paddingVertical: 24 },
 });

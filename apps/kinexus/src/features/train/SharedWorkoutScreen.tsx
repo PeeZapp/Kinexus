@@ -161,7 +161,7 @@ export function SharedWorkoutScreen() {
                   </Text>
                   {effort ? <EffortBadge effort={effort} /> : null}
                   {exercise.note ? <Text style={styles.note}>{exercise.note}</Text> : null}
-                  <MediaGallery urls={exercise.mediaUrls} />
+                  <MediaGallery urls={exercise.mediaUrls} name={exercise.name} />
                 </View>
               );
             });

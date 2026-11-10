@@ -80,7 +80,7 @@ export function SharedPlanScreen() {
         })),
       });
       setStatus('Copied to your plans');
-      router.push('/train/plan' as Href);
+      router.push('/train' as Href);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not copy this plan');
     } finally {

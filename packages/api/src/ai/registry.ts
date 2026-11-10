@@ -12,6 +12,7 @@ export type ProviderDefinition = {
   defaultModel: string;
   supportsWebSearch: boolean;
   supportsJsonMode: boolean;
+  supportsVision: boolean;
   validate: (apiKey: string) => Promise<void>;
   createClient: (opts: AiClientOptions) => AiClient;
 };
@@ -81,6 +82,7 @@ export const AI_PROVIDERS: Record<AiProvider, ProviderDefinition> = {
     defaultModel: 'claude-haiku-4-5',
     supportsWebSearch: true,
     supportsJsonMode: false,
+    supportsVision: true,
     validate: validateAnthropic,
     createClient: (opts) => new AnthropicClient(opts),
   },
@@ -91,6 +93,7 @@ export const AI_PROVIDERS: Record<AiProvider, ProviderDefinition> = {
     defaultModel: 'deepseek-chat',
     supportsWebSearch: false,
     supportsJsonMode: true,
+    supportsVision: false,
     validate: (apiKey) => validateOpenAiCompatible('DeepSeek', 'https://api.deepseek.com', apiKey),
     createClient: (opts) => new DeepSeekClient(opts),
   },
@@ -101,6 +104,7 @@ export const AI_PROVIDERS: Record<AiProvider, ProviderDefinition> = {
     defaultModel: 'gpt-4o-mini',
     supportsWebSearch: false,
     supportsJsonMode: true,
+    supportsVision: true,
     validate: (apiKey) => validateOpenAiCompatible('OpenAI', 'https://api.openai.com', apiKey),
     createClient: (opts) => new OpenAiClient(opts),
   },
@@ -111,6 +115,7 @@ export const AI_PROVIDERS: Record<AiProvider, ProviderDefinition> = {
     defaultModel: 'gemini-2.0-flash',
     supportsWebSearch: false,
     supportsJsonMode: true,
+    supportsVision: true,
     validate: validateGemini,
     createClient: (opts) => new GeminiClient(opts),
   },
@@ -121,6 +126,7 @@ export const AI_PROVIDERS: Record<AiProvider, ProviderDefinition> = {
     defaultModel: 'sonar',
     supportsWebSearch: true,
     supportsJsonMode: false,
+    supportsVision: false,
     validate: validatePerplexity,
     createClient: (opts) => new PerplexityClient(opts),
   },

@@ -2,18 +2,21 @@ import { Slot } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
 import { TrainSubnav } from '@/src/features/train/TrainSubnav';
+import { TrainWeekProvider } from '@/src/features/train/TrainWeekContext';
 import { HouseholdGate } from '@/src/features/household/HouseholdGate';
 import { colors } from '@/src/features/shell/theme';
 
 export default function TrainLayout() {
   return (
     <HouseholdGate module="Train">
-      <View style={styles.root}>
-        <TrainSubnav />
-        <View style={styles.body}>
-          <Slot />
+      <TrainWeekProvider>
+        <View style={styles.root}>
+          <TrainSubnav />
+          <View style={styles.body}>
+            <Slot />
+          </View>
         </View>
-      </View>
+      </TrainWeekProvider>
     </HouseholdGate>
   );
 }

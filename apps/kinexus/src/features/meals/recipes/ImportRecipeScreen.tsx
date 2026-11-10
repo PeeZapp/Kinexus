@@ -4,14 +4,21 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { type MealSlotKey, type Recipe } from '@kinexus/domain';
 
 import { recipeHref } from '@/src/features/meals/recipe-href';
-import { ImportView, type ImportFormState } from '@/src/features/meals/recipes/ImportShared';
+import { ImportView, type ImportFormState, type ImportTab } from '@/src/features/meals/recipes/ImportShared';
 import { LINK_ONLY_NOTE } from '@/src/features/meals/recipes/link-recipe';
+import {
+  pickRecipePhoto,
+  releaseRecipePhotoPreview,
+  uploadRecipePhoto,
+  type RecipePhotoFile,
+} from '@/src/features/meals/recipes/recipe-photo-import';
 import { applyNutrition, draftFromForm, EMPTY_RECIPE_FORM, ingredientRowsFrom, methodRowsFrom, patchRecipeForm } from '@/src/features/meals/recipes/recipe-form';
 import { resolveRecipeNutrition } from '@/src/features/meals/recipes/resolve-nutrition';
 import { useMealsSync } from '@/src/features/meals/use-meals-sync';
 import { useAiStatus } from '@/src/lib/ai-status-context';
 import { useHousehold } from '@/src/lib/household';
 import {
+  extractRecipeFromPhoto,
   extractRecipeFromText,
   generateRecipeFromName,
   importRecipeFromUrl,
@@ -20,6 +27,12 @@ import {
   type ImportedRecipe,
   type MissingRecipe,
 } from '@/src/lib/meals-api';
+
+function tabFromParam(value: string | string[] | undefined): ImportTab | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw === 'text' || raw === 'photo' || raw === 'url') return raw;
+  return null;
+}
 
 const SLOT_KEYS = new Set<string>([
   'breakfast',
@@ -36,10 +49,15 @@ export function ImportRecipeScreen() {
   const meals = useMealsSync();
   const { activeHousehold } = useHousehold();
   const { blocked, blockedMessage, guardAi, goFixKey } = useAiStatus();
-  const params = useLocalSearchParams<{ url?: string | string[]; fallback?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    url?: string | string[];
+    fallback?: string | string[];
+    tab?: string | string[];
+  }>();
   const openedFallback = useRef(false);
-  const [tab, setTab] = useState<'url' | 'text'>('url');
+  const [tab, setTab] = useState<ImportTab>(() => tabFromParam(params.tab) ?? 'url');
   const [paste, setPaste] = useState('');
+  const [photo, setPhoto] = useState<RecipePhotoFile | null>(null);
   const [form, setFormState] = useState<ImportFormState>(EMPTY_RECIPE_FORM);
   const [phase, setPhase] = useState<'idle' | 'fetching' | 'extracting'>('idle');
   const [source, setSource] = useState<ImportSource | null>(null);
@@ -48,6 +66,15 @@ export function ImportRecipeScreen() {
   const [busy, setBusy] = useState(false);
   const [resultsMayVary, setResultsMayVary] = useState(false);
   const householdId = activeHousehold?.id;
+
+  useEffect(() => {
+    const next = tabFromParam(params.tab);
+    if (next) setTab(next);
+  }, [params.tab]);
+
+  useEffect(() => {
+    return () => releaseRecipePhotoPreview(photo);
+  }, [photo]);
 
   function setForm(patch: Partial<ImportFormState>) {
     setFormState((current) => patchRecipeForm(current, patch));
@@ -99,7 +126,7 @@ export function ImportRecipeScreen() {
       setError('Pick a household first.');
       return;
     }
-    if (tab === 'text' && !requireAi()) return;
+    if ((tab === 'text' || tab === 'photo') && !requireAi()) return;
     setError(null);
     setResultsMayVary(false);
     try {
@@ -112,6 +139,25 @@ export function ImportRecipeScreen() {
         const result = await extractRecipeFromText(paste.trim(), householdId);
         setResultsMayVary(Boolean(result.resultsMayVary));
         applyDraft(result.value, 'text-paste');
+        return;
+      }
+      if (tab === 'photo') {
+        if (!photo) {
+          setError('Choose a recipe photo first.');
+          return;
+        }
+        setPhase('extracting');
+        const imageUrl = await uploadRecipePhoto(householdId, photo);
+        const result = await extractRecipeFromPhoto(imageUrl, householdId);
+        setResultsMayVary(Boolean(result.resultsMayVary));
+        applyDraft(
+          {
+            ...result.value,
+            imageUrl: result.value.imageUrl ?? imageUrl,
+            imageCandidates: result.value.imageCandidates ?? [imageUrl],
+          },
+          'photo',
+        );
         return;
       }
       const url = form.url.trim();
@@ -134,6 +180,20 @@ export function ImportRecipeScreen() {
       setError(err instanceof Error ? err.message : 'Could not extract recipe');
     } finally {
       setPhase('idle');
+    }
+  }
+
+  async function onPickPhoto() {
+    setError(null);
+    try {
+      const next = await pickRecipePhoto();
+      if (!next) return;
+      setPhoto((current) => {
+        releaseRecipePhotoPreview(current);
+        return next;
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not open that photo');
     }
   }
 
@@ -258,6 +318,8 @@ export function ImportRecipeScreen() {
     setTab,
     paste,
     setPaste,
+    photoPreviewUrl: photo?.previewUrl ?? null,
+    onPickPhoto: () => void onPickPhoto(),
     form,
     setForm,
     phase,

@@ -116,5 +116,14 @@ export function titleFromPath(pathname: string): string {
   if (pathname.startsWith('/meals/pantry')) return 'Pantry';
   if (pathname.startsWith('/meals/recipes/import')) return 'Import';
   if (pathname.startsWith('/meals/recipes')) return 'Recipes';
+  if (pathname.startsWith('/train/plan/generate')) return 'Generate';
+  if (pathname === '/train' || pathname.startsWith('/train/plan')) return 'Plan';
+  if (pathname === '/train/workouts') return 'Workouts';
+  if (pathname.startsWith('/train/family')) return 'Family';
+  if (pathname.startsWith('/train/remix')) return 'Remix';
+  if (pathname.startsWith('/train/library')) return 'Library';
+  if (pathname.startsWith('/train/buddies')) return 'Buddies';
+  if (pathname.startsWith('/train/session')) return 'Session';
+  if (/^\/train\/[^/]+$/.test(pathname)) return 'Workout';
   return moduleFromPath(pathname)?.label ?? 'Kinexus';
 }

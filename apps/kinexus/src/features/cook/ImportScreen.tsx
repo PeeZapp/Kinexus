@@ -108,7 +108,12 @@ export function ImportScreen() {
         <Btn
           label="Paste recipe text instead"
           variant="ghost"
-          onPress={() => router.push('/meals/recipes/import' as Href)}
+          onPress={() => router.push({ pathname: '/meals/recipes/import', params: { tab: 'text' } } as Href)}
+        />
+        <Btn
+          label="Import from photo"
+          variant="ghost"
+          onPress={() => router.push({ pathname: '/meals/recipes/import', params: { tab: 'photo' } } as Href)}
         />
         <Btn label="My Recipes" variant="secondary" onPress={() => router.push('/recipes' as Href)} />
       </ScrollView>

@@ -14,6 +14,8 @@ export type PlanDayCardModel = {
   workoutId: string | null;
   workoutName: string | null;
   sessionId: string | null;
+  exerciseNames: string[];
+  muscleGroups: string[];
   /** Shown after calendar add when scheduled_time was null (defaulted to 07:00). */
   usedDefaultTime?: boolean;
 };

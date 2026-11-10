@@ -1,5 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import {
+  Animated,
+  FlatList,
+  PanResponder,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+  type GestureResponderEvent,
+  type PanResponderGestureState,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -665,7 +679,7 @@ export function WorkoutBuilder({
           if (!editable) {
             return (
               <View key={exercise.key} style={styles.selectedRow}>
-                <Text style={[styles.exerciseName, styles.selectedName]} numberOfLines={1}>
+                <Text style={styles.selectedTitle}>
                   {exerciseTitle(exercise.name)}
                   {cluster.type === 'superset' ? ` · Part ${part + 1}` : ''}
                 </Text>
@@ -718,22 +732,6 @@ export function WorkoutBuilder({
               onEffort={(targetEffort) => {
                 setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetEffort } : row)));
               }}
-              onNote={(note) => {
-                setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, note: note.slice(0, 160) } : row)));
-              }}
-              onPersonalNote={
-                onPersonalNotes
-                  ? (personalNote) => {
-                      setSelected((current) => {
-                        const next = current.map((row) =>
-                          row.key === exercise.key ? { ...row, personalNote: personalNote.slice(0, 280) } : row,
-                        );
-                        void persistPersonal(next, workoutNote);
-                        return next;
-                      });
-                    }
-                  : undefined
-              }
             />
           );
         });
@@ -755,9 +753,6 @@ export function WorkoutBuilder({
         {libraryReady ? <Text style={styles.count}>{matches.length.toLocaleString()}</Text> : null}
       </View>
       <SearchField value={query} onChangeText={setQuery} placeholder="Search exercises" />
-      {editable && userId ? (
-        <TextAction label="Can't find it? Add custom exercise" tone="accent" onPress={() => setCustomOpen(true)} />
-      ) : null}
       <View style={styles.filters}>
         <FilterBar>
           <FilterDropdown
@@ -771,6 +766,9 @@ export function WorkoutBuilder({
             onToggle={toggleMenu}
             onSelect={pick(setCategory)}
           />
+          {editable && userId ? (
+            <TrainButton label="Add custom exercise" tone="ghost" compact onPress={() => setCustomOpen(true)} />
+          ) : null}
         </FilterBar>
       </View>
       <View style={[styles.listWrap, split && preview ? styles.listWrapSplit : null]}>
@@ -993,6 +991,10 @@ export function WorkoutBuilder({
         householdId={activeHousehold?.id ?? null}
         canManageHousehold={canManageHousehold || role === 'owner' || role === 'admin'}
         isStaff={staff.isStaff}
+        onPickExisting={(exerciseId) => {
+          const existing = library.find((row) => row.id === exerciseId);
+          if (existing) addExercise(existing);
+        }}
         onSaved={(exerciseId) => {
           void ensureLibrary(true).then((rows) => {
             setLibrary(rows);
@@ -1117,7 +1119,7 @@ function ExercisePreview({
         <Text style={styles.previewTitle}>{exerciseTitle(exercise.name)}</Text>
         <TextAction label="Close" tone="accent" onPress={onClose} />
       </View>
-      {exercise.mediaUrls.length > 0 ? <MediaGallery urls={exercise.mediaUrls} /> : null}
+      {exercise.mediaUrls.length > 0 ? <MediaGallery urls={exercise.mediaUrls} name={exercise.name} /> : null}
       {facts.length > 0 ? (
         <View style={styles.pills}>
           {facts.map((fact) => (
@@ -1163,6 +1165,19 @@ function LabeledSlot({
   );
 }
 
+const REORDER_STEP_PX = 72;
+const DRAG_HOLD_MS = 160;
+
+function GripMark() {
+  return (
+    <View style={styles.gripMark} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <View style={styles.gripLine} />
+      <View style={styles.gripLine} />
+      <View style={styles.gripLine} />
+    </View>
+  );
+}
+
 function SelectedExercise({
   exercise,
   part,
@@ -1186,8 +1201,6 @@ function SelectedExercise({
   onSets,
   onReps,
   onEffort,
-  onNote,
-  onPersonalNote,
 }: {
   exercise: BuiltExercise;
   part: number | null;
@@ -1211,84 +1224,211 @@ function SelectedExercise({
   onSets: (value: string) => void;
   onReps: (value: string) => void;
   onEffort: (value: EffortLevel | null) => void;
-  onNote: (value: string) => void;
-  onPersonalNote?: (value: string) => void;
 }) {
   const guideKind = exerciseGuideKind(exercise.category);
   const guideOptions = guideOptionsFor(guideKind);
+  const [dragging, setDragging] = useState(false);
+  const translateY = useRef(new Animated.Value(0)).current;
+  const drag = useRef({
+    active: false,
+    origin: 0,
+    timer: null as ReturnType<typeof setTimeout> | null,
+  });
+  const moveRef = useRef({ canMoveUp, canMoveDown, onMoveUp, onMoveDown });
+  moveRef.current = { canMoveUp, canMoveDown, onMoveUp, onMoveDown };
+
+  const clearDragTimer = () => {
+    if (drag.current.timer) {
+      clearTimeout(drag.current.timer);
+      drag.current.timer = null;
+    }
+  };
+
+  const beginDrag = () => {
+    if (drag.current.active) return;
+    clearDragTimer();
+    drag.current.active = true;
+    drag.current.origin = 0;
+    setDragging(true);
+  };
+
+  const endDrag = () => {
+    clearDragTimer();
+    const wasActive = drag.current.active;
+    drag.current.active = false;
+    drag.current.origin = 0;
+    setDragging(false);
+    if (!wasActive) {
+      translateY.setValue(0);
+      return;
+    }
+    Animated.spring(translateY, {
+      toValue: 0,
+      useNativeDriver: true,
+      friction: 8,
+      tension: 120,
+    }).start();
+  };
+
+  useEffect(() => () => clearDragTimer(), []);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderTerminationRequest: () => !drag.current.active,
+        onShouldBlockNativeResponder: () => true,
+        onPanResponderGrant: () => {
+          clearDragTimer();
+          translateY.stopAnimation();
+          translateY.setValue(0);
+          // Mouse/desktop: grab immediately so the card moves instead of selecting text.
+          if (Platform.OS === 'web') {
+            beginDrag();
+            return;
+          }
+          drag.current.timer = setTimeout(beginDrag, DRAG_HOLD_MS);
+        },
+        onPanResponderMove: (_event: GestureResponderEvent, gesture: PanResponderGestureState) => {
+          if (!drag.current.active) {
+            if (Math.abs(gesture.dy) > 8 || Math.abs(gesture.dx) > 8) clearDragTimer();
+            return;
+          }
+          let visual = gesture.dy - drag.current.origin;
+          while (visual >= REORDER_STEP_PX && moveRef.current.canMoveDown) {
+            moveRef.current.onMoveDown();
+            drag.current.origin += REORDER_STEP_PX;
+            visual -= REORDER_STEP_PX;
+          }
+          while (visual <= -REORDER_STEP_PX && moveRef.current.canMoveUp) {
+            moveRef.current.onMoveUp();
+            drag.current.origin -= REORDER_STEP_PX;
+            visual += REORDER_STEP_PX;
+          }
+          translateY.setValue(visual);
+        },
+        onPanResponderRelease: endDrag,
+        onPanResponderTerminate: endDrag,
+      }),
+    [translateY],
+  );
+
+  const linkAction =
+    editable && canPair ? (
+      isSource ? (
+        <TextAction label="Cancel" onPress={onCancelPair} />
+      ) : pairing ? (
+        <TextAction label="Pair" tone="accent" onPress={onPair} />
+      ) : (
+        <TextAction label="Superset" tone="accent" onPress={onSuperset} />
+      )
+    ) : null;
+
+  const webNoSelect =
+    Platform.OS === 'web' ? ({ userSelect: 'none', WebkitUserSelect: 'none' } as Record<string, string>) : null;
+  const webGrab =
+    Platform.OS === 'web' ? ({ cursor: dragging ? 'grabbing' : 'grab' } as Record<string, string>) : null;
+
   return (
-    <View
+    <Animated.View
       ref={rowRef}
-      style={[styles.selectedRow, isSource && styles.selectedRowActive, highlighted && styles.selectedRowProblem]}>
-      <View style={styles.selectedTop}>
-        <View style={styles.selectedCopy}>
-          <Text style={[styles.exerciseName, styles.selectedName]} numberOfLines={1}>
-            {exerciseTitle(exercise.name)}
-          </Text>
-          {exercise.category || part ? (
-            <View style={styles.selectedSub}>
-              {exercise.category ? <CategoryMark category={exercise.category} /> : null}
-              {part ? <Text style={styles.part}>Part {part}</Text> : null}
-            </View>
-          ) : null}
+      style={[
+        styles.selectedRow,
+        isSource && styles.selectedRowActive,
+        highlighted && styles.selectedRowProblem,
+        dragging && styles.selectedRowDragging,
+        webNoSelect,
+        {
+          transform: [{ translateY }],
+          zIndex: dragging ? 30 : 0,
+        },
+      ]}>
+      {editable ? (
+        <View
+          {...panResponder.panHandlers}
+          {...(Platform.OS === 'web'
+            ? {
+                onMouseDown: (event: { preventDefault?: () => void }) => {
+                  event.preventDefault?.();
+                },
+              }
+            : null)}
+          style={[styles.dragRail, dragging && styles.dragRailActive, webNoSelect, webGrab]}
+          accessibilityRole="adjustable"
+          accessibilityLabel={`Reorder ${exerciseTitle(exercise.name)}`}
+          accessibilityHint={
+            Platform.OS === 'web' ? 'Drag up or down to reorder' : 'Press and hold, then drag up or down'
+          }>
+          <View style={[styles.dragHit, webNoSelect]}>
+            <GripMark />
+          </View>
         </View>
-        {editable ? (
-          <>
+      ) : null}
+      <View style={styles.selectedBody} pointerEvents={dragging ? 'none' : 'auto'}>
+        <View style={styles.selectedHeader}>
+          <Text style={styles.selectedTitle}>{exerciseTitle(exercise.name)}</Text>
+          <View style={styles.selectedTools}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Move ${exerciseTitle(exercise.name)} up`}
-              disabled={!canMoveUp}
-              onPress={onMoveUp}
-              hitSlop={8}>
-              <Text style={[styles.reorder, !canMoveUp && styles.reorderDisabled]}>Up</Text>
+              accessibilityLabel={`Details for ${exerciseTitle(exercise.name)}`}
+              disabled={!detailsReady}
+              onPress={onDetails}
+              hitSlop={8}
+              style={({ pressed }) => [
+                styles.infoButton,
+                !detailsReady && styles.infoButtonDisabled,
+                pressed && detailsReady && styles.pressed,
+              ]}>
+              <Text style={styles.infoGlyph}>i</Text>
             </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Move ${exerciseTitle(exercise.name)} down`}
-              disabled={!canMoveDown}
-              onPress={onMoveDown}
-              hitSlop={8}>
-              <Text style={[styles.reorder, !canMoveDown && styles.reorderDisabled]}>Down</Text>
-            </Pressable>
-          </>
-        ) : null}
-        {editable && canPair ? (
-          isSource ? (
-            <TextAction label="Cancel" onPress={onCancelPair} />
-          ) : pairing ? (
-            <TextAction label="Pair" tone="accent" onPress={onPair} />
-          ) : (
-            <TextAction label="Superset" tone="accent" onPress={onSuperset} />
-          )
-        ) : null}
-        {editable && canPair && exercise.supersetId && !pairing ? <TextAction label="Unlink" onPress={onUnlink} /> : null}
-        <TrainButton label="Details" disabled={!detailsReady} onPress={onDetails} />
-        {editable ? <IconButton label={`Remove ${exerciseTitle(exercise.name)}`} glyph="×" tone="remove" compact onPress={onRemove} /> : null}
-      </View>
-      <View style={styles.targets}>
-        <LabeledSlot label="Sets" editable={editable} keyboard="number-pad" value={exercise.targetSets} onChangeText={onSets} width={78} />
-        <Text style={styles.times}>×</Text>
-        <LabeledSlot label="Reps" editable={editable} keyboard="default" value={exercise.targetReps ?? ''} onChangeText={onReps} width={78} />
-      </View>
-      <View style={styles.loadGuide}>
-        <Text style={styles.loadGuideLabel}>{guideTitleFor(guideKind)}</Text>
-        <View style={styles.effortRow}>
-          {guideOptions.map((option) => (
-            <Choice
-              key={option.level}
-              label={option.label}
-              active={exercise.targetEffort === option.level}
-              onPress={() => {
-                if (!editable) return;
-                onEffort(exercise.targetEffort === option.level ? null : option.level);
-              }}
-            />
-          ))}
+            {editable ? (
+              <IconButton label={`Remove ${exerciseTitle(exercise.name)}`} glyph="×" tone="remove" compact onPress={onRemove} />
+            ) : null}
+          </View>
         </View>
+        {exercise.category || part ? (
+          <View style={styles.selectedSub}>
+            {exercise.category ? <CategoryMark category={exercise.category} /> : null}
+            {part ? <Text style={styles.part}>Part {part}</Text> : null}
+          </View>
+        ) : null}
+        <View style={styles.targets}>
+          <LabeledSlot label="Sets" editable={editable} keyboard="number-pad" value={exercise.targetSets} onChangeText={onSets} width={84} />
+          <Text style={styles.times}>×</Text>
+          <LabeledSlot
+            label="Reps"
+            editable={editable}
+            keyboard="default"
+            value={exercise.targetReps ?? ''}
+            onChangeText={onReps}
+            width={84}
+          />
+        </View>
+        <View style={styles.loadGuide}>
+          <Text style={styles.loadGuideLabel}>{guideTitleFor(guideKind)}</Text>
+          <View style={styles.effortRow}>
+            {guideOptions.map((option) => (
+              <Choice
+                key={option.level}
+                label={option.label}
+                active={exercise.targetEffort === option.level}
+                onPress={() => {
+                  if (!editable) return;
+                  onEffort(exercise.targetEffort === option.level ? null : option.level);
+                }}
+              />
+            ))}
+          </View>
+        </View>
+        {linkAction || (editable && canPair && exercise.supersetId && !pairing) ? (
+          <View style={styles.linkRow}>
+            {linkAction}
+            {editable && canPair && exercise.supersetId && !pairing ? <TextAction label="Unlink" onPress={onUnlink} /> : null}
+          </View>
+        ) : null}
       </View>
-      <NoteLine label="Note" value={exercise.note} editable={editable} onSave={onNote} />
-      {onPersonalNote ? <NoteLine label="Mine" value={exercise.personalNote} editable maxLength={280} onSave={onPersonalNote} /> : null}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -1353,58 +1493,132 @@ const styles = StyleSheet.create({
   selectedBlockSplit: { flex: 1, minHeight: 0, flexShrink: 1 },
   selectedScroll: { maxHeight: 280 },
   selectedScrollSplit: { flex: 1 },
-  selectedContent: { gap: 6 },
+  selectedContent: { gap: 8 },
   selectedRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
     backgroundColor: colors.bgCard,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    gap: 4,
     minWidth: 0,
     maxWidth: '100%',
+    overflow: 'hidden',
   },
   selectedRowActive: { borderColor: colors.accent },
+  selectedRowDragging: {
+    borderColor: colors.accent,
+    backgroundColor: colors.bgHover,
+    overflow: 'visible',
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 12,
+  },
+  dragRail: {
+    width: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.bg,
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
+  },
+  dragRailActive: {
+    backgroundColor: colors.accentSoft,
+    borderRightColor: colors.accentMuted,
+  },
+  dragHit: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
+  gripMark: { gap: 3, alignItems: 'center', justifyContent: 'center' },
+  gripLine: {
+    width: 12,
+    height: 2,
+    borderRadius: 999,
+    backgroundColor: colors.textDim,
+  },
+  selectedBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  selectedHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  selectedTitle: {
+    flex: 1,
+    minWidth: 0,
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 22,
+  },
+  selectedTools: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 },
+  infoButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgHover,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  infoButtonDisabled: { opacity: 0.35 },
+  infoGlyph: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '800',
+    fontStyle: 'italic',
+    lineHeight: 16,
+  },
   superset: {
-    gap: 4,
+    gap: 6,
     borderWidth: 1,
     borderColor: colors.accentMuted,
     backgroundColor: colors.accentSoft,
     borderRadius: radius.md,
-    padding: 6,
+    padding: 8,
   },
-  supersetLabel: { color: colors.accent, fontSize: 11, fontWeight: '800' },
-  selectedTop: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  selectedCopy: { flex: 1, minWidth: 0, gap: 2 },
-  selectedName: { flexGrow: 0, flexBasis: 'auto' },
-  selectedSub: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  targets: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  supersetLabel: { color: colors.accent, fontSize: 11, fontWeight: '800', paddingHorizontal: 2 },
+  selectedSub: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  targets: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
   loadGuide: { gap: 6, minWidth: 0, maxWidth: '100%' },
   loadGuideLabel: { color: colors.textDim, fontSize: 11, fontWeight: '700' },
   effortRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, minWidth: 0 },
+  linkRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12, paddingTop: 2 },
   times: { color: colors.textDim, fontSize: 14, fontWeight: '700' },
   slot: {
-    height: 32,
+    height: 36,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
     backgroundColor: colors.bg,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
   },
   slotFill: { flex: 1, minWidth: 120 },
   slotLabel: { color: colors.textDim, fontSize: 11, fontWeight: '700' },
   slotInput: {
     flex: 1,
-    minWidth: 18,
-    height: 30,
+    minWidth: 22,
+    height: 34,
     paddingVertical: 0,
     paddingHorizontal: 0,
     color: colors.text,
-    fontSize: 14,
+    fontSize: 15,
+    fontWeight: '700',
     textAlign: 'center',
   },
   slotInputFill: { textAlign: 'left' },
@@ -1444,8 +1658,6 @@ const styles = StyleSheet.create({
   },
   footerViewer: { justifyContent: 'flex-end' },
   footerActions: { flexGrow: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 8, minWidth: 160 },
-  reorder: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
-  reorderDisabled: { opacity: 0.35 },
   selectedRowProblem: { borderColor: colors.danger },
   mark: { borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 },
   markLabel: { fontSize: 11, fontWeight: '800' },

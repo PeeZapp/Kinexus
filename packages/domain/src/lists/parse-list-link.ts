@@ -81,10 +81,10 @@ function h1Text(html: string): string | null {
 
 function looksPrivateOrBlocked(html: string): boolean {
   const lower = html.toLowerCase();
+  // Keep phrases specific — Letterboxd page chrome includes "you (private list)" in JS.
+  if (lower.includes('sorry, this list is private')) return true;
   if (lower.includes('this list is private')) return true;
-  if (lower.includes('list is private')) return true;
-  if (lower.includes('private list')) return true;
-  if (lower.includes('sign in to view')) return true;
+  if (lower.includes('sign in to view this list')) return true;
   if (lower.includes('you must be signed in')) return true;
   if (lower.includes('content is not available')) return true;
   if (lower.includes('page not found') && lower.includes('404')) return true;
@@ -115,13 +115,22 @@ export function isWatchlistListImportUrl(raw: string): boolean {
   return classifyWatchlistListImportUrl(raw) != null;
 }
 
+/** Letterboxd share short links (boxd.it) — resolved server-side to list/watchlist URLs. */
+export function isLetterboxdShortListHost(host: string): boolean {
+  const h = host.replace(/^www\./, '').toLowerCase();
+  return h === 'boxd.it' || h.endsWith('.boxd.it');
+}
+
 export function classifyWatchlistListImportUrl(raw: string): {
   source: ListLinkSource;
   canonicalUrl: string;
 } | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
   let url: URL;
   try {
-    url = new URL(raw.trim());
+    // Match Hevy: allow bare hosts like letterboxd.com/... without a scheme.
+    url = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`);
   } catch {
     return null;
   }
@@ -131,28 +140,46 @@ export function classifyWatchlistListImportUrl(raw: string): {
 
   if (host === 'imdb.com' || host.endsWith('.imdb.com')) {
     const list = path.match(/\/list\/(ls\d+)/i);
-    if (!list?.[1]) return null;
-    const page = url.searchParams.get('page');
-    const canonical = new URL(`https://www.imdb.com/list/${list[1].toLowerCase()}/`);
-    if (page && /^\d+$/.test(page) && Number(page) > 1) {
-      canonical.searchParams.set('page', page);
+    if (list?.[1]) {
+      const page = url.searchParams.get('page');
+      const canonical = new URL(`https://www.imdb.com/list/${list[1].toLowerCase()}/`);
+      if (page && /^\d+$/.test(page) && Number(page) > 1) {
+        canonical.searchParams.set('page', page);
+      }
+      return { source: 'imdb', canonicalUrl: canonical.href };
     }
-    return { source: 'imdb', canonicalUrl: canonical.href };
+    // Charts (Top 250, Top TV, Most Popular, …) — single-page, parsed from __NEXT_DATA__.
+    const chart = path.match(/^\/chart\/([a-z0-9-]+)\/?$/i);
+    if (chart?.[1]) {
+      return {
+        source: 'imdb',
+        canonicalUrl: `https://www.imdb.com/chart/${chart[1].toLowerCase()}/`,
+      };
+    }
+    return null;
+  }
+
+  // boxd.it/XXXX[/detail] → resolve via redirect on the API (like Hevy short links).
+  if (isLetterboxdShortListHost(host)) {
+    const code = path.match(/^\/([A-Za-z0-9]+)(?:\/detail)?\/?$/i);
+    if (!code?.[1]) return null;
+    return { source: 'letterboxd', canonicalUrl: `https://boxd.it/${code[1]}` };
   }
 
   if (host === 'letterboxd.com' || host.endsWith('.letterboxd.com')) {
-    const list = path.match(/^\/([^/]+)\/list\/([^/]+)\/?/i);
+    // Allow /detail and /page/N suffixes on list URLs (share links often include /detail/).
+    const list = path.match(/^\/([^/]+)\/list\/([^/]+)(?:\/detail)?(?:\/page\/(\d+))?\/?$/i);
     if (list?.[1] && list[2] && list[1].toLowerCase() !== 'film') {
-      const pageMatch = path.match(/\/page\/(\d+)\/?$/i);
       const base = `https://letterboxd.com/${list[1]}/list/${list[2]}/`;
-      const canonical = pageMatch?.[1] && Number(pageMatch[1]) > 1 ? `${base}page/${pageMatch[1]}/` : base;
+      const page = list[3];
+      const canonical = page && Number(page) > 1 ? `${base}page/${page}/` : base;
       return { source: 'letterboxd', canonicalUrl: canonical };
     }
-    const watchlist = path.match(/^\/([^/]+)\/watchlist\/?/i);
+    const watchlist = path.match(/^\/([^/]+)\/watchlist(?:\/detail)?(?:\/page\/(\d+))?\/?$/i);
     if (watchlist?.[1] && watchlist[1].toLowerCase() !== 'film') {
-      const pageMatch = path.match(/\/page\/(\d+)\/?$/i);
       const base = `https://letterboxd.com/${watchlist[1]}/watchlist/`;
-      const canonical = pageMatch?.[1] && Number(pageMatch[1]) > 1 ? `${base}page/${pageMatch[1]}/` : base;
+      const page = watchlist[2];
+      const canonical = page && Number(page) > 1 ? `${base}page/${page}/` : base;
       return { source: 'letterboxd', canonicalUrl: canonical };
     }
   }
@@ -194,7 +221,56 @@ function nextLetterboxdPageUrl(pageUrl: string, html: string): string | null {
   return `${current.origin}${nextPath}`;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function extractNextData(html: string): unknown | null {
+  const match = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (!match?.[1]) return null;
+  try {
+    return JSON.parse(match[1]) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+/** Walk __NEXT_DATA__ for chartTitles.edges (Top 250 / Top TV / meters). */
+function parseImdbChartNextData(html: string): ListLinkItem[] {
+  const next = extractNextData(html);
+  const pageProps = asRecord(asRecord(asRecord(next)?.props)?.pageProps);
+  const pageData = asRecord(pageProps?.pageData) ?? asRecord(pageProps?.data) ?? pageProps;
+  const chartTitles = asRecord(pageData?.chartTitles);
+  const edges = Array.isArray(chartTitles?.edges) ? chartTitles.edges : [];
+  const items: ListLinkItem[] = [];
+  const seen = new Set<string>();
+  for (const edge of edges) {
+    const node = asRecord(asRecord(edge)?.node);
+    if (!node) continue;
+    const imdbId = normalizeImdbId(typeof node.id === 'string' ? node.id : null);
+    if (!imdbId || seen.has(imdbId)) continue;
+    const titleText = asRecord(node.titleText);
+    const title =
+      (typeof titleText?.text === 'string' ? titleText.text.trim() : '') ||
+      (typeof node.title === 'string' ? node.title.trim() : '') ||
+      imdbId;
+    const releaseYear = asRecord(node.releaseYear);
+    const year =
+      typeof releaseYear?.year === 'number'
+        ? releaseYear.year
+        : yearFromText(typeof releaseYear?.year === 'string' ? releaseYear.year : null);
+    seen.add(imdbId);
+    items.push({ imdbId, title, year });
+  }
+  return items;
+}
+
 function parseImdbListItems(html: string): ListLinkItem[] {
+  const fromChart = parseImdbChartNextData(html);
+  if (fromChart.length > 0) return fromChart;
+
   const byId = new Map<string, ListLinkItem>();
 
   // Classic lister markup: data-tconst + title + year nearby.
@@ -299,8 +375,12 @@ function parseLetterboxdListItems(html: string): ListLinkItem[] {
 
 export function parseLetterboxdListHtml(html: string, pageUrl: string): ParsedListLinkPage {
   const privateOrBlocked = looksPrivateOrBlocked(html);
+  // Prefer og:title — modern Letterboxd pages put site chrome in <h1>.
+  const h1 = h1Text(html);
   const listName = cleanListName(
-    h1Text(html) ?? metaContent(html, ['og:title']) ?? titleTag(html),
+    metaContent(html, ['og:title']) ??
+      (h1 && !/^letterboxd\b/i.test(h1) ? h1 : null) ??
+      titleTag(html),
     'letterboxd',
   );
   const items = privateOrBlocked ? [] : parseLetterboxdListItems(html);

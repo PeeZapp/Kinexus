@@ -237,7 +237,7 @@ function ExerciseLibraryPane() {
       <Sheet visible={selected !== null} title={selected ? exerciseTitle(selected.name) : ''} wide onClose={() => setSelected(null)}>
         {selected ? (
           <View style={styles.detail}>
-            {selected.mediaUrls.length > 0 ? <MediaGallery urls={selected.mediaUrls} /> : null}
+            {selected.mediaUrls.length > 0 ? <MediaGallery urls={selected.mediaUrls} name={selected.name} /> : null}
             <View style={styles.pills}>
               <Pill label={EXERCISE_SOURCE_BADGE_LABEL[selected.sourceBadge]} />
               {facts.map((fact) => (

@@ -92,6 +92,8 @@ function isWatchlistHost(host: string): boolean {
     host.endsWith('.themoviedb.org') ||
     host === 'letterboxd.com' ||
     host.endsWith('.letterboxd.com') ||
+    host === 'boxd.it' ||
+    host.endsWith('.boxd.it') ||
     host === 'justwatch.com' ||
     host.endsWith('.justwatch.com')
   );

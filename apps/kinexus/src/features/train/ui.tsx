@@ -1,8 +1,9 @@
-import { useEffect, useState, type ReactNode, type Ref } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { EFFORT_COLOR, EFFORT_LABEL, type EffortLevel } from '@kinexus/domain';
 
+import { isExercisedbMediaUrl, nextExerciseMediaUrl } from '@/src/features/train/exercise-media';
 import { instructionSteps } from '@/src/features/train/format';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
@@ -263,22 +264,80 @@ export function ExerciseSteps({ instructions }: { instructions: string[] }) {
   );
 }
 
-export function MediaFrame({ uri }: { uri: string }) {
+export function MediaFrame({ uri, name }: { uri: string; name?: string }) {
+  return <ResilientMediaFrame urls={[uri]} name={name} />;
+}
+
+function ResilientMediaFrame({ urls, name }: { urls: string[]; name?: string }) {
+  const [uri, setUri] = useState<string | null>(urls[0] ?? null);
+  const failedRef = useRef<string[]>([]);
+  const busyRef = useRef(false);
+  const urlsKey = urls.join('\0');
+
+  useEffect(() => {
+    failedRef.current = [];
+    busyRef.current = false;
+    setUri(urls[0] ?? null);
+  }, [urlsKey, name, urls]);
+
+  if (!uri) return null;
+
   return (
     <View style={styles.media}>
-      <Image source={{ uri }} style={styles.mediaImage} resizeMode="contain" accessibilityIgnoresInvertColors />
+      <Image
+        source={{ uri }}
+        style={styles.mediaImage}
+        resizeMode="contain"
+        accessibilityIgnoresInvertColors
+        onError={() => {
+          if (busyRef.current) return;
+          busyRef.current = true;
+          const failed = [...failedRef.current, uri];
+          failedRef.current = failed;
+          void nextExerciseMediaUrl({ urls, name, failed }).then((next) => {
+            setUri(next);
+            busyRef.current = false;
+          });
+        }}
+      />
     </View>
   );
 }
 
-export function MediaGallery({ urls }: { urls: string[] }) {
-  if (urls.length === 0) return null;
-  if (urls.length === 1) return <MediaFrame uri={urls[0]!} />;
+export function MediaGallery({ urls, name }: { urls: string[]; name?: string }) {
+  const clean = [...new Set(urls.map((url) => url.trim()).filter(Boolean))];
+  if (clean.length === 0) return null;
+
+  const resolveByName = Boolean(name) && clean.some(isExercisedbMediaUrl);
+  if (clean.length === 1 || resolveByName) {
+    return <ResilientMediaFrame urls={clean} name={name} />;
+  }
+
+  return <MediaPair urls={clean} />;
+}
+
+function MediaPair({ urls }: { urls: string[] }) {
+  const [visible, setVisible] = useState(urls);
+  const urlsKey = urls.join('\0');
+
+  useEffect(() => {
+    setVisible(urls);
+  }, [urlsKey, urls]);
+
+  if (visible.length === 0) return null;
+  if (visible.length === 1) return <ResilientMediaFrame urls={visible} />;
+
   return (
     <View style={styles.mediaPair}>
-      {urls.map((uri, index) => (
+      {visible.map((uri, index) => (
         <View key={uri} style={styles.mediaPairItem}>
-          <Image source={{ uri }} style={styles.mediaImage} resizeMode="contain" accessibilityIgnoresInvertColors />
+          <Image
+            source={{ uri }}
+            style={styles.mediaImage}
+            resizeMode="contain"
+            accessibilityIgnoresInvertColors
+            onError={() => setVisible((current) => current.filter((item) => item !== uri))}
+          />
           <View style={styles.mediaIndex}>
             <Text style={styles.mediaIndexLabel}>{index + 1}</Text>
           </View>

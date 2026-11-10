@@ -865,7 +865,7 @@ export function SessionScreen({
         );
         if (saveIt) await saveWorkoutToLibrary(linkedWorkoutId);
       }
-      router.replace('/train' as Href);
+      router.replace('/train/workouts' as Href);
     } catch (err: unknown) {
       setScoreOpen(false);
       setError(err instanceof Error ? err.message : 'Could not finish the workout');
@@ -899,7 +899,7 @@ export function SessionScreen({
               <Text style={styles.pageBack}>Save</Text>
             </Pressable>
           ) : null}
-          <Pressable onPress={() => router.replace('/train' as Href)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back to workouts">
+          <Pressable onPress={() => router.replace('/train/workouts' as Href)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back to workouts">
             <Text style={styles.pageBack}>Back</Text>
           </Pressable>
         </View>
@@ -951,47 +951,55 @@ export function SessionScreen({
               const exerciseDone = group.length > 0 && doneCount === group.length;
               return (
                 <View key={position} style={[styles.compactRow, exerciseDone && styles.compactRowDone]}>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => {
-                      if (exerciseId) setDetailId(exerciseId);
-                    }}
-                    style={styles.compactCopy}>
-                    <Text style={styles.compactName} numberOfLines={1}>
-                      {exerciseTitle(name)}
-                    </Text>
-                    <Text style={styles.compactMeta}>
-                      {durationMode ? targetReps || '–' : `${group.length} × ${targetReps || '–'}`}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Move ${exerciseTitle(name)} up`}
-                    disabled={groups[0]?.[0] === position}
-                    onPress={() => void moveExercise(position, -1)}
-                    hitSlop={8}>
-                    <Text style={[styles.swap, groups[0]?.[0] === position && styles.actionDisabled]}>Up</Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Move ${exerciseTitle(name)} down`}
-                    disabled={groups[groups.length - 1]?.[0] === position}
-                    onPress={() => void moveExercise(position, 1)}
-                    hitSlop={8}>
-                    <Text style={[styles.swap, groups[groups.length - 1]?.[0] === position && styles.actionDisabled]}>
-                      Down
-                    </Text>
-                  </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Swap ${exerciseTitle(name)}`} onPress={() => void swapSlot(position, group)} hitSlop={8}>
-                    <Text style={styles.swap}>Swap</Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove ${exerciseTitle(name)}`}
-                    onPress={() => void askRemoveExercise(position, name)}
-                    hitSlop={8}>
-                    <Text style={styles.remove}>Remove</Text>
-                  </Pressable>
+                  <View style={styles.compactBody}>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => {
+                        if (exerciseId) setDetailId(exerciseId);
+                      }}
+                      style={styles.compactCopy}>
+                      <Text style={styles.compactName} numberOfLines={1}>
+                        {exerciseTitle(name)}
+                      </Text>
+                      <Text style={styles.compactMeta}>
+                        {durationMode ? targetReps || '–' : `${group.length} × ${targetReps || '–'}`}
+                      </Text>
+                    </Pressable>
+                    <View style={styles.compactActions}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Move ${exerciseTitle(name)} up`}
+                        disabled={groups[0]?.[0] === position}
+                        onPress={() => void moveExercise(position, -1)}
+                        hitSlop={8}>
+                        <Text style={[styles.swap, groups[0]?.[0] === position && styles.actionDisabled]}>Up</Text>
+                      </Pressable>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Move ${exerciseTitle(name)} down`}
+                        disabled={groups[groups.length - 1]?.[0] === position}
+                        onPress={() => void moveExercise(position, 1)}
+                        hitSlop={8}>
+                        <Text style={[styles.swap, groups[groups.length - 1]?.[0] === position && styles.actionDisabled]}>
+                          Down
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Swap ${exerciseTitle(name)}`}
+                        onPress={() => void swapSlot(position, group)}
+                        hitSlop={8}>
+                        <Text style={styles.swap}>Swap</Text>
+                      </Pressable>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ${exerciseTitle(name)}`}
+                        onPress={() => void askRemoveExercise(position, name)}
+                        hitSlop={8}>
+                        <Text style={styles.remove}>Remove</Text>
+                      </Pressable>
+                    </View>
+                  </View>
                   <Pressable
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked: exerciseDone }}
@@ -1525,12 +1533,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   compactRowDone: { backgroundColor: colors.accentSoft },
-  compactCopy: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  compactName: { flex: 1, color: colors.text, fontSize: 15, fontWeight: '700' },
-  compactMeta: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
+  compactBody: { flex: 1, minWidth: 0, gap: 6 },
+  compactCopy: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  compactName: { flex: 1, minWidth: 0, color: colors.text, fontSize: 15, fontWeight: '700' },
+  compactMeta: { color: colors.textMuted, fontSize: 13, fontWeight: '700', flexShrink: 0 },
+  compactActions: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 12 },
   exercise: {
     backgroundColor: colors.bgCard,
     borderRadius: radius.md,
@@ -1694,7 +1704,7 @@ function ExerciseDetail({
     <Sheet visible={exerciseId !== null} title={exercise ? exerciseTitle(exercise.name) : 'Exercise'} wide onClose={onClose}>
       {exercise ? (
         <View style={styles.detail}>
-          {exercise.mediaUrls.length > 0 ? <MediaGallery urls={exercise.mediaUrls} /> : null}
+          {exercise.mediaUrls.length > 0 ? <MediaGallery urls={exercise.mediaUrls} name={exercise.name} /> : null}
           {facts.length > 0 ? (
             <View style={styles.pills}>
               {facts.map((fact) => (

@@ -1,4 +1,5 @@
 import { normalizeRecipeDraft, parseJsonObject, type RecipeDraft } from '../recipe-draft.js';
+import type { AiImageInput } from './provider.js';
 import { completeResolved, type ResolvedAiClient } from './resolve.js';
 
 export const RECIPE_JSON_SCHEMA = `Return ONLY a valid JSON object with these fields:
@@ -68,6 +69,27 @@ export async function extractRecipeFromUrlHint(
   const out = await completeResolved(resolved, {
     json: true,
     prompt: `A user wants to import a recipe from this URL: ${url}\n\nYou cannot browse the web, but you may recognise this recipe from your training data. Provide the full recipe.\nIf you recognise it (even partially), include every detail you know.\nIf you do not recognise this specific URL, infer the dish from the URL path and provide a solid home-cook version.\n\n${RECIPE_JSON_SCHEMA}`,
+  });
+  return {
+    value: normalizeRecipeDraft(parseJsonObject(out.text)),
+    provider: out.provider,
+    resultsMayVary: out.resultsMayVary,
+  };
+}
+
+export async function extractRecipeFromPhoto(
+  resolved: ResolvedAiClient,
+  images: AiImageInput[],
+): Promise<AiDraftResult<RecipeDraft>> {
+  const out = await completeResolved(resolved, {
+    json: true,
+    images,
+    prompt: `You are a recipe extraction expert. Read the recipe from the attached photo(s) of a cookbook page, handwritten card, screenshot, or packaging.
+
+Transcribe ingredients and steps faithfully. Fix obvious OCR mistakes. If multiple recipes appear, extract the clearest primary one.
+Do not invent ingredients or steps that are not visible. Omit fields the photo does not state.
+
+${RECIPE_JSON_SCHEMA}`,
   });
   return {
     value: normalizeRecipeDraft(parseJsonObject(out.text)),

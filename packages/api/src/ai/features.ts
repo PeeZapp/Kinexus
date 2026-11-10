@@ -1,6 +1,7 @@
 export type AiFeature =
   | 'extract_recipe'
   | 'extract_recipe_from_url'
+  | 'extract_recipe_from_photo'
   | 'generate_recipe_from_name'
   | 'estimate_recipe_nutrition'
   | 'classify_budget'

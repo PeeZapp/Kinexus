@@ -1,5 +1,5 @@
-import { WorkoutsScreen } from '@/src/features/train/WorkoutsScreen';
+import { PlanScreen } from '@/src/features/train/PlanScreen';
 
 export default function TrainIndex() {
-  return <WorkoutsScreen />;
+  return <PlanScreen />;
 }

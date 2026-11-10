@@ -129,7 +129,7 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
     const confirmed = await confirmAction('Delete this workout?', workout.name);
     if (!confirmed) return;
     await deleteWorkout(workout.id);
-    router.replace('/train' as Href);
+    router.replace('/train/workouts' as Href);
   }
 
   async function submit(result: WorkoutBuilderResult) {
@@ -190,7 +190,7 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
     return (
       <TrainPage>
         <ErrorBanner message={error} />
-        {!error ? <LoadingState label="Opening workout" /> : <TrainButton label="Back" tone="ghost" onPress={() => router.replace('/train' as Href)} />}
+        {!error ? <LoadingState label="Opening workout" /> : <TrainButton label="Back" tone="ghost" onPress={() => router.replace('/train/workouts' as Href)} />}
       </TrainPage>
     );
   }
@@ -216,7 +216,7 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
         people={people}
         buddies={buddies}
         editable={editable}
-        onClose={() => router.replace('/train' as Href)}
+        onClose={() => router.replace('/train/workouts' as Href)}
         onPersonalNotes={
           editable && userId && activeHousehold
             ? async (notes) => {

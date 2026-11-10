@@ -84,6 +84,36 @@ describe('lists import link', () => {
     expect(result.body.rows).toEqual([{ key: '0', title: 'Heat', year: 1995, imdbId: null }]);
   });
 
+  it('resolves boxd.it short links then parses the list', async () => {
+    const html = `
+      <html><body><h1>Favourites</h1>
+      <div class="film-poster" data-film-name="Heat" data-film-release-year="1995"></div>
+      </body></html>
+    `;
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('boxd.it')) {
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://letterboxd.com/alice/list/favourites/detail/' },
+        });
+      }
+      return new Response(html, { status: 200, headers: { 'content-type': 'text/html' } });
+    });
+
+    const result = await handleListsImportLink(
+      { url: 'https://boxd.it/gaHVO/detail' },
+      {
+        lookup: async () => ['93.184.216.34'],
+        fetch: fetchMock as unknown as typeof fetch,
+      },
+    );
+    expect(result.status).toBe(200);
+    if ('error' in result.body) throw new Error(result.body.error);
+    expect(result.body.url).toBe('https://letterboxd.com/alice/list/favourites/');
+    expect(result.body.rows).toEqual([{ key: '0', title: 'Heat', year: 1995, imdbId: null }]);
+  });
+
   it('maps SsrfError from lookup to 400', async () => {
     const result = await handleListsImportLink(
       { url: 'https://www.imdb.com/list/ls000123456/' },

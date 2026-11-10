@@ -22,9 +22,15 @@ export class GeminiClient implements AiClient {
       `${this.baseUrl}/v1beta/models/${encodeURIComponent(this.model)}:generateContent` +
       `?key=${encodeURIComponent(this.apiKey)}`;
 
+    const images = input.images ?? [];
+    const parts: Array<Record<string, unknown>> = [{ text: input.prompt }];
+    for (const image of images) {
+      parts.push({ inlineData: { mimeType: image.mime, data: image.base64 } });
+    }
+
     const body: Record<string, unknown> = {
       systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: 'user', parts: [{ text: input.prompt }] }],
+      contents: [{ role: 'user', parts }],
       generationConfig: {
         maxOutputTokens: input.maxTokens ?? 4096,
         ...(input.json ? { responseMimeType: 'application/json' } : {}),

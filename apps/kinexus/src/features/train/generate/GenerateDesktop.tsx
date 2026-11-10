@@ -2,7 +2,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { type Day } from '@kinexus/domain';
 
-import { Btn } from '@/src/features/household/ui';
+import { BackLink, Btn } from '@/src/features/household/ui';
 import {
   TrainGenerateAudiencePicker,
   TrainGenerateControls,
@@ -30,12 +30,16 @@ export type TrainGenerateViewProps = {
   onOpenDayMenu: (day: Day) => void;
   onApply: () => void;
   applying: boolean;
+  onBack: () => void;
 };
 
 export function GenerateDesktop(props: TrainGenerateViewProps) {
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Generate</Text>
+      <View style={styles.header}>
+        <BackLink label="Plan" onPress={props.onBack} />
+        <Text style={styles.title}>Generate</Text>
+      </View>
       <View style={styles.layout}>
         <View style={styles.controls}>
           <TrainGenerateAudiencePicker
@@ -83,6 +87,7 @@ export function GenerateDesktop(props: TrainGenerateViewProps) {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { padding: space.lg, gap: space.md, paddingBottom: 48 },
+  header: { gap: 4 },
   title: { color: colors.text, fontSize: 28, fontWeight: '700' },
   layout: { flexDirection: 'row', gap: space.lg, alignItems: 'flex-start' },
   controls: { flex: 1, minWidth: 280, maxWidth: 420, gap: space.sm },

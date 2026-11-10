@@ -278,7 +278,11 @@ export function ListImportWizard({
     setError(null);
     const trimmed = url.trim();
     if (!trimmed) {
-      setError(kind === 'workout' ? 'Paste a Hevy workout link' : 'Paste an IMDb or Letterboxd list link');
+      setError(
+        kind === 'workout'
+          ? 'Paste a Hevy workout link'
+          : 'Paste an IMDb list/chart or Letterboxd list link',
+      );
       return;
     }
     if (kind === 'workout') {
@@ -310,7 +314,7 @@ export function ListImportWizard({
       return;
     }
     if (!isWatchlistListImportUrl(trimmed)) {
-      setError('Paste an IMDb or Letterboxd list link');
+      setError('Paste an IMDb list/chart or Letterboxd list link');
       return;
     }
     setBusy(true);
@@ -344,22 +348,28 @@ export function ListImportWizard({
     setBusy(true);
     matchedRef.current = false;
     try {
+      const trimmedLink = linkUrl.trim();
+      // Link alone is enough — don't require paste/file, and don't pre-validate
+      // here (analyseLink owns the URL error messages). Paste/file still win when set.
       if (
         !source &&
         !paste.trim() &&
         !picked &&
-        linkUrl.trim() &&
-        ((kind === 'watchlist' && isWatchlistListImportUrl(linkUrl)) ||
-          (kind === 'workout' && isHevyWorkoutImportUrl(linkUrl)))
+        (kind === 'watchlist' || kind === 'workout') &&
+        trimmedLink
       ) {
         setBusy(false);
-        await analyseLink(linkUrl);
+        await analyseLink(trimmedLink);
         return;
       }
       const file = source ?? picked;
       const text = file?.text ?? paste;
       if (!text?.trim() && !file?.bytes) {
-        setError('Paste a list or choose a file first');
+        setError(
+          kind === 'watchlist' || kind === 'workout'
+            ? 'Paste a link, a list, or choose a file first'
+            : 'Paste a list or choose a file first',
+        );
         return;
       }
       let next = await buildImportPlan({
@@ -600,7 +610,11 @@ export function ListImportWizard({
                 label="Import from link"
                 value={linkUrl}
                 onChangeText={setLinkUrl}
-                placeholder={kind === 'workout' ? 'Hevy workout or routine URL' : 'IMDb or Letterboxd list URL'}
+                placeholder={
+                  kind === 'workout'
+                    ? 'Hevy workout or routine URL'
+                    : 'IMDb list/chart or Letterboxd / boxd.it URL'
+                }
                 autoCapitalize="none"
                 autoCorrect={false}
               />

@@ -27,11 +27,27 @@ export class AnthropicClient implements AiClient {
       ? `${input.system ?? 'You are a helpful assistant.'}\nAlways respond with valid JSON only — no markdown, no code fences.`
       : (input.system ?? 'You are a helpful assistant.');
 
+    const images = input.images ?? [];
+    const userContent =
+      images.length === 0
+        ? input.prompt
+        : [
+            ...images.map((image) => ({
+              type: 'image' as const,
+              source: {
+                type: 'base64' as const,
+                media_type: image.mime,
+                data: image.base64,
+              },
+            })),
+            { type: 'text' as const, text: input.prompt },
+          ];
+
     const body: Record<string, unknown> = {
       model: this.model,
       max_tokens: input.maxTokens ?? (input.webSearch ? 8192 : 4096),
       system,
-      messages: [{ role: 'user', content: input.prompt }],
+      messages: [{ role: 'user', content: userContent }],
     };
     if (input.webSearch) {
       body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 8 }];

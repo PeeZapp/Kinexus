@@ -469,7 +469,7 @@ export function GenerateScreen() {
         prefs: prefs as unknown as Record<string, unknown>,
         days: preview,
       });
-      router.push('/train/plan' as Href);
+      router.push('/train' as Href);
     } catch (err) {
       setToast(err instanceof Error ? err.message : 'Could not apply plan');
     } finally {
@@ -506,6 +506,7 @@ export function GenerateScreen() {
     onOpenDayMenu: (day: Day) => setMenuDay(day),
     onApply: () => void apply(),
     applying,
+    onBack: () => router.push('/train' as Href),
   };
 
   return (

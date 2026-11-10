@@ -2,6 +2,7 @@ import {
   LIST_LINK_MAX_PAGES,
   LIST_LINK_PUBLIC_ERROR,
   classifyWatchlistListImportUrl,
+  isLetterboxdShortListHost,
   mergeListLinkItems,
   parseListLinkHtml,
   type ListLinkItem,
@@ -10,7 +11,7 @@ import {
 } from '@kinexus/domain';
 
 import { fetchPublicHtml } from '../scrape/index.js';
-import { SsrfError, type HostnameLookup } from '../scrape/ssrf.js';
+import { assertPublicHttpUrl, assertResolvedPublicHost, SsrfError, type HostnameLookup } from '../scrape/ssrf.js';
 
 const HTML_CAP = 2_000_000;
 const FETCH_TIMEOUT_MS = 12_000;
@@ -40,13 +41,53 @@ function publicError(status = 422): never {
   throw Object.assign(new Error(LIST_LINK_PUBLIC_ERROR), { status });
 }
 
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Follow boxd.it redirects until we land on letterboxd.com (or exhaust hops).
+ * Stops before fetching the Letterboxd HTML so Cloudflare challenges don't block resolve.
+ */
+async function resolveShortLetterboxdUrl(
+  url: string,
+  options: ListImportLinkFetchOptions = {},
+): Promise<string> {
+  const doFetch = options.fetch ?? fetch;
+  const lookup = options.lookup;
+  let current = url;
+  for (let hop = 0; hop < 5; hop += 1) {
+    const parsed = assertPublicHttpUrl(current);
+    await assertResolvedPublicHost(parsed.hostname, lookup);
+    const response = await doFetch(current, {
+      method: 'GET',
+      redirect: 'manual',
+      headers: { 'User-Agent': POLITE_UA, Accept: 'text/html' },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (![301, 302, 303, 307, 308].includes(response.status)) return current;
+    const location = response.headers.get('location');
+    if (!location) return current;
+    current = new URL(location, current).href;
+    const host = hostOf(current);
+    if (host && !isLetterboxdShortListHost(host)) return current;
+  }
+  return current;
+}
+
 async function fetchListPageHtml(
   url: string,
   options: ListImportLinkFetchOptions = {},
 ): Promise<{ status: number; html: string }> {
   const response = await fetchPublicHtml(url, {
     timeoutMs: FETCH_TIMEOUT_MS,
-    escalate: false,
+    // Letterboxd often serves a Cloudflare challenge; allow proxy/playwright recovery.
+    // Injected fetch (tests) forces the direct path and skips escalate anyway.
+    escalate: true,
     headers: { 'User-Agent': POLITE_UA },
     fetch: options.fetch,
     lookup: options.lookup,
@@ -66,15 +107,32 @@ function rowsFromItems(items: readonly ListLinkItem[]) {
 
 /**
  * SSRF-safe fetch of a public IMDb/Letterboxd list (max 5 pages).
- * Returns title rows only — never stores the scraped HTML.
+ * Resolves boxd.it short links, then scrapes title rows only — never stores HTML.
  */
 export async function importWatchlistFromListLink(
   rawUrl: string,
   options: ListImportLinkFetchOptions = {},
 ): Promise<ListImportLinkResult> {
-  const classified = classifyWatchlistListImportUrl(rawUrl);
+  let classified = classifyWatchlistListImportUrl(rawUrl);
   if (!classified) {
-    throw Object.assign(new Error('Paste an IMDb or Letterboxd list link'), { status: 400 });
+    throw Object.assign(new Error('Paste an IMDb list/chart or Letterboxd list link'), { status: 400 });
+  }
+
+  const shortHost = hostOf(classified.canonicalUrl);
+  if (shortHost && isLetterboxdShortListHost(shortHost)) {
+    let resolvedUrl: string;
+    try {
+      resolvedUrl = await resolveShortLetterboxdUrl(classified.canonicalUrl, options);
+    } catch (err) {
+      if (err instanceof SsrfError) throw err;
+      publicError(422);
+    }
+    const resolved = classifyWatchlistListImportUrl(resolvedUrl);
+    const resolvedHost = resolved ? hostOf(resolved.canonicalUrl) : null;
+    if (!resolved || (resolvedHost && isLetterboxdShortListHost(resolvedHost))) {
+      throw Object.assign(new Error('Paste an IMDb list/chart or Letterboxd list link'), { status: 400 });
+    }
+    classified = resolved;
   }
 
   const maxPages = Math.min(Math.max(options.maxPages ?? LIST_LINK_MAX_PAGES, 1), LIST_LINK_MAX_PAGES);

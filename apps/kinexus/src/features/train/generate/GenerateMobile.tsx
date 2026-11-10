@@ -1,7 +1,7 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Btn } from '@/src/features/household/ui';
+import { BackLink, Btn } from '@/src/features/household/ui';
 import {
   TrainGenerateAudiencePicker,
   TrainGenerateControls,
@@ -20,7 +20,10 @@ export function GenerateMobile(props: TrainGenerateViewProps) {
       style={styles.root}
       contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 28 }]}
       keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>Generate</Text>
+      <View style={styles.header}>
+        <BackLink label="Plan" onPress={props.onBack} />
+        <Text style={styles.title}>Generate</Text>
+      </View>
       <TrainGenerateAudiencePicker
         audience={props.prefs.audience}
         buddies={props.buddies}
@@ -56,6 +59,7 @@ export function GenerateMobile(props: TrainGenerateViewProps) {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { padding: space.md, gap: space.sm },
+  header: { gap: 4 },
   title: { color: colors.text, fontSize: 24, fontWeight: '700' },
   preview: { gap: space.sm, marginTop: space.md },
   summaryMeta: { color: colors.textMuted, fontSize: 13 },

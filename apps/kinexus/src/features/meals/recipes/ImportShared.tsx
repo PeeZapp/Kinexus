@@ -6,6 +6,7 @@ import { MEAL_SLOTS, RECIPE_CLASSES, type RecipeClass } from '@kinexus/domain';
 
 import { BackLink, Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
 import { Chip } from '@/src/features/meals/meals-kit';
+import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
 import { IngredientEditor, MethodEditor } from '@/src/features/meals/recipes/recipe-editors';
 import { RecipeCoverPicker } from '@/src/features/meals/recipes/RecipeCoverPicker';
 import type { RecipeFormState } from '@/src/features/meals/recipes/recipe-form';
@@ -15,14 +16,17 @@ import { colors, radius, space } from '@/src/features/shell/theme';
 
 export type { RecipeFormState };
 export type ImportFormState = RecipeFormState;
+export type ImportTab = 'url' | 'text' | 'photo';
 
 export type ImportRecipeViewProps = {
   online: boolean;
   apiReady: boolean;
-  tab: 'url' | 'text';
-  setTab: (tab: 'url' | 'text') => void;
+  tab: ImportTab;
+  setTab: (tab: ImportTab) => void;
   paste: string;
   setPaste: (v: string) => void;
+  photoPreviewUrl: string | null;
+  onPickPhoto: () => void;
   form: ImportFormState;
   setForm: (patch: Partial<ImportFormState>) => void;
   phase: 'idle' | 'fetching' | 'extracting';
@@ -47,6 +51,7 @@ const SOURCE_COPY: Record<ImportSource, string> = {
   'text-scraped': 'Structured from the page text. Wording may differ.',
   'blocked-ai': 'The site blocked a direct fetch. Review this carefully.',
   'text-paste': 'Structured from what you pasted.',
+  photo: 'Read from your photo. Check amounts before you cook.',
   'generated-name': 'A new recipe for the name you entered.',
 };
 
@@ -55,6 +60,7 @@ const SOURCE_TITLE: Record<ImportSource, string> = {
   'text-scraped': 'Extracted from the page',
   'blocked-ai': 'AI reconstruction',
   'text-paste': 'Extracted from your text',
+  photo: 'Extracted from your photo',
   'generated-name': 'Generated recipe',
 };
 
@@ -123,20 +129,24 @@ export function ImportView(props: ImportRecipeViewProps) {
 
 export function ImportExtractCard(props: ImportRecipeViewProps) {
   const loading = props.phase !== 'idle';
-  const textAiLocked = props.tab === 'text' && Boolean(props.aiBlocked);
+  const aiLocked =
+    (props.tab === 'text' || props.tab === 'photo') && Boolean(props.aiBlocked);
   const fetchLabel = loading
     ? props.phase === 'fetching'
       ? 'Fetching page…'
       : 'Extracting…'
     : props.tab === 'url'
       ? 'Fetch recipe'
-      : 'Extract recipe';
+      : props.tab === 'photo'
+        ? 'Extract from photo'
+        : 'Extract recipe';
 
   return (
     <Card>
       <View style={styles.segment} accessibilityRole="tablist">
         <Segment label="Link" active={props.tab === 'url'} onPress={() => props.setTab('url')} />
         <Segment label="Text" active={props.tab === 'text'} onPress={() => props.setTab('text')} />
+        <Segment label="Photo" active={props.tab === 'photo'} onPress={() => props.setTab('photo')} />
       </View>
       {props.tab === 'url' ? (
         <Field
@@ -148,7 +158,7 @@ export function ImportExtractCard(props: ImportRecipeViewProps) {
           autoCorrect={false}
           keyboardType="url"
         />
-      ) : (
+      ) : props.tab === 'text' ? (
         <Field
           label="Recipe text"
           value={props.paste}
@@ -156,14 +166,33 @@ export function ImportExtractCard(props: ImportRecipeViewProps) {
           placeholder="Paste a recipe"
           multiline
         />
+      ) : (
+        <View style={styles.photoBlock}>
+          {props.photoPreviewUrl ? (
+            <View style={styles.photoPreview}>
+              <RecipePhoto uri={props.photoPreviewUrl} size="fill" radius={radius.md} />
+            </View>
+          ) : null}
+          <Btn
+            label={props.photoPreviewUrl ? 'Choose another photo' : 'Choose photo'}
+            variant="secondary"
+            disabled={loading}
+            onPress={props.onPickPhoto}
+          />
+        </View>
       )}
-      <View style={textAiLocked ? styles.aiDim : undefined}>
+      <View style={aiLocked ? styles.aiDim : undefined}>
         <Btn
           label={fetchLabel}
-          disabled={!props.online || !props.apiReady || loading}
+          disabled={
+            !props.online ||
+            !props.apiReady ||
+            loading ||
+            (props.tab === 'photo' && !props.photoPreviewUrl)
+          }
           busy={loading && !props.missing}
           onPress={() => {
-            if (textAiLocked) {
+            if (aiLocked) {
               props.onAiBlockedPress?.();
               return;
             }
@@ -465,6 +494,16 @@ const styles = StyleSheet.create({
   segmentItemOn: { backgroundColor: colors.bgHover },
   segmentLabel: { color: colors.textMuted, fontSize: 14, fontWeight: '700' },
   segmentLabelOn: { color: colors.text },
+  photoBlock: { gap: 10 },
+  photoPreview: {
+    width: '100%',
+    aspectRatio: 4 / 3,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    backgroundColor: colors.bgElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   note: {
     backgroundColor: colors.accentSoft,
     borderRadius: radius.md,

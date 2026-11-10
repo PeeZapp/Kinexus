@@ -44,6 +44,8 @@ export type TrainGeneratePrefs = {
 export type PreviewDay = GeneratedTrainDay & {
   scheduledTime: string | null;
   seed: number;
+  /** Local draft name until Apply creates a plan-only workout. */
+  workoutName?: string | null;
 };
 
 export const DEFAULT_TRAIN_GENERATE_PREFS: TrainGeneratePrefs = {

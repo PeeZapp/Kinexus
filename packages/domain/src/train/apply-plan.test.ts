@@ -157,8 +157,12 @@ describe('handleApplyTrainingPlan', () => {
     expect(inserts.some((row) => row.table === 'workout_exercises')).toBe(true);
     expect(inserts.some((row) => row.table === 'training_plan_days')).toBe(true);
     expect(inserts.some((row) => row.table === 'training_plan_buddy_shares')).toBe(true);
-    const workout = inserts.find((row) => row.table === 'workouts')?.payload as { name?: string };
+    const workout = inserts.find((row) => row.table === 'workouts')?.payload as {
+      name?: string;
+      plan_only?: boolean;
+    };
     expect(workout?.name).toBe('Mon · Push');
+    expect(workout?.plan_only).toBe(true);
   });
 
   it('creates intent-only days without workouts when exercises are empty', async () => {

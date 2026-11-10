@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 
 import { tmdbImageUrl, type WatchlistSearchHit } from '@kinexus/domain';
 
+import { creatorProfileHref } from '@/src/features/creators/creators-api';
 import { fetchSharedWatchlist, type SharedWatchlistResponse } from '@/src/features/share/share-api';
 import { StashPhoto } from '@/src/features/stash/StashShared';
 import { useWatchlistSync } from '@/src/features/stash/use-watchlist-sync';
@@ -16,6 +17,7 @@ import { useHousehold } from '@/src/lib/household';
 export function SharedWatchlistScreen() {
   const params = useLocalSearchParams<{ token?: string }>();
   const token = typeof params.token === 'string' ? params.token : '';
+  const router = useRouter();
   const { user } = useAuth();
   const { activeHousehold } = useHousehold();
   const watchlist = useWatchlistSync();
@@ -111,7 +113,17 @@ export function SharedWatchlistScreen() {
       <Text style={styles.brand}>Kinexus</Text>
       <Text style={styles.title}>{data.name}</Text>
       <Text style={styles.meta}>
-        {data.ownerUsername ? `@${data.ownerUsername} · ` : ''}
+        {data.ownerUsername ? (
+          <>
+            <Text
+              onPress={() => router.push(creatorProfileHref(data.ownerUsername!) as Href)}
+              style={styles.ownerLink}
+              accessibilityRole="link">
+              @{data.ownerUsername}
+            </Text>
+            {' · '}
+          </>
+        ) : null}
         {data.titles.length} title{data.titles.length === 1 ? '' : 's'}
       </Text>
       {status ? <Text style={styles.status}>{status}</Text> : null}
@@ -156,6 +168,7 @@ const styles = StyleSheet.create({
   },
   title: { color: colors.text, fontSize: 32, fontWeight: '800' },
   meta: { color: colors.textMuted, fontSize: 15 },
+  ownerLink: { color: colors.accent, fontSize: 15, fontWeight: '700' },
   status: { color: colors.accent, fontSize: 14, fontWeight: '700' },
   stack: { gap: 12 },
   card: {

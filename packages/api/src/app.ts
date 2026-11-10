@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 
-import { userFromRequest } from './auth.js';
+import { createUserClient, readBearerToken, userFromRequest } from './auth.js';
 import { corsOrigins } from './env.js';
 import {
   handleAi,
@@ -26,6 +26,8 @@ import {
   handleWatchlistServices,
   type AiRequestBody,
 } from './handlers.js';
+import { handleListsImportLink } from './lists/import-link.js';
+import { handleTrainImportLink } from './train/import-link.js';
 import { cronAuthorized, handleEstimateRecipeCost, handleRefreshRecipeCosts } from './prices.js';
 import { handleShareQuotes, handleCryptoQuotes, handleMetalQuotes } from './quotes.js';
 import {
@@ -38,6 +40,7 @@ import { handleGetSharedWishlist } from './shared-wishlist.js';
 import { handleGetSharedWorkout } from './shared-workout.js';
 import { handleGetSharedTrainingPlan } from './shared-training-plan.js';
 import { handleGetSharedWatchlist } from './shared-watchlist-link.js';
+import { handleGetSharedReadlist } from './shared-readlist-link.js';
 import { handleEnrichPendingProducts } from './stash/enrich-pending.js';
 import { handleCalendarObservances } from './calendar-observances.js';
 import {
@@ -61,6 +64,13 @@ import {
   handleGetFacebookAvatarPicture,
 } from './profile-avatar-facebook.js';
 import { handleVerifyCreatorLinks } from './creators/verify-links.js';
+import {
+  handleBlockProfile,
+  handleGetPublicCreatorProfile,
+  handleReportProfile,
+  handleSearchCreators,
+  handleUpsertMyProfileMeta,
+} from './creators/public-profile.js';
 import { handleOverviewNews, handleOverviewPlaces, handleOverviewWeather } from './overview.js';
 import { handleOverviewWordle } from './wordle.js';
 import { handleGroceryCatalog, handleGroceryCompare } from './grocery/handlers.js';
@@ -73,8 +83,48 @@ import {
   handleRevokeGroceryConnector,
   handleShoppingMcp,
 } from './grocery/bot-handlers.js';
+import { handleMcpHttp } from './mcp/handler.js';
+import {
+  handleListMcpConnections,
+  handleRegisterMcpConnection,
+  handleRevokeMcpConnection,
+} from './mcp/connections.js';
+import { oauthAuthorizationServerBody, oauthProtectedResourceBody } from './mcp/oauth-metadata.js';
 import { handleWeeklyCatalogueSelection } from './grocery/catalogue-select.js';
 import { handleDailyCatalogueRefresh } from './grocery/catalogue-refresh.js';
+import {
+  handleBooksCollection,
+  handleBooksCollections,
+  handleBooksResolveUrl,
+  handleBooksSearch,
+  handleBooksWork,
+} from './books/index.js';
+import {
+  handleAddReadlistItem,
+  handleCreateReadlistList,
+  handleDeleteReadlistList,
+  handleDeleteReadlistReview,
+  handleEnsureDefaultReadlist,
+  handleGetReadlistRecommendations,
+  handleReadlistExport,
+  handleReadlistImportCommit,
+  handleReadlistImportMatch,
+  handleRemoveReadlistItem,
+  handleRenameReadlistList,
+  handleSetReadlistItemStatus,
+  handleUpdateReadlistItem,
+  handleUpsertReadlistProgress,
+  handleUpsertReadlistReview,
+} from './readlist/index.js';
+import {
+  handleDeleteAiKey,
+  handleGetAiKey,
+  handleGetAiKeyAccess,
+  handlePutAiKeyAccess,
+  handleSetAiKey,
+} from './ai/keys.js';
+import { resolveAiStatus } from './ai/resolve.js';
+import { scrubErrorMessage } from './ai/scrub.js';
 
 function registerMealsRoutes(router: Hono) {
   router.get('/health', (c) => c.json({ ok: true }));
@@ -99,6 +149,42 @@ function registerMealsRoutes(router: Hono) {
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 
+  router.get('/readlist/shared/:token', async (c) => {
+    const result = await handleGetSharedReadlist(c.req.param('token'));
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/u/:key', async (c) => {
+    const result = await handleGetPublicCreatorProfile(c.req.raw, c.req.param('key'), {
+      kind: c.req.query('kind'),
+      limit: c.req.query('limit'),
+      cursor: c.req.query('cursor'),
+    });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/creators/search', async (c) => {
+    const result = await handleSearchCreators(c.req.raw, c.req.query('q'), c.req.query('limit'));
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.put('/me/profile-meta', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleUpsertMyProfileMeta(c.req.raw, body as { bio?: unknown; links?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/u/:key/report', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleReportProfile(c.req.raw, c.req.param('key'), body as { reason?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/u/:key/block', async (c) => {
+    const result = await handleBlockProfile(c.req.raw, c.req.param('key'));
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
   router.get('/stash/enrich', async (c) => {
     const result = await handleEnrichPendingProducts(c.req.raw);
     return c.json(result.body, result.status as ContentfulStatusCode);
@@ -116,7 +202,7 @@ function registerMealsRoutes(router: Hono) {
 
   router.post('/recipes/import', async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const result = await handleCreateRecipeImport(c.req.raw, body as { url?: unknown });
+    const result = await handleCreateRecipeImport(c.req.raw, body as { url?: unknown; householdId?: unknown });
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
   router.post('/recipes/import/work', async (c) => {
@@ -192,7 +278,64 @@ function registerMealsRoutes(router: Hono) {
     const authed = await userFromRequest(c.req.raw);
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
-    const result = await handleAi(body as AiRequestBody);
+    const result = await handleAi(authed.user.id, body as AiRequestBody);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/ai/status', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const householdId = c.req.query('householdId')?.trim() ?? '';
+    if (!householdId) return c.json({ error: 'householdId is required' }, 400);
+    try {
+      const body = await resolveAiStatus(authed.user.id, householdId);
+      return c.json(body, 200);
+    } catch (err) {
+      const message = scrubErrorMessage(err);
+      const status = message.includes('Not a member') ? 403 : 400;
+      return c.json({ error: message }, status);
+    }
+  });
+
+  router.get('/ai/keys', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const result = await handleGetAiKey(authed.user.id, c.req.query('householdId') ?? '', c.req.raw);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/ai/keys', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleSetAiKey(authed.user.id, body as { householdId?: unknown; key?: unknown; provider?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.delete('/ai/keys', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleDeleteAiKey(authed.user.id, body as { householdId?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/ai/keys/access', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const result = await handleGetAiKeyAccess(authed.user.id, c.req.query('householdId') ?? '', c.req.raw);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.put('/ai/keys/access', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handlePutAiKeyAccess(
+      authed.user.id,
+      body as { householdId?: unknown; userId?: unknown; allowed?: unknown },
+      c.req.raw,
+    );
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 
@@ -246,6 +389,37 @@ function registerMealsRoutes(router: Hono) {
   router.get('/grocery/handoff', async (c) => {
     const result = await handleReadGroceryHandoff(c.req.query('token') ?? '');
     return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.on(['GET', 'POST', 'DELETE', 'OPTIONS'], '/ai/mcp', async (c) => {
+    return handleMcpHttp(c.req.raw);
+  });
+
+  router.get('/mcp/connections', async (c) => {
+    const result = await handleListMcpConnections(c.req.raw);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/mcp/connections', async (c) => {
+    const result = await handleRegisterMcpConnection(c.req.raw);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.delete('/mcp/connections/:id', async (c) => {
+    const result = await handleRevokeMcpConnection(c.req.raw, c.req.param('id'));
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/.well-known/oauth-protected-resource', (c) => {
+    return c.json(oauthProtectedResourceBody(c.req.raw));
+  });
+
+  router.get('/.well-known/oauth-protected-resource/ai/mcp', (c) => {
+    return c.json(oauthProtectedResourceBody(c.req.raw));
+  });
+
+  router.get('/.well-known/oauth-authorization-server', async (c) => {
+    return c.json(await oauthAuthorizationServerBody());
   });
 
   router.on(['GET', 'DELETE'], '/mcp', (c) => {
@@ -346,7 +520,10 @@ function registerMealsRoutes(router: Hono) {
     const authed = await userFromRequest(c.req.raw);
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
-    const result = await handleBudgetClassify(body as { merchants?: unknown; categories?: unknown });
+    const result = await handleBudgetClassify(
+      authed.user.id,
+      body as { merchants?: unknown; categories?: unknown; householdId?: unknown },
+    );
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 
@@ -559,7 +736,14 @@ function registerMealsRoutes(router: Hono) {
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
     const result = await handleWatchlistRecommend(
-      body as { seeds?: unknown; exclude?: unknown; country?: unknown; providerIds?: unknown },
+      body as {
+        seeds?: unknown;
+        exclude?: unknown;
+        country?: unknown;
+        providerIds?: unknown;
+        personIds?: unknown;
+      },
+      c.req.raw,
     );
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
@@ -569,7 +753,15 @@ function registerMealsRoutes(router: Hono) {
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
     const result = await handleWatchlistDiscover(
-      body as { mediaType?: unknown; genreId?: unknown; mode?: unknown; country?: unknown; providerIds?: unknown },
+      body as {
+        mediaType?: unknown;
+        genreId?: unknown;
+        mode?: unknown;
+        country?: unknown;
+        providerIds?: unknown;
+        personIds?: unknown;
+      },
+      c.req.raw,
     );
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
@@ -592,6 +784,264 @@ function registerMealsRoutes(router: Hono) {
     );
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
+
+  router.post('/lists/import/link', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleListsImportLink(body as { url?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/train/import/link', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const token = readBearerToken(c.req.raw);
+    const client = token ? createUserClient(token) : undefined;
+    const result = await handleTrainImportLink(body as { url?: unknown }, {
+      client,
+      userId: authed.user.id,
+    });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/books/search', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const result = await handleBooksSearch(c.req.query('q') ?? '');
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/books/collections', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const result = await handleBooksCollections();
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/books/collections/:id', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const result = await handleBooksCollection(c.req.param('id') ?? '');
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/books/work/:id', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const result = await handleBooksWork(c.req.param('id') ?? '');
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/books/resolve-url', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleBooksResolveUrl(body as { url?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/readlist/ensure-default', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleEnsureDefaultReadlist(
+      authed.user.id,
+      body as { householdId?: unknown },
+      c.req.raw,
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/readlist/recommendations', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const result = await handleGetReadlistRecommendations(
+      authed.user.id,
+      { householdId: c.req.query('householdId') },
+      c.req.raw,
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/readlist/import/match', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleReadlistImportMatch(authed.user.id, body as { rows?: unknown });
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/readlist/import/commit', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleReadlistImportCommit(
+      authed.user.id,
+      body as { listId?: unknown; rows?: unknown },
+      c.req.raw,
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/readlist/export', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const result = await handleReadlistExport(
+      authed.user.id,
+      { listId: c.req.query('listId'), format: c.req.query('format') },
+      c.req.raw,
+    );
+    if (result.status !== 200 || !('text' in result)) {
+      return c.json(result.body, result.status as ContentfulStatusCode);
+    }
+    return c.body(result.text, 200, {
+      'Content-Type': `${result.mimeType}; charset=utf-8`,
+      'Content-Disposition': `attachment; filename="${result.fileName.replace(/"/g, '')}"`,
+      'Cache-Control': 'private, no-store',
+    });
+  });
+
+  router.post('/readlist/lists', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleCreateReadlistList(
+      authed.user.id,
+      body as {
+        householdId?: unknown;
+        name?: unknown;
+        visibility?: unknown;
+        personIds?: unknown;
+      },
+      c.req.raw,
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.patch('/readlist/lists', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleRenameReadlistList(
+      authed.user.id,
+      body as { listId?: unknown; name?: unknown },
+      c.req.raw,
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.delete('/readlist/lists', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleDeleteReadlistList(
+      authed.user.id,
+      body as { listId?: unknown },
+      c.req.raw,
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/readlist/items', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleAddReadlistItem(
+      authed.user.id,
+      body as {
+        listId?: unknown;
+        workId?: unknown;
+        preferredEditionFormat?: unknown;
+        status?: unknown;
+      },
+      c.req.raw,
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.patch('/readlist/items', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleUpdateReadlistItem(
+      authed.user.id,
+      body as {
+        itemId?: unknown;
+        preferredEditionId?: unknown;
+        clearPreferredEdition?: unknown;
+      },
+      c.req.raw,
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.delete('/readlist/items', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleRemoveReadlistItem(
+      authed.user.id,
+      body as { itemId?: unknown },
+      c.req.raw,
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/readlist/items/status', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleSetReadlistItemStatus(
+      authed.user.id,
+      body as { itemId?: unknown; status?: unknown },
+      c.req.raw,
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/readlist/progress', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleUpsertReadlistProgress(
+      authed.user.id,
+      body as {
+        workId?: unknown;
+        editionId?: unknown;
+        pagesRead?: unknown;
+        percent?: unknown;
+        secondsListened?: unknown;
+      },
+      c.req.raw,
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/readlist/reviews', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleUpsertReadlistReview(
+      authed.user.id,
+      body as { workId?: unknown; score?: unknown; body?: unknown },
+      c.req.raw,
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.delete('/readlist/reviews', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleDeleteReadlistReview(
+      authed.user.id,
+      body as { workId?: unknown },
+      c.req.raw,
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
 }
 
 const meals = new Hono();
@@ -603,8 +1053,15 @@ app.use(
   '*',
   cors({
     origin: corsOrigins(),
-    allowHeaders: ['Authorization', 'Content-Type'],
-    allowMethods: ['GET', 'POST', 'OPTIONS'],
+    allowHeaders: [
+      'Authorization',
+      'Content-Type',
+      'Mcp-Session-Id',
+      'Last-Event-ID',
+      'mcp-protocol-version',
+    ],
+    allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+    exposeHeaders: ['Mcp-Session-Id', 'WWW-Authenticate'],
   }),
 );
 

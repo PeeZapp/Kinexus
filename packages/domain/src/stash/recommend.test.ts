@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  mergePeopleTaste,
   rankWatchlistSuggestions,
   watchlistRecommendSeeds,
   watchlistTasteBand,
@@ -56,6 +57,27 @@ describe('rank watchlist suggestions', () => {
       new Set(['movie-9']),
     );
     expect(ranked).toEqual([]);
+  });
+});
+
+describe('mergePeopleTaste', () => {
+  it('merges liked and disliked titles and genres for the selected people', () => {
+    const taste = mergePeopleTaste(
+      [{ id: 'p1' }, { id: 'p2' }],
+      [
+        { personId: 'p1', tmdbId: 1, mediaType: 'movie', score: 9, genreIds: [28, 12] },
+        { personId: 'p2', tmdbId: 1, mediaType: 'movie', score: 8, genreIds: [28] },
+        { personId: 'p1', tmdbId: 2, mediaType: 'movie', score: 3, genreIds: [27] },
+        { personId: 'p2', tmdbId: 3, mediaType: 'tv', score: 8, genreIds: [35, 18] },
+        { personId: 'p3', tmdbId: 99, mediaType: 'movie', score: 10, genreIds: [878] },
+        { personId: 'p1', tmdbId: 4, mediaType: 'movie', score: 9, genreIds: [27] },
+        { personId: 'p2', tmdbId: 4, mediaType: 'movie', score: 2, genreIds: [27] },
+      ],
+    );
+    expect(taste.likedTitles.map((row) => row.tmdbId)).toEqual([1, 3]);
+    expect(taste.dislikedTitles.map((row) => row.tmdbId)).toEqual([4, 2]);
+    expect(taste.likedGenreIds).toEqual([28, 12, 18, 35]);
+    expect(taste.dislikedGenreIds).toEqual([27]);
   });
 });
 

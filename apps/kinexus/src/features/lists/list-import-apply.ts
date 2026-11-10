@@ -19,6 +19,8 @@ export type WorkoutExportWriters = {
   /** Resolve an existing routine id by name for history linking. */
   findRoutineId?: (name: string) => Promise<string | null>;
   createHistorySession?: (session: WorkoutImportSession, workoutId: string | null) => Promise<void>;
+  /** Hevy link import: create personal custom exercises before the workout. */
+  createCustomExercise?: (name: string) => Promise<string>;
 };
 
 export type ListImportWriters = {
@@ -42,6 +44,10 @@ export async function runListImport(opts: {
     (row) => opts.writers.writeRow(listId, row),
     { signal: opts.signal, onProgress: opts.onProgress },
   );
+}
+
+function normalizeCustomKey(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 export async function runWorkoutExportImport(opts: {
@@ -68,6 +74,19 @@ export async function runWorkoutExportImport(opts: {
   const skippedInvalid = (opts.plan.workoutRoutines ?? []).filter((routine) => routine.status === 'invalid').length;
 
   const workoutIdByName = new Map<string, string>();
+  const customIds = new Map<string, string>();
+
+  if (opts.plan.customExercisesSupported && opts.writers.createCustomExercise) {
+    const toCreate = routines
+      .flatMap((routine) => routine.exercises)
+      .filter((exercise) => exercise.willCreateCustom && !exercise.exerciseId && exercise.name.trim());
+    for (const exercise of toCreate) {
+      const key = normalizeCustomKey(exercise.name);
+      if (customIds.has(key)) continue;
+      const id = await opts.writers.createCustomExercise(exercise.name.trim());
+      customIds.set(key, id);
+    }
+  }
 
   for (const routine of routines) {
     if (opts.signal.cancelled) {
@@ -79,7 +98,18 @@ export async function runWorkoutExportImport(opts: {
         cancelled: true,
       };
     }
-    const id = await opts.writers.createRoutine(routine);
+    const withCustoms =
+      customIds.size === 0
+        ? routine
+        : {
+            ...routine,
+            exercises: routine.exercises.map((exercise) => {
+              if (exercise.exerciseId || !exercise.willCreateCustom) return exercise;
+              const id = customIds.get(normalizeCustomKey(exercise.name));
+              return id ? { ...exercise, exerciseId: id, willCreateCustom: false } : exercise;
+            }),
+          };
+    const id = await opts.writers.createRoutine(withCustoms);
     workoutIdByName.set(routine.name.trim().toLowerCase(), id);
     imported += 1;
     opts.onProgress?.(imported, total);
@@ -123,5 +153,9 @@ export function workoutWeightToKg(value: number | null, unit: WeightUnit): numbe
 }
 
 export function isWorkoutExportPlan(plan: ImportPlan | null | undefined): boolean {
-  return plan?.format === 'hevy-csv' || plan?.format === 'strong-csv';
+  return plan?.format === 'hevy-csv' || plan?.format === 'strong-csv' || plan?.format === 'hevy-link';
+}
+
+export function isHevyLinkImportPlan(plan: ImportPlan | null | undefined): boolean {
+  return plan?.format === 'hevy-link';
 }

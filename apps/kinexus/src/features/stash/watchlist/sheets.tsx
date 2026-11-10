@@ -354,6 +354,11 @@ export function AddTitleSheet({
                       {titleYearLabel(hit)}
                       {hit.role ? ` · ${hit.role}` : ''}
                     </Text>
+                    {hit.director ? (
+                      <Text style={styles.director} numberOfLines={1}>
+                        Dir. {hit.director}
+                      </Text>
+                    ) : null}
                   </View>
                 </Pressable>
               );
@@ -367,6 +372,11 @@ export function AddTitleSheet({
               {picked.year ? `${picked.year} · ` : ''}
               {mediaTypeLabel(picked.mediaType)}
             </Text>
+            {resolved?.director || picked.director ? (
+              <Text style={styles.director} numberOfLines={1}>
+                Dir. {resolved?.director ?? picked.director}
+              </Text>
+            ) : null}
             {picked.overview ? (
               <Text style={styles.overview} numberOfLines={4}>
                 {picked.overview}
@@ -509,6 +519,7 @@ export function CuratedTitleSheet({
         posterUri={poster}
         year={hit.year}
         mediaType={hit.mediaType}
+        director={resolved?.director ?? hit.director}
         context={savedNames.length > 0 ? `Already on ${savedNames.join(', ')}` : null}
       />
       <Synopsis text={overview} />
@@ -578,6 +589,7 @@ export function CuratedTitleSheet({
             posterUri={poster}
             year={hit.year}
             mediaType={hit.mediaType}
+            director={resolved?.director ?? hit.director}
             context={savedNames.length > 0 ? `Already on ${savedNames.join(', ')}` : null}
           />
           <Synopsis text={overview} />
@@ -646,11 +658,13 @@ function TitleIdentity({
   posterUri,
   year,
   mediaType,
+  director,
   context,
 }: {
   posterUri: string | null;
   year: number | null;
   mediaType: WatchlistSearchHit['mediaType'];
+  director?: string | null;
   context?: string | null;
 }) {
   return (
@@ -661,6 +675,11 @@ function TitleIdentity({
           {year ? `${year}  ·  ` : ''}
           {mediaTypeLabel(mediaType)}
         </Text>
+        {director ? (
+          <Text style={detail.director} numberOfLines={1}>
+            Dir. {director}
+          </Text>
+        ) : null}
         {context ? (
           <Text style={detail.context} numberOfLines={2}>
             {context}
@@ -1105,6 +1124,31 @@ export function TitleSheet({
   const [notes, setNotes] = useState(entry?.item.notes ?? '');
   const [reviewOpen, setReviewOpen] = useState(false);
   const [castPerson, setCastPerson] = useState<WatchlistCastMember | null>(null);
+  const [director, setDirector] = useState<string | null>(null);
+  const titleKey = entry ? `${entry.title.mediaType}:${entry.title.tmdbId}` : '';
+  useEffect(() => {
+    if (!visible || !titleKey.startsWith('movie:')) {
+      setDirector(null);
+      return;
+    }
+    const tmdbId = Number(titleKey.slice('movie:'.length));
+    if (!Number.isInteger(tmdbId) || tmdbId <= 0) {
+      setDirector(null);
+      return;
+    }
+    let cancelled = false;
+    setDirector(null);
+    void lookupWatchlistCatalog({ tmdbId, mediaType: 'movie', country })
+      .then((next) => {
+        if (!cancelled) setDirector(next.director?.trim() || null);
+      })
+      .catch(() => {
+        if (!cancelled) setDirector(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [country, titleKey, visible]);
   useEffect(() => {
     setReviewOpen(false);
     setCastPerson(null);
@@ -1126,6 +1170,7 @@ export function TitleSheet({
       posterUri={poster}
       year={entry.title.year}
       mediaType={entry.title.mediaType}
+      director={director}
       context={`${entry.list.name}  ·  ${watchlistVisibilityLabel(entry.list.visibility)}`}
     />
   );
@@ -1330,6 +1375,7 @@ const styles = StyleSheet.create({
   preview: { gap: 10 },
   previewTitle: { color: colors.text, fontSize: 18, fontWeight: '800' },
   overview: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
+  director: { color: colors.textMuted, fontSize: 12, lineHeight: 16 },
   posterPickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   posterPick: {
     width: 72,
@@ -1365,6 +1411,7 @@ const detail = StyleSheet.create({
   poster: { width: 64, height: 96, borderRadius: 8, backgroundColor: colors.bgHover },
   identityCopy: { flex: 1, minWidth: 0, gap: 4 },
   kicker: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+  director: { color: colors.textMuted, fontSize: 12, lineHeight: 16 },
   context: { color: colors.text, fontSize: 14, fontWeight: '600', lineHeight: 19 },
   synopsis: { color: colors.text, fontSize: 14, lineHeight: 21 },
   quiet: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },

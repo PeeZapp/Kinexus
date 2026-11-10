@@ -27,26 +27,39 @@ type CatalogChain = {
 export function ShoppingProductSheet({
   item,
   country,
+  householdId,
   onClose,
   onSave,
 }: {
   item: ShoppingListItem | null;
   country: string | null | undefined;
+  householdId?: string | null;
   onClose: () => void;
   onSave: (id: string, quote: StoredGroceryQuote) => Promise<void>;
 }) {
   if (!item) return <Sheet visible={false} title="Product" onClose={onClose}>{null}</Sheet>;
-  return <OpenCatalog key={item.id} item={item} country={country} onClose={onClose} onSave={onSave} />;
+  return (
+    <OpenCatalog
+      key={item.id}
+      item={item}
+      country={country}
+      householdId={householdId}
+      onClose={onClose}
+      onSave={onSave}
+    />
+  );
 }
 
 function OpenCatalog({
   item,
   country,
+  householdId,
   onClose,
   onSave,
 }: {
   item: ShoppingListItem;
   country: string | null | undefined;
+  householdId?: string | null;
   onClose: () => void;
   onSave: (id: string, quote: StoredGroceryQuote) => Promise<void>;
 }) {
@@ -58,7 +71,7 @@ function OpenCatalog({
       onClose={onClose}
       wide
       header={<Field label="Search" value={search} onChangeText={setSearch} placeholder={item.name} autoCapitalize="none" />}>
-      <ProductSearch item={item} country={country} search={search} onSave={onSave} />
+      <ProductSearch item={item} country={country} householdId={householdId} search={search} onSave={onSave} />
     </Sheet>
   );
 }
@@ -66,11 +79,13 @@ function OpenCatalog({
 function ProductSearch({
   item,
   country,
+  householdId,
   search,
   onSave,
 }: {
   item: ShoppingListItem;
   country: string | null | undefined;
+  householdId?: string | null;
   search: string;
   onSave: (id: string, quote: StoredGroceryQuote) => Promise<void>;
 }) {
@@ -93,6 +108,7 @@ function ProductSearch({
     const timer = setTimeout(() => {
       void searchGroceryCatalog({
         country: country ?? null,
+        householdId: householdId ?? null,
         name: item.name,
         amount: item.amount,
         query,
@@ -115,7 +131,7 @@ function ProductSearch({
       cancel = true;
       clearTimeout(timer);
     };
-  }, [country, item.amount, item.name, search]);
+  }, [country, householdId, item.amount, item.name, search]);
 
   function selectedId(chainId: string): string | null {
     const pin = item.groceryQuote?.pins?.find((row) => row.chainId === chainId);

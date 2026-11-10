@@ -107,21 +107,20 @@ export function PlanMobile({
         onSelect={onSelectDay}
       />
       <View style={styles.hud}>
-        <View style={styles.hudFilter}>
-          <FilterDropdown<PlanPersonFilter>
-            id="showing"
-            label="Showing"
-            value={personFilter}
-            valueLabel={showingLabel}
-            open={openMenu === 'showing'}
-            options={[
-              { value: 'all', label: 'Everyone' },
-              ...peopleOptions.map((person) => ({ value: person.id, label: person.name })),
-            ]}
-            onToggle={toggleMenu}
-            onSelect={pick(onPersonFilter)}
-          />
-        </View>
+        <FilterDropdown<PlanPersonFilter>
+          id="showing"
+          label="Showing"
+          value={personFilter}
+          valueLabel={showingLabel}
+          open={openMenu === 'showing'}
+          options={[
+            { value: 'all', label: 'Everyone' },
+            ...peopleOptions.map((person) => ({ value: person.id, label: person.name })),
+          ]}
+          onToggle={toggleMenu}
+          onSelect={pick(onPersonFilter)}
+          style={styles.hudDropdown}
+        />
         <View style={styles.hudActions}>
           {showGenerate ? (
             <Pressable
@@ -310,21 +309,25 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: space.md, paddingTop: 4, gap: 8 },
   hud: {
     flexDirection: 'row',
+    flexWrap: 'nowrap',
     alignItems: 'center',
     gap: 8,
     minHeight: 40,
     zIndex: 30,
   },
-  hudFilter: {
-    flex: 1,
+  hudDropdown: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
     minWidth: 0,
-    maxWidth: 220,
+    maxWidth: '100%',
     zIndex: 30,
   },
   hudActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexGrow: 0,
     flexShrink: 0,
   },
   hudGen: {

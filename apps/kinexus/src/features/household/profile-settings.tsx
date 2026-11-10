@@ -4,11 +4,18 @@ import {
   Image,
   Pressable,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import type { PublicProfileLink } from '@kinexus/domain';
+
+import {
+  fetchOwnProfileMeta,
+  saveOwnProfileMeta,
+} from '@/src/features/creators/creators-api';
 import { Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
 import { ProfileAvatar } from '@/src/features/shell/ProfileAvatar';
 import { PublicName } from '@/src/features/shell/PublicName';
@@ -39,6 +46,144 @@ import {
   currentUserHasLinkedGoogleIdentity,
   runGoogleAvatarOptIn,
 } from '@/src/lib/profile-avatar-google';
+
+const BIO_MAX = 280;
+const LINKS_MAX = 5;
+
+function emptyLink(): PublicProfileLink {
+  return { url: '', label: '' };
+}
+
+function PublicProfileMetaEditor() {
+  const [bio, setBio] = useState('');
+  const [links, setLinks] = useState<PublicProfileLink[]>([emptyLink()]);
+  const [isHidden, setIsHidden] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    void fetchOwnProfileMeta()
+      .then((meta) => {
+        if (cancelled) return;
+        setBio(meta.bio ?? '');
+        setLinks(meta.links.length > 0 ? meta.links.map((l) => ({ url: l.url, label: l.label ?? '' })) : [emptyLink()]);
+        setIsHidden(meta.isHidden);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load public profile');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const cleaned = links
+        .map((link) => ({
+          url: link.url.trim(),
+          label: link.label?.trim() || undefined,
+        }))
+        .filter((link) => link.url);
+      for (const link of cleaned) {
+        if (!link.url.toLowerCase().startsWith('https://')) {
+          throw new Error('Links must use https://');
+        }
+      }
+      if (cleaned.length > LINKS_MAX) throw new Error('At most 5 links');
+      const saved = await saveOwnProfileMeta({
+        bio: bio.trim() || null,
+        links: cleaned,
+        isHidden,
+      });
+      setBio(saved.bio ?? '');
+      setLinks(saved.links.length > 0 ? saved.links.map((l) => ({ url: l.url, label: l.label ?? '' })) : [emptyLink()]);
+      setIsHidden(saved.isHidden);
+      setNotice('Saved');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <View style={styles.stack}>
+        <Text style={styles.fieldLabel}>Public page</Text>
+        <ActivityIndicator color={colors.accent} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.stack}>
+      <Text style={styles.fieldLabel}>Public page</Text>
+      <Field
+        label={`Bio (${bio.length}/${BIO_MAX})`}
+        value={bio}
+        onChangeText={(value) => setBio(value.slice(0, BIO_MAX))}
+        placeholder="A short bio"
+        multiline
+      />
+      <Text style={styles.fieldLabel}>Links</Text>
+      {links.map((link, index) => (
+        <View key={`link-${index}`} style={styles.linkBlock}>
+          <Field
+            label="URL"
+            value={link.url}
+            onChangeText={(url) =>
+              setLinks((current) => current.map((row, i) => (i === index ? { ...row, url } : row)))
+            }
+            placeholder="https://"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Field
+            label="Label"
+            value={link.label ?? ''}
+            onChangeText={(label) =>
+              setLinks((current) => current.map((row, i) => (i === index ? { ...row, label } : row)))
+            }
+            placeholder="Optional"
+          />
+          {links.length > 1 ? (
+            <Btn
+              label="Remove"
+              variant="ghost"
+              onPress={() => setLinks((current) => current.filter((_, i) => i !== index))}
+            />
+          ) : null}
+        </View>
+      ))}
+      {links.length < LINKS_MAX ? (
+        <Btn label="Add link" variant="ghost" onPress={() => setLinks((current) => [...current, emptyLink()])} />
+      ) : null}
+      <View style={styles.switchRow}>
+        <Text style={styles.switchLabel}>Hide my public profile</Text>
+        <Switch
+          value={isHidden}
+          onValueChange={setIsHidden}
+          trackColor={{ false: colors.border, true: colors.accentMuted }}
+          thumbColor={isHidden ? colors.accent : colors.textMuted}
+        />
+      </View>
+      <Btn label="Save public profile" variant="secondary" busy={busy} onPress={() => void save()} />
+      {notice ? <Text style={styles.ok}>{notice}</Text> : null}
+      <ErrorText message={error} />
+    </View>
+  );
+}
 
 const CHECK_DEBOUNCE_MS = 400;
 
@@ -665,6 +810,8 @@ export function ProfileSection() {
       />
       {profileNotice ? <Text style={styles.ok}>{profileNotice}</Text> : null}
       <ErrorText message={profileError ?? error} />
+
+      <PublicProfileMetaEditor />
     </Card>
   );
 }
@@ -831,5 +978,22 @@ const styles = StyleSheet.create({
   },
   providerOptionLabelDisabled: {
     color: colors.textMuted,
+  },
+  linkBlock: {
+    gap: 8,
+    paddingBottom: 4,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 4,
+  },
+  switchLabel: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

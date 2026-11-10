@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import type { Href } from 'expo-router';
 
 import {
   canCreateLists,
@@ -82,11 +84,17 @@ export function CatalogScreen() {
   const listAccess = { role, userId: user?.id ?? null, personId };
   const canCreate = canCreateLists(role);
   const canManage = canCreate;
+  const router = useRouter();
+  const params = useLocalSearchParams<{ shareUrl?: string | string[]; listId?: string | string[] }>();
+  const shareUrl = typeof params.shareUrl === 'string' ? params.shareUrl : params.shareUrl?.[0] ?? null;
+  const shareListId = typeof params.listId === 'string' ? params.listId : params.listId?.[0] ?? null;
+  const shareHandled = useRef(false);
   const [query, setQuery] = useState('');
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [addList, setAddList] = useState(false);
   const [addSub, setAddSub] = useState(false);
   const [addProduct, setAddProduct] = useState(false);
+  const [shareProductUrl, setShareProductUrl] = useState<string | null>(null);
   const [productId, setProductId] = useState<string | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -109,6 +117,17 @@ export function CatalogScreen() {
     for (const list of lists) map.set(list.id, listShareLabel(list, people));
     return map;
   }, [lists, people]);
+
+  useEffect(() => {
+    if (shareHandled.current || !shareUrl) return;
+    if (lists.length === 0) return;
+    shareHandled.current = true;
+    const targetId = shareListId && lists.some((list) => list.id === shareListId) ? shareListId : lists[0]?.id ?? null;
+    if (targetId) setSelectedListId(targetId);
+    setShareProductUrl(shareUrl);
+    setAddProduct(true);
+    router.replace('/lists/wishlists' as Href);
+  }, [lists, router, shareListId, shareUrl]);
 
   const selectedList = lists.find((list) => list.id === selectedListId) ?? null;
   const parentList = selectedList?.parentListId
@@ -283,8 +302,6 @@ export function CatalogScreen() {
 
   const layoutProps = {
     desktop: mode === 'desktop',
-    kicker: 'Family',
-    title: 'Wishlists',
     query,
     setQuery,
     listCards,
@@ -385,9 +402,13 @@ export function CatalogScreen() {
         visible={addProduct}
         lists={lists}
         defaultListId={selectedListId}
+        initialUrl={shareProductUrl}
         busy={busy}
         error={actionError}
-        onClose={() => setAddProduct(false)}
+        onClose={() => {
+          setAddProduct(false);
+          setShareProductUrl(null);
+        }}
         onScrape={async (url) => {
           const scraped = await stash.scrapeProduct(url);
           return {
@@ -403,7 +424,10 @@ export function CatalogScreen() {
           };
         }}
         onSave={async (draft: ProductDraft) => {
-          if (await run(() => stash.createProduct(draft))) setAddProduct(false);
+          if (await run(() => stash.createProduct(draft))) {
+            setAddProduct(false);
+            setShareProductUrl(null);
+          }
         }}
       />
       <ProductSheet
@@ -425,6 +449,10 @@ export function CatalogScreen() {
         onRefresh={async () => {
           if (!product) return;
           await run(() => stash.refreshProductFromUrl(product.id));
+        }}
+        onSwitchCandidate={async () => {
+          if (!product) return;
+          await run(() => stash.switchCandidateOffer(product.id));
         }}
         onDelete={async () => {
           if (!product) return;

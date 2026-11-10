@@ -26,7 +26,7 @@ const inFlight = new Set<string>();
 
 export async function handleCreateRecipeImport(
   request: Request,
-  body: { url?: unknown },
+  body: { url?: unknown; householdId?: unknown },
 ): Promise<{ status: number; body: { job?: RecipeImportJob; error?: string; errorCode?: string } }> {
   const raw = typeof body.url === 'string' ? body.url : '';
   let normalized: NormalizedRecipeUrl;
@@ -44,6 +44,9 @@ export async function handleCreateRecipeImport(
     return { status: userResult.status, body: { error: userResult.error } };
   }
   const user = userResult && 'user' in userResult ? userResult.user : null;
+  const householdId = typeof body.householdId === 'string' ? body.householdId.trim() : '';
+  const aiContext =
+    user && householdId ? { userId: user.id, householdId } : undefined;
   try {
     await assertImportRateLimit({
       userId: user?.id,
@@ -76,7 +79,7 @@ export async function handleCreateRecipeImport(
       return { status: 200, body: { job: existing } };
     }
     if (existing.status === 'running' || existing.status === 'queued') {
-      scheduleJob(existing.id, normalized);
+      scheduleJob(existing.id, normalized, aiContext);
       return { status: 202, body: { job: existing } };
     }
     if (existing.status === 'failed' && existing.errorCode !== 'timeout' && age < failedCacheMs(existing)) {
@@ -99,24 +102,26 @@ export async function handleCreateRecipeImport(
     errorCode: undefined,
     errorMessage: undefined,
     recipe: undefined,
+    requestUserId: aiContext?.userId ?? null,
+    requestHouseholdId: aiContext?.householdId ?? null,
   };
   await saveImport(job);
 
   const video = normalized.sourceKind !== 'web';
   if (video) {
-    scheduleJob(job.id, normalized);
+    scheduleJob(job.id, normalized, aiContext);
     return { status: 202, body: { job } };
   }
 
   const raced = await Promise.race([
-    kickJob(job.id, normalized).then(() => 'done' as const),
+    kickJob(job.id, normalized, aiContext).then(() => 'done' as const),
     sleep(BLOG_SYNC_MS).then(() => 'timeout' as const),
   ]);
   const latest = (await getImportById(job.id)) ?? job;
   if (raced === 'done' || latest.status === 'succeeded' || latest.status === 'failed') {
     return { status: latest.status === 'failed' ? 422 : 200, body: { job: latest } };
   }
-  scheduleJob(job.id, normalized);
+  scheduleJob(job.id, normalized, aiContext);
   return { status: 202, body: { job: latest } };
 }
 
@@ -166,7 +171,11 @@ export async function handleRecipeImportWork(
     });
     return { status: 200, body: { ok: true } };
   }
-  await kickJob(id, normalized);
+  const aiContext =
+    job.requestUserId && job.requestHouseholdId
+      ? { userId: job.requestUserId, householdId: job.requestHouseholdId }
+      : undefined;
+  await kickJob(id, normalized, aiContext);
   return { status: 200, body: { ok: true } };
 }
 
@@ -200,7 +209,11 @@ async function saveTiktokResolveFailure(
   return { status: 422, body: { job } };
 }
 
-function scheduleJob(id: string, normalized: NormalizedRecipeUrl): void {
+function scheduleJob(
+  id: string,
+  normalized: NormalizedRecipeUrl,
+  aiContext?: { userId: string; householdId: string },
+): void {
   const secret = process.env.CRON_SECRET?.trim();
   const host = process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
   if (process.env.VERCEL === '1' && secret && host) {
@@ -214,14 +227,18 @@ function scheduleJob(id: string, normalized: NormalizedRecipeUrl): void {
     });
     return;
   }
-  void kickJob(id, normalized);
+  void kickJob(id, normalized, aiContext);
 }
 
-async function kickJob(id: string, normalized: NormalizedRecipeUrl): Promise<void> {
+async function kickJob(
+  id: string,
+  normalized: NormalizedRecipeUrl,
+  aiContext?: { userId: string; householdId: string },
+): Promise<void> {
   if (inFlight.has(id)) return;
   inFlight.add(id);
   try {
-    await processRecipeImport(id, normalized);
+    await processRecipeImport(id, normalized, { aiContext });
   } catch (err) {
     const failure = failureFromUnknown(err);
     const current = await getImportById(id);

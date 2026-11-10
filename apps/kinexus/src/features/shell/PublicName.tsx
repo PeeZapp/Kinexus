@@ -1,6 +1,8 @@
-import { StyleSheet, Text, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
+import { useRouter, type Href } from 'expo-router';
 
 import { colors } from '@/src/features/shell/theme';
+import { creatorProfileHref } from '@/src/features/creators/creators-api';
 
 export type PublicNameUser = {
   globalHandle: string;
@@ -13,6 +15,10 @@ export function publicPrimaryName(user: PublicNameUser): string {
   return username || user.globalHandle;
 }
 
+export function publicProfileKey(user: PublicNameUser): string {
+  return user.username?.trim() || user.globalHandle;
+}
+
 /** Global surfaces only: username if set, else permanent handle. Never real names/emails. */
 export function PublicName({
   user,
@@ -20,16 +26,20 @@ export function PublicName({
   primaryStyle,
   secondaryStyle,
   numberOfLines = 1,
+  link = false,
 }: {
   user: PublicNameUser;
   style?: StyleProp<ViewStyle>;
   primaryStyle?: StyleProp<TextStyle>;
   secondaryStyle?: StyleProp<TextStyle>;
   numberOfLines?: number;
+  /** When true, tap opens `/u/<handle>`. */
+  link?: boolean;
 }) {
+  const router = useRouter();
   const primary = publicPrimaryName(user);
   const showHandle = Boolean(user.username?.trim());
-  return (
+  const body = (
     <View style={[styles.wrap, style]}>
       <View style={styles.primaryRow}>
         <Text style={[styles.primary, primaryStyle]} numberOfLines={numberOfLines}>
@@ -47,6 +57,19 @@ export function PublicName({
         </Text>
       ) : null}
     </View>
+  );
+
+  if (!link || !publicProfileKey(user) || publicProfileKey(user) === 'Unknown') {
+    return body;
+  }
+
+  return (
+    <Pressable
+      onPress={() => router.push(creatorProfileHref(publicProfileKey(user)) as Href)}
+      accessibilityRole="link"
+      accessibilityLabel={`@${publicProfileKey(user)}`}>
+      {body}
+    </Pressable>
   );
 }
 

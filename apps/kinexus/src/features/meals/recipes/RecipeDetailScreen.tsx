@@ -10,10 +10,12 @@ import { useCreator } from '@/src/features/creators/use-creator';
 import { useWakeLock } from '@/src/features/cook/use-wake-lock';
 import { BackLink, Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
 import { IngredientSwapSlot } from '@/src/features/meals/IngredientSwapSlot';
+import { creatorProfileHref } from '@/src/features/creators/creators-api';
 import { recipeEditHref, recipeHref, recipeParam } from '@/src/features/meals/recipe-href';
 import { printRecipe } from '@/src/features/meals/recipes/print-recipe';
 import { RecipeImageDisclaimer } from '@/src/features/meals/RecipeImageDisclaimer';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
+import { Toast } from '@/src/features/meals/Toast';
 import { fetchRecipeById, useMealsSync } from '@/src/features/meals/use-meals-sync';
 import { LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
@@ -63,6 +65,8 @@ export function RecipeDetailScreen() {
   const [viewServings, setViewServings] = useState<number | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [addingShopping, setAddingShopping] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const publishedCatalog = Boolean(
     recipe &&
       (recipe.publishedCatalogId ||
@@ -103,11 +107,7 @@ export function RecipeDetailScreen() {
       router.push('/meals/shopping' as Href);
       return;
     }
-    if (router.canGoBack()) {
-      router.back();
-      return;
-    }
-    router.push('/meals/recipes' as Href);
+    router.dismissTo('/meals/recipes' as Href);
   }
 
   const backLabel = fromShopping ? 'Shopping' : 'Library';
@@ -148,8 +148,30 @@ export function RecipeDetailScreen() {
   const baseServings = recipeBaseServings(recipe);
   const shown = scaleRecipeToServings(recipe, viewServings);
   const serveCount = viewServings ?? baseServings;
+  const canAddToShopping = (shown.ingredients ?? []).length > 0 && !isLinkOnlyRecipe(recipe);
+
+  async function addIngredientsToShopping() {
+    if (!recipe || addingShopping || !canAddToShopping) return;
+    setAddingShopping(true);
+    setError(null);
+    try {
+      const result = await meals.addRecipeToShoppingList(recipe.id, viewServings);
+      const message =
+        result.added === 0 && result.merged > 0
+          ? `Updated ${result.merged} on this week’s shopping list`
+          : result.merged > 0
+            ? `Added ${result.added}, updated ${result.merged} on this week’s shopping list`
+            : `Added ${result.added} to this week’s shopping list`;
+      setToast(message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not add to shopping list');
+    } finally {
+      setAddingShopping(false);
+    }
+  }
 
   return (
+    <>
     <ScrollView style={styles.root} contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}>
       <BackLink label={backLabel} onPress={goBack} />
       <View style={[styles.hero, desktop && styles.heroDesktop]}>
@@ -170,12 +192,16 @@ export function RecipeDetailScreen() {
         {recipe.name}
       </Text>
       {!recipe.householdId && recipe.createdBy ? (
-        <Text style={styles.meta}>
-          Shared by a Kinexus creator
-          {recipe.creatorPublishedAt
-            ? ` · ${new Date(recipe.creatorPublishedAt).toLocaleDateString()}`
-            : ''}
-        </Text>
+        <Pressable
+          onPress={() => router.push(creatorProfileHref(recipe.createdBy!) as Href)}
+          accessibilityRole="link">
+          <Text style={styles.meta}>
+            <Text style={styles.creatorLink}>Shared by a Kinexus creator</Text>
+            {recipe.creatorPublishedAt
+              ? ` · ${new Date(recipe.creatorPublishedAt).toLocaleDateString()}`
+              : ''}
+          </Text>
+        </Pressable>
       ) : null}
       {isLinkOnlyRecipe(recipe) && recipe.sourceUrl ? (
         <Card>
@@ -286,6 +312,15 @@ export function RecipeDetailScreen() {
           disabled={!meals.online}
           onPress={() => void meals.toggleFavourite(recipe.id).catch((err) => setError(err instanceof Error ? err.message : 'Favourite failed'))}
         />
+        {canAddToShopping ? (
+          <Btn
+            label={addingShopping ? 'Adding…' : 'Add to shopping list'}
+            variant="secondary"
+            disabled={!meals.online || addingShopping}
+            busy={addingShopping}
+            onPress={() => void addIngredientsToShopping()}
+          />
+        ) : null}
         <Btn
           label={recipe.excludedFromAuto ? 'Include for my family' : 'Not for my family'}
           variant={recipe.excludedFromAuto ? 'secondary' : 'ghost'}
@@ -444,6 +479,8 @@ export function RecipeDetailScreen() {
         </Card>
       ) : null}
     </ScrollView>
+    <Toast visible={toast !== null} message={toast ?? ''} onDismiss={() => setToast(null)} />
+    </>
   );
 }
 
@@ -506,6 +543,7 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontSize: 28, fontWeight: '700' },
   titleDesktop: { fontSize: 40 },
   meta: { color: colors.textMuted },
+  creatorLink: { color: colors.accent, fontWeight: '700' },
   costHero: { color: colors.text, fontSize: 22, fontWeight: '800' },
   ingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
   ingLead: { flex: 1, minWidth: 0, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },

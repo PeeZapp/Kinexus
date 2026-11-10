@@ -1,7 +1,17 @@
-import type { AiClient, AiCompleteInput, AiProvider } from './provider.js';
+import type { AiClient, AiClientOptions, AiCompleteInput, AiProvider } from './provider.js';
 
 export class AnthropicClient implements AiClient {
   readonly provider: AiProvider = 'anthropic';
+  private readonly apiKey: string;
+  private readonly model: string;
+  private readonly baseUrl: string;
+
+  constructor(opts: AiClientOptions) {
+    this.apiKey = opts.apiKey.trim();
+    this.model = opts.model.trim();
+    this.baseUrl = (opts.baseUrl?.trim() || 'https://api.anthropic.com').replace(/\/$/, '');
+    if (!this.apiKey) throw new Error('Anthropic API key is not set');
+  }
 
   async complete(input: AiCompleteInput): Promise<string> {
     try {
@@ -13,17 +23,12 @@ export class AnthropicClient implements AiClient {
   }
 
   private async completeOnce(input: AiCompleteInput): Promise<string> {
-    const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
-    const baseUrl = (process.env.ANTHROPIC_BASE_URL?.trim() || 'https://api.anthropic.com').replace(/\/$/, '');
-    const model = process.env.ANTHROPIC_MODEL?.trim() || 'claude-haiku-4-5';
-    if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set');
-
     const system = input.json
       ? `${input.system ?? 'You are a helpful assistant.'}\nAlways respond with valid JSON only — no markdown, no code fences.`
       : (input.system ?? 'You are a helpful assistant.');
 
     const body: Record<string, unknown> = {
-      model,
+      model: this.model,
       max_tokens: input.maxTokens ?? (input.webSearch ? 8192 : 4096),
       system,
       messages: [{ role: 'user', content: input.prompt }],
@@ -32,11 +37,11 @@ export class AnthropicClient implements AiClient {
       body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 8 }];
     }
 
-    const response = await fetch(`${baseUrl}/v1/messages`, {
+    const response = await fetch(`${this.baseUrl}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
+        'x-api-key': this.apiKey,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify(body),

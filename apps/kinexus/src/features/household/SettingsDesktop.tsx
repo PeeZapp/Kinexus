@@ -3,6 +3,8 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CreatorPanel } from '@/src/features/creators/CreatorPanel';
 import { GoogleCalendarPanel } from '@/src/features/household/GoogleCalendarPanel';
+import { ConnectedAiChats } from '@/src/features/connectors/ConnectedAiChats';
+import { AiKeySettings } from '@/src/features/household/AiKeySettings';
 import { GrokBotSettings } from '@/src/features/household/GrokBotSettings';
 import { ProfileSection, UsernameSetupPrompt } from '@/src/features/household/profile-settings';
 import { RecipeImageUploadLink } from '@/src/features/household/RecipeImageUploadLink';
@@ -87,6 +89,8 @@ export function SettingsDesktop() {
           <RecipeImageUploadLink />
           <HouseholdSwitcher />
           <GoogleCalendarPanel />
+          <AiKeySettings />
+          <ConnectedAiChats />
           <GrokBotSettings />
           <LocationPanel />
           <InvitePanel />

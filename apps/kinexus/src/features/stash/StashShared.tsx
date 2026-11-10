@@ -51,14 +51,14 @@ export function StashChrome({
   children,
 }: {
   desktop: boolean;
-  kicker: string;
-  title: string;
+  kicker?: string;
+  title?: string;
   children: ReactNode;
 }) {
   return (
     <ScrollView style={styles.root} contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}>
-      <Text style={styles.kicker}>{kicker}</Text>
-      <Text style={[styles.title, desktop && styles.titleDesktop]}>{title}</Text>
+      {kicker ? <Text style={styles.kicker}>{kicker}</Text> : null}
+      {title ? <Text style={[styles.title, desktop && styles.titleDesktop]}>{title}</Text> : null}
       {children}
     </ScrollView>
   );

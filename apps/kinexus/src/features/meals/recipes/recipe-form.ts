@@ -36,6 +36,7 @@ export type RecipeFormState = {
   slots: MealSlotKey[];
   recipeClass: RecipeClass | null;
   imageUrl: string;
+  imageCandidates: string[];
 };
 
 const SLOT_KEYS = new Set<string>(MEAL_SLOTS.map((slot) => slot.key));
@@ -64,6 +65,7 @@ export const EMPTY_RECIPE_FORM: RecipeFormState = {
   slots: [],
   recipeClass: null,
   imageUrl: '',
+  imageCandidates: [],
 };
 
 export function ingredientRowsFrom(list: { amount?: string; name: string }[]): RecipeIngredientRow[] {
@@ -112,6 +114,7 @@ export function formFromRecipe(recipe: Recipe): RecipeFormState {
     recipeClass: recipe.recipeClass ?? null,
     slots,
     imageUrl: recipe.imageUrl ?? '',
+    imageCandidates: [],
   };
 }
 

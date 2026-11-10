@@ -32,10 +32,7 @@ export function WatchlistMobile(props: WatchlistLayoutProps) {
 
   if (!props.selectedListId) {
     return (
-      <StashChrome
-        desktop={false}
-        kicker="Lists"
-        title="Watchlist">
+      <StashChrome desktop={false}>
         <PrimaryActions
           addLabel="New list"
           onAdd={props.onAddList}

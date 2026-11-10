@@ -175,6 +175,7 @@ export {
 export type { StreamingServiceOption, StreamingServiceRow, WatchlistRecommendScope } from './streaming';
 
 export {
+  WATCHLIST_DISLIKED_SCORE,
   WATCHLIST_GENRES,
   WATCHLIST_LIKED_SCORE,
   WATCHLIST_REVIEW_LIMIT,
@@ -182,30 +183,47 @@ export {
   WATCHLIST_SCORE_MIN,
   isWatchlistGenre,
   isWatchlistScore,
+  mergePeopleTaste,
   rankWatchlistSuggestions,
   watchlistGenresFor,
   watchlistRecommendSeeds,
   watchlistTasteBand,
   watchlistTitleKey,
 } from './recommend';
-export type { WatchlistTasteCandidate, WatchlistTasteRank, WatchlistTasteSeed } from './recommend';
+export type {
+  MergedPeopleTaste,
+  MergedPeopleTasteTitle,
+  PeopleTasteRating,
+  WatchlistTasteCandidate,
+  WatchlistTasteRank,
+  WatchlistTasteSeed,
+} from './recommend';
 
 export { CURATED_WATCHLISTS, curatedWatchlistById, curatedWatchlistsForAudience, searchCuratedWatchlists } from './curated';
 export type { CuratedWatchlist, CuratedWatchlistMatch, CuratedWatchlistTitle } from './curated';
 
 export {
+  AU_CERTIFICATIONS,
   WATCHLIST_AUDIENCES,
   audienceForBirthday,
   audienceForRole,
   audienceFromCertification,
   audienceLabel,
   audienceRank,
+  audienceToAuCertification,
+  auCertificationRank,
   canViewAudience,
+  certificationAllowed,
+  isAuCertification,
+  isWatchAdult,
   isWatchlistAudience,
+  maxAllowedCertification,
   maxAudience,
+  normalizeAuCertification,
+  personWatchAudience,
   viewerAudience,
 } from './ratings';
-export type { WatchlistAudience } from './ratings';
+export type { AuCertification, WatchAudiencePerson, WatchlistAudience } from './ratings';
 
 export {
   funnyAliasFromSeed,
@@ -215,3 +233,90 @@ export {
   isPermanentHandle,
 } from './aliases';
 export type { GeneratePermanentHandleOptions, HandleTakenCheck } from './aliases';
+
+export {
+  BOOK_FORMATS,
+  bookMergeKey,
+  bookMergeRank,
+  canonicalIsbn13,
+  detectBookFormat,
+  emptyBookExternalIds,
+  isBookFormat,
+  isValidIsbn,
+  isValidIsbn10,
+  isValidIsbn13,
+  isbn10ToIsbn13,
+  mergeBookEditions,
+  mergeBookExternalIds,
+  mergeBookWorks,
+  normalizeIsbn,
+  preferBookWork,
+} from './readlist/books';
+export type {
+  BookAuthor,
+  BookEdition,
+  BookExternalIds,
+  BookFormat,
+  BookMergeKey,
+  BookSearchHit,
+  BookWork,
+} from './readlist/books';
+
+export {
+  canManageReadlist,
+  canViewReadlist,
+  groupReadlistShelves,
+  isReadStatus,
+  isReadlistVisibility,
+  mergeProgressPercent,
+  normalizeReadlistShare,
+  progressFromPages,
+  progressFromSeconds,
+  progressPercent,
+  readStatusLabel,
+  readlistEntries,
+} from './readlist/readlist';
+export type {
+  ReadStatus,
+  ReadlistEdition,
+  ReadlistEntry,
+  ReadlistItem,
+  ReadlistList,
+  ReadlistProgress,
+  ReadlistReview,
+  ReadlistShelves,
+  ReadlistVisibility,
+  ReadlistWork,
+} from './readlist/types';
+export { READ_STATUSES, READLIST_VISIBILITIES } from './readlist/types';
+export {
+  READLIST_COLLECTION_CATEGORIES,
+  READLIST_COLLECTIONS,
+  readlistCollectionById,
+  readlistCollectionSourceKey,
+  readlistCollectionsForCategory,
+} from './readlist/collections';
+export type { ReadlistCollection, ReadlistCollectionSource } from './readlist/collections';
+
+export {
+  GOODREADS_CSV_HEADERS,
+  bindingToFormat,
+  buildGoodreadsCsv,
+  buildGoodreadsExportJson,
+  classifyGoodreadsMatchTier,
+  exclusiveShelfToStatus,
+  formatToBinding,
+  goodreadsRatingToScore,
+  goodreadsWorkDedupeKey,
+  looksLikeGoodreadsCsv,
+  parseGoodreadsCsv,
+  scoreToGoodreadsRating,
+  statusToExclusiveShelf,
+  stripGoodreadsIsbn,
+  titleAuthorMatchConfidence,
+} from './readlist/goodreads';
+export type {
+  GoodreadsExportItem,
+  GoodreadsImportRow,
+  GoodreadsMatchTier,
+} from './readlist/goodreads';

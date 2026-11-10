@@ -8,7 +8,13 @@ import {
   type RecipeSourceKind,
 } from '@kinexus/domain';
 import type { AiClient } from '../ai/provider.js';
-import { createAiClient } from '../ai/provider.js';
+import {
+  AiBlockedError,
+  completeResolved,
+  resolveAiClient,
+  resolvePlatformAiClient,
+  type ResolvedAiClient,
+} from '../ai/resolve.js';
 import { parseJsonObject } from '../recipe-draft.js';
 import { createIdFactory, ingredientFromLine, type ExtractedRecipeCore } from './parse.js';
 import { isRecipeTeaser } from './adapters/recipe-links.js';
@@ -66,20 +72,70 @@ Rules:
 
 export type StructureResult =
   | { ok: true; core: ExtractedRecipeCore; provider: string }
-  | { ok: false; reason: 'not_a_recipe' | 'extraction_failed'; provider?: string };
+  | { ok: false; reason: 'not_a_recipe' | 'extraction_failed' | 'ai_blocked'; provider?: string; blocked?: 'no_access' | 'key_paused' };
+
+export type ImportAiContext = {
+  userId: string;
+  householdId: string;
+};
 
 /** DeepSeek first when DEEPSEEK_API_KEY is set; Claude fallback when ANTHROPIC_API_KEY is set. Never log keys. */
 export function importLlmClients(): { structure: AiClient; fallback: AiClient | null } {
   const hasDeepseek = Boolean(process.env.DEEPSEEK_API_KEY?.trim());
   const hasAnthropic = Boolean(process.env.ANTHROPIC_API_KEY?.trim());
-  const structure = hasDeepseek ? createAiClient('deepseek') : createAiClient();
+  const structure = hasDeepseek ? resolvePlatformAiClient('deepseek') : resolvePlatformAiClient();
   const fallback =
     hasAnthropic && structure.provider !== 'anthropic'
-      ? createAiClient('anthropic')
+      ? resolvePlatformAiClient('anthropic')
       : hasDeepseek && structure.provider !== 'deepseek'
-        ? createAiClient('deepseek')
+        ? resolvePlatformAiClient('deepseek')
         : null;
   return { structure, fallback };
+}
+
+async function resolveImportClients(
+  ctx?: ImportAiContext,
+): Promise<
+  | { mode: 'resolved'; primary: ResolvedAiClient; fallback: ResolvedAiClient | null }
+  | { mode: 'platform'; structure: AiClient; fallback: AiClient | null }
+  | { mode: 'blocked'; blocked: 'no_access' | 'key_paused' }
+> {
+  if (!ctx?.userId || !ctx.householdId) {
+    return { mode: 'platform', ...importLlmClients() };
+  }
+  try {
+    const preferred = process.env.DEEPSEEK_API_KEY?.trim() ? 'deepseek' : undefined;
+    const primary = await resolveAiClient({
+      userId: ctx.userId,
+      householdId: ctx.householdId,
+      feature: 'recipe_import_structure',
+      preferredProvider: preferred,
+    });
+    let fallback: ResolvedAiClient | null = null;
+    if (primary.keySource === 'platform') {
+      const hasAnthropic = Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+      const hasDeepseek = Boolean(process.env.DEEPSEEK_API_KEY?.trim());
+      if (hasAnthropic && primary.provider !== 'anthropic') {
+        fallback = await resolveAiClient({
+          userId: ctx.userId,
+          householdId: ctx.householdId,
+          feature: 'recipe_import_structure',
+          preferredProvider: 'anthropic',
+        });
+      } else if (hasDeepseek && primary.provider !== 'deepseek') {
+        fallback = await resolveAiClient({
+          userId: ctx.userId,
+          householdId: ctx.householdId,
+          feature: 'recipe_import_structure',
+          preferredProvider: 'deepseek',
+        });
+      }
+    }
+    return { mode: 'resolved', primary, fallback };
+  } catch (err) {
+    if (err instanceof AiBlockedError) return { mode: 'blocked', blocked: err.code };
+    throw err;
+  }
 }
 
 export async function structureRecipeFromText(
@@ -100,6 +156,35 @@ export async function structureRecipeFromText(
   return first;
 }
 
+export async function structureRecipeForHousehold(
+  content: string,
+  ctx: ImportAiContext | undefined,
+  kind: 'web' | 'video' = 'web',
+): Promise<StructureResult> {
+  const trimmed = content.trim().slice(0, 100_000);
+  if (trimmed.length < 20) return { ok: false, reason: 'not_a_recipe' };
+
+  const resolved = await resolveImportClients(ctx);
+  if (resolved.mode === 'blocked') {
+    return { ok: false, reason: 'ai_blocked', blocked: resolved.blocked };
+  }
+  if (resolved.mode === 'platform') {
+    if (!process.env.DEEPSEEK_API_KEY?.trim() && !process.env.ANTHROPIC_API_KEY?.trim()) {
+      return { ok: false, reason: 'extraction_failed' };
+    }
+    return structureRecipeFromText(trimmed, resolved, kind);
+  }
+
+  const first = await tryResolved(resolved.primary, trimmed, kind);
+  if (first.ok) return first;
+  if (resolved.fallback) {
+    const second = await tryResolved(resolved.fallback, trimmed, kind);
+    if (second.ok) return second;
+    return second;
+  }
+  return first;
+}
+
 async function tryClient(client: AiClient, content: string, kind: 'web' | 'video'): Promise<StructureResult> {
   try {
     const prompt = kind === 'video' ? VIDEO_RECIPE_PROMPT : CLEAN_RECIPE_PROMPT;
@@ -107,18 +192,47 @@ async function tryClient(client: AiClient, content: string, kind: 'web' | 'video
       json: true,
       prompt: `${prompt}\n\nSource text:\n${content}`,
     });
-    const parsed = parseJsonObject(text);
-    if (parsed.ok === false || parsed.reason === 'not_a_recipe') {
-      return { ok: false, reason: 'not_a_recipe', provider: client.provider };
-    }
-    const core = coreFromLlm(parsed);
-    if (!core || !isCompleteCleanRecipe(core) || (kind === 'video' && !recipeIsGrounded(content, core))) {
-      return { ok: false, reason: 'not_a_recipe', provider: client.provider };
-    }
-    return { ok: true, core, provider: client.provider };
+    return parseStructureText(text, client.provider, content, kind);
   } catch {
     return { ok: false, reason: 'extraction_failed', provider: client.provider };
   }
+}
+
+async function tryResolved(
+  resolved: ResolvedAiClient,
+  content: string,
+  kind: 'web' | 'video',
+): Promise<StructureResult> {
+  try {
+    const prompt = kind === 'video' ? VIDEO_RECIPE_PROMPT : CLEAN_RECIPE_PROMPT;
+    const out = await completeResolved(resolved, {
+      json: true,
+      prompt: `${prompt}\n\nSource text:\n${content}`,
+    });
+    return parseStructureText(out.text, out.provider, content, kind);
+  } catch (err) {
+    if (err instanceof AiBlockedError) {
+      return { ok: false, reason: 'ai_blocked', blocked: err.code, provider: resolved.provider };
+    }
+    return { ok: false, reason: 'extraction_failed', provider: resolved.provider };
+  }
+}
+
+function parseStructureText(
+  text: string,
+  provider: string,
+  content: string,
+  kind: 'web' | 'video',
+): StructureResult {
+  const parsed = parseJsonObject(text);
+  if (parsed.ok === false || parsed.reason === 'not_a_recipe') {
+    return { ok: false, reason: 'not_a_recipe', provider };
+  }
+  const core = coreFromLlm(parsed);
+  if (!core || !isCompleteCleanRecipe(core) || (kind === 'video' && !recipeIsGrounded(content, core))) {
+    return { ok: false, reason: 'not_a_recipe', provider };
+  }
+  return { ok: true, core, provider };
 }
 
 const GROUNDING_STOPWORDS = new Set([
@@ -239,6 +353,7 @@ export function wrapCleanRecipe(
       displayName: core.siteName ?? core.authorName ?? input.displayHost,
     },
     imageUrl: core.imageUrl,
+    imageCandidates: core.imageCandidates,
     originalServings: core.originalServings,
     cookTimeMinutes: core.cookTimeMinutes,
     ingredients: core.ingredients,

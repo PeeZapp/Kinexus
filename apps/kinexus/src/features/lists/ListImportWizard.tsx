@@ -4,11 +4,18 @@ import * as Clipboard from 'expo-clipboard';
 
 import {
   acceptExerciseMatch,
+  acceptHevyLinkExerciseMatch,
   acceptImportMatch,
   applyMatchResults,
   buildImportPlan,
+  buildImportPlanFromHevyLink,
+  buildImportPlanFromListLink,
+  findMatchingLibraryWorkout,
   formatWeight,
+  isHevyWorkoutImportUrl,
+  isWatchlistListImportUrl,
   keepExerciseFreeText,
+  keepHevyLinkAsCustom,
   matchPlanExercises,
   refreshImportPlanRows,
   refreshWorkoutImportPlan,
@@ -23,11 +30,13 @@ import {
   type ImportMatchCandidate,
   type ImportPlan,
   type KinexusListKind,
+  type LibraryWorkoutFingerprint,
   type WeightUnit,
 } from '@kinexus/domain';
 
 import { Btn, Field, Pill } from '@/src/features/household/ui';
 import {
+  isHevyLinkImportPlan,
   isWorkoutExportPlan,
   runListImport,
   runWorkoutExportImport,
@@ -35,10 +44,16 @@ import {
   type ListImportWriters,
 } from '@/src/features/lists/list-import-apply';
 import { pickListFile, type PickedListFile } from '@/src/features/lists/list-file-io';
+import { importListFromLink } from '@/src/features/lists/list-import-link-api';
 import { takeStashedListImport } from '@/src/features/lists/list-import-stash';
+import { ReadlistGoodreadsImport } from '@/src/features/lists/ReadlistGoodreadsImport';
 import { Sheet } from '@/src/features/meals/meals-kit';
 import { matchWatchlistImport, searchWatchlistCatalog } from '@/src/features/stash/watchlist-api';
 import { colors, space } from '@/src/features/shell/theme';
+import {
+  importWorkoutFromLink,
+  trainImportLinkToPreview,
+} from '@/src/features/train/train-import-link-api';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 
 type Step = 'upload' | 'target' | 'mapping' | 'review' | 'progress' | 'summary';
@@ -49,6 +64,7 @@ const KIND_LABEL: Record<KinexusListKind, string> = {
   wishlist: 'Wishlist',
   shopping: 'Shopping',
   checklist: 'Checklist',
+  readlist: 'Readlist',
 };
 
 const FIELD_OPTIONS: { value: ImportField; label: string }[] = [
@@ -78,28 +94,51 @@ export function ListImportWizard({
   existingLists,
   existingItems,
   existingHistory = [],
+  existingWorkoutFingerprints = [],
   weightUnit = 'kg',
   country = 'AU',
   writers,
   loadExerciseCatalog,
+  listId = null,
+  initialLinkUrl = null,
   onClose,
   onDone,
+  onOpenExistingWorkout,
 }: {
   visible: boolean;
   kind: KinexusListKind;
   existingLists: readonly { id: string; name: string }[];
   existingItems: readonly ExistingDedupeItem[];
   existingHistory?: readonly HistoryDedupeItem[];
+  /** Library workouts for Hevy link dedupe (title + exercise set). */
+  existingWorkoutFingerprints?: readonly LibraryWorkoutFingerprint[];
   weightUnit?: WeightUnit;
   country?: string;
   writers: ListImportWriters;
   loadExerciseCatalog?: () => Promise<ExerciseCatalogEntry[]>;
+  /** Fixed list target for readlist Goodreads import. */
+  listId?: string | null;
+  /** Prefill IMDb/Letterboxd/Hevy list URL (share picker / deep link). */
+  initialLinkUrl?: string | null;
   onClose: () => void;
   onDone?: () => void;
+  onOpenExistingWorkout?: (workoutId: string) => void;
 }) {
   useExperienceMode();
+
+  if (kind === 'readlist') {
+    return (
+      <ReadlistGoodreadsImport
+        visible={visible}
+        listId={listId ?? existingLists[0]?.id ?? null}
+        onClose={onClose}
+        onDone={onDone}
+      />
+    );
+  }
   const [step, setStep] = useState<Step>('upload');
   const [paste, setPaste] = useState('');
+  const [linkUrl, setLinkUrl] = useState('');
   const [picked, setPicked] = useState<PickedListFile | null>(null);
   const [plan, setPlan] = useState<ImportPlan | null>(null);
   const [targetMode, setTargetMode] = useState<'new' | 'existing'>('new');
@@ -113,6 +152,10 @@ export function ListImportWizard({
   const [manualIndex, setManualIndex] = useState<number | null>(null);
   const [manualQuery, setManualQuery] = useState('');
   const [manualHits, setManualHits] = useState<ImportMatchCandidate[]>([]);
+  const [exerciseSearchIndex, setExerciseSearchIndex] = useState<number | null>(null);
+  const [exerciseSearchQuery, setExerciseSearchQuery] = useState('');
+  const [exerciseSearchHits, setExerciseSearchHits] = useState<ExerciseCatalogEntry[]>([]);
+  const [existingDupe, setExistingDupe] = useState<LibraryWorkoutFingerprint | null>(null);
   const cancelRef = useRef({ cancelled: false });
   const matchedRef = useRef(false);
 
@@ -122,6 +165,9 @@ export function ListImportWizard({
     if (!visible) return;
     setStep('upload');
     setPaste('');
+    setLinkUrl(
+      (kind === 'watchlist' || kind === 'workout') && initialLinkUrl?.trim() ? initialLinkUrl.trim() : '',
+    );
     setPicked(null);
     setPlan(null);
     setTargetMode(shoppingFixed ? 'existing' : 'new');
@@ -135,16 +181,29 @@ export function ListImportWizard({
     setManualIndex(null);
     setManualQuery('');
     setManualHits([]);
+    setExerciseSearchIndex(null);
+    setExerciseSearchQuery('');
+    setExerciseSearchHits([]);
+    setExistingDupe(null);
     matchedRef.current = false;
     cancelRef.current = { cancelled: false };
 
     const stashed = takeStashedListImport();
+    if (stashed?.linkUrl && (kind === 'watchlist' || kind === 'workout')) {
+      setLinkUrl(stashed.linkUrl);
+      void analyseLink(stashed.linkUrl);
+      return;
+    }
     if (stashed) {
       setPicked(stashed);
       void analyse(stashed);
+      return;
+    }
+    if ((kind === 'watchlist' || kind === 'workout') && initialLinkUrl?.trim()) {
+      void analyseLink(initialLinkUrl.trim());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only when opened
-  }, [visible, kind]);
+  }, [visible, kind, initialLinkUrl]);
 
   const workoutExport = isWorkoutExportPlan(plan);
   const counts = useMemo(() => {
@@ -215,11 +274,88 @@ export function ListImportWizard({
     return out;
   }, [plan]);
 
+  async function analyseLink(url = linkUrl) {
+    setError(null);
+    const trimmed = url.trim();
+    if (!trimmed) {
+      setError(kind === 'workout' ? 'Paste a Hevy workout link' : 'Paste an IMDb or Letterboxd list link');
+      return;
+    }
+    if (kind === 'workout') {
+      if (!isHevyWorkoutImportUrl(trimmed)) {
+        setError('Paste a Hevy workout or routine link');
+        return;
+      }
+      setBusy(true);
+      matchedRef.current = false;
+      setExistingDupe(null);
+      try {
+        const payload = await importWorkoutFromLink(trimmed);
+        const preview = trainImportLinkToPreview(payload);
+        const next = buildImportPlanFromHevyLink(preview);
+        const dupe = findMatchingLibraryWorkout(
+          next.suggestedName,
+          (next.workoutRoutines?.[0]?.exercises ?? []).map((ex) => ex.name),
+          existingWorkoutFingerprints,
+        );
+        setPlan(next);
+        setNewName(next.suggestedName);
+        setExistingDupe(dupe);
+        setStep('review');
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not read that workout');
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    if (!isWatchlistListImportUrl(trimmed)) {
+      setError('Paste an IMDb or Letterboxd list link');
+      return;
+    }
+    setBusy(true);
+    matchedRef.current = false;
+    try {
+      const payload = await importListFromLink(trimmed);
+      const next = refreshImportPlanRows(
+        buildImportPlanFromListLink({
+          source: payload.source,
+          listName: payload.suggestedName,
+          items: payload.rows.map((row) => ({
+            title: row.title,
+            year: row.year,
+            imdbId: row.imdbId,
+          })),
+        }),
+        existingItems,
+      );
+      setPlan(next);
+      setNewName(next.suggestedName);
+      setStep('target');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not read that list');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function analyse(source?: PickedListFile | null) {
     setError(null);
     setBusy(true);
     matchedRef.current = false;
     try {
+      if (
+        !source &&
+        !paste.trim() &&
+        !picked &&
+        linkUrl.trim() &&
+        ((kind === 'watchlist' && isWatchlistListImportUrl(linkUrl)) ||
+          (kind === 'workout' && isHevyWorkoutImportUrl(linkUrl)))
+      ) {
+        setBusy(false);
+        await analyseLink(linkUrl);
+        return;
+      }
       const file = source ?? picked;
       const text = file?.text ?? paste;
       if (!text?.trim() && !file?.bytes) {
@@ -459,11 +595,21 @@ export function ListImportWizard({
       <View style={styles.stack}>
         {step === 'upload' ? (
           <>
+            {kind === 'watchlist' || kind === 'workout' ? (
+              <Field
+                label="Import from link"
+                value={linkUrl}
+                onChangeText={setLinkUrl}
+                placeholder={kind === 'workout' ? 'Hevy workout or routine URL' : 'IMDb or Letterboxd list URL'}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            ) : null}
             <Field
-              label="Paste"
+              label="Paste a list"
               value={paste}
               onChangeText={setPaste}
-              placeholder="One item per line, or CSV…"
+              placeholder="One item per line"
               multiline
               numberOfLines={8}
               textAlignVertical="top"
@@ -580,7 +726,24 @@ export function ListImportWizard({
                 />
               </View>
             ) : null}
-            {workoutExport ? <Text style={styles.hint}>Private routines. Unmatched stay free-text (no custom catalogue).</Text> : null}
+            {workoutExport && !isHevyLinkImportPlan(plan) ? (
+              <Text style={styles.hint}>Private routines. Unmatched stay free-text (no custom catalogue).</Text>
+            ) : null}
+            {isHevyLinkImportPlan(plan) ? (
+              <Text style={styles.hint}>Private library workout. Missing exercises are added to yours.</Text>
+            ) : null}
+            {existingDupe ? (
+              <View style={styles.section}>
+                <Text style={styles.rowTitle}>Already in your library</Text>
+                <Btn
+                  label="Open existing"
+                  onPress={() => {
+                    onOpenExistingWorkout?.(existingDupe.id);
+                    onClose();
+                  }}
+                />
+              </View>
+            ) : null}
 
             {needsConfirm.length > 0 ? (
               <View style={styles.section}>
@@ -620,24 +783,67 @@ export function ListImportWizard({
                           label={candidate.name}
                           onPress={() =>
                             setPlan(
-                              acceptExerciseMatch(plan, item.routineIndex, item.exerciseIndex, candidate),
+                              isHevyLinkImportPlan(plan)
+                                ? acceptHevyLinkExerciseMatch(plan, item.exerciseIndex, candidate)
+                                : acceptExerciseMatch(plan, item.routineIndex, item.exerciseIndex, candidate),
                             )
                           }
                         />
                       ))}
-                      <Pill
-                        label="Keep name"
-                        onPress={() =>
-                          setPlan(keepExerciseFreeText(plan, item.routineIndex, item.exerciseIndex))
-                        }
-                      />
+                      {isHevyLinkImportPlan(plan) ? (
+                        <Pill
+                          label="Search"
+                          active={exerciseSearchIndex === item.exerciseIndex}
+                          onPress={() => {
+                            setExerciseSearchIndex(item.exerciseIndex);
+                            setExerciseSearchQuery(item.name);
+                            setExerciseSearchHits([]);
+                          }}
+                        />
+                      ) : (
+                        <Pill
+                          label="Keep name"
+                          onPress={() =>
+                            setPlan(keepExerciseFreeText(plan, item.routineIndex, item.exerciseIndex))
+                          }
+                        />
+                      )}
                     </View>
                   </View>
                 ))}
               </View>
             ) : null}
 
-            {exerciseNeedsManual.length > 0 ? (
+            {isHevyLinkImportPlan(plan)
+              ? (plan.workoutRoutines?.[0]?.exercises ?? [])
+                  .map((exercise, exerciseIndex) => ({ exercise, exerciseIndex }))
+                  .filter(({ exercise }) => exercise.matchStatus === 'missing' || exercise.willCreateCustom)
+                  .slice(0, 8)
+                  .map(({ exercise, exerciseIndex }) => (
+                    <View key={`ex-missing-${exerciseIndex}`} style={styles.confirmBlock}>
+                      <Text style={styles.rowTitle} numberOfLines={1}>
+                        {exercise.sourceName ?? exercise.name}
+                      </Text>
+                      <Text style={styles.rowMeta}>Will be added to your exercises</Text>
+                      <View style={styles.wrap}>
+                        <Pill
+                          label="Pick existing"
+                          active={exerciseSearchIndex === exerciseIndex}
+                          onPress={() => {
+                            setExerciseSearchIndex(exerciseIndex);
+                            setExerciseSearchQuery(exercise.sourceName ?? exercise.name);
+                            setExerciseSearchHits([]);
+                          }}
+                        />
+                        {exercise.willCreateCustom ? null : (
+                          <Pill label="Add as new" onPress={() => setPlan(keepHevyLinkAsCustom(plan, exerciseIndex))} />
+                        )}
+                      </View>
+                    </View>
+                  ))
+              : null}
+
+            {!isHevyLinkImportPlan(plan) && exerciseNeedsManual.length > 0 ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Unmatched exercises</Text>
                 {exerciseNeedsManual.slice(0, 8).map((item) => (
@@ -653,6 +859,56 @@ export function ListImportWizard({
                     />
                   </View>
                 ))}
+              </View>
+            ) : null}
+
+            {isHevyLinkImportPlan(plan) && exerciseSearchIndex != null && loadExerciseCatalog ? (
+              <View style={styles.section}>
+                <Field
+                  label="Exercise"
+                  value={exerciseSearchQuery}
+                  onChangeText={setExerciseSearchQuery}
+                  placeholder="Search exercises"
+                />
+                <Btn
+                  label={busy ? 'Searching…' : 'Search'}
+                  onPress={() => {
+                    void (async () => {
+                      setBusy(true);
+                      try {
+                        const catalog = await loadExerciseCatalog();
+                        const q = exerciseSearchQuery.trim().toLowerCase();
+                        setExerciseSearchHits(
+                          catalog
+                            .filter((entry) => !q || entry.name.toLowerCase().includes(q))
+                            .slice(0, 8),
+                        );
+                      } finally {
+                        setBusy(false);
+                      }
+                    })();
+                  }}
+                  busy={busy}
+                />
+                <View style={styles.wrap}>
+                  {exerciseSearchHits.map((hit) => (
+                    <Pill
+                      key={hit.id}
+                      label={hit.name}
+                      onPress={() => {
+                        setPlan(
+                          acceptHevyLinkExerciseMatch(plan, exerciseSearchIndex, {
+                            exerciseId: hit.id,
+                            name: hit.name,
+                            confidence: 1,
+                          }),
+                        );
+                        setExerciseSearchIndex(null);
+                        setExerciseSearchHits([]);
+                      }}
+                    />
+                  ))}
+                </View>
               </View>
             ) : null}
 
@@ -697,46 +953,61 @@ export function ListImportWizard({
               </View>
             ) : null}
 
-            {workoutExport
-              ? (plan.workoutRoutines ?? []).slice(0, 8).map((routine, index) => (
-                  <View key={`routine-${routine.name}-${index}`} style={styles.row}>
+            {isHevyLinkImportPlan(plan)
+              ? (plan.workoutRoutines?.[0]?.exercises ?? []).slice(0, 12).map((exercise, index) => (
+                  <View key={`hevy-ex-${index}`} style={styles.row}>
                     <Text style={styles.rowTitle} numberOfLines={1}>
-                      {routine.name} · {routine.exercises.length} exercises
-                      {routine.exercises[0]?.targetWeightKg != null
-                        ? ` · ${formatWeight(routine.exercises[0].targetWeightKg, weightUnit)} ${weightUnit}`
-                        : ''}
+                      {exercise.sourceName ?? exercise.name}
+                      {exercise.targetSets ? ` · ${exercise.targetSets}×${exercise.targetReps}` : ''}
                     </Text>
-                    <Text style={styles.rowMeta}>{routine.status}</Text>
+                    <Text style={styles.rowMeta}>{exercise.matchStatus ?? exercise.status}</Text>
                   </View>
                 ))
-              : plan.rows
-                  .filter((row) => row.status === 'ready' || row.status === 'duplicate' || row.status === 'invalid')
-                  .slice(0, 8)
-                  .map((row, index) => (
-                    <View key={`row-${row.title}-${index}`} style={styles.row}>
+              : workoutExport
+                ? (plan.workoutRoutines ?? []).slice(0, 8).map((routine, index) => (
+                    <View key={`routine-${routine.name}-${index}`} style={styles.row}>
                       <Text style={styles.rowTitle} numberOfLines={1}>
-                        {row.title || '(untitled)'}
+                        {routine.name} · {routine.exercises.length} exercises
+                        {routine.exercises[0]?.targetWeightKg != null
+                          ? ` · ${formatWeight(routine.exercises[0].targetWeightKg, weightUnit)} ${weightUnit}`
+                          : ''}
                       </Text>
-                      <Text style={styles.rowMeta}>{row.status}</Text>
+                      <Text style={styles.rowMeta}>{routine.status}</Text>
                     </View>
-                  ))}
+                  ))
+                : plan.rows
+                    .filter((row) => row.status === 'ready' || row.status === 'duplicate' || row.status === 'invalid')
+                    .slice(0, 8)
+                    .map((row, index) => (
+                      <View key={`row-${row.title}-${index}`} style={styles.row}>
+                        <Text style={styles.rowTitle} numberOfLines={1}>
+                          {row.title || '(untitled)'}
+                        </Text>
+                        <Text style={styles.rowMeta}>{row.status}</Text>
+                      </View>
+                    ))}
             {error ? <Text style={styles.error}>{error}</Text> : null}
-            <Btn
-              label="Import"
-              onPress={() => void confirmImport()}
-              disabled={
-                counts.imported === 0 ||
-                matching ||
-                (workoutExport && (exerciseNeedsConfirm.length > 0 || exerciseNeedsManual.length > 0))
-              }
-              busy={matching}
-            />
+            {!existingDupe ? (
+              <Btn
+                label="Import"
+                onPress={() => void confirmImport()}
+                disabled={
+                  counts.imported === 0 ||
+                  matching ||
+                  (workoutExport &&
+                    !isHevyLinkImportPlan(plan) &&
+                    (exerciseNeedsConfirm.length > 0 || exerciseNeedsManual.length > 0)) ||
+                  (isHevyLinkImportPlan(plan) && exerciseNeedsConfirm.length > 0)
+                }
+                busy={matching}
+              />
+            ) : null}
             <Btn
               label="Back"
               variant="ghost"
               onPress={() =>
                 setStep(
-                  workoutExport
+                  workoutExport || isHevyLinkImportPlan(plan)
                     ? 'upload'
                     : plan.headers
                       ? 'mapping'

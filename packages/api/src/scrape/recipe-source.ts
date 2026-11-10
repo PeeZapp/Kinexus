@@ -5,6 +5,7 @@ import { extractJsonLdRecipe } from '../recipes/extract-jsonld.js';
 import { extractMicrodataRecipe } from '../recipes/extract-microdata.js';
 import { extractProvechoRecipe } from '../recipes/extract-provecho.js';
 import { fetchVideoMetadata, videoMetadataToText, videoTextIsUsable } from '../recipes/extract-video.js';
+import { collectRecipeImageCandidates } from '../recipes/image-candidates.js';
 import type { ExtractedRecipeCore } from '../recipes/parse.js';
 import type { RecipeDraft } from '../recipe-draft.js';
 import { fetchPublicHtml, scrapeRecipeUrl, type FetchPublicHtmlOptions, type ScrapeResult } from './index.js';
@@ -15,11 +16,43 @@ import { fetchPublicHtml, scrapeRecipeUrl, type FetchPublicHtmlOptions, type Scr
  */
 export async function scrapeRecipeSource(url: string, options: FetchPublicHtmlOptions = {}): Promise<ScrapeResult> {
   const social = await scrapeSocialVideo(url, options);
-  if (social) return social;
-  return scrapeRecipeUrl(url, options);
+  if (social) {
+    return withScrapeCoverCandidates(social.result, options, social.youtubeVideoId);
+  }
+  return withScrapeCoverCandidates(await scrapeRecipeUrl(url, options), options);
 }
 
-async function scrapeSocialVideo(url: string, options: FetchPublicHtmlOptions): Promise<ScrapeResult | null> {
+async function withScrapeCoverCandidates(
+  result: ScrapeResult,
+  options: FetchPublicHtmlOptions,
+  youtubeVideoId?: string,
+): Promise<ScrapeResult> {
+  if (result.source === 'blocked' || result.source === 'not-found') return result;
+  const seed = result.source === 'json-ld' ? result.recipe.imageUrl : result.imageUrl;
+  const collected = await collectRecipeImageCandidates({
+    youtubeVideoId,
+    seedUrls: [seed],
+    options,
+  });
+  const imageCandidates = collected.imageCandidates.length
+    ? collected.imageCandidates
+    : seed
+      ? [seed]
+      : undefined;
+  const imageUrl = collected.imageUrl ?? imageCandidates?.[0] ?? seed;
+  if (result.source === 'json-ld') {
+    return {
+      source: 'json-ld',
+      recipe: { ...result.recipe, imageUrl, imageCandidates },
+    };
+  }
+  return { source: 'text', content: result.content, imageUrl, imageCandidates };
+}
+
+async function scrapeSocialVideo(
+  url: string,
+  options: FetchPublicHtmlOptions,
+): Promise<{ result: ScrapeResult; youtubeVideoId?: string } | null> {
   let normalized;
   try {
     normalized = normalizeRecipeUrl(url);
@@ -29,24 +62,37 @@ async function scrapeSocialVideo(url: string, options: FetchPublicHtmlOptions): 
   }
   if (normalized.sourceKind === 'web') return null;
 
+  const youtubeVideoId = normalized.sourceKind === 'youtube' ? normalized.videoId : undefined;
   const meta = await fetchVideoMetadata(normalized.sourceKind, normalized.canonicalUrl, options);
   if (!meta) {
-    return { source: 'not-found', url: normalized.canonicalUrl, recipeUrl: normalized.canonicalUrl };
+    return {
+      result: { source: 'not-found', url: normalized.canonicalUrl, recipeUrl: normalized.canonicalUrl },
+      youtubeVideoId,
+    };
   }
   const linked = await recipeFromLinkedPages(meta.linkedUrls, options);
   if (linked) {
-    return { source: 'json-ld', recipe: { ...linked, imageUrl: linked.imageUrl ?? meta.thumbnailUrl } };
+    return {
+      result: { source: 'json-ld', recipe: { ...linked, imageUrl: linked.imageUrl ?? meta.thumbnailUrl } },
+      youtubeVideoId,
+    };
   }
   const content = videoMetadataToText(meta).slice(0, 20_000);
   if (!videoTextIsUsable(meta, content)) {
     return {
-      source: 'not-found',
-      url: normalized.canonicalUrl,
-      recipeUrl: meta.linkedUrls?.[0] ?? normalized.canonicalUrl,
-      dishName: dishNameFromCaption(meta.title) ?? dishNameFromCaption(meta.description),
+      result: {
+        source: 'not-found',
+        url: normalized.canonicalUrl,
+        recipeUrl: meta.linkedUrls?.[0] ?? normalized.canonicalUrl,
+        dishName: dishNameFromCaption(meta.title) ?? dishNameFromCaption(meta.description),
+      },
+      youtubeVideoId,
     };
   }
-  return { source: 'text', content, imageUrl: meta.thumbnailUrl };
+  return {
+    result: { source: 'text', content, imageUrl: meta.thumbnailUrl },
+    youtubeVideoId,
+  };
 }
 
 async function recipeFromLinkedPages(

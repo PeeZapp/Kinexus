@@ -140,6 +140,17 @@ function watchlistHitKey(hit: WatchlistSearchHit): string {
   return `${hit.mediaType}-${hit.tmdbId}`;
 }
 
+function directorNameMatchesQuery(query: string, director: string): boolean {
+  const q = query.trim().toLowerCase();
+  const name = director.trim().toLowerCase();
+  if (q.length < 2 || !name) return false;
+  if (name === q || name.startsWith(q)) return true;
+  const nameTokens = name.split(/\s+/);
+  const queryTokens = q.split(/\s+/);
+  if (queryTokens.length >= 2 && queryTokens.every((token) => nameTokens.includes(token))) return true;
+  return queryTokens.length === 1 && queryTokens[0].length >= 4 && nameTokens.includes(queryTokens[0]);
+}
+
 function isStrongPersonMatch(query: string, person: WatchlistPersonHit): boolean {
   const q = query.trim().toLowerCase();
   const name = person.name.trim().toLowerCase();
@@ -160,6 +171,13 @@ export async function searchWatchlistWithPeople(
     searchWatchlistCatalog(query, country),
     searchWatchlistPeople(query).catch(() => [] as WatchlistPersonHit[]),
   ]);
+
+  const directorLed =
+    opts.personId == null &&
+    titles.some((hit) => Boolean(hit.director) && directorNameMatchesQuery(query, hit.director ?? ''));
+  if (directorLed) {
+    return { results: titles, people: [], personId: null, personName: null };
+  }
 
   let personId = opts.personId ?? null;
   if (personId != null && !people.some((person) => person.id === personId)) {
@@ -238,6 +256,7 @@ export async function recommendWatchlistTitles(input: {
   exclude: { tmdbId: number; mediaType: WatchlistMediaType }[];
   country?: string;
   providerIds?: number[];
+  personIds?: string[];
 }): Promise<{ band: number | null; results: WatchlistSuggestion[] }> {
   const payload = await post<{ band?: number | null; results?: WatchlistSuggestion[] }>('/watchlist/recommend', input);
   return { band: payload.band ?? null, results: payload.results ?? [] };
@@ -249,6 +268,7 @@ export async function discoverWatchlistTitles(input: {
   mode: 'browse' | 'surprise';
   country?: string;
   providerIds?: number[];
+  personIds?: string[];
 }): Promise<WatchlistSuggestion[]> {
   const payload = await post<{ results?: WatchlistSuggestion[] }>('/watchlist/discover', input);
   return payload.results ?? [];

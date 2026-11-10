@@ -1,22 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 
 import {
-  DAYS,
   fillWorkoutFromSessionType,
   generateTrainPlan,
   mondayWeekStart,
-  swapSimilarExercises,
-  WEEKLY_VOLUME_TARGET,
-  weeklyVolumeByGroup,
+  sessionTypeIdFromFocus,
   type Day,
   type GeneratedTrainDay,
   type SavedWorkoutCandidate,
   type TrainVisibility,
 } from '@kinexus/domain';
 
+import { Sheet } from '@/src/features/meals/meals-kit';
+import { Toast } from '@/src/features/meals/Toast';
 import { GenerateDesktop } from '@/src/features/train/generate/GenerateDesktop';
 import { GenerateMobile } from '@/src/features/train/generate/GenerateMobile';
+import { dayIsFilled } from '@/src/features/train/generate/GeneratePreview';
 import { TRAIN_GENERATE_PRESETS } from '@/src/features/train/generate/presets';
 import {
   DEFAULT_TRAIN_GENERATE_PREFS,
@@ -34,6 +35,13 @@ import {
   type WorkoutDraft,
 } from '@/src/features/train/api';
 import { loadTrainBuddies } from '@/src/features/train/buddies-api';
+import {
+  EMPTY_WORKOUT_SEED,
+  WorkoutBuilder,
+  type WorkoutBuilderResult,
+} from '@/src/features/train/WorkoutBuilder';
+import { TextAction } from '@/src/features/train/ui';
+import { colors, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
@@ -54,6 +62,7 @@ function applyPostProcess(
   days: GeneratedTrainDay[],
   prefs: TrainGeneratePrefs,
   seed: number,
+  workouts: WorkoutDraft[],
 ): PreviewDay[] {
   return days.map((day, index) => {
     let exercises = day.exercises;
@@ -73,11 +82,13 @@ function applyPostProcess(
         },
       ];
     }
+    const saved = day.workoutId ? workouts.find((item) => item.id === day.workoutId) : null;
     return {
       ...day,
       exercises,
       scheduledTime: prefs.dayTimes[day.day] ?? null,
       seed: seed + index,
+      workoutName: saved?.name ?? (exercises.length > 0 ? day.focus[0] ?? 'Workout' : null),
     };
   });
 }
@@ -90,12 +101,60 @@ function visibilityFor(prefs: TrainGeneratePrefs): TrainVisibility {
   return 'private';
 }
 
+function seedFromPreviewDay(row: PreviewDay, workouts: WorkoutDraft[]): {
+  seed: typeof EMPTY_WORKOUT_SEED;
+  key: string;
+} {
+  if (row.workoutId && row.exercises.length === 0) {
+    const saved = workouts.find((item) => item.id === row.workoutId);
+    if (saved) {
+      return {
+        key: `saved-${saved.id}`,
+        seed: {
+          name: saved.name,
+          visibility: 'private',
+          personIds: [],
+          splitId: saved.splitId,
+          durationMin: saved.durationMin,
+          exercises: saved.exercises.map((ex) => ({
+            exerciseId: ex.exerciseId,
+            name: ex.name,
+            targetSets: ex.targetSets,
+            targetReps: ex.targetReps,
+            targetWeight: ex.targetWeight,
+            targetEffort: ex.targetEffort,
+            targetRpe: ex.targetRpe,
+            note: ex.note,
+            supersetId: ex.supersetId,
+          })),
+        },
+      };
+    }
+  }
+  return {
+    key: `draft-${row.day}-${row.seed}-${row.exercises.length}`,
+    seed: {
+      ...EMPTY_WORKOUT_SEED,
+      name: row.workoutName?.trim() || row.focus[0] || 'Workout',
+      durationMin: row.durationMin || null,
+      visibility: 'private',
+      exercises: row.exercises.map((ex) => ({
+        exerciseId: /^[0-9a-f-]{36}$/i.test(ex.exerciseId) ? ex.exerciseId : null,
+        name: ex.name,
+        targetSets: ex.targetSets,
+        targetReps: ex.targetReps,
+        targetRpe: ex.targetRpe,
+      })),
+    },
+  };
+}
+
 export function GenerateScreen() {
   const { mode } = useExperienceMode();
   const desktop = mode === 'desktop';
   const router = useRouter();
   const { user } = useAuth();
-  const { activeHousehold } = useHousehold();
+  const { activeHousehold, people } = useHousehold();
   const userId = user && !user.isDevBypass ? user.id : null;
 
   const [prefs, setPrefs] = useState<TrainGeneratePrefs>(DEFAULT_TRAIN_GENERATE_PREFS);
@@ -103,9 +162,12 @@ export function GenerateScreen() {
   const [workouts, setWorkouts] = useState<WorkoutDraft[]>([]);
   const [buddies, setBuddies] = useState<{ id: string; name: string }[]>([]);
   const [preview, setPreview] = useState<PreviewDay[] | null>(null);
-  const [pickingWorkoutDay, setPickingWorkoutDay] = useState<Day | null>(null);
+  const [viewDay, setViewDay] = useState<Day | null>(null);
+  const [editDay, setEditDay] = useState<Day | null>(null);
+  const [menuDay, setMenuDay] = useState<Day | null>(null);
+  const [swapDay, setSwapDay] = useState<Day | null>(null);
   const [applying, setApplying] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const prefsLoaded = useRef(false);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -146,7 +208,7 @@ export function GenerateScreen() {
         );
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load generate prefs');
+        if (!cancelled) setToast(err instanceof Error ? err.message : 'Could not load generate prefs');
       });
     return () => {
       cancelled = true;
@@ -165,6 +227,10 @@ export function GenerateScreen() {
       return next;
     });
     setPreview(null);
+    setViewDay(null);
+    setEditDay(null);
+    setMenuDay(null);
+    setSwapDay(null);
   }
 
   function applyPreset(id: string) {
@@ -215,7 +281,7 @@ export function GenerateScreen() {
   }, [library, prefs.avoidBodyParts, prefs.avoidExerciseIds]);
 
   function runGenerate(seed = Date.now() % 1_000_000) {
-    setError(null);
+    setToast(null);
     const days = daysForSplit(prefs);
     const generated = generateTrainPlan({
       daysPerWeek: days.length,
@@ -233,7 +299,7 @@ export function GenerateScreen() {
       seed,
     });
 
-    let next = applyPostProcess(generated, prefs, seed);
+    let next = applyPostProcess(generated, prefs, seed, workouts);
     if (prefs.cardioAddon === 'separate_days') {
       const rest = next.find((day) => day.restDay);
       if (rest) {
@@ -258,173 +324,140 @@ export function GenerateScreen() {
                 exercises: walkExercises,
                 explanation: 'Walk day',
                 seed: seed + 99,
+                workoutName: walkExercises.length > 0 ? 'Walk' : null,
               }
             : day,
         );
       }
     }
     if (!prefs.fillWorkouts) {
-      next = next.map((day) => (day.restDay ? day : { ...day, exercises: [], workoutId: null }));
+      next = next.map((day) =>
+        day.restDay || day.workoutId
+          ? day
+          : { ...day, exercises: [], workoutId: null, workoutName: null },
+      );
     }
     setPreview(next);
+    setViewDay(null);
+    setEditDay(null);
+    setMenuDay(null);
+    setSwapDay(null);
   }
 
   function updateDay(day: Day, updater: (row: PreviewDay) => PreviewDay) {
     setPreview((current) => (current ? current.map((row) => (row.day === day ? updater(row) : row)) : current));
   }
 
-  function onSwapExercise(day: Day) {
-    updateDay(day, (row) => {
-      if (row.restDay || row.exercises.length === 0) return row;
-      const swapped = swapSimilarExercises(
-        row.exercises.map((ex) => ({
-          exerciseId: ex.exerciseId,
-          name: ex.name,
-          targetSets: ex.targetSets,
-          targetReps: ex.targetReps,
-        })),
-        catalogue,
-      );
-      return {
-        ...row,
-        workoutId: null,
-        exercises: swapped.exercises.map((ex, index) => ({
-          ...row.exercises[index]!,
-          exerciseId: ex.exerciseId,
-          name: ex.name,
-          targetSets: ex.targetSets,
-          targetReps: ex.targetReps,
-        })),
-      };
-    });
+  function onClearDay(day: Day) {
+    updateDay(day, (row) => ({
+      ...row,
+      exercises: [],
+      workoutId: null,
+      workoutName: null,
+      explanation: row.focus[0] ?? 'Train',
+    }));
   }
 
-  function onRerollDay(day: Day) {
-    const seed = (Date.now() + day.length) % 1_000_000;
-    const regenerated = generateTrainPlan({
-      daysPerWeek: 1,
-      days: [day],
+  function onSwapSavedWorkout(day: Day, workoutId: string) {
+    const workout = workouts.find((item) => item.id === workoutId);
+    if (!workout) {
+      setToast('Workout not found');
+      return;
+    }
+    updateDay(day, (row) => ({
+      ...row,
+      restDay: false,
+      workoutId,
+      durationMin: workout.durationMin ?? row.durationMin,
+      exercises: [],
+      workoutName: workout.name,
+      explanation: `${row.focus[0] ?? 'Train'} · saved workout`,
+    }));
+  }
+
+  function onSuggestDay(day: Day) {
+    const row = preview?.find((item) => item.day === day);
+    if (!row || row.restDay) return;
+    const focus = row.focus[0];
+    if (!focus) {
+      setToast('Set a session type first');
+      return;
+    }
+    const sessionTypeId = sessionTypeIdFromFocus(focus);
+    if (!sessionTypeId) {
+      setToast('No template for this session type');
+      return;
+    }
+    const filled = fillWorkoutFromSessionType({
+      sessionTypeId,
+      durationMin: row.durationMin || prefs.durationMin,
+      catalogue,
       goal: prefs.goal,
       level: prefs.level,
-      durationMin: prefs.durationMin,
-      splitStyle: prefs.splitStyle,
-      focusByDay: prefs.customFocusByDay,
-      equipment: prefs.equipment.length > 0 ? prefs.equipment : undefined,
-      avoidExerciseIds: prefs.avoidExerciseIds,
-      preferSavedWorkouts: prefs.preferSavedWorkouts,
-      savedWorkouts: savedCandidates,
-      catalogue,
-      seed,
+      seed: (Date.now() + day.length) % 1_000_000,
     });
-    const match = applyPostProcess(regenerated, prefs, seed).find((row) => row.day === day);
-    if (!match) return;
-    updateDay(day, () => match);
+    if (filled.length === 0) {
+      setToast('No matching exercises');
+      return;
+    }
+    updateDay(day, (current) => ({
+      ...current,
+      workoutId: null,
+      exercises: filled.map((ex) => ({
+        exerciseId: ex.exerciseId,
+        name: ex.name,
+        targetSets: ex.targetSets,
+        targetReps: ex.targetReps,
+        targetRpe: ex.targetRpe,
+        category: ex.category ?? null,
+      })),
+      workoutName: focus,
+      explanation: `${focus} · suggested`,
+    }));
   }
 
-  function onSwapSavedWorkout(day: Day, workoutId: string | null) {
-    updateDay(day, (row) => {
-      if (!workoutId) {
-        return { ...row, workoutId: null };
-      }
-      const workout = workouts.find((item) => item.id === workoutId);
-      if (!workout) return row;
-      return {
-        ...row,
-        restDay: false,
-        workoutId,
-        durationMin: workout.durationMin ?? row.durationMin,
-        exercises: [],
-        explanation: `${row.focus[0] ?? 'Train'} · saved workout`,
-      };
-    });
-  }
-
-  function onMoveDay(day: Day, direction: -1 | 1) {
-    setPreview((current) => {
-      if (!current) return current;
-      const index = current.findIndex((row) => row.day === day);
-      const target = index + direction;
-      if (index < 0 || target < 0 || target >= current.length) return current;
-      const next = [...current];
-      const a = next[index]!;
-      const b = next[target]!;
-      next[index] = { ...b, day: a.day, scheduledTime: a.scheduledTime, seed: a.seed };
-      next[target] = { ...a, day: b.day, scheduledTime: b.scheduledTime, seed: b.seed };
-      return next;
-    });
-  }
-
-  function onToggleRest(day: Day) {
-    updateDay(day, (row) =>
-      row.restDay
-        ? {
-            ...row,
-            restDay: false,
-            focus: row.focus.length ? row.focus : ['Full Body'],
-            durationMin: prefs.durationMin,
-            explanation: row.focus[0] ?? 'Full Body',
-          }
-        : {
-            ...row,
-            restDay: true,
-            focus: [],
-            durationMin: 0,
-            exercises: [],
-            workoutId: null,
-            explanation: 'Rest',
-          },
+  async function submitEdit(result: WorkoutBuilderResult) {
+    if (!editDay) return;
+    const exercises = result.exercises.flatMap((ex) =>
+      ex.exerciseId
+        ? [
+            {
+              exerciseId: ex.exerciseId,
+              name: ex.name,
+              targetSets: ex.targetSets,
+              targetReps: ex.targetReps,
+              targetRpe: ex.targetRpe ?? 7,
+              category: null,
+            },
+          ]
+        : [],
     );
+    if (exercises.length === 0) {
+      setToast('Add at least one exercise');
+      throw new Error('Add at least one exercise');
+    }
+    updateDay(editDay, (row) => ({
+      ...row,
+      restDay: false,
+      workoutId: null,
+      exercises,
+      durationMin: result.durationMin ?? row.durationMin,
+      workoutName: result.name.trim() || row.focus[0] || 'Workout',
+      explanation: row.focus[0] ?? 'Train',
+    }));
+    setEditDay(null);
+    setViewDay(editDay);
   }
-
-  function onChangeTime(day: Day) {
-    const cycle = [null, '06:30', '07:00', '12:00', '17:30', '19:00'] as const;
-    updateDay(day, (row) => {
-      const index = cycle.findIndex((value) => value === row.scheduledTime);
-      const scheduledTime = cycle[(index + 1) % cycle.length] ?? null;
-      return { ...row, scheduledTime };
-    });
-    const current = prefs.dayTimes[day];
-    const index = cycle.findIndex((value) => value === current);
-    const next = cycle[(index + 1) % cycle.length];
-    const dayTimes = { ...prefs.dayTimes };
-    if (!next) delete dayTimes[day];
-    else dayTimes[day] = next;
-    setPrefs((prev) => ({ ...prev, dayTimes }));
-  }
-
-  const volumeBars = useMemo(() => {
-    if (!preview) return [];
-    const totals = weeklyVolumeByGroup(preview);
-    const target = WEEKLY_VOLUME_TARGET[prefs.level];
-    const labels = ['push', 'pull', 'legs', 'core', 'cardio', 'mobility', 'other'];
-    return labels
-      .map((label) => ({ label, sets: totals.get(label) ?? 0, target }))
-      .filter((bar) => bar.sets > 0 || ['push', 'pull', 'legs'].includes(bar.label));
-  }, [prefs.level, preview]);
 
   const totalTimeMin = useMemo(
     () => (preview ?? []).reduce((sum, day) => sum + (day.restDay ? 0 : day.durationMin), 0),
     [preview],
   );
 
-  const balanceWarning = useMemo(() => {
-    if (!preview) return null;
-    const target = WEEKLY_VOLUME_TARGET[prefs.level];
-    const totals = weeklyVolumeByGroup(preview);
-    const push = totals.get('push') ?? 0;
-    const pull = totals.get('pull') ?? 0;
-    const legs = totals.get('legs') ?? 0;
-    if (push > 0 && pull > 0 && Math.abs(push - pull) >= Math.max(4, target / 2)) {
-      return 'Push/pull volume is uneven this week.';
-    }
-    if (legs === 0 && (push > 0 || pull > 0)) return 'No leg volume this week.';
-    return null;
-  }, [prefs.level, preview]);
-
   async function apply() {
     if (!preview || !userId || !activeHousehold || applying) return;
     setApplying(true);
-    setError(null);
+    setToast(null);
     try {
       await saveGeneratePrefs(userId, prefs as unknown as Record<string, unknown>);
       await applyGeneratedTrainingPlan({
@@ -438,11 +471,16 @@ export function GenerateScreen() {
       });
       router.push('/train/plan' as Href);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not apply plan');
+      setToast(err instanceof Error ? err.message : 'Could not apply plan');
     } finally {
       setApplying(false);
     }
   }
+
+  const activeViewDay = viewDay ? preview?.find((row) => row.day === viewDay) ?? null : null;
+  const activeEditDay = editDay ? preview?.find((row) => row.day === editDay) ?? null : null;
+  const viewSeed = activeViewDay ? seedFromPreviewDay(activeViewDay, workouts) : null;
+  const editSeed = activeEditDay ? seedFromPreviewDay(activeEditDay, workouts) : null;
 
   const viewProps = {
     prefs,
@@ -451,24 +489,129 @@ export function GenerateScreen() {
     equipmentOptions,
     bodyParts,
     buddies,
-    workouts: workouts.map((item) => ({ id: item.id, name: item.name })),
+    workouts: workouts.map((item) => ({
+      id: item.id,
+      name: item.name,
+      durationMin: item.durationMin,
+      exerciseCount: item.exercises.length,
+    })),
     onGenerate: () => runGenerate(),
     preview,
-    volumeBars,
     totalTimeMin,
-    balanceWarning,
-    onSwapExercise,
-    onRerollDay,
-    onSwapSavedWorkout,
-    onMoveDay,
-    onToggleRest,
-    onChangeTime,
+    onViewDay: (day: Day) => {
+      const row = preview?.find((item) => item.day === day);
+      if (!row || !dayIsFilled(row)) return;
+      setViewDay(day);
+    },
+    onOpenDayMenu: (day: Day) => setMenuDay(day),
     onApply: () => void apply(),
     applying,
-    error,
-    pickingWorkoutDay,
-    onPickWorkoutDay: setPickingWorkoutDay,
   };
 
-  return desktop ? <GenerateDesktop {...viewProps} /> : <GenerateMobile {...viewProps} />;
+  return (
+    <>
+      {desktop ? <GenerateDesktop {...viewProps} /> : <GenerateMobile {...viewProps} />}
+
+      {viewSeed && activeViewDay && !editDay ? (
+        <WorkoutBuilder
+          key={`view-${viewSeed.key}`}
+          presentation="modal"
+          seed={viewSeed.seed}
+          people={people}
+          buddies={buddies}
+          editable={false}
+          onClose={() => setViewDay(null)}
+          onEdit={() => {
+            setEditDay(activeViewDay.day);
+            setViewDay(null);
+          }}
+          onSubmit={async () => undefined}
+        />
+      ) : null}
+
+      {editSeed && activeEditDay ? (
+        <WorkoutBuilder
+          key={`edit-${editSeed.key}`}
+          presentation="modal"
+          seed={editSeed.seed}
+          people={people}
+          buddies={buddies}
+          editable
+          onClose={() => {
+            setEditDay(null);
+            setViewDay(activeEditDay.day);
+          }}
+          onSubmit={submitEdit}
+        />
+      ) : null}
+
+      <Sheet visible={Boolean(menuDay)} title="Day" onClose={() => setMenuDay(null)}>
+        <View style={styles.menuList}>
+          <TextAction
+            label="Swap"
+            onPress={() => {
+              if (!menuDay) return;
+              setSwapDay(menuDay);
+              setMenuDay(null);
+            }}
+          />
+          <TextAction
+            label="Clear"
+            onPress={() => {
+              if (!menuDay) return;
+              onClearDay(menuDay);
+              setMenuDay(null);
+            }}
+          />
+        </View>
+      </Sheet>
+
+      <Sheet visible={Boolean(swapDay)} title="Swap" onClose={() => setSwapDay(null)}>
+        <ScrollView style={styles.sheetList} keyboardShouldPersistTaps="handled">
+          <TextAction
+            label="Suggest one"
+            tone="accent"
+            onPress={() => {
+              if (!swapDay) return;
+              onSuggestDay(swapDay);
+              setSwapDay(null);
+            }}
+          />
+          {workouts.map((workout) => (
+            <Pressable
+              key={workout.id}
+              accessibilityRole="button"
+              onPress={() => {
+                if (!swapDay) return;
+                onSwapSavedWorkout(swapDay, workout.id);
+                setSwapDay(null);
+              }}
+              style={styles.sheetRow}>
+              <Text style={styles.sheetName}>{workout.name}</Text>
+              <Text style={styles.sheetMeta}>
+                {workout.exercises.length} · {workout.durationMin ?? '—'}m
+              </Text>
+            </Pressable>
+          ))}
+          {workouts.length === 0 ? <Text style={styles.sheetEmpty}>No saved workouts</Text> : null}
+        </ScrollView>
+      </Sheet>
+
+      <Toast message={toast ?? ''} visible={Boolean(toast)} onDismiss={() => setToast(null)} />
+    </>
+  );
 }
+
+const styles = StyleSheet.create({
+  menuList: { gap: space.sm, paddingBottom: space.sm },
+  sheetList: { maxHeight: 360 },
+  sheetRow: {
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    gap: 2,
+  },
+  sheetName: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  sheetMeta: { color: colors.textMuted, fontSize: 12 },
+  sheetEmpty: { color: colors.textMuted, fontSize: 13, paddingVertical: 12 },
+});

@@ -4,6 +4,8 @@ import type { TrainVisibility } from './visibility';
 
 export type ApplyTrainingPlanDay = GeneratedTrainDay & {
   scheduledTime?: string | null;
+  /** Draft display name; used when creating a plan-only workout on apply. */
+  workoutName?: string | null;
 };
 
 export type ApplyTrainingPlanInput = {
@@ -70,6 +72,8 @@ function isRlsOrOwnershipError(error: QueryError): boolean {
 }
 
 function workoutNameFor(day: ApplyTrainingPlanDay): string {
+  const named = day.workoutName?.trim();
+  if (named) return named;
   const focus = day.focus[0] ?? 'Train';
   return `${DAY_SHORT[day.day]} · ${focus}`;
 }
@@ -157,6 +161,7 @@ export async function handleApplyTrainingPlan(
             visibility: visibility === 'people' || visibility === 'buddies_selected' ? 'private' : visibility,
             split_id: null,
             duration_min: day.durationMin || null,
+            plan_only: true,
           })
           .select('id')
           .single();

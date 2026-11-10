@@ -23,6 +23,15 @@ export type StashProduct = {
   detailAttempts: number;
   isOwned: boolean;
   notes: string | null;
+  /** Cheaper-find candidate; Switch promotes it to the live link/price. */
+  candidateSourceUrl: string | null;
+  candidatePrice: number | null;
+  candidateStoreName: string | null;
+  candidateCurrency: string | null;
+  /** Prior live offer retained after Switch. */
+  previousSourceUrl: string | null;
+  previousPrice: number | null;
+  previousStoreName: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -259,6 +268,7 @@ export type WatchlistSearchHit = {
   posterPath: string | null;
   backdropPath: string | null;
   imdbId: string | null;
+  director?: string;
 };
 
 export type WatchlistReview = {

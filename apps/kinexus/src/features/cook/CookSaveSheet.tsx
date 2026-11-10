@@ -13,11 +13,11 @@ import {
 
 import { Btn, Field } from '@/src/features/household/ui';
 import { Chip, Sheet } from '@/src/features/meals/meals-kit';
-import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
 import { ImportFieldsCard } from '@/src/features/meals/recipes/ImportShared';
+import { RecipeCoverPicker } from '@/src/features/meals/recipes/RecipeCoverPicker';
 import { ingredientRowsFrom, methodRowsFrom, type RecipeFormState } from '@/src/features/meals/recipes/recipe-form';
 import { ErrorBanner } from '@/src/features/shell/states';
-import { colors, radius } from '@/src/features/shell/theme';
+import { colors } from '@/src/features/shell/theme';
 
 export function formFromCleanRecipe(recipe: CleanRecipe): RecipeFormState {
   const draft = cleanRecipeToHouseholdDraft(recipe);
@@ -39,6 +39,7 @@ export function formFromCleanRecipe(recipe: CleanRecipe): RecipeFormState {
     slots: draft.mealSlots ?? [],
     recipeClass: null,
     imageUrl: draft.imageUrl ?? '',
+    imageCandidates: recipe.imageCandidates ?? (draft.imageUrl ? [draft.imageUrl] : []),
   };
 }
 
@@ -74,10 +75,12 @@ export function CookSaveSheet({
   return (
     <Sheet visible={visible} title="Save recipe" onClose={onClose} wide desktopMaxWidth={720}>
       <View style={styles.body}>
-        {form.imageUrl ? (
-          <View style={styles.hero}>
-            <RecipePhoto uri={form.imageUrl} size="fill" radius={0} />
-          </View>
+        {form.imageUrl || form.imageCandidates.length ? (
+          <RecipeCoverPicker
+            imageUrl={form.imageUrl}
+            imageCandidates={form.imageCandidates}
+            onSelect={(imageUrl) => setForm({ imageUrl })}
+          />
         ) : null}
         <Field label="Title" value={form.name} onChangeText={(name) => setForm({ name })} />
         <Field
@@ -131,7 +134,7 @@ export function CookSaveSheet({
         <Pressable onPress={() => setEditing((current) => !current)} style={styles.expander}>
           <Text style={styles.expanderLabel}>{editing ? 'Hide details' : 'Edit details'}</Text>
         </Pressable>
-        {editing ? <ImportFieldsCard form={form} setForm={setForm} /> : null}
+        {editing ? <ImportFieldsCard form={form} setForm={setForm} showCover={false} /> : null}
 
         {error ? <ErrorBanner message={error} /> : null}
         <Btn label="Save to household" onPress={onSave} busy={busy} disabled={busy} />
@@ -144,12 +147,6 @@ const styles = StyleSheet.create({
   body: {
     gap: 14,
     paddingBottom: 32,
-  },
-  hero: {
-    height: 160,
-    borderRadius: radius.lg,
-    overflow: 'hidden',
-    backgroundColor: colors.bgHover,
   },
   section: {
     color: colors.textMuted,

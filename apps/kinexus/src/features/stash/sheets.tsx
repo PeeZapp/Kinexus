@@ -456,6 +456,7 @@ export function AddProductSheet({
   visible,
   lists,
   defaultListId,
+  initialUrl,
   onClose,
   onScrape,
   onSave,
@@ -465,6 +466,7 @@ export function AddProductSheet({
   visible: boolean;
   lists: StashList[];
   defaultListId: string | null;
+  initialUrl?: string | null;
   onClose: () => void;
   onScrape: (url: string) => Promise<ProductDraft>;
   onSave: (draft: ProductDraft) => Promise<void>;
@@ -481,10 +483,12 @@ export function AddProductSheet({
   const [scrapeBusy, setScrapeBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [priceDeferred, setPriceDeferred] = useState(false);
+  const autoScraped = useRef<string | null>(null);
 
   useEffect(() => {
     if (!visible) return;
-    setUrl('');
+    const seeded = initialUrl?.trim() || '';
+    setUrl(seeded);
     setTitle('');
     setPrice('');
     setStore('');
@@ -493,7 +497,32 @@ export function AddProductSheet({
     setListId(defaultListId);
     setLocalError(null);
     setPriceDeferred(false);
-  }, [defaultListId, visible]);
+    autoScraped.current = null;
+  }, [defaultListId, initialUrl, visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const seeded = initialUrl?.trim() || '';
+    if (!seeded || autoScraped.current === seeded) return;
+    autoScraped.current = seeded;
+    void (async () => {
+      setScrapeBusy(true);
+      setLocalError(null);
+      try {
+        const draft = await onScrape(seeded);
+        setTitle(draft.title || '');
+        if (draft.currentPrice != null && String(draft.currentPrice).trim() !== '') setPrice(String(draft.currentPrice));
+        if (draft.storeName) setStore(draft.storeName);
+        if (draft.imageUrl) setImageUrl(draft.imageUrl);
+        if (draft.notes) setNotes(draft.notes);
+        setPriceDeferred(!String(draft.currentPrice ?? '').trim());
+      } catch (err) {
+        setLocalError(err instanceof Error ? err.message : 'Could not look up that URL');
+      } finally {
+        setScrapeBusy(false);
+      }
+    })();
+  }, [initialUrl, onScrape, visible]);
 
   async function scrape() {
     setLocalError(null);
@@ -574,6 +603,7 @@ export function ProductSheet({
   onToggleList,
   onRefresh,
   onDelete,
+  onSwitchCandidate,
   busy,
   error,
 }: {
@@ -586,6 +616,7 @@ export function ProductSheet({
   onToggleList: (listId: string, on: boolean) => Promise<void>;
   onRefresh: () => Promise<void>;
   onDelete: () => Promise<void>;
+  onSwitchCandidate?: () => Promise<void>;
   busy?: boolean;
   error?: string | null;
 }) {
@@ -604,6 +635,10 @@ export function ProductSheet({
     setNotes(product.notes ?? '');
   }, [product]);
 
+  const candidateStore = product?.candidateStoreName?.trim() || null;
+  const candidatePrice = product?.candidatePrice ?? null;
+  const showCandidate = Boolean(product?.candidateSourceUrl && candidatePrice != null && onSwitchCandidate);
+
   return (
     <Sheet visible={Boolean(product)} title={product?.title ?? 'Item'} onClose={onClose}>
       {product ? (
@@ -615,6 +650,14 @@ export function ProductSheet({
             <Text style={styles.heroPrice}>{formatMoney(product.currentPrice, currency)}</Text>
           )}
           {product.isOnSale ? <Text style={styles.sale}>Was {formatMoney(product.originalPrice, currency)}</Text> : null}
+          {showCandidate ? (
+            <View style={styles.cheaperRow}>
+              <Text style={styles.cheaperLine}>
+                Cheaper at {candidateStore ?? 'another store'}: {formatMoney(candidatePrice, currency)}
+              </Text>
+              <Btn label="Switch" variant="secondary" onPress={() => void onSwitchCandidate?.()} busy={busy} />
+            </View>
+          ) : null}
           <Field label="Name" value={title} onChangeText={setTitle} />
           <Field label="Price" value={price} onChangeText={setPrice} keyboardType="decimal-pad" />
           <Field label="Original price" value={original} onChangeText={setOriginal} keyboardType="decimal-pad" />
@@ -970,6 +1013,8 @@ const styles = StyleSheet.create({
   note: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
   heroPrice: { color: colors.text, fontSize: 22, fontWeight: '800' },
   sale: { color: colors.accent, fontSize: 13, fontWeight: '700' },
+  cheaperRow: { gap: 8 },
+  cheaperLine: { color: colors.text, fontSize: 15, fontWeight: '700' },
   meta: { color: colors.textMuted, fontSize: 13 },
   preview: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   previewBody: { flex: 1, gap: 4, minWidth: 0 },

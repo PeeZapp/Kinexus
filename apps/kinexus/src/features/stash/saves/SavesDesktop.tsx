@@ -103,10 +103,7 @@ export function SavesFilters({
 
 export function SavesDesktop(props: SavesLayoutProps) {
   return (
-    <StashChrome
-      desktop
-      kicker="Library"
-      title="Saves">
+    <StashChrome desktop>
       {props.onAddLink ? (
         <PrimaryActions
           addLabel="Save a link"

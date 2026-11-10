@@ -7,6 +7,7 @@ import { MEAL_SLOTS, RECIPE_CLASSES, type RecipeClass } from '@kinexus/domain';
 import { BackLink, Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
 import { Chip } from '@/src/features/meals/meals-kit';
 import { IngredientEditor, MethodEditor } from '@/src/features/meals/recipes/recipe-editors';
+import { RecipeCoverPicker } from '@/src/features/meals/recipes/RecipeCoverPicker';
 import type { RecipeFormState } from '@/src/features/meals/recipes/recipe-form';
 import type { ImportSource, MissingRecipe } from '@/src/lib/meals-api';
 import { openRecipeLink } from '@/src/features/meals/recipes/link-recipe';
@@ -35,6 +36,10 @@ export type ImportRecipeViewProps = {
   busy: boolean;
   onExtract: () => void;
   onSave: () => void;
+  aiBlocked?: 'no_access' | 'key_paused' | null;
+  aiBlockedMessage?: string | null;
+  onAiBlockedPress?: () => void;
+  resultsMayVary?: boolean;
 };
 
 const SOURCE_COPY: Record<ImportSource, string> = {
@@ -118,6 +123,7 @@ export function ImportView(props: ImportRecipeViewProps) {
 
 export function ImportExtractCard(props: ImportRecipeViewProps) {
   const loading = props.phase !== 'idle';
+  const textAiLocked = props.tab === 'text' && Boolean(props.aiBlocked);
   const fetchLabel = loading
     ? props.phase === 'fetching'
       ? 'Fetching page…'
@@ -151,12 +157,21 @@ export function ImportExtractCard(props: ImportRecipeViewProps) {
           multiline
         />
       )}
-      <Btn
-        label={fetchLabel}
-        disabled={!props.online || !props.apiReady || loading}
-        busy={loading && !props.missing}
-        onPress={props.onExtract}
-      />
+      <View style={textAiLocked ? styles.aiDim : undefined}>
+        <Btn
+          label={fetchLabel}
+          disabled={!props.online || !props.apiReady || loading}
+          busy={loading && !props.missing}
+          onPress={() => {
+            if (textAiLocked) {
+              props.onAiBlockedPress?.();
+              return;
+            }
+            props.onExtract();
+          }}
+        />
+      </View>
+      {props.resultsMayVary ? <Text style={styles.apiNote}>Web search was skipped for this result</Text> : null}
       {props.source ? (
         <View style={styles.note}>
           <Text style={styles.noteTitle}>{SOURCE_TITLE[props.source]}</Text>
@@ -206,12 +221,20 @@ function MissingRecipeCard(props: ImportRecipeViewProps) {
         </View>
       </View>
       <Field label="Dish name" value={missing.dishName} onChangeText={props.onDishName} placeholder="Steak alfredo" />
-      <Btn
-        label={loading ? 'Generating…' : 'Generate recipe'}
-        disabled={!props.online || !props.apiReady || loading || missing.dishName.trim().length < 2}
-        busy={loading}
-        onPress={props.onGenerateFromName}
-      />
+      <View style={props.aiBlocked ? styles.aiDim : undefined}>
+        <Btn
+          label={loading ? 'Generating…' : 'Generate recipe'}
+          disabled={!props.online || !props.apiReady || loading || missing.dishName.trim().length < 2}
+          busy={loading}
+          onPress={() => {
+            if (props.aiBlocked) {
+              props.onAiBlockedPress?.();
+              return;
+            }
+            props.onGenerateFromName();
+          }}
+        />
+      </View>
     </View>
   );
 }
@@ -219,9 +242,11 @@ function MissingRecipeCard(props: ImportRecipeViewProps) {
 export function ImportFieldsCard({
   form,
   setForm,
+  showCover = true,
 }: {
   form: RecipeFormState;
   setForm: (patch: Partial<RecipeFormState>) => void;
+  showCover?: boolean;
 }) {
   const [width, setWidth] = useState(0);
   const metaCols = width >= 640 ? 3 : 1;
@@ -236,6 +261,14 @@ export function ImportFieldsCard({
         setWidth((current) => (current === next ? current : next));
       }}
       style={styles.fields}>
+      {showCover && (form.imageUrl || form.imageCandidates.length) ? (
+        <RecipeCoverPicker
+          imageUrl={form.imageUrl}
+          imageCandidates={form.imageCandidates}
+          emoji={form.emoji}
+          onSelect={(imageUrl) => setForm({ imageUrl })}
+        />
+      ) : null}
       <Card>
         <Text style={styles.section}>Details</Text>
         <View style={styles.identity}>
@@ -442,6 +475,7 @@ const styles = StyleSheet.create({
   noteTitle: { color: colors.accent, fontSize: 13, fontWeight: '700' },
   noteBody: { color: colors.text, fontSize: 13, lineHeight: 18 },
   apiNote: { color: colors.textDim, fontSize: 13, lineHeight: 18 },
+  aiDim: { opacity: 0.45 },
   missing: {
     gap: 10,
     borderTopWidth: 1,

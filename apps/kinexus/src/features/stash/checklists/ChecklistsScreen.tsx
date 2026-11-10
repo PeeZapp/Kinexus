@@ -209,8 +209,6 @@ export function ChecklistsScreen() {
   const layoutProps = {
     desktop: mode === 'desktop',
     tablet,
-    kicker: 'Family',
-    title: 'Lists',
     query,
     setQuery,
     listCards,

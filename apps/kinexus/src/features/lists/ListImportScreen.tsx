@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
@@ -27,6 +27,7 @@ import {
   saveWorkout,
   type WorkoutDraft,
 } from '@/src/features/train/api';
+import { createCustomExercise } from '@/src/features/train/custom-exercises-api';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 import { useUnits } from '@/src/lib/use-units';
@@ -40,7 +41,8 @@ function asKind(value: string | string[] | undefined): KinexusListKind | null {
 
 export function ListImportScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ kind?: string }>();
+  const params = useLocalSearchParams<{ kind?: string; linkUrl?: string | string[] }>();
+  const linkUrlParam = typeof params.linkUrl === 'string' ? params.linkUrl : params.linkUrl?.[0] ?? null;
   const [kind, setKind] = useState<KinexusListKind | null>(asKind(params.kind));
   const [wizardOpen, setWizardOpen] = useState(Boolean(asKind(params.kind)));
   const { user } = useAuth();
@@ -51,6 +53,12 @@ export function ListImportScreen() {
   const meals = useMealsSync();
   const [workouts, setWorkouts] = useState<WorkoutDraft[]>([]);
   const [historyKeys, setHistoryKeys] = useState<HistoryDedupeItem[]>([]);
+
+  useEffect(() => {
+    if (kind !== 'workout' || !activeHousehold || !user || user.isDevBypass) return;
+    void loadWorkouts(activeHousehold.id).then(setWorkouts).catch(() => setWorkouts([]));
+    void loadHistoryDedupeKeys(user.id, activeHousehold.id).then(setHistoryKeys).catch(() => setHistoryKeys([]));
+  }, [activeHousehold, kind, user]);
 
   const existingLists = useMemo(() => {
     if (!kind) return [];
@@ -217,6 +225,7 @@ export function ListImportScreen() {
                       targetSets: exercise.targetSets,
                       targetReps: exercise.targetReps,
                       targetWeight: exercise.targetWeightKg,
+                      targetEffort: exercise.targetEffort ?? null,
                       targetRpe: exercise.targetRpe,
                       note: exercise.note ?? '',
                       supersetId: null,
@@ -230,6 +239,27 @@ export function ListImportScreen() {
                 const hit = rows.find((workout) => workout.name.trim().toLowerCase() === name.trim().toLowerCase());
                 return hit?.id ?? null;
               },
+              createCustomExercise: async (name) =>
+                createCustomExercise({
+                  userId: user.id,
+                  draft: {
+                    name,
+                    bodyPart: 'other',
+                    equipment: 'body weight',
+                    targetMuscle: 'other',
+                    secondaryMuscles: [],
+                    instructions: [],
+                    category: null,
+                    difficulty: null,
+                    isCompound: null,
+                    mediaUrl: null,
+                    mediaUrls: [],
+                    mediaKind: null,
+                    scope: 'private',
+                    householdId: null,
+                    groupId: null,
+                  },
+                }),
               createHistorySession: async (session, workoutId) => {
                 if (!session.startedAt) return;
                 await importFinishedSession({
@@ -284,13 +314,25 @@ export function ListImportScreen() {
           existingLists={existingLists}
           existingItems={existingItems}
           existingHistory={historyKeys}
+          existingWorkoutFingerprints={workouts.map((workout) => ({
+            id: workout.id,
+            name: workout.name,
+            exerciseNames: workout.exercises.map((exercise) => exercise.name),
+          }))}
           weightUnit={weightUnit}
           writers={writers}
+          initialLinkUrl={kind === 'watchlist' || kind === 'workout' ? linkUrlParam : null}
           loadExerciseCatalog={
             kind === 'workout'
-              ? async () => (await loadLibrary()).map((exercise) => ({ id: exercise.id, name: exercise.name }))
+              ? async () =>
+                  (await loadLibrary()).map((exercise) => ({
+                    id: exercise.id,
+                    name: exercise.name,
+                    category: exercise.category,
+                  }))
               : undefined
           }
+          onOpenExistingWorkout={(workoutId) => router.replace(`/train/${workoutId}`)}
           onClose={() => {
             setWizardOpen(false);
             if (params.kind) router.back();

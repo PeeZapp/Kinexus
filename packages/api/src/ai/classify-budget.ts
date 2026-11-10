@@ -5,8 +5,9 @@ import {
   type FinanceBudgetLineKind,
 } from '@kinexus/domain';
 
-import type { AiClient } from './provider.js';
 import { parseJsonObject } from '../recipe-draft.js';
+import type { AiDraftResult } from './extract.js';
+import { completeResolved, type ResolvedAiClient } from './resolve.js';
 
 const KINDS = new Set<FinanceBudgetLineKind>(['income', 'expense']);
 
@@ -74,16 +75,22 @@ export function guessesFromAi(raw: Record<string, unknown>): AiMerchantGuess[] {
 }
 
 export async function classifyBudgetMerchantsWithAi(
-  client: AiClient,
+  resolved: ResolvedAiClient,
   merchants: readonly BudgetClassifyMerchant[],
   categories: readonly BudgetCategoryOption[],
-): Promise<AiMerchantGuess[]> {
-  if (merchants.length === 0) return [];
-  const text = await client.complete({
+): Promise<AiDraftResult<AiMerchantGuess[]>> {
+  if (merchants.length === 0) {
+    return { value: [], provider: resolved.provider, resultsMayVary: false };
+  }
+  const out = await completeResolved(resolved, {
     json: true,
     maxTokens: 2048,
     system: 'You classify household bank merchants into budget categories. Respond with valid JSON only.',
     prompt: budgetClassifyPrompt(merchants, categories),
   });
-  return guessesFromAi(parseJsonObject(text));
+  return {
+    value: guessesFromAi(parseJsonObject(out.text)),
+    provider: out.provider,
+    resultsMayVary: out.resultsMayVary,
+  };
 }

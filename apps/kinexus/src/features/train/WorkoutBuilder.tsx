@@ -186,6 +186,7 @@ export function WorkoutBuilder({
   buddies = [],
   editable,
   onClose,
+  onEdit,
   onDelete,
   onShare,
   onCopy,
@@ -198,6 +199,8 @@ export function WorkoutBuilder({
   buddies?: { id: string; name: string }[];
   editable: boolean;
   onClose?: () => void;
+  /** Read-only viewer → open editor (Generate preview drafts). */
+  onEdit?: () => void;
   onDelete?: () => void | Promise<void>;
   onShare?: () => void;
   onCopy?: () => void | Promise<void>;
@@ -863,7 +866,11 @@ export function WorkoutBuilder({
       {onClose ? (
         <View style={[styles.head, !split && styles.headCompact]}>
           <Text style={[styles.title, !split && styles.titleCompact]} numberOfLines={1}>
-            {presentation === 'modal' ? 'Build workout' : name.trim() || 'Workout'}
+            {presentation === 'modal'
+              ? editable
+                ? 'Build workout'
+                : name.trim() || 'Workout'
+              : name.trim() || 'Workout'}
           </Text>
           <Pressable
             onPress={onClose}
@@ -963,7 +970,12 @@ export function WorkoutBuilder({
           {editable ? (
             <TrainButton label="Save" tone="ghost" fill compact={narrow} disabled={!canSubmit} onPress={() => void submit(false)} />
           ) : null}
-          <TrainButton label="Start" fill compact={narrow} disabled={!canSubmit} onPress={() => void submit(true)} />
+          {!editable && onEdit ? (
+            <TrainButton label="Edit" fill compact={narrow} onPress={onEdit} />
+          ) : null}
+          {editable || !onEdit ? (
+            <TrainButton label="Start" fill compact={narrow} disabled={!canSubmit} onPress={() => void submit(true)} />
+          ) : null}
         </View>
       </View>
     </View>

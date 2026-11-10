@@ -54,6 +54,8 @@ export function defaultHeadersForKind(kind: KinexusListKind): string[] {
       return ['title', 'quantity', 'notes'];
     case 'checklist':
       return ['title', 'notes'];
+    case 'readlist':
+      return ['title', 'author', 'isbn13', 'notes'];
   }
 }
 

@@ -5,6 +5,13 @@ import { formatMoney, lookupChainsForCountry, type GroceryComparison } from '@ki
 import { Btn, ErrorText } from '@/src/features/household/ui';
 import { colors, radius } from '@/src/features/shell/theme';
 
+function pricesAsOfLabel(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
 export function ShoppingShops({
   country,
   online,
@@ -12,6 +19,7 @@ export function ShoppingShops({
   busy,
   error,
   warning,
+  pricesAsOf,
   onRecheck,
 }: {
   country: string | null | undefined;
@@ -20,9 +28,11 @@ export function ShoppingShops({
   busy: boolean;
   error: string | null;
   warning: string | null;
+  pricesAsOf?: string | null;
   onRecheck: () => void;
 }) {
   const chains = lookupChainsForCountry(country);
+  const asOf = pricesAsOfLabel(pricesAsOf);
 
   return (
     <View style={styles.wrap}>
@@ -34,6 +44,7 @@ export function ShoppingShops({
       <ErrorText message={error} />
       {warning ? <Text style={styles.hint}>{warning}</Text> : null}
       {busy ? <Text style={styles.hint}>Checking Coles and Woolworths…</Text> : null}
+      {asOf ? <Text style={styles.hint}>Prices as of {asOf}</Text> : null}
       {comparison?.cheapestShop ? <ShopTotals comparison={comparison} /> : null}
       {!busy && chains.length > 0 && comparison && !comparison.cheapestShop ? (
         <Text style={styles.hint}>No confident price for these items.</Text>

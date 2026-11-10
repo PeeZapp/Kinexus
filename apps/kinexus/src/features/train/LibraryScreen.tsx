@@ -245,7 +245,7 @@ function ExerciseLibraryPane() {
               ))}
             </View>
             {selected.sourceBadge === 'creator' && selected.owner ? (
-              <PublicName user={selected.owner} />
+              <PublicName user={selected.owner} link />
             ) : null}
             <ExerciseSteps instructions={selected.instructions} />
             {credit ? <Text style={styles.credit}>{credit}</Text> : null}
@@ -499,7 +499,7 @@ function GlobalLibraryPane() {
       <Sheet visible={selected !== null} title={selected?.name ?? ''} wide onClose={() => setSelected(null)}>
         {selected ? (
           <View style={styles.detail}>
-            {selected.creator ? <PublicName user={selected.creator} /> : null}
+            {selected.creator ? <PublicName user={selected.creator} link /> : null}
             <View style={styles.pills}>
               {selected.level ? <Pill label={trainGlobalLevelLabel(selected.level)} /> : null}
               {selected.goal ? <Pill label={trainGlobalGoalLabel(selected.goal)} /> : null}

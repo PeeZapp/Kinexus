@@ -67,3 +67,35 @@ export type CreatorReviewChecklist = {
   creatorConfirmed: boolean;
   notes: string;
 };
+
+/** Public creator page — no real name, email, or household fields. */
+export type PublicProfileLink = {
+  url: string;
+  label?: string;
+};
+
+export type PublicProfile = {
+  permanentId: string;
+  handle: string;
+  avatarPreset: string | null;
+  isVerified: boolean;
+  bio: string | null;
+  links: PublicProfileLink[];
+};
+
+export type ProfileItemKind = 'recipe' | 'workout' | 'plan' | 'watchlist';
+
+export type ProfileItem = {
+  id: string;
+  kind: ProfileItemKind;
+  title: string;
+  imageUrl: string | null;
+  publishedAt: string;
+};
+
+export type CreatorSearchHit = {
+  permanentId: string;
+  handle: string;
+  avatarPreset: string | null;
+  isVerified: boolean;
+};

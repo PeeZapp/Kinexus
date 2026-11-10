@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { handleGetSharedWorkout } from './shared-workout.js';
 import { handleGetSharedTrainingPlan } from './shared-training-plan.js';
 import { handleGetSharedWatchlist } from './shared-watchlist-link.js';
+import { handleGetSharedReadlist } from './shared-readlist-link.js';
 
 type QueryResult = { data: unknown; error: { message: string } | null };
 
@@ -309,6 +310,95 @@ describe('handleGetSharedWatchlist', () => {
     });
     expect(leakKeys(result.body)).toEqual([]);
     expect(JSON.stringify(result.body)).not.toMatch(/hh-secret|household|person|overview|notes|status/i);
+    expect(rpc).toHaveBeenCalledWith('public_profiles', { p_ids: ['u1'] });
+  });
+});
+
+describe('handleGetSharedReadlist', () => {
+  it('404s when sharing is off / reset and strips private fields', async () => {
+    const from = vi.fn((table: string) => {
+      if (table === 'readlist_lists') return chain({ data: null, error: null });
+      throw new Error(`unexpected table ${table}`);
+    });
+    const result = await handleGetSharedReadlist('revoked', {
+      isConfigured: () => true,
+      createClient: () => ({ from, rpc: vi.fn() } as never),
+    });
+    expect(result.status).toBe(404);
+    expect(JSON.stringify(result.body)).not.toMatch(/progress|review|notes|score|household|person/i);
+  });
+
+  it('returns books + @username without progress/review/notes/household data', async () => {
+    const rpc = vi.fn(async () => ({
+      data: [{ id: 'u1', username: 'paul', global_handle: 'Swift-Oak-42', avatar_url: null, is_verified_creator: false }],
+      error: null,
+    }));
+    const from = vi.fn((table: string) => {
+      if (table === 'readlist_lists') {
+        return chain({
+          data: {
+            id: 'l1',
+            name: 'Nightstand',
+            created_by: 'u1',
+            is_shared: true,
+            household_id: 'hh-secret',
+          },
+          error: null,
+        });
+      }
+      if (table === 'readlist_items') {
+        return chain({
+          data: [
+            {
+              work_id: 'w1',
+              status: 'reading',
+              household_id: 'hh-secret',
+              notes: 'secret',
+              preferred_edition_id: 'e1',
+              added_by: 'u1',
+            },
+          ],
+          error: null,
+        });
+      }
+      if (table === 'readlist_works') {
+        return chain({
+          data: [
+            {
+              id: 'w1',
+              title: 'Arrival',
+              authors: [{ name: 'Ted Chiang' }],
+              cover_url: 'https://covers/a.jpg',
+              first_published_year: 2016,
+              household_id: 'hh-secret',
+            },
+          ],
+          error: null,
+        });
+      }
+      throw new Error(`unexpected table ${table}`);
+    });
+
+    const result = await handleGetSharedReadlist('tok', {
+      isConfigured: () => true,
+      createClient: () => ({ from, rpc } as never),
+    });
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      name: 'Nightstand',
+      ownerUsername: 'paul',
+      books: [
+        {
+          workId: 'w1',
+          title: 'Arrival',
+          authors: ['Ted Chiang'],
+          coverUrl: 'https://covers/a.jpg',
+          year: 2016,
+          status: 'reading',
+        },
+      ],
+    });
+    expect(JSON.stringify(result.body)).not.toMatch(/hh-secret|household|person|notes|progress|review|score/i);
     expect(rpc).toHaveBeenCalledWith('public_profiles', { p_ids: ['u1'] });
   });
 });

@@ -48,6 +48,7 @@ export function ShoppingScreen() {
   const canMatch = meals.online && lookupChainsForCountry(activeHousehold?.country).length > 0;
   const grocery = useGroceryPrices({
     country: activeHousehold?.country,
+    householdId: activeHousehold?.id,
     online: meals.online,
     items: priceItems,
     onSave: meals.saveShoppingQuotes,
@@ -62,6 +63,7 @@ export function ShoppingScreen() {
         busy={grocery.busy}
         error={grocery.error}
         warning={grocery.warning}
+        pricesAsOf={grocery.pricesAsOf}
         onRecheck={grocery.recheck}
       />
       {activeHousehold ? (
@@ -115,6 +117,7 @@ export function ShoppingScreen() {
       <ShoppingProductSheet
         item={picking}
         country={activeHousehold?.country}
+        householdId={activeHousehold?.id}
         onClose={() => setPickingId(null)}
         onSave={(id, quote) => meals.saveShoppingQuotes([{ id, quote }])}
       />

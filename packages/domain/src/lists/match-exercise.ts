@@ -7,6 +7,8 @@ export type ExerciseCatalogEntry = {
   name: string;
   /** Hidden near-duplicate titles that should still match this row. */
   aliases?: readonly string[];
+  /** Used for Load vs Effort intensity mapping on link import. */
+  category?: string | null;
 };
 
 /** Deterministic normalize for exercise titles (equipment suffixes, casing, punctuation). */

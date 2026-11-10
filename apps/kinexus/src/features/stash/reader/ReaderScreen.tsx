@@ -104,10 +104,7 @@ export function ReaderScreen() {
   const activeView = views.find((view) => view.id === viewerId) ?? views[0] ?? null;
 
   return (
-    <StashChrome
-      desktop={desktop}
-      kicker="Library"
-      title="Reader">
+    <StashChrome desktop={desktop}>
       <View style={styles.form}>
         <Field
           label="URL"

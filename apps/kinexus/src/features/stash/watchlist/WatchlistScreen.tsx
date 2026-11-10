@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import type { Href } from 'expo-router';
 
 import {
   canManageWatchlist,
@@ -105,6 +107,11 @@ function selfAdultId(
 export function WatchlistScreen() {
   const { mode } = useExperienceMode();
   const { user } = useAuth();
+  const router = useRouter();
+  const params = useLocalSearchParams<{ shareUrl?: string | string[]; listId?: string | string[] }>();
+  const shareUrl = typeof params.shareUrl === 'string' ? params.shareUrl : params.shareUrl?.[0] ?? null;
+  const shareListId = typeof params.listId === 'string' ? params.listId : params.listId?.[0] ?? null;
+  const shareHandled = useRef(false);
   const { people, role, activeHousehold, refresh } = useHousehold();
   const selfName = user?.displayName?.trim() || 'You';
   const selfId = selfAdultId(people, user?.id, selfName);
@@ -487,6 +494,18 @@ export function WatchlistScreen() {
       clearTimeout(timer);
     };
   }, [selectedListId, watchedPersonPick, watchedQuery, watchlist.country]);
+
+  useEffect(() => {
+    if (shareHandled.current || !shareUrl) return;
+    const custom = watchlist.lists.filter((list) => list.kind === 'custom');
+    if (custom.length === 0) return;
+    shareHandled.current = true;
+    const targetId =
+      shareListId && custom.some((list) => list.id === shareListId) ? shareListId : custom[0]?.id ?? null;
+    if (targetId) setSelectedListId(targetId);
+    setCatalogQuery(shareUrl);
+    router.replace('/lists/watchlist' as Href);
+  }, [router, shareListId, shareUrl, watchlist.lists]);
 
   const selectedList = watchlist.lists.find((list) => list.id === selectedListId) ?? null;
   const openEntry: WatchlistEntry | null = entries.find((entry) => entry.item.id === openItemId) ?? null;

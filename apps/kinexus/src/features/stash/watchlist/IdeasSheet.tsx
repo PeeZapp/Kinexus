@@ -1,8 +1,11 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
+  isWatchAdult,
   itemStatusLabel,
+  maxAllowedCertification,
   mediaTypeLabel,
   normalizeStreamingProviderIds,
   tmdbImageUrl,
@@ -37,6 +40,20 @@ export type WatchlistIdeaSource = {
 };
 
 const PICK_LIMIT = 10;
+
+function watchersStorageKey(householdId: string) {
+  return `kinexus.watchNextPeople.${householdId}`;
+}
+
+function defaultAdultIds(people: readonly HouseholdPerson[]): string[] {
+  const adults = people.filter((person) => person.personType === 'adult').map((person) => person.id);
+  return adults.length > 0 ? adults : people.map((person) => person.id);
+}
+
+function personInitial(name: string): string {
+  const trimmed = name.trim();
+  return trimmed ? trimmed.slice(0, 1).toUpperCase() : '?';
+}
 
 function hitToSuggestion(hit: WatchlistSearchHit): WatchlistSuggestion {
   return { ...hit, publicScore: null, reason: null };
@@ -92,7 +109,7 @@ export function IdeasSheet({
   busy?: boolean;
   error?: string | null;
 }) {
-  const [personId, setPersonId] = useState<string | null>(defaultPersonId);
+  const [selectedPersonIds, setSelectedPersonIds] = useState<string[]>(() => defaultAdultIds(people));
   const [mediaType, setMediaType] = useState<WatchlistMediaType>('movie');
   const [query, setQuery] = useState('');
   const [searchHits, setSearchHits] = useState<WatchlistSearchHit[]>([]);
@@ -114,10 +131,20 @@ export function IdeasSheet({
     const ids = serviceKey ? serviceKey.split(',').map(Number) : [];
     return ids.length > 0 ? { country, providerIds: ids } : {};
   }, [country, serviceKey]);
+  const householdId = people[0]?.householdId ?? null;
+  const selectedPeople = useMemo(
+    () => people.filter((person) => selectedPersonIds.includes(person.id)),
+    [people, selectedPersonIds],
+  );
+  const suitableFor = useMemo(() => {
+    if (selectedPeople.length === 0) return null;
+    if (selectedPeople.every((person) => isWatchAdult(person))) return null;
+    return maxAllowedCertification(selectedPeople);
+  }, [selectedPeople]);
+  const personIdsKey = selectedPersonIds.join(',');
 
   useEffect(() => {
     if (!visible) return;
-    setPersonId(defaultPersonId);
     setMediaType('movie');
     setQuery('');
     setSearchHits([]);
@@ -130,6 +157,29 @@ export function IdeasSheet({
     setLocalError(null);
     setListId(defaultListId ?? lists[0]?.id ?? null);
     setSurpriseNonce(0);
+
+    const fallback = defaultAdultIds(people);
+    const valid = new Set(people.map((person) => person.id));
+    let cancelled = false;
+    void (async () => {
+      if (!householdId) {
+        if (!cancelled) setSelectedPersonIds(fallback);
+        return;
+      }
+      try {
+        const raw = await AsyncStorage.getItem(watchersStorageKey(householdId));
+        const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+        const savedIds = Array.isArray(parsed)
+          ? parsed.filter((id): id is string => typeof id === 'string' && valid.has(id))
+          : [];
+        if (!cancelled) setSelectedPersonIds(savedIds.length > 0 ? savedIds : fallback);
+      } catch {
+        if (!cancelled) setSelectedPersonIds(fallback);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [mode, visible]);
 
   useEffect(() => {
@@ -200,7 +250,7 @@ export function IdeasSheet({
   }, [mediaType, mode, needsServices, serviceFilter, serviceIds.length, surpriseNonce, visible]);
 
   useEffect(() => {
-    if (!visible || mode !== 'next' || !personId) return;
+    if (!visible || mode !== 'next' || selectedPersonIds.length === 0) return;
     if (needsServices) {
       setResults([]);
       setBand(null);
@@ -208,7 +258,17 @@ export function IdeasSheet({
       setLocalError('Choose the streaming services you have, or set recommendations to show all.');
       return;
     }
-    const seeds = seedsFor(personId);
+    const seedMap = new Map<string, WatchlistRecommendSeed>();
+    for (const id of selectedPersonIds) {
+      for (const seed of seedsFor(id)) {
+        const key = watchlistTitleKey(seed.mediaType, seed.tmdbId);
+        const current = seedMap.get(key);
+        if (!current || (seed.userScore ?? 0) > (current.userScore ?? 0)) seedMap.set(key, seed);
+      }
+    }
+    const seeds = [...seedMap.values()]
+      .sort((a, b) => (b.userScore ?? 0) - (a.userScore ?? 0) || a.title.localeCompare(b.title))
+      .slice(0, 8);
     if (seeds.length === 0) {
       setResults([]);
       setBand(null);
@@ -219,7 +279,12 @@ export function IdeasSheet({
     let cancelled = false;
     setLoading(true);
     setLocalError(null);
-    void recommendWatchlistTitles({ seeds, exclude: [...saved], ...serviceFilter })
+    void recommendWatchlistTitles({
+      seeds,
+      exclude: [...saved],
+      personIds: selectedPersonIds,
+      ...serviceFilter,
+    })
       .then((payload) => {
         if (cancelled) return;
         setResults(payload.results);
@@ -239,7 +304,18 @@ export function IdeasSheet({
     return () => {
       cancelled = true;
     };
-  }, [mode, needsServices, personId, saved, seedsFor, serviceFilter, serviceIds.length, visible]);
+  }, [mode, needsServices, personIdsKey, saved, seedsFor, serviceFilter, serviceIds.length, visible]);
+
+  function togglePerson(id: string) {
+    setSelectedPersonIds((current) => {
+      const next = current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
+      if (next.length === 0) return current;
+      if (householdId) {
+        void AsyncStorage.setItem(watchersStorageKey(householdId), JSON.stringify(next));
+      }
+      return next;
+    });
+  }
 
   function togglePick(hit: WatchlistSuggestion) {
     const key = watchlistTitleKey(hit.mediaType, hit.tmdbId);
@@ -307,7 +383,15 @@ export function IdeasSheet({
     mode === 'surprise' ? 'Surprise me' : mode === 'like' ? 'Something like this' : 'What should I watch next';
   const likeBrowse = mode === 'like' && phase === 'browse';
   const showResults = mode === 'next' || mode === 'surprise' || phase === 'results';
-  const seeds = personId ? seedsFor(personId) : [];
+  const seedMap = new Map<string, WatchlistRecommendSeed>();
+  for (const id of selectedPersonIds) {
+    for (const seed of seedsFor(id)) {
+      const key = watchlistTitleKey(seed.mediaType, seed.tmdbId);
+      const current = seedMap.get(key);
+      if (!current || (seed.userScore ?? 0) > (current.userScore ?? 0)) seedMap.set(key, seed);
+    }
+  }
+  const seeds = [...seedMap.values()];
   const savedKeys = new Set(saved.map((row) => watchlistTitleKey(row.mediaType, row.tmdbId)));
   const pickedKeys = new Set(picked.map((hit) => watchlistTitleKey(hit.mediaType, hit.tmdbId)));
   const needle = query.trim().toLowerCase();
@@ -359,21 +443,29 @@ export function IdeasSheet({
       <View style={styles.stack}>
         {mode === 'next' ? (
           <>
-            <Text style={styles.hint}>
-              Uses your high scores and what the household has watched, then finds titles in a similar public-score band.
-            </Text>
-            {people.length > 1 ? (
-              <View style={styles.wrap}>
-                {people.map((person) => (
-                  <Pill
-                    key={person.id}
-                    label={person.name}
-                    active={personId === person.id}
-                    onPress={() => setPersonId(person.id)}
-                  />
-                ))}
+            {people.length > 0 ? (
+              <View style={styles.peopleRow}>
+                {people.map((person) => {
+                  const active = selectedPersonIds.includes(person.id);
+                  return (
+                    <Pressable
+                      key={person.id}
+                      onPress={() => togglePerson(person.id)}
+                      style={styles.personChip}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                      accessibilityLabel={person.name}>
+                      <View style={[styles.avatar, active && styles.avatarActive]}>
+                        <Text style={[styles.avatarText, active && styles.avatarTextActive]}>
+                          {personInitial(person.name)}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
               </View>
             ) : null}
+            {suitableFor ? <Text style={styles.hint}>Suitable for: {suitableFor}</Text> : null}
             {!loading && seeds.length === 0 ? (
               <Text style={styles.hint}>
                 Review a few titles you liked, or mark some as watched. Something like this can start from titles you search for or already have.
@@ -511,6 +603,11 @@ function SuggestionRow({
           {hit.publicScore != null ? ` · ${hit.publicScore.toFixed(1)} public` : ''}
           {hit.reason ? ` · ${hit.reason}` : ''}
         </Text>
+        {hit.director ? (
+          <Text style={styles.director} numberOfLines={1}>
+            Dir. {hit.director}
+          </Text>
+        ) : null}
       </View>
       <Text style={styles.action}>{action}</Text>
     </Pressable>
@@ -520,6 +617,24 @@ function SuggestionRow({
 const styles = StyleSheet.create({
   stack: { gap: 12, paddingBottom: space.lg },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  peopleRow: { flexDirection: 'row', flexWrap: 'nowrap', gap: 10, alignItems: 'center' },
+  personChip: { alignItems: 'center' },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.bgElevated,
+    borderWidth: 2,
+    borderColor: colors.border,
+  },
+  avatarActive: {
+    borderColor: colors.accent,
+    backgroundColor: colors.bgHover,
+  },
+  avatarText: { color: colors.textMuted, fontSize: 14, fontWeight: '700' },
+  avatarTextActive: { color: colors.text },
   pinned: { gap: 8 },
   search: {
     backgroundColor: colors.bgElevated,
@@ -534,6 +649,7 @@ const styles = StyleSheet.create({
   },
   section: { color: colors.text, fontSize: 13, fontWeight: '800' },
   hint: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
+  director: { color: colors.textMuted, fontSize: 12, lineHeight: 16 },
   error: { color: colors.danger, fontSize: 13, lineHeight: 18 },
   hit: {
     flexDirection: 'row',

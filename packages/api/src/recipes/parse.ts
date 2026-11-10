@@ -5,6 +5,7 @@ export type ExtractedRecipeCore = {
   ingredients: CleanIngredient[];
   method: CleanMethodBlock[];
   imageUrl?: string;
+  imageCandidates?: string[];
   originalServings?: number;
   cookTimeMinutes?: number;
   cuisine?: string;

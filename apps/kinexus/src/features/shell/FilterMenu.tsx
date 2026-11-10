@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { colors, radius } from '@/src/features/shell/theme';
 
@@ -39,6 +39,7 @@ export function FilterDropdown<T extends string | number | null>({
   active,
   onToggle,
   onSelect,
+  style,
 }: {
   id: string;
   label: string;
@@ -49,10 +50,11 @@ export function FilterDropdown<T extends string | number | null>({
   active?: boolean;
   onToggle: (id: string) => void;
   onSelect: (value: T) => void;
+  style?: StyleProp<ViewStyle>;
 }) {
   const highlighted = active ?? value != null;
   return (
-    <View style={[styles.dropdown, open && styles.dropdownOpen]} collapsable={false}>
+    <View style={[styles.dropdown, style, open && styles.dropdownOpen]} collapsable={false}>
       {open ? (
         <Pressable
           accessibilityLabel={`Close ${label} filter`}
@@ -68,7 +70,10 @@ export function FilterDropdown<T extends string | number | null>({
           open && styles.dropdownFront,
         ]}>
         <Text style={styles.dropdownKind}>{label}</Text>
-        <Text style={[styles.dropdownValue, highlighted && styles.dropdownValueActive]} numberOfLines={1}>
+        <Text
+          style={[styles.dropdownValue, highlighted && styles.dropdownValueActive]}
+          numberOfLines={1}
+          ellipsizeMode="tail">
           {valueLabel}
         </Text>
         <Text style={styles.dropdownChevron}>{open ? '▴' : '▾'}</Text>
@@ -158,6 +163,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     flex: 1,
+    flexShrink: 1,
     minWidth: 0,
   },
   dropdownValueActive: { color: colors.accent },
@@ -173,8 +179,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.bgElevated,
     overflow: 'hidden',
-    zIndex: 4,
-    elevation: 12,
+    zIndex: 100,
+    elevation: 24,
     shadowColor: '#000',
     shadowOpacity: 0.28,
     shadowRadius: 10,

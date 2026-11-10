@@ -142,6 +142,9 @@ export function buildListExport(input: ExportListInput, format: ListExportFormat
   if (format === 'letterboxd-csv') {
     return buildLetterboxdImportCsv(input);
   }
+  if (format === 'goodreads-csv') {
+    throw new Error('Goodreads CSV export uses /readlist/export');
+  }
   if (format === 'json') {
     const payload = buildKinexusExport(input);
     return {

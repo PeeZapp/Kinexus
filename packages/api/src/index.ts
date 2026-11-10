@@ -1,5 +1,6 @@
 export type { AiClient, AiProvider } from './ai/provider.js';
 export { createAiClient } from './ai/provider.js';
+export { WEB_SEARCH_FEATURES, resolveAiClient, AiBlockedError } from './ai/resolve.js';
 export { scrapeRecipeUrl } from './scrape/index.js';
 export { SsrfError, assertPublicHttpUrl, fetchPublicHtml } from './scrape/index.js';
 export { extractJsonLdRecipe } from './recipes/extract-jsonld.js';

@@ -30,6 +30,8 @@ export type RecipeDraft = {
   chefTip?: string;
   mealSlots: string[];
   imageUrl?: string;
+  /** External cover candidates for the import UI (CDN URLs; mirrored on save). */
+  imageCandidates?: string[];
 };
 
 export function asString(value: unknown): string | undefined {
@@ -99,7 +101,16 @@ export function normalizeRecipeDraft(raw: Record<string, unknown>): RecipeDraft 
     chefTip: asString(raw.chefTip ?? raw.chef_tip),
     mealSlots: mealSlots.length ? mealSlots : ['dinner'],
     imageUrl: asString(raw.imageUrl ?? raw.image_url),
+    imageCandidates: asUrlList(raw.imageCandidates ?? raw.image_candidates),
   };
+}
+
+function asUrlList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const urls = value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
+  return urls.length ? urls.slice(0, 10) : undefined;
 }
 
 function presentLabel(value: string | undefined, placeholder: RegExp): string | undefined {

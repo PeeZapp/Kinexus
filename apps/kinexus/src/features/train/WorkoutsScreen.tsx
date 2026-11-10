@@ -34,7 +34,9 @@ import {
   type WorkoutDraft,
 } from '@/src/features/train/api';
 import { loadTrainBuddies } from '@/src/features/train/buddies-api';
+import { createCustomExercise } from '@/src/features/train/custom-exercises-api';
 import { EMPTY_WORKOUT_SEED, WorkoutBuilder, type WorkoutBuilderResult } from '@/src/features/train/WorkoutBuilder';
+import { CreatorSearchHits } from '@/src/features/creators/CreatorSearchHits';
 import { SearchField, TrainButton, TrainPage } from '@/src/features/train/ui';
 import { exerciseTitle } from '@/src/features/train/format';
 import { ErrorBanner, LoadingState } from '@/src/features/shell/states';
@@ -273,6 +275,7 @@ export function WorkoutsScreen() {
         <View style={styles.toolbar}>
           <View style={styles.search}>
             <SearchField value={query} onChangeText={setQuery} placeholder="Search workouts" />
+            <CreatorSearchHits query={query} />
           </View>
           {canCreate ? <TrainButton label="New workout" onPress={() => setBuilderOpen(true)} /> : null}
           {canCreate ? (
@@ -472,9 +475,18 @@ export function WorkoutsScreen() {
         existingLists={workouts.map((workout) => ({ id: workout.id, name: workout.name }))}
         existingItems={workouts.flatMap((workout) => workout.exercises.map((exercise) => ({ title: exercise.name })))}
         existingHistory={historyKeys}
+        existingWorkoutFingerprints={workouts.map((workout) => ({
+          id: workout.id,
+          name: workout.name,
+          exerciseNames: workout.exercises.map((exercise) => exercise.name),
+        }))}
         weightUnit={weightUnit}
         loadExerciseCatalog={async () =>
-          (await loadLibrary()).map((exercise) => ({ id: exercise.id, name: exercise.name }))
+          (await loadLibrary()).map((exercise) => ({
+            id: exercise.id,
+            name: exercise.name,
+            category: exercise.category,
+          }))
         }
         writers={
           {
@@ -551,6 +563,7 @@ export function WorkoutsScreen() {
                             targetSets: exercise.targetSets,
                             targetReps: exercise.targetReps,
                             targetWeight: exercise.targetWeightKg,
+                            targetEffort: exercise.targetEffort ?? null,
                             targetRpe: exercise.targetRpe,
                             note: exercise.note ?? '',
                             supersetId: null,
@@ -566,6 +579,27 @@ export function WorkoutsScreen() {
                       );
                       return hit?.id ?? null;
                     },
+                    createCustomExercise: async (name) =>
+                      createCustomExercise({
+                        userId,
+                        draft: {
+                          name,
+                          bodyPart: 'other',
+                          equipment: 'body weight',
+                          targetMuscle: 'other',
+                          secondaryMuscles: [],
+                          instructions: [],
+                          category: null,
+                          difficulty: null,
+                          isCompound: null,
+                          mediaUrl: null,
+                          mediaUrls: [],
+                          mediaKind: null,
+                          scope: 'private',
+                          householdId: null,
+                          groupId: null,
+                        },
+                      }),
                     createHistorySession: async (session, workoutId) => {
                       if (!session.startedAt) return;
                       await importFinishedSession({
@@ -592,6 +626,10 @@ export function WorkoutsScreen() {
                 : undefined,
           } satisfies ListImportWriters
         }
+        onOpenExistingWorkout={(workoutId) => {
+          setImportOpen(false);
+          router.push(`/train/${workoutId}` as Href);
+        }}
         onClose={() => setImportOpen(false)}
       />
     </>
@@ -600,7 +638,7 @@ export function WorkoutsScreen() {
 
 const styles = StyleSheet.create({
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  search: { flex: 1, minWidth: 0 },
+  search: { flex: 1, minWidth: 0, gap: 8 },
   filters: { zIndex: 20 },
   list: { flex: 1 },
   listContent: { paddingBottom: 32 },

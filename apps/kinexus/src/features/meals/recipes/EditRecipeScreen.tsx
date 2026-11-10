@@ -15,6 +15,7 @@ import { fetchRecipeById, useMealsSync } from '@/src/features/meals/use-meals-sy
 import { LoadingState } from '@/src/features/shell/states';
 import { colors, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
+import { useHousehold } from '@/src/lib/household';
 
 export function EditRecipeScreen() {
   const { id } = useLocalSearchParams<{ id: string | string[] }>();
@@ -23,6 +24,7 @@ export function EditRecipeScreen() {
   const { mode } = useExperienceMode();
   const desktop = mode === 'desktop';
   const meals = useMealsSync();
+  const { activeHousehold } = useHousehold();
   const listed = recipeId ? meals.recipes.find((r) => r.id === recipeId) : undefined;
   const replacing = recipeId ? findReplacingRecipe(meals.recipes, recipeId) : undefined;
   const detailQuery = useQuery({
@@ -75,6 +77,7 @@ export function EditRecipeScreen() {
           ingredients: draft.ingredients ?? [],
           servings: draft.servings,
           allowAi: true,
+          householdId: activeHousehold?.id,
         });
         if (estimate) {
           draft.calories = estimate.calories;

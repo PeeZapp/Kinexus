@@ -11,12 +11,12 @@ import { absoluteHttpImage, imageUrlFromRecipeHtml } from './page-image.js';
 export const RECIPE_IMAGE_BUCKET = 'recipe-images';
 const MAX_BYTES = 5_242_880;
 const MIN_BYTES = 800;
+const FETCH_TIMEOUT_MS = 10_000;
 
 const IMAGE_TYPES = new Map<string, string>([
   ['image/jpeg', 'jpg'],
   ['image/png', 'png'],
   ['image/webp', 'webp'],
-  ['image/gif', 'gif'],
 ]);
 
 export function isStoredRecipeImage(url: string | null | undefined, recipeId?: string): boolean {
@@ -46,7 +46,10 @@ export async function resolveRecipeImageUrl(pageUrl: string): Promise<string | u
   return imageFromWebPage(normalized.canonicalUrl);
 }
 
-export async function mirrorHouseholdRecipeImage(recipeId: string): Promise<string | null> {
+export async function mirrorHouseholdRecipeImage(
+  recipeId: string,
+  preferredUrl?: string,
+): Promise<string | null> {
   if (!isServiceRoleConfigured()) return null;
   const admin = createServiceClient();
   await ensureRecipeImageBucket(admin);
@@ -61,11 +64,13 @@ export async function mirrorHouseholdRecipeImage(recipeId: string): Promise<stri
   if (isStoredRecipeImage(recipe.image_url, recipe.id)) return recipe.image_url;
 
   const candidates: string[] = [];
+  const preferred = absoluteHttpImage(preferredUrl, recipe.source_url ?? 'https://local.invalid/');
+  if (preferred && !isStoredRecipeImage(preferred)) candidates.push(preferred);
   const current = absoluteHttpImage(recipe.image_url ?? undefined, recipe.source_url ?? 'https://local.invalid/');
-  if (current && !isStoredRecipeImage(current)) candidates.push(current);
+  if (current && !isStoredRecipeImage(current) && !candidates.includes(current)) candidates.push(current);
   if (recipe.source_url) {
     const resolved = await resolveRecipeImageUrl(recipe.source_url);
-    if (resolved && !candidates.includes(resolved)) candidates.push(resolved);
+    if (resolved && !isStoredRecipeImage(resolved) && !candidates.includes(resolved)) candidates.push(resolved);
   }
 
   for (const candidate of candidates) {
@@ -74,14 +79,26 @@ export async function mirrorHouseholdRecipeImage(recipeId: string): Promise<stri
     const { error: updateError } = await admin.from('recipes').update({ image_url: stored }).eq('id', recipe.id);
     if (!updateError) return stored;
   }
-  return recipe.image_url;
+
+  if (recipe.image_url && !isStoredRecipeImage(recipe.image_url)) {
+    console.info('[recipe-image] mirror failed; clearing hotlink', { recipeId, imageUrl: recipe.image_url });
+    const { error: clearError } = await admin.from('recipes').update({ image_url: null }).eq('id', recipe.id);
+    if (clearError) console.info('[recipe-image] clear hotlink failed', { recipeId, message: clearError.message });
+  } else if (candidates.length) {
+    console.info('[recipe-image] mirror failed; saving without photo', { recipeId, tried: candidates.length });
+  }
+  return null;
 }
 
-export async function handleMirrorRecipeImage(request: Request, body: { recipeId?: unknown }) {
+export async function handleMirrorRecipeImage(
+  request: Request,
+  body: { recipeId?: unknown; imageUrl?: unknown },
+) {
   const authed = await userFromRequest(request);
   if ('error' in authed) return { status: authed.status, body: { error: authed.error } };
   const recipeId = typeof body.recipeId === 'string' ? body.recipeId.trim() : '';
   if (!recipeId) return { status: 400 as const, body: { error: 'Recipe id is required' } };
+  const preferredUrl = typeof body.imageUrl === 'string' ? body.imageUrl.trim() : undefined;
 
   try {
     if (!isServiceRoleConfigured()) {
@@ -103,7 +120,7 @@ export async function handleMirrorRecipeImage(request: Request, body: { recipeId
       .maybeSingle();
     if (memberError) throw memberError;
     if (!member) return { status: 403 as const, body: { error: 'Not a member of this household' } };
-    const imageUrl = await mirrorHouseholdRecipeImage(recipeId);
+    const imageUrl = await mirrorHouseholdRecipeImage(recipeId, preferredUrl || undefined);
     return { status: 200 as const, body: { imageUrl } };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Could not save that photo';
@@ -131,7 +148,7 @@ async function ensureRecipeImageBucket(admin: SupabaseClient): Promise<void> {
   if (error && !/already exists/i.test(error.message)) throw error;
 }
 
-async function storeRecipeImage(
+export async function storeRecipeImage(
   admin: SupabaseClient,
   householdId: string,
   recipeId: string,
@@ -151,7 +168,7 @@ async function storeRecipeImage(
   return `${publicUrl}?v=${Date.now()}`;
 }
 
-async function fetchImageFile(imageUrl: string): Promise<{ bytes: Uint8Array; mime: string; ext: string } | null> {
+export async function fetchImageFile(imageUrl: string): Promise<{ bytes: Uint8Array; mime: string; ext: string } | null> {
   let current = imageUrl;
   for (let hop = 0; hop < 4; hop += 1) {
     let parsed;
@@ -171,7 +188,7 @@ async function fetchImageFile(imageUrl: string): Promise<{ bytes: Uint8Array; mi
           Referer: `${parsed.origin}/`,
         },
         redirect: 'manual',
-        signal: AbortSignal.timeout(12_000),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
     } catch {
       return null;
@@ -196,9 +213,6 @@ function sniffImage(bytes: Uint8Array): { bytes: Uint8Array; mime: string; ext: 
   }
   if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
     return { bytes, mime: 'image/png', ext: 'png' };
-  }
-  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
-    return { bytes, mime: 'image/gif', ext: 'gif' };
   }
   if (
     bytes.length > 12 &&

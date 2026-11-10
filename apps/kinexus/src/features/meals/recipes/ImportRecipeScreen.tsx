@@ -9,6 +9,8 @@ import { LINK_ONLY_NOTE } from '@/src/features/meals/recipes/link-recipe';
 import { applyNutrition, draftFromForm, EMPTY_RECIPE_FORM, ingredientRowsFrom, methodRowsFrom, patchRecipeForm } from '@/src/features/meals/recipes/recipe-form';
 import { resolveRecipeNutrition } from '@/src/features/meals/recipes/resolve-nutrition';
 import { useMealsSync } from '@/src/features/meals/use-meals-sync';
+import { useAiStatus } from '@/src/lib/ai-status-context';
+import { useHousehold } from '@/src/lib/household';
 import {
   extractRecipeFromText,
   generateRecipeFromName,
@@ -32,6 +34,8 @@ const SLOT_KEYS = new Set<string>([
 export function ImportRecipeScreen() {
   const router = useRouter();
   const meals = useMealsSync();
+  const { activeHousehold } = useHousehold();
+  const { blocked, blockedMessage, guardAi, goFixKey } = useAiStatus();
   const params = useLocalSearchParams<{ url?: string | string[]; fallback?: string | string[] }>();
   const openedFallback = useRef(false);
   const [tab, setTab] = useState<'url' | 'text'>('url');
@@ -42,6 +46,8 @@ export function ImportRecipeScreen() {
   const [missing, setMissing] = useState<MissingRecipe | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [resultsMayVary, setResultsMayVary] = useState(false);
+  const householdId = activeHousehold?.id;
 
   function setForm(patch: Partial<ImportFormState>) {
     setFormState((current) => patchRecipeForm(current, patch));
@@ -68,9 +74,16 @@ export function ImportRecipeScreen() {
       recipeClass: null,
       slots,
       imageUrl: recipe.imageUrl ?? '',
+      imageCandidates: recipe.imageCandidates ?? (recipe.imageUrl ? [recipe.imageUrl] : []),
     }));
     setSource(nextSource);
     setMissing(null);
+  }
+
+  function requireAi(): boolean {
+    if (guardAi()) return true;
+    setError(blockedMessage);
+    return false;
   }
 
   async function onExtract() {
@@ -82,7 +95,13 @@ export function ImportRecipeScreen() {
       setError('Recipe API is not configured. Set EXPO_PUBLIC_API_URL and start the API server.');
       return;
     }
+    if (!householdId) {
+      setError('Pick a household first.');
+      return;
+    }
+    if (tab === 'text' && !requireAi()) return;
     setError(null);
+    setResultsMayVary(false);
     try {
       if (tab === 'text') {
         if (paste.trim().length < 20) {
@@ -90,8 +109,9 @@ export function ImportRecipeScreen() {
           return;
         }
         setPhase('extracting');
-        const recipe = await extractRecipeFromText(paste.trim());
-        applyDraft(recipe, 'text-paste');
+        const result = await extractRecipeFromText(paste.trim(), householdId);
+        setResultsMayVary(Boolean(result.resultsMayVary));
+        applyDraft(result.value, 'text-paste');
         return;
       }
       const url = form.url.trim();
@@ -100,7 +120,7 @@ export function ImportRecipeScreen() {
         return;
       }
       setPhase('fetching');
-      const result = await importRecipeFromUrl(url);
+      const result = await importRecipeFromUrl(url, householdId);
       if (result.source === 'not-found') {
         setSource(null);
         setMissing(result.missing);
@@ -108,6 +128,7 @@ export function ImportRecipeScreen() {
         return;
       }
       if (result.source !== 'json-ld') setPhase('extracting');
+      setResultsMayVary(Boolean(result.resultsMayVary));
       applyDraft(result.recipe, result.source, url);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not extract recipe');
@@ -122,11 +143,18 @@ export function ImportRecipeScreen() {
       setError('Enter the dish name.');
       return;
     }
+    if (!householdId) {
+      setError('Pick a household first.');
+      return;
+    }
+    if (!requireAi()) return;
     setError(null);
+    setResultsMayVary(false);
     setPhase('extracting');
     try {
-      const recipe = await generateRecipeFromName(name);
-      applyDraft(recipe, 'generated-name', missing?.recipeUrl);
+      const result = await generateRecipeFromName(name, householdId);
+      setResultsMayVary(Boolean(result.resultsMayVary));
+      applyDraft(result.value, 'generated-name', missing?.recipeUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not generate that recipe');
     } finally {
@@ -159,7 +187,7 @@ export function ImportRecipeScreen() {
         sourceUrl: missing.recipeUrl,
         excludedFromAuto: true,
       });
-      router.push(recipeHref(saved.id));
+      router.replace(recipeHref(saved.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save that link');
     } finally {
@@ -196,24 +224,26 @@ export function ImportRecipeScreen() {
       const draft: Omit<Recipe, 'id' | 'householdId'> = draftFromForm(form);
       if ((draft.ingredients ?? []).length === 0) {
         const saved = await meals.saveHouseholdRecipe(draft);
-        router.push(recipeHref(saved.id));
+        router.replace(recipeHref(saved.id));
         return;
       }
       const estimate = await resolveRecipeNutrition({
         name: draft.name,
         ingredients: draft.ingredients ?? [],
         servings: draft.servings,
-        allowAi: true,
+        allowAi: !blocked,
+        householdId,
       });
       if (estimate) {
         draft.calories = estimate.calories;
         draft.protein = estimate.protein;
         draft.carbs = estimate.carbs;
         draft.fat = estimate.fat;
+        if (estimate.resultsMayVary) setResultsMayVary(true);
         setFormState((current) => applyNutrition(current, estimate));
       }
       const saved = await meals.saveHouseholdRecipe(draft);
-      router.push(recipeHref(saved.id));
+      router.replace(recipeHref(saved.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save recipe');
     } finally {
@@ -241,6 +271,13 @@ export function ImportRecipeScreen() {
     busy,
     onExtract,
     onSave,
+    aiBlocked: blocked,
+    aiBlockedMessage: blockedMessage,
+    onAiBlockedPress: () => {
+      if (blocked === 'key_paused') goFixKey();
+      else setError(blockedMessage);
+    },
+    resultsMayVary,
   };
 
   return <ImportView {...props} />;

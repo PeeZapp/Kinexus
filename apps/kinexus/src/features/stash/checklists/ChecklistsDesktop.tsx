@@ -16,8 +16,6 @@ import { colors, radius, space } from '@/src/features/shell/theme';
 export type ChecklistsLayoutProps = {
   desktop: boolean;
   tablet: boolean;
-  kicker: string;
-  title: string;
   query: string;
   setQuery: (v: string) => void;
   listCards: ChecklistListCardModel[];
@@ -236,7 +234,7 @@ function ListDetail(props: ChecklistsLayoutProps) {
 export function ChecklistsDesktop(props: ChecklistsLayoutProps) {
   const inList = Boolean(props.selectedListId);
   return (
-    <StashChrome desktop kicker={props.kicker} title={props.title}>
+    <StashChrome desktop>
       {!inList ? (
         <PrimaryActions
           addLabel="New list"
@@ -265,7 +263,7 @@ export function ChecklistsMobile(props: ChecklistsLayoutProps) {
   }
 
   return (
-    <StashChrome desktop={false} kicker={props.kicker} title={props.title}>
+    <StashChrome desktop={false}>
       <PrimaryActions
         addLabel="New list"
         onAdd={props.onAddList}

@@ -12,6 +12,8 @@ export type RecipeImportRecord = RecipeImportJob & {
   extractionMethod?: string | null;
   provider?: string | null;
   confidence?: number | null;
+  requestUserId?: string | null;
+  requestHouseholdId?: string | null;
 };
 
 const memoryById = new Map<string, RecipeImportRecord>();
@@ -75,6 +77,9 @@ export async function saveImport(record: RecipeImportRecord): Promise<RecipeImpo
       extraction_method: next.recipe?.extraction.method ?? next.extractionMethod ?? null,
       provider: next.recipe?.extraction.provider ?? next.provider ?? null,
       confidence: next.recipe?.extraction.confidence ?? next.confidence ?? null,
+      request_user_id: next.requestUserId ?? null,
+      request_household_id: next.requestHouseholdId ?? null,
+      ai_blocked: next.aiBlocked ?? null,
       created_at: next.createdAt,
       updated_at: next.updatedAt,
       expires_at: next.expiresAt,
@@ -115,12 +120,17 @@ type RecipeImportRow = {
   extraction_method: string | null;
   provider: string | null;
   confidence: number | null;
+  request_user_id?: string | null;
+  request_household_id?: string | null;
+  ai_blocked?: string | null;
   created_at: string;
   updated_at: string;
   expires_at: string;
 };
 
 function rowToRecord(row: RecipeImportRow): RecipeImportRecord {
+  const aiBlocked =
+    row.ai_blocked === 'no_access' || row.ai_blocked === 'key_paused' ? row.ai_blocked : undefined;
   return {
     id: row.id,
     status: row.status as RecipeImportJobStatus,
@@ -132,11 +142,14 @@ function rowToRecord(row: RecipeImportRow): RecipeImportRecord {
     errorCode: (row.error_code as RecipeImportJob['errorCode']) ?? undefined,
     errorMessage: row.error_message ?? undefined,
     recipe: row.recipe ?? undefined,
+    aiBlocked,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     expiresAt: row.expires_at,
     extractionMethod: row.extraction_method,
     provider: row.provider,
     confidence: row.confidence,
+    requestUserId: row.request_user_id ?? null,
+    requestHouseholdId: row.request_household_id ?? null,
   };
 }

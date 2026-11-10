@@ -24,6 +24,24 @@ export async function confirmAction(title: string, message?: string): Promise<bo
   });
 }
 
+/** Mark-as-read gate: keep on the current list, or remove it after marking finished. */
+export async function chooseKeepOrRemoveFromList(listName: string): Promise<'keep' | 'remove' | 'cancel'> {
+  const title = 'Mark as already read?';
+  const message = `Do you want to remove this from ${listName}?`;
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    if (window.confirm(`${title}\n\n${message}\n\nOK = Remove from list`)) return 'remove';
+    if (window.confirm(`${title}\n\nKeep on ${listName}?`)) return 'keep';
+    return 'cancel';
+  }
+  return new Promise((resolve) => {
+    Alert.alert(title, message, [
+      { text: 'Keep on list', onPress: () => resolve('keep') },
+      { text: 'Remove from list', style: 'destructive', onPress: () => resolve('remove') },
+      { text: 'Cancel', style: 'cancel', onPress: () => resolve('cancel') },
+    ]);
+  });
+}
+
 /** Resume gate used before starting another live session. */
 export async function chooseResumeOrStartNew(): Promise<'resume' | 'start' | 'cancel'> {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {

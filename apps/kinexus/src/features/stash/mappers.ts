@@ -58,6 +58,13 @@ export function productFromRow(row: ProductRow): StashProduct {
     detailAttempts: row.detail_attempts ?? 0,
     isOwned: row.is_owned,
     notes: row.notes,
+    candidateSourceUrl: row.candidate_source_url ?? null,
+    candidatePrice: asNum(row.candidate_price),
+    candidateStoreName: row.candidate_store_name ?? null,
+    candidateCurrency: row.candidate_currency ?? null,
+    previousSourceUrl: row.previous_source_url ?? null,
+    previousPrice: asNum(row.previous_price),
+    previousStoreName: row.previous_store_name ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

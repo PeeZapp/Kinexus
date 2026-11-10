@@ -11,6 +11,7 @@ import { recipeParam } from '@/src/features/meals/recipe-href';
 import { ErrorBanner } from '@/src/features/shell/states';
 import { colors, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
+import { useHousehold } from '@/src/lib/household';
 import { useOnline } from '@/src/lib/online';
 import { isRecipeImportApiConfigured, postRecipeImport, RecipeImportApiError } from '@/src/lib/recipe-import-api';
 
@@ -19,6 +20,7 @@ export function ImportScreen() {
   const { mode } = useExperienceMode();
   const desktop = mode === 'desktop';
   const online = useOnline();
+  const { activeHousehold } = useHousehold();
   const params = useLocalSearchParams<{ url?: string | string[] }>();
   const urlParam = recipeParam(params.url);
   const [value, setValue] = useState(urlParam ?? '');
@@ -48,7 +50,7 @@ export function ImportScreen() {
       }
       setBusy(true);
       try {
-        const job = await postRecipeImport(canonical);
+        const job = await postRecipeImport(canonical, activeHousehold?.id);
         router.replace({ pathname: '/recipes/[id]', params: { id: job.id } } as Href);
       } catch (err) {
         if (err instanceof RecipeImportApiError) {
@@ -60,7 +62,7 @@ export function ImportScreen() {
         setBusy(false);
       }
     },
-    [online, router],
+    [activeHousehold?.id, online, router],
   );
 
   useEffect(() => {

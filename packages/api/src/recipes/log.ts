@@ -1,3 +1,5 @@
+import { scrubSecrets } from '../ai/scrub.js';
+
 /**
  * Structured import logs. Never include API keys, Authorization headers, or raw HTML.
  */
@@ -21,8 +23,8 @@ export function logRecipeImport(event: {
     videoId: event.videoId,
     provider,
     latencyMs: event.latencyMs,
-    status: event.status,
+    status: scrubSecrets(event.status),
     method: event.method ?? null,
-    errorCode: event.errorCode ?? null,
+    errorCode: event.errorCode ? scrubSecrets(event.errorCode) : null,
   });
 }

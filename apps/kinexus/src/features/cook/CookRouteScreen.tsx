@@ -13,6 +13,7 @@ import { cacheCookRecipe, readCachedCookRecipe } from '@/src/features/cook/cook-
 import { recipeParam } from '@/src/features/meals/recipe-href';
 import { fetchRecipeById } from '@/src/features/meals/use-meals-sync';
 import { LoadingState } from '@/src/features/shell/states';
+import { useHousehold } from '@/src/lib/household';
 import { useOnline } from '@/src/lib/online';
 import { getRecipeImport, isImportInProgress, postRecipeImport, RecipeImportApiError } from '@/src/lib/recipe-import-api';
 
@@ -27,6 +28,7 @@ export function CookRouteScreen() {
 function CookRouteBody(): ReactNode {
   const router = useRouter();
   const online = useOnline();
+  const { activeHousehold } = useHousehold();
   const { id } = useLocalSearchParams<{ id: string | string[] }>();
   const importId = recipeParam(id);
   const [cached, setCached] = useState<CleanRecipe | null>(null);
@@ -85,7 +87,7 @@ function CookRouteBody(): ReactNode {
     setRetrying(true);
     setRetryError(null);
     try {
-      const next = await postRecipeImport(url);
+      const next = await postRecipeImport(url, activeHousehold?.id);
       if (next.id !== importId) {
         router.replace({ pathname: '/recipes/[id]', params: { id: next.id } } as Href);
         return;
@@ -96,7 +98,7 @@ function CookRouteBody(): ReactNode {
     } finally {
       setRetrying(false);
     }
-  }, [importId, job?.canonicalUrl, job?.inputUrl, jobQuery, router]);
+  }, [activeHousehold?.id, importId, job?.canonicalUrl, job?.inputUrl, jobQuery, router]);
 
   if (!importId) {
     return (

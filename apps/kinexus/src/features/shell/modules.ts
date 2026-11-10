@@ -42,7 +42,7 @@ export const MODULES: readonly AppModule[] = [
     href: '/lists',
     label: 'Lists',
     short: 'LI',
-    description: 'Household checklists, wishlists, watchlist, and saved finds.',
+    description: 'Household checklists, wishlists, watchlist, readlist, and saved finds.',
   },
   {
     key: 'finances',
@@ -101,6 +101,7 @@ export function titleFromPath(pathname: string): string {
   if (pathname === '/calendar' || pathname.startsWith('/calendar/')) return 'Calendar';
   if (pathname.startsWith('/lists/wishlists')) return 'Wishlists';
   if (pathname.startsWith('/lists/watchlist')) return 'Watchlist';
+  if (pathname.startsWith('/lists/readlist')) return 'Readlist';
   if (pathname.startsWith('/lists/saves')) return 'Saves';
   if (pathname.startsWith('/lists/reader')) return 'Reader';
   if (pathname.startsWith('/finances/assets')) return 'Assets';

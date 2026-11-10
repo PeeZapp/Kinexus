@@ -1,5 +1,5 @@
-import type { AiClient } from './provider.js';
 import { normalizeRecipeDraft, parseJsonObject, type RecipeDraft } from '../recipe-draft.js';
+import { completeResolved, type ResolvedAiClient } from './resolve.js';
 
 export const RECIPE_JSON_SCHEMA = `Return ONLY a valid JSON object with these fields:
 - name (string — the dish. If there is no title, name it from the ingredients, e.g. "Spicy peanut noodles". Never "Unknown", "Unknown Recipe", or "Imported recipe")
@@ -20,16 +20,32 @@ export const RECIPE_JSON_SCHEMA = `Return ONLY a valid JSON object with these fi
 Spoken captions and comments are the recipe when the post text is only a teaser. Ignore other videos.
 Return ONLY the JSON. No markdown, no explanation.`;
 
-export async function extractRecipeFromText(client: AiClient, content: string): Promise<RecipeDraft> {
-  const text = await client.complete({
+export type AiDraftResult<T> = {
+  value: T;
+  provider: string;
+  resultsMayVary: boolean;
+};
+
+export async function extractRecipeFromText(
+  resolved: ResolvedAiClient,
+  content: string,
+): Promise<AiDraftResult<RecipeDraft>> {
+  const out = await completeResolved(resolved, {
     json: true,
     prompt: `You are a recipe extraction expert. Extract the recipe from the following text.\n\n${RECIPE_JSON_SCHEMA}\n\nContent:\n${content}`,
   });
-  return normalizeRecipeDraft(parseJsonObject(text));
+  return {
+    value: normalizeRecipeDraft(parseJsonObject(out.text)),
+    provider: out.provider,
+    resultsMayVary: out.resultsMayVary,
+  };
 }
 
-export async function generateRecipeFromName(client: AiClient, name: string): Promise<RecipeDraft> {
-  const text = await client.complete({
+export async function generateRecipeFromName(
+  resolved: ResolvedAiClient,
+  name: string,
+): Promise<AiDraftResult<RecipeDraft>> {
+  const out = await completeResolved(resolved, {
     json: true,
     prompt: `Write a practical home-cook recipe for this dish: ${name}
 
@@ -38,13 +54,24 @@ Use common quantities and clear steps. Do not claim this came from a specific we
 
 ${RECIPE_JSON_SCHEMA}`,
   });
-  return normalizeRecipeDraft(parseJsonObject(text));
+  return {
+    value: normalizeRecipeDraft(parseJsonObject(out.text)),
+    provider: out.provider,
+    resultsMayVary: out.resultsMayVary,
+  };
 }
 
-export async function extractRecipeFromUrlHint(client: AiClient, url: string): Promise<RecipeDraft> {
-  const text = await client.complete({
+export async function extractRecipeFromUrlHint(
+  resolved: ResolvedAiClient,
+  url: string,
+): Promise<AiDraftResult<RecipeDraft>> {
+  const out = await completeResolved(resolved, {
     json: true,
     prompt: `A user wants to import a recipe from this URL: ${url}\n\nYou cannot browse the web, but you may recognise this recipe from your training data. Provide the full recipe.\nIf you recognise it (even partially), include every detail you know.\nIf you do not recognise this specific URL, infer the dish from the URL path and provide a solid home-cook version.\n\n${RECIPE_JSON_SCHEMA}`,
   });
-  return normalizeRecipeDraft(parseJsonObject(text));
+  return {
+    value: normalizeRecipeDraft(parseJsonObject(out.text)),
+    provider: out.provider,
+    resultsMayVary: out.resultsMayVary,
+  };
 }

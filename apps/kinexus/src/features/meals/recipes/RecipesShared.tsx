@@ -5,6 +5,7 @@ import type { Href } from 'expo-router';
 
 import { formatCostPerServe, type Recipe } from '@kinexus/domain';
 
+import { CreatorSearchHits } from '@/src/features/creators/CreatorSearchHits';
 import { Btn, Field } from '@/src/features/household/ui';
 import { OfflineBanner } from '@/src/features/meals/meals-kit';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
@@ -139,6 +140,7 @@ export function RecipesChrome({
               : `${shownCount.toLocaleString()} of ${totalCount.toLocaleString()}`}
         </Text>
       </View>
+      <CreatorSearchHits query={query} />
       <FilterBar>
         <FilterDropdown<RecipeMealFilter>
           id="meal"

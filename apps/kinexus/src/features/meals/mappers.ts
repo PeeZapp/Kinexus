@@ -138,7 +138,7 @@ export type ShoppingListItem = {
   recipeSources: { recipeId: string; recipeName: string }[];
   sharedMealCount: number;
   mergedFrom: string[];
-  /** True when the household added this row by hand (survives regenerate). */
+  /** True when the household added this row by hand or from a recipe (survives regenerate). */
   manual: boolean;
   linkedRecipeId: string | null;
   linkedRecipeName: string | null;

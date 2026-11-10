@@ -4,6 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 
 import {
   buildListExport,
+  type BuiltExport,
   type ExportListInput,
   type KinexusListKind,
   type ListExportFormat,
@@ -22,6 +23,7 @@ const FORMATS: { value: ListExportFormat; label: string; kinds?: KinexusListKind
   { value: 'xlsx', label: 'Excel' },
   { value: 'text', label: 'Plain text' },
   { value: 'letterboxd-csv', label: 'Letterboxd CSV', kinds: ['watchlist'] },
+  { value: 'goodreads-csv', label: 'Goodreads CSV', kinds: ['readlist'] },
 ];
 
 export type ListExportLinkShare = {
@@ -37,35 +39,44 @@ export function ListExportSheet({
   visible,
   input,
   linkShare,
+  buildExport,
   onClose,
 }: {
   visible: boolean;
   input: ExportListInput | null;
   linkShare?: ListExportLinkShare | null;
+  /** Override builder (e.g. readlist Goodreads via API). */
+  buildExport?: (format: ListExportFormat) => Promise<BuiltExport>;
   onClose: () => void;
 }) {
   useExperienceMode();
   const [mode, setMode] = useState<'link' | 'file'>(linkShare ? 'link' : 'file');
   const [format, setFormat] = useState<ListExportFormat>('json');
+  const [moreFormats, setMoreFormats] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
+  const isReadlist = input?.kind === 'readlist';
+
   useEffect(() => {
     if (!visible) return;
     setMode(linkShare ? 'link' : 'file');
-    setFormat('json');
+    setFormat(isReadlist ? 'goodreads-csv' : 'json');
+    setMoreFormats(false);
     setBusy(false);
     setError(null);
     setStatus(null);
-  }, [visible, linkShare]);
+  }, [visible, linkShare, isReadlist]);
 
-  async function exportNow() {
+  async function exportNow(nextFormat: ListExportFormat = format) {
     if (!input || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const built = buildListExport(input, format);
+      const built = buildExport
+        ? await buildExport(nextFormat)
+        : buildListExport(input, nextFormat);
       await shareOrDownloadExport(built);
       onClose();
     } catch (err) {
@@ -167,6 +178,33 @@ export function ListExportSheet({
               disabled={!linkShare.state.isShared || working}
               onPress={() => void runLink(() => linkShare.onReset(), 'New link copied — old link revoked')}
             />
+          </>
+        ) : isReadlist ? (
+          <>
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+            <Btn
+              label={busy ? 'Exporting…' : 'Export'}
+              onPress={() => void exportNow('goodreads-csv')}
+              busy={busy}
+              disabled={!input}
+            />
+            <Btn
+              label={moreFormats ? 'Hide formats' : 'More formats'}
+              variant="ghost"
+              onPress={() => setMoreFormats((value) => !value)}
+            />
+            {moreFormats ? (
+              <View style={styles.wrap}>
+                <Pill
+                  label="JSON"
+                  active={format === 'json'}
+                  onPress={() => {
+                    setFormat('json');
+                    void exportNow('json');
+                  }}
+                />
+              </View>
+            ) : null}
           </>
         ) : (
           <>

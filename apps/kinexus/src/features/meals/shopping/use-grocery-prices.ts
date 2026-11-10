@@ -32,6 +32,7 @@ function itemSignature(item: { id: string; name: string; amount: string | null }
 
 export function useGroceryPrices(input: {
   country: string | null | undefined;
+  householdId?: string | null;
   online: boolean;
   items: readonly PriceItem[];
   onSave: (rows: { id: string; quote: StoredGroceryQuote }[]) => Promise<void>;
@@ -39,6 +40,7 @@ export function useGroceryPrices(input: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [pricesAsOf, setPricesAsOf] = useState<string | null>(null);
   const [force, setForce] = useState(false);
   const itemsRef = useRef(input.items);
   itemsRef.current = input.items;
@@ -92,6 +94,7 @@ export function useGroceryPrices(input: {
       }
       void compareGroceryPrices({
         country: input.country ?? null,
+        householdId: input.householdId ?? null,
         fresh,
         items: targets.map((item) => ({
           id: item.id,
@@ -121,6 +124,7 @@ export function useGroceryPrices(input: {
           if (cancel) return;
           for (const item of targets) failedRef.current.delete(itemSignature(item));
           setWarning(result.warnings[0]?.message ?? null);
+          setPricesAsOf(result.pricesAsOf ?? null);
           setError(null);
           if (fresh) setForce(false);
         })
@@ -139,28 +143,34 @@ export function useGroceryPrices(input: {
       cancel = true;
       clearTimeout(timer);
     };
-  }, [chainKey, force, input.country, input.online, pendingKey]);
+  }, [chainKey, force, input.country, input.householdId, input.online, pendingKey]);
 
   const itemPrices = useMemo(() => {
     const map: Record<string, ShoppingItemPrice[]> = {};
-    if (!comparison) return map;
-    for (const item of comparison.items) {
-      if (item.quotes.length === 0) continue;
-      map[item.itemId] = item.quotes.map((quote) => ({
+    for (const item of input.items) {
+      if (!storedGroceryQuoteMatches(item, item.quote) || !item.quote) continue;
+      if (item.quote.quotes.length === 0) {
+        map[item.id] = [];
+        continue;
+      }
+      map[item.id] = item.quote.quotes.map((quote) => ({
         chainId: quote.chainId,
         shop: quote.chainName,
-        priceLabel: formatMoney(quote.price, comparison.currency),
+        priceLabel: formatMoney(quote.price, currency),
         product: quote.packs > 1 ? `${quote.packs} × ${quote.productName}` : quote.productName,
       }));
     }
     return map;
-  }, [comparison]);
+    // savedKey covers quote changes for matching items.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currency, savedKey]);
 
   return {
     comparison,
     busy,
     error,
     warning,
+    pricesAsOf,
     itemPrices,
     recheck: () => setForce(true),
   };

@@ -7,10 +7,7 @@ import { EmptyState } from '@/src/features/shell/states';
 
 export function SavesMobile(props: SavesLayoutProps) {
   return (
-    <StashChrome
-      desktop={false}
-      kicker="Library"
-      title="Saves">
+    <StashChrome desktop={false}>
       {props.onAddLink ? (
         <PrimaryActions
           addLabel="Save a link"

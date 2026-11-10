@@ -12,8 +12,8 @@ import {
 } from '@kinexus/domain';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { createAiClient } from './ai/provider.js';
 import { refreshIngredientCatalogWithAi } from './ai/price-recipe.js';
+import { resolvePlatformAiClient } from './ai/resolve.js';
 import { createServiceClient, isServiceRoleConfigured } from './supabase-admin.js';
 
 type HouseholdRow = {
@@ -243,7 +243,8 @@ async function refreshMarket(
       return { skipped: true, pricedAt: existing.pricedAt };
     }
   }
-  const client = createAiClient();
+  // Catalogue refresh always uses platform keys (never household BYOK).
+  const client = resolvePlatformAiClient();
   const prices = await refreshIngredientCatalogWithAi(client, market);
   const pricedAt = new Date().toISOString();
   await savePriceBook(admin, market, prices, pricedAt);

@@ -49,6 +49,9 @@ export function dedupeKey(kind: KinexusListKind, row: { title: string; url?: str
   if (kind === 'wishlist') {
     return `name-url:${normalizeName(row.title)}|${normalizeUrl(row.url)}`;
   }
+  if (kind === 'readlist') {
+    return `name:${normalizeName(row.title)}`;
+  }
   return `name:${normalizeName(row.title)}`;
 }
 
@@ -123,6 +126,7 @@ function suggestedNameFrom(fileName: string | null | undefined, fallback: string
 function kindFromFormat(format: ListSourceFormat, jsonKind: KinexusListKind | null): KinexusListKind | null {
   if (format === 'imdb-csv' || format === 'letterboxd-csv' || format === 'letterboxd-zip') return 'watchlist';
   if (format === 'hevy-csv' || format === 'strong-csv') return 'workout';
+  if (format === 'goodreads-csv') return 'readlist';
   return jsonKind;
 }
 

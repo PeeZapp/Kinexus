@@ -1,4 +1,6 @@
-export type AiProvider = 'anthropic' | 'deepseek';
+import type { AiProvider } from './ai/provider.js';
+
+export type { AiProvider };
 
 export function aiProvider(): AiProvider {
   return process.env.AI_PROVIDER === 'deepseek' ? 'deepseek' : 'anthropic';
@@ -9,6 +11,18 @@ export function requiredEnv(name: string): string {
   if (!value) throw new Error(`${name} is not set`);
   return value;
 }
+
+/** Browser origins that load /ai/mcp during connector setup (Claude + ChatGPT + Perplexity UIs). */
+export const MCP_CONNECTOR_BROWSER_ORIGINS = [
+  'https://claude.ai',
+  'https://www.claude.ai',
+  'https://chatgpt.com',
+  'https://www.chatgpt.com',
+  'https://chat.openai.com',
+  'https://www.perplexity.ai',
+  'https://perplexity.ai',
+  'https://enterprise.perplexity.ai',
+] as const;
 
 export function corsOrigins(): string[] {
   const raw = process.env.CORS_ORIGIN ?? 'http://localhost:5300';
@@ -23,5 +37,6 @@ export function corsOrigins(): string[] {
   }
   const web = process.env.EXPO_PUBLIC_WEB_URL?.replace(/\/$/, '');
   if (web) list.push(web);
+  list.push(...MCP_CONNECTOR_BROWSER_ORIGINS);
   return Array.from(new Set(list));
 }

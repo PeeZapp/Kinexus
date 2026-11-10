@@ -1,0 +1,38 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "kinexus",
+  "version": "0.1.0",
+  "description": "Meal plans, fitness, and lists for your household — ask ChatGPT what’s for dinner or log a workout.",
+  "author": {
+    "name": "Kinexus",
+    "url": "https://kinexus-green.vercel.app"
+  },
+  "homepage": "https://kinexus-green.vercel.app",
+  "keywords": ["meals", "recipes", "fitness", "shopping", "household"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Kinexus",
+        "shortDescription": "Meal plans, fitness, and lists for your household",
+        "longDescription": "Connect ChatGPT to your Kinexus household. Read meal plans, recipes, shopping lists, workouts, and watch/wish lists. Suggest changes as previews you confirm before anything is saved. Sign in with your Kinexus account (OAuth).",
+        "developerName": "Kinexus",
+        "category": "Productivity",
+        "capabilities": ["Read meal plans", "Manage shopping lists", "Log workouts", "Manage watch and wish lists"],
+        "websiteURL": "https://kinexus-green.vercel.app",
+        "supportURL": "https://kinexus-green.vercel.app",
+        "privacyPolicyURL": "https://kinexus-green.vercel.app/privacy",
+        "termsOfServiceURL": "https://kinexus-green.vercel.app/privacy",
+        "defaultPrompt": [
+          "What's on my meal plan this week?",
+          "What's on my shopping list this week?",
+          "List my workouts"
+        ],
+        "logo": "./assets/logo.png",
+        "composerIcon": "./assets/logo.png"
+      },
+      "publication": {
+        "countries": ["AU"]
+      }
+    }
+  }
+}

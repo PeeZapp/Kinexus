@@ -47,7 +47,7 @@ function parseBody(data: unknown): {
   return data as { job?: RecipeImportJob; error?: string; errorCode?: string };
 }
 
-export async function postRecipeImport(url: string): Promise<RecipeImportJob> {
+export async function postRecipeImport(url: string, householdId?: string): Promise<RecipeImportJob> {
   if (!isRecipeImportApiConfigured()) {
     throw new RecipeImportApiError(
       'Import is not configured. Set EXPO_PUBLIC_API_URL and run the API server.',
@@ -57,7 +57,7 @@ export async function postRecipeImport(url: string): Promise<RecipeImportJob> {
   const res = await fetch(`${apiBase()}/api/recipes/import`, {
     method: 'POST',
     headers: await optionalAuthHeaders(),
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ url, ...(householdId ? { householdId } : {}) }),
   });
   const data = parseBody(await res.json().catch(() => ({})));
   if (data.job) return data.job;

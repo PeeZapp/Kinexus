@@ -677,6 +677,38 @@ export function useStashSync() {
     [householdId, queryClient],
   );
 
+  const switchCandidateOffer = useCallback(
+    async (id: string) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      const product = products.find((item) => item.id === id);
+      if (!product?.candidateSourceUrl || product.candidatePrice == null) {
+        throw new Error('No cheaper offer to switch');
+      }
+      const { error } = await supabase
+        .from('stash_products')
+        .update({
+          previous_source_url: product.sourceUrl,
+          previous_price: product.currentPrice,
+          previous_store_name: product.storeName,
+          source_url: product.candidateSourceUrl,
+          current_price: product.candidatePrice,
+          store_name: product.candidateStoreName,
+          is_on_sale: isSale(product.candidatePrice, product.originalPrice),
+          price_source: 'scraped',
+          detail_status: 'ready',
+          detail_attempts: 0,
+          candidate_source_url: null,
+          candidate_price: null,
+          candidate_store_name: null,
+          candidate_currency: null,
+        })
+        .eq('id', id);
+      if (error) throw error;
+      await queryClient.invalidateQueries({ queryKey: productsKey(householdId) });
+    },
+    [householdId, products, queryClient],
+  );
+
   const scrapeProduct = useCallback(async (url: string) => {
     const trimmed = url.trim();
     const fallback = {
@@ -980,6 +1012,7 @@ export function useStashSync() {
     createProduct,
     updateProduct,
     deleteProduct,
+    switchCandidateOffer,
     addProductToList,
     removeProductFromList,
     scrapeProduct,

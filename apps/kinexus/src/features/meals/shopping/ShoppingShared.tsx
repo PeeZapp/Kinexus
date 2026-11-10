@@ -160,7 +160,9 @@ export function ShoppingList({
                       </Pressable>
                     ) : null}
                     {!single && !shared && item.manual ? (
-                      <Text style={styles.meta}>Added manually</Text>
+                      <Text style={styles.meta}>
+                        {item.recipeSources.length > 0 ? 'Added from recipe' : 'Added manually'}
+                      </Text>
                     ) : null}
                   </View>
                 </View>
@@ -237,6 +239,14 @@ function ProductMatch({
       <Pressable onPress={onPress} style={styles.priceBlock} hitSlop={4}>
         {body}
         <Text style={styles.edit}>Change</Text>
+      </Pressable>
+    );
+  }
+  if (lines && lines.length === 0) {
+    if (!onPress || busy) return <Text style={styles.price}>No price</Text>;
+    return (
+      <Pressable onPress={onPress} hitSlop={6}>
+        <Text style={styles.price}>No price</Text>
       </Pressable>
     );
   }

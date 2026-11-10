@@ -135,10 +135,7 @@ export function WatchlistDesktop(props: WatchlistLayoutProps) {
 
   if (!props.selectedListId) {
     return (
-      <StashChrome
-        desktop
-        kicker="Lists"
-        title="Watchlist">
+      <StashChrome desktop>
         <PrimaryActions
           addLabel="New list"
           onAdd={props.onAddList}

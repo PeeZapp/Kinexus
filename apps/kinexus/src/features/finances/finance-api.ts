@@ -78,6 +78,7 @@ export async function lookupCollectibleCatalog(input: {
 }
 
 export async function classifyBudgetMerchants(input: {
+  householdId: string;
   merchants: Array<{ merchantKey: string; sample: string; count: number; total: number; kind: 'income' | 'expense' }>;
   categories: Array<{ kind: 'income' | 'expense'; name: string }>;
 }): Promise<AiMerchantGuess[]> {

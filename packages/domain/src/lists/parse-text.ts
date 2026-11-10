@@ -18,7 +18,7 @@ export function parseQuantityLine(line: string): { title: string; quantity: stri
 
 function bulletStrip(line: string): string {
   return line
-    .replace(/^\s*([-*•◦▪▫]|\d+[.)])\s+/, '')
+    .replace(/^\s*(?:[-*•◦▪▫☐☑✓✔]|\[\s*[xX ]?\s*\]|\d+[.)])\s+/, '')
     .trim();
 }
 

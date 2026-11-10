@@ -16,6 +16,7 @@ import {
   type WatchlistSearchHit,
 } from '@kinexus/domain';
 
+import { CreatorSearchHits } from '@/src/features/creators/CreatorSearchHits';
 import { Btn, Pill } from '@/src/features/household/ui';
 import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/FilterMenu';
 import { colors, radius, space } from '@/src/features/shell/theme';
@@ -129,6 +130,7 @@ export function WatchlistDetailToolbar({
 
       {showResults ? (
         <View style={styles.results}>
+          <CreatorSearchHits query={catalogQuery} />
           {catalogSearching && catalogHits.length === 0 ? (
             <Text style={styles.resultStatus}>Searching…</Text>
           ) : null}
@@ -169,6 +171,11 @@ export function WatchlistDetailToolbar({
                     {mediaTypeLabel(hit.mediaType)}
                     {hit.role ? ` · ${hit.role}` : ''}
                   </Text>
+                  {hit.director ? (
+                    <Text style={styles.hitMeta} numberOfLines={1}>
+                      Dir. {hit.director}
+                    </Text>
+                  ) : null}
                 </View>
                 <Text style={[styles.hitAction, onList && styles.hitActionDone]}>
                   {adding ? 'Adding…' : onList ? onListLabel : addLabel}
@@ -342,6 +349,11 @@ export function WatchedHomeSection({
                     {mediaTypeLabel(hit.mediaType)}
                     {hit.role ? ` · ${hit.role}` : ''}
                   </Text>
+                  {hit.director ? (
+                    <Text style={styles.hitMeta} numberOfLines={1}>
+                      Dir. {hit.director}
+                    </Text>
+                  ) : null}
                 </View>
                 <Text style={styles.hitAction}>Add</Text>
               </Pressable>

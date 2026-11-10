@@ -1,14 +1,19 @@
-import type { AiClient, AiCompleteInput, AiProvider } from './provider.js';
+import type { AiClient, AiClientOptions, AiCompleteInput, AiProvider } from './provider.js';
 
 export class DeepSeekClient implements AiClient {
   readonly provider: AiProvider = 'deepseek';
+  private readonly apiKey: string;
+  private readonly model: string;
+  private readonly baseUrl: string;
+
+  constructor(opts: AiClientOptions) {
+    this.apiKey = opts.apiKey.trim();
+    this.model = opts.model.trim();
+    this.baseUrl = (opts.baseUrl?.trim() || 'https://api.deepseek.com').replace(/\/$/, '');
+    if (!this.apiKey) throw new Error('DeepSeek API key is not set');
+  }
 
   async complete(input: AiCompleteInput): Promise<string> {
-    const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
-    const baseUrl = (process.env.DEEPSEEK_BASE_URL?.trim() || 'https://api.deepseek.com').replace(/\/$/, '');
-    const model = process.env.DEEPSEEK_MODEL?.trim() || 'deepseek-chat';
-    if (!apiKey) throw new Error('DEEPSEEK_API_KEY is not set');
-
     const messages: Array<{ role: string; content: string }> = [];
     const system = input.json
       ? `${input.system ?? 'You are a helpful assistant.'}\nAlways respond with valid JSON only — no markdown, no code fences.`
@@ -16,14 +21,14 @@ export class DeepSeekClient implements AiClient {
     if (system) messages.push({ role: 'system', content: system });
     messages.push({ role: 'user', content: input.prompt });
 
-    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify({
-        model,
+        model: this.model,
         messages,
         ...(input.json ? { response_format: { type: 'json_object' } } : {}),
         ...(input.maxTokens ? { max_tokens: input.maxTokens } : { max_tokens: 4096 }),

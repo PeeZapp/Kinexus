@@ -209,6 +209,14 @@ export type ShoppingFromPlanInput = {
   makeRecipeIds?: readonly string[];
 };
 
+export type ShoppingFromRecipeInput = {
+  recipe: Recipe;
+  /** Scale the written yield to this many serves when set. */
+  servings?: number | null;
+  /** Household country for unit preference (default AU / metric). */
+  country?: string | null;
+};
+
 type RawShopLine = {
   name: string;
   amount?: string;
@@ -231,6 +239,31 @@ function slotFeedsShopping(slot: MealSlot, activeSlotSet: ReadonlySet<MealSlotKe
   if (slot.hidden) return false;
   if (!isHouseholdAudience(slot.audiencePersonIds)) return true;
   return activeSlotSet.has(slot.slotKey);
+}
+
+/**
+ * Shopping lines for one recipe at the chosen yield.
+ * Same merge/category rules as plan generation; used to add ingredients without wiping the list.
+ */
+export function shoppingFromRecipe(input: ShoppingFromRecipeInput): DerivedShoppingItem[] {
+  return shoppingFromPlan({
+    plan: {
+      id: 'recipe',
+      householdId: 'recipe',
+      weekStart: '1970-01-01',
+      activeSlots: ['dinner'],
+      slots: [
+        {
+          day: 'monday',
+          slotKey: 'dinner',
+          recipeId: input.recipe.id,
+          targetServings: input.servings ?? undefined,
+        },
+      ],
+    },
+    recipes: [input.recipe],
+    country: input.country,
+  });
 }
 
 /**

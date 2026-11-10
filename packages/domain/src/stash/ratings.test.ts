@@ -10,6 +10,9 @@ import {
   audienceForBirthday,
   audienceFromCertification,
   canViewAudience,
+  certificationAllowed,
+  maxAllowedCertification,
+  normalizeAuCertification,
   viewerAudience,
 } from './ratings';
 
@@ -36,6 +39,28 @@ describe('watchlist audiences', () => {
     expect(canViewAudience('7+', 'all')).toBe(true);
     expect(canViewAudience('7+', '13+')).toBe(false);
     expect(canViewAudience('18+', '16+')).toBe(true);
+  });
+
+  it('picks the strictest AU certificate across selected people', () => {
+    const today = new Date('2026-11-10T12:00:00Z');
+    expect(maxAllowedCertification([{ personType: 'adult' }], today)).toBe('R18+');
+    expect(
+      maxAllowedCertification(
+        [{ personType: 'adult' }, { personType: 'child', birthday: '2018-01-01' }],
+        today,
+      ),
+    ).toBe('PG');
+    expect(
+      maxAllowedCertification(
+        [{ birthday: '2013-01-01' }, { birthday: '2012-06-01' }],
+        today,
+      ),
+    ).toBe('M');
+    expect(normalizeAuCertification('ma 15+')).toBe('MA15+');
+    expect(certificationAllowed('PG', 'PG')).toBe(true);
+    expect(certificationAllowed('M', 'PG')).toBe(false);
+    expect(certificationAllowed(null, 'PG')).toBe(false);
+    expect(certificationAllowed(null, 'R18+', { allowMissing: true })).toBe(true);
   });
 });
 

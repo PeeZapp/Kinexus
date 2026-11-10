@@ -9,8 +9,9 @@ function db() {
 }
 
 type ShareTable = 'workouts' | 'watchlist_lists' | 'training_plans';
+type EntityShareKind = Exclude<ShareKind, 'list' | 'readlist'>;
 
-function tableFor(kind: Exclude<ShareKind, 'list'>): ShareTable {
+function tableFor(kind: EntityShareKind): ShareTable {
   if (kind === 'workout') return 'workouts';
   if (kind === 'plan') return 'training_plans';
   return 'watchlist_lists';
@@ -26,7 +27,7 @@ async function setShare(
   if (error) throw error;
 }
 
-export async function enableEntityShare(kind: Exclude<ShareKind, 'list'>, id: string, currentToken: string | null): Promise<string> {
+export async function enableEntityShare(kind: EntityShareKind, id: string, currentToken: string | null): Promise<string> {
   const token = currentToken ?? Crypto.randomUUID();
   await setShare(tableFor(kind), id, {
     is_shared: true,
@@ -35,7 +36,7 @@ export async function enableEntityShare(kind: Exclude<ShareKind, 'list'>, id: st
   return buildShareUrl(kind, token);
 }
 
-export async function disableEntityShare(kind: Exclude<ShareKind, 'list'>, id: string): Promise<null> {
+export async function disableEntityShare(kind: EntityShareKind, id: string): Promise<null> {
   await setShare(tableFor(kind), id, {
     is_shared: false,
     share_token: null,
@@ -43,7 +44,7 @@ export async function disableEntityShare(kind: Exclude<ShareKind, 'list'>, id: s
   return null;
 }
 
-export async function resetEntityShare(kind: Exclude<ShareKind, 'list'>, id: string): Promise<string> {
+export async function resetEntityShare(kind: EntityShareKind, id: string): Promise<string> {
   const token = Crypto.randomUUID();
   await setShare(tableFor(kind), id, {
     is_shared: true,

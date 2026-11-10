@@ -87,3 +87,87 @@ export function audienceLabel(audience: WatchlistAudience): string {
   if (audience === 'all') return 'All ages';
   return audience;
 }
+
+/** Australian classification labels used for Watch next age gating. */
+export type AuCertification = 'G' | 'PG' | 'M' | 'MA15+' | 'R18+';
+
+export const AU_CERTIFICATIONS = ['G', 'PG', 'M', 'MA15+', 'R18+'] as const;
+
+const AU_CERT_RANK: Record<AuCertification, number> = {
+  G: 0,
+  PG: 1,
+  M: 2,
+  'MA15+': 3,
+  'R18+': 4,
+};
+
+const AU_CERT_SET = new Set<string>(AU_CERTIFICATIONS);
+
+export function isAuCertification(value: string): value is AuCertification {
+  return AU_CERT_SET.has(value);
+}
+
+export function auCertificationRank(cert: AuCertification): number {
+  return AU_CERT_RANK[cert];
+}
+
+/** Map AU (and common equivalent) labels to a canonical AU certificate. */
+export function normalizeAuCertification(raw: string | null | undefined): AuCertification | null {
+  const value = raw?.trim().toUpperCase().replace(/\s+/g, '');
+  if (!value) return null;
+  if (['G', 'TV-G', 'TV-Y', 'TV-Y7', 'TV-Y7-FV', 'U', 'UC'].includes(value)) return 'G';
+  if (['PG', 'TV-PG'].includes(value)) return 'PG';
+  if (['M', 'PG-13', 'TV-14', '12', '12A'].includes(value)) return 'M';
+  if (['MA15+', 'R', 'TV-MA', '15', '16'].includes(value)) return 'MA15+';
+  if (['R18+', 'NC-17', 'X', '18', 'R21'].includes(value)) return 'R18+';
+  return isAuCertification(value) ? value : null;
+}
+
+export function audienceToAuCertification(audience: WatchlistAudience): AuCertification {
+  if (audience === 'all') return 'G';
+  if (audience === '7+') return 'PG';
+  if (audience === '13+') return 'M';
+  if (audience === '16+') return 'MA15+';
+  return 'R18+';
+}
+
+export type WatchAudiencePerson = {
+  birthday?: string | null;
+  personType?: 'adult' | 'child' | 'other' | null;
+};
+
+/** Birthday when known; otherwise child → 7+, everyone else → 18+. */
+export function personWatchAudience(person: WatchAudiencePerson, today = new Date()): WatchlistAudience {
+  if (person.birthday?.trim()) return audienceForBirthday(person.birthday, today);
+  if (person.personType === 'child') return '7+';
+  return '18+';
+}
+
+export function isWatchAdult(person: WatchAudiencePerson, today = new Date()): boolean {
+  return personWatchAudience(person, today) === '18+';
+}
+
+/** Strictest AU certificate the selected people may watch together. */
+export function maxAllowedCertification(
+  people: readonly WatchAudiencePerson[],
+  today = new Date(),
+): AuCertification {
+  if (people.length === 0) return 'R18+';
+  let allowed = audienceToAuCertification(personWatchAudience(people[0]!, today));
+  for (let i = 1; i < people.length; i += 1) {
+    const next = audienceToAuCertification(personWatchAudience(people[i]!, today));
+    if (auCertificationRank(next) < auCertificationRank(allowed)) allowed = next;
+  }
+  return allowed;
+}
+
+/** True when content cert is at or under the ceiling. Missing certs only when allowMissing. */
+export function certificationAllowed(
+  content: string | null | undefined,
+  maxAllowed: AuCertification,
+  opts?: { allowMissing?: boolean },
+): boolean {
+  const cert = normalizeAuCertification(content);
+  if (!cert) return Boolean(opts?.allowMissing);
+  return auCertificationRank(cert) <= auCertificationRank(maxAllowed);
+}

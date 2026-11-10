@@ -8,6 +8,11 @@ export type {
   CreatorPublishDraft,
   CreatorQuestionnaire,
   CreatorReviewChecklist,
+  CreatorSearchHit,
+  ProfileItem,
+  ProfileItemKind,
+  PublicProfile,
+  PublicProfileLink,
 } from './types';
 
 export {

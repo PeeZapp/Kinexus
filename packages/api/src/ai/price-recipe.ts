@@ -1,7 +1,7 @@
 import { catalogPricesFromAi, INGREDIENT_CATALOG, storeListLabel, type GroceryMarket, type PriceOverrideMap } from '@kinexus/domain';
 
-import type { AiClient } from './provider.js';
 import { parseJsonObject } from '../recipe-draft.js';
+import type { AiClient } from './provider.js';
 
 export function catalogRefreshPrompt(market: GroceryMarket): string {
   const stores = storeListLabel(market.stores);

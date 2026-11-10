@@ -26,7 +26,9 @@ export type RecipeImportErrorCode =
   | 'fetch_failed'
   | 'video_no_transcript'
   | 'extraction_failed'
-  | 'rate_limited';
+  | 'rate_limited'
+  | 'ai_no_access'
+  | 'ai_key_paused';
 
 /**
  * User-facing buckets from the PRD. Map any {@link RecipeImportErrorCode} onto one of these
@@ -140,6 +142,8 @@ export type CleanRecipe = {
   title: string;
   attribution: RecipeAttribution;
   imageUrl?: string;
+  /** External cover candidates for the import UI (CDN URLs; mirrored on save). */
+  imageCandidates?: string[];
   /** Servings as published. Cook-view +/- starts here. */
   originalServings?: number;
   cookTimeMinutes?: number;
@@ -165,6 +169,8 @@ export type RecipeImportJob = {
   errorCode?: RecipeImportErrorCode;
   errorMessage?: string;
   recipe?: CleanRecipe;
+  /** Set when non-AI extraction succeeded but the AI structuring step was skipped. */
+  aiBlocked?: 'no_access' | 'key_paused';
   createdAt: string;
   updatedAt: string;
   /** ISO timestamp after which the client should treat the job as `timeout`. */
@@ -181,6 +187,7 @@ export const EXTRACTION_CONFIDENCE: Record<RecipeExtractionMethod, number> = {
 
 export type CreateRecipeImportRequest = {
   url: string;
+  householdId?: string;
 };
 
 export type CreateRecipeImportResponse = {

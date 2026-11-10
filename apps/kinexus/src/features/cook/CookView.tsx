@@ -33,6 +33,7 @@ import { useMealsSync } from '@/src/features/meals/use-meals-sync';
 import { ErrorBanner } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useExperienceMode } from '@/src/lib/experience-mode';
+import { useHousehold } from '@/src/lib/household';
 
 export function CookView(props: { importId: string; recipe: CleanRecipe }) {
   return (
@@ -54,6 +55,7 @@ function CookViewBody({
   const desktop = mode === 'desktop';
   const cookSave = useCookSave(importId);
   const meals = useMealsSync();
+  const { activeHousehold } = useHousehold();
   const canScale = Boolean(recipe.originalServings && recipe.originalServings > 0);
   const [servings, setServings] = useState(Math.max(1, recipe.originalServings ?? 1));
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -146,6 +148,7 @@ function CookViewBody({
           ingredients: draft.ingredients ?? [],
           servings: draft.servings,
           allowAi: true,
+          householdId: activeHousehold?.id,
         });
         if (estimate) {
           draft.calories = estimate.calories;

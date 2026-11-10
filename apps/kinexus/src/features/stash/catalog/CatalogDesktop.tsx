@@ -17,8 +17,6 @@ import { colors, radius, space } from '@/src/features/shell/theme';
 
 export type CatalogLayoutProps = {
   desktop: boolean;
-  kicker: string;
-  title: string;
   query: string;
   setQuery: (v: string) => void;
   listCards: WishlistListCardModel[];
@@ -100,7 +98,7 @@ export function PriceCheckBanner({
 export function CatalogDesktop(props: CatalogLayoutProps) {
   if (!props.selectedListId) {
     return (
-      <StashChrome desktop kicker={props.kicker} title={props.title}>
+      <StashChrome desktop>
         <PrimaryActions
           addLabel={props.onAddList ? 'New wishlist' : props.addItemLabel}
           onAdd={props.onAddList ?? props.onAddProduct}
@@ -131,7 +129,7 @@ export function CatalogDesktop(props: CatalogLayoutProps) {
   }
 
   return (
-    <StashChrome desktop kicker={props.kicker} title={props.selectedListName}>
+    <StashChrome desktop title={props.selectedListName}>
       <ListBackLink
         label={props.parentListName ? props.parentListName : 'Wishlists'}
         onPress={props.onBack}

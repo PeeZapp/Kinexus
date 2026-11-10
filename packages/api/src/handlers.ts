@@ -3,7 +3,13 @@ import { budgetCategoryOptions, isWatchlistMediaType, isWatchlistScore, normaliz
 import { extractRecipeFromText, extractRecipeFromUrlHint, generateRecipeFromName } from './ai/extract.js';
 import { estimateRecipeNutritionWithAi } from './ai/nutrition.js';
 import { classifyBudgetMerchantsWithAi, type BudgetClassifyMerchant } from './ai/classify-budget.js';
-import { createAiClient } from './ai/provider.js';
+import {
+  AiBlockedError,
+  aiBlockedHttp,
+  resolveAiClient,
+  type AiFeature,
+} from './ai/resolve.js';
+import { scrubErrorMessage } from './ai/scrub.js';
 import { scrapeLinkUrl } from './scrape/link.js';
 import { scrapeProductUrl } from './scrape/product.js';
 import { fetchReaderDocument } from './scrape/reader.js';
@@ -25,6 +31,7 @@ import {
   type WatchlistImportMatchRow,
 } from './watchlist.js';
 import { assertWatchlistImportMatchRateLimit } from './watchlist-import-rate-limit.js';
+import { loadWatchlistWatchingContext, parsePersonIds } from './watchlist-watching.js';
 import type { RecipeDraft } from './recipe-draft.js';
 
 export type AiTask = 'extract_recipe' | 'extract_recipe_from_url' | 'generate_recipe_from_name' | 'estimate_recipe_nutrition';
@@ -36,6 +43,7 @@ export type AiRequestBody = {
   name?: string;
   servings?: number;
   ingredients?: { name?: string; amount?: string }[];
+  householdId?: string;
 };
 
 export type ScrapeRequestBody = {
@@ -118,12 +126,19 @@ export async function handleArchiveFrame(urlParam: string | null | undefined) {
   }
 }
 
-export async function handleAi(body: AiRequestBody): Promise<{
+export async function handleAi(
+  userId: string,
+  body: AiRequestBody,
+): Promise<{
   status: number;
   body:
-    | { recipe: RecipeDraft; provider: string }
-    | { nutrition: { calories?: number; protein?: number; carbs?: number; fat?: number }; provider: string }
-    | { error: string };
+    | { recipe: RecipeDraft; provider: string; resultsMayVary?: boolean }
+    | {
+        nutrition: { calories?: number; protein?: number; carbs?: number; fat?: number };
+        provider: string;
+        resultsMayVary?: boolean;
+      }
+    | { error: string; code?: string };
 }> {
   const task = body.task;
   if (
@@ -132,24 +147,48 @@ export async function handleAi(body: AiRequestBody): Promise<{
     task !== 'generate_recipe_from_name' &&
     task !== 'estimate_recipe_nutrition'
   ) {
-    return { status: 400, body: { error: 'task must be extract_recipe, extract_recipe_from_url, generate_recipe_from_name, or estimate_recipe_nutrition' } };
+    return {
+      status: 400,
+      body: {
+        error:
+          'task must be extract_recipe, extract_recipe_from_url, generate_recipe_from_name, or estimate_recipe_nutrition',
+      },
+    };
   }
 
+  const householdId = typeof body.householdId === 'string' ? body.householdId.trim() : '';
+  if (!householdId) return { status: 400, body: { error: 'householdId is required' } };
+
   try {
-    const client = createAiClient();
+    const feature = task as AiFeature;
+    const resolved = await resolveAiClient({ userId, householdId, feature });
     if (task === 'extract_recipe') {
       const content = body.content?.trim() ?? '';
       if (content.length < 20) return { status: 400, body: { error: 'Paste more of the recipe text' } };
       if (content.length > 20_000) return { status: 400, body: { error: 'Recipe text is too long' } };
-      const recipe = await extractRecipeFromText(client, content);
-      return { status: 200, body: { recipe, provider: client.provider } };
+      const result = await extractRecipeFromText(resolved, content);
+      return {
+        status: 200,
+        body: {
+          recipe: result.value,
+          provider: result.provider,
+          ...(result.resultsMayVary ? { resultsMayVary: true } : {}),
+        },
+      };
     }
     if (task === 'generate_recipe_from_name') {
       const name = body.name?.trim() ?? '';
       if (name.length < 2) return { status: 400, body: { error: 'Enter the dish name' } };
       if (name.length > 80) return { status: 400, body: { error: 'That dish name is too long' } };
-      const recipe = await generateRecipeFromName(client, name);
-      return { status: 200, body: { recipe, provider: client.provider } };
+      const result = await generateRecipeFromName(resolved, name);
+      return {
+        status: 200,
+        body: {
+          recipe: result.value,
+          provider: result.provider,
+          ...(result.resultsMayVary ? { resultsMayVary: true } : {}),
+        },
+      };
     }
     if (task === 'estimate_recipe_nutrition') {
       const ingredients = (body.ingredients ?? [])
@@ -159,12 +198,19 @@ export async function handleAi(body: AiRequestBody): Promise<{
         }))
         .filter((item) => item.name);
       if (ingredients.length === 0) return { status: 400, body: { error: 'Add at least one ingredient' } };
-      const nutrition = await estimateRecipeNutritionWithAi(client, {
+      const result = await estimateRecipeNutritionWithAi(resolved, {
         name: body.name?.trim(),
         servings: body.servings,
         ingredients,
       });
-      return { status: 200, body: { nutrition, provider: client.provider } };
+      return {
+        status: 200,
+        body: {
+          nutrition: result.value,
+          provider: result.provider,
+          ...(result.resultsMayVary ? { resultsMayVary: true } : {}),
+        },
+      };
     }
     const url = body.url?.trim() ?? '';
     if (!url) return { status: 400, body: { error: 'url is required' } };
@@ -174,11 +220,20 @@ export async function handleAi(body: AiRequestBody): Promise<{
         body: { error: 'That video doesn’t include a recipe we can read. Paste the recipe text instead.' },
       };
     }
-    const recipe = await extractRecipeFromUrlHint(client, url);
-    return { status: 200, body: { recipe, provider: client.provider } };
+    const result = await extractRecipeFromUrlHint(resolved, url);
+    return {
+      status: 200,
+      body: {
+        recipe: result.value,
+        provider: result.provider,
+        ...(result.resultsMayVary ? { resultsMayVary: true } : {}),
+      },
+    };
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'AI request failed';
+    if (err instanceof AiBlockedError) return aiBlockedHttp(err);
+    const message = scrubErrorMessage(err);
     if (message.includes('is not set')) return { status: 503, body: { error: 'AI provider is not configured' } };
+    if (message.includes('Not a member')) return { status: 403, body: { error: message } };
     return { status: 500, body: { error: message.slice(0, 300) } };
   }
 }
@@ -250,21 +305,36 @@ export async function handleCollectibleLookup(body: {
 
 const LINE_KINDS = new Set<FinanceBudgetLineKind>(['income', 'expense']);
 
-export async function handleBudgetClassify(body: {
-  merchants?: unknown;
-  categories?: unknown;
-}) {
+export async function handleBudgetClassify(
+  userId: string,
+  body: {
+    merchants?: unknown;
+    categories?: unknown;
+    householdId?: unknown;
+  },
+) {
   const merchants = parseClassifyMerchants(body.merchants);
   if (merchants.length === 0) return { status: 400 as const, body: { error: 'No merchants to classify' } };
   if (merchants.length > 40) return { status: 400 as const, body: { error: 'Too many merchants in one request' } };
+  const householdId = typeof body.householdId === 'string' ? body.householdId.trim() : '';
+  if (!householdId) return { status: 400 as const, body: { error: 'householdId is required' } };
   const categories = parseClassifyCategories(body.categories);
   try {
-    const client = createAiClient();
-    const assignments = await classifyBudgetMerchantsWithAi(client, merchants, categories);
-    return { status: 200 as const, body: { assignments, provider: client.provider } };
+    const resolved = await resolveAiClient({ userId, householdId, feature: 'classify_budget' });
+    const result = await classifyBudgetMerchantsWithAi(resolved, merchants, categories);
+    return {
+      status: 200 as const,
+      body: {
+        assignments: result.value,
+        provider: result.provider,
+        ...(result.resultsMayVary ? { resultsMayVary: true } : {}),
+      },
+    };
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'AI request failed';
+    if (err instanceof AiBlockedError) return aiBlockedHttp(err);
+    const message = scrubErrorMessage(err);
     if (message.includes('is not set')) return { status: 503 as const, body: { error: 'AI provider is not configured' } };
+    if (message.includes('Not a member')) return { status: 403 as const, body: { error: message } };
     return { status: 500 as const, body: { error: message.slice(0, 300) } };
   }
 }
@@ -402,15 +472,27 @@ export async function handleWatchlistServices(body: { country?: unknown }) {
   }
 }
 
-export async function handleWatchlistRecommend(body: {
-  seeds?: unknown;
-  exclude?: unknown;
-  country?: unknown;
-  providerIds?: unknown;
-}) {
+export async function handleWatchlistRecommend(
+  body: {
+    seeds?: unknown;
+    exclude?: unknown;
+    country?: unknown;
+    providerIds?: unknown;
+    personIds?: unknown;
+  },
+  request?: Request,
+) {
   try {
+    const personIds = parsePersonIds(body.personIds);
+    let watching = null;
+    if (personIds.length > 0) {
+      if (!request) return { status: 401 as const, body: { error: 'Sign in required' } };
+      const loaded = await loadWatchlistWatchingContext(request, personIds);
+      if ('error' in loaded) return { status: loaded.status, body: { error: loaded.error } };
+      watching = loaded;
+    }
     const seeds = parseRecommendSeeds(body.seeds);
-    if (seeds.length === 0) {
+    if (seeds.length === 0 && !(watching && watching.taste.likedTitles.length > 0)) {
       return { status: 400 as const, body: { error: 'Rate a few titles you liked first' } };
     }
     const result = await recommendWatchlistTitles({
@@ -418,6 +500,7 @@ export async function handleWatchlistRecommend(body: {
       exclude: parseExclude(body.exclude),
       country: typeof body.country === 'string' ? body.country : 'AU',
       providerIds: parseProviderIds(body.providerIds),
+      watching,
     });
     return { status: 200 as const, body: result };
   } catch (err) {
@@ -425,13 +508,17 @@ export async function handleWatchlistRecommend(body: {
   }
 }
 
-export async function handleWatchlistDiscover(body: {
-  mediaType?: unknown;
-  genreId?: unknown;
-  mode?: unknown;
-  country?: unknown;
-  providerIds?: unknown;
-}) {
+export async function handleWatchlistDiscover(
+  body: {
+    mediaType?: unknown;
+    genreId?: unknown;
+    mode?: unknown;
+    country?: unknown;
+    providerIds?: unknown;
+    personIds?: unknown;
+  },
+  request?: Request,
+) {
   try {
     const mediaType = typeof body.mediaType === 'string' ? body.mediaType : '';
     if (!isWatchlistMediaType(mediaType)) return { status: 400 as const, body: { error: 'mediaType must be movie or tv' } };
@@ -440,12 +527,21 @@ export async function handleWatchlistDiscover(body: {
     if (genreId != null && !Number.isInteger(genreId)) {
       return { status: 400 as const, body: { error: 'genreId must be a number' } };
     }
+    const personIds = parsePersonIds(body.personIds);
+    let watching = null;
+    if (personIds.length > 0) {
+      if (!request) return { status: 401 as const, body: { error: 'Sign in required' } };
+      const loaded = await loadWatchlistWatchingContext(request, personIds);
+      if ('error' in loaded) return { status: loaded.status, body: { error: loaded.error } };
+      watching = loaded;
+    }
     const results = await discoverWatchlistTitles({
       mediaType,
       genreId,
       mode,
       country: typeof body.country === 'string' ? body.country : 'AU',
       providerIds: parseProviderIds(body.providerIds),
+      watching,
     });
     return { status: 200 as const, body: { results } };
   } catch (err) {

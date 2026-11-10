@@ -28,8 +28,6 @@ import {
   type WatchlistSocialReview,
 } from '@/src/features/stash/watchlist-social';
 import { watchlistTitleFromRow } from '@/src/features/stash/watchlist-mappers';
-import { WatchlistSocialProfileSheet } from '@/src/features/stash/watchlist/WatchlistSocialProfile';
-
 const SCORES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
 
 type ShelfFilter = 'all' | 'high';
@@ -38,12 +36,10 @@ function SharedListCard({
   card,
   wide,
   onPress,
-  onOpenAuthor,
 }: {
   card: GlobalSharedListCard;
   wide?: boolean;
   onPress: () => void;
-  onOpenAuthor: () => void;
 }) {
   const posters = card.samplePosterPaths.slice(0, 4);
   while (posters.length < 4) posters.push('');
@@ -69,15 +65,16 @@ function SharedListCard({
           {` · ${audienceLabel(card.audience as WatchlistAudience)}`}
           {card.blurb ? ` · ${card.blurb}` : ''}
         </Text>
-        <Pressable onPress={onOpenAuthor} style={styles.byAuthor}>
+        <View style={styles.byAuthor}>
           <Text style={styles.byPrefix}>by </Text>
           <PublicName
             user={card.author}
+            link
             style={styles.byName}
             primaryStyle={styles.includes}
             secondaryStyle={styles.byHandle}
           />
-        </Pressable>
+        </View>
       </View>
     </Pressable>
   );
@@ -97,7 +94,6 @@ export function GlobalListsSection({
   const [cards, setCards] = useState<GlobalSharedListCard[]>([]);
   const [filter, setFilter] = useState<ShelfFilter>('all');
   const [error, setError] = useState<string | null>(null);
-  const [profile, setProfile] = useState<{ userId: string; author: PublicSocialUser } | null>(null);
 
   const reload = useCallback(async () => {
     const rows = await fetchGlobalSharedCards({ viewerId });
@@ -161,23 +157,10 @@ export function GlobalListsSection({
               card={card}
               wide={wide}
               onPress={() => onOpen(card.id)}
-              onOpenAuthor={() => {
-                if (!card.createdBy) return;
-                setProfile({ userId: card.createdBy, author: card.author });
-              }}
             />
           ))}
         </View>
       )}
-      <WatchlistSocialProfileSheet
-        visible={Boolean(profile)}
-        userId={profile?.userId ?? null}
-        authorHint={profile?.author}
-        viewerId={viewerId}
-        allowedAudience={allowedAudience}
-        onClose={() => setProfile(null)}
-        onOpenList={onOpen}
-      />
     </View>
   );
 }
@@ -212,7 +195,6 @@ export function GlobalListSheet({
   const [blurb, setBlurb] = useState<string | null>(null);
   const [author, setAuthor] = useState<PublicSocialUser | null>(null);
   const [authorId, setAuthorId] = useState<string | null>(null);
-  const [profileOpen, setProfileOpen] = useState(false);
   const [averageScore, setAverageScore] = useState<number | null>(null);
   const [myScore, setMyScore] = useState<number | null>(null);
   const [titles, setTitles] = useState<WatchlistTitle[]>([]);
@@ -265,15 +247,16 @@ export function GlobalListSheet({
             {averageScore != null ? ` · ${averageScore}/10` : ''}
           </Text>
           {author && authorId ? (
-            <Pressable onPress={() => setProfileOpen(true)} style={styles.byAuthor}>
+            <View style={styles.byAuthor}>
               <Text style={styles.byPrefix}>by </Text>
               <PublicName
                 user={author}
+                link
                 style={styles.byName}
                 primaryStyle={styles.includes}
                 secondaryStyle={styles.byHandle}
               />
-            </Pressable>
+            </View>
           ) : null}
         </View>
         <Text style={styles.label}>Rate this list</Text>
@@ -333,20 +316,6 @@ export function GlobalListSheet({
             );
           })
         )}
-        <WatchlistSocialProfileSheet
-          visible={profileOpen}
-          userId={authorId}
-          authorHint={author}
-          viewerId={viewerId}
-          allowedAudience={allowedAudience}
-          onClose={() => setProfileOpen(false)}
-          onOpenList={(id) => {
-            setProfileOpen(false);
-            if (id === listId) return;
-            onClose();
-            onOpenList?.(id);
-          }}
-        />
       </View>
     </Sheet>
   );
@@ -356,8 +325,6 @@ export function GlobalReviewsBlock({
   tmdbId,
   mediaType,
   userId,
-  allowedAudience,
-  onOpenList,
   busy,
   onBusy,
   refreshKey = 0,
@@ -378,7 +345,6 @@ export function GlobalReviewsBlock({
 }) {
   const [average, setAverage] = useState<number | null>(null);
   const [reviews, setReviews] = useState<WatchlistSocialReview[]>([]);
-  const [profile, setProfile] = useState<{ userId: string; author: PublicSocialUser } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function reload() {
@@ -427,18 +393,16 @@ export function GlobalReviewsBlock({
       {reviews.length === 0 ? <Text style={styles.publicEmpty}>No public scores yet.</Text> : null}
       {reviews.map((review) => (
         <View key={review.id} style={styles.publicRow}>
-          <Pressable
-            onPress={() => setProfile({ userId: review.userId, author: review.author })}
-            accessibilityRole="button"
-            style={styles.publicPerson}>
+          <View style={styles.publicPerson}>
             <PublicName
               user={review.author}
+              link
               style={styles.publicAlias}
               primaryStyle={styles.publicAliasText}
               secondaryStyle={styles.byHandle}
             />
             <Text style={styles.publicScore}>{review.score}</Text>
-          </Pressable>
+          </View>
           {review.body ? (
             <Text style={styles.publicBody} numberOfLines={2}>
               {review.body}
@@ -480,18 +444,6 @@ export function GlobalReviewsBlock({
         </View>
       ))}
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <WatchlistSocialProfileSheet
-        visible={Boolean(profile)}
-        userId={profile?.userId ?? null}
-        authorHint={profile?.author}
-        viewerId={userId}
-        allowedAudience={allowedAudience}
-        onClose={() => setProfile(null)}
-        onOpenList={(listId) => {
-          setProfile(null);
-          onOpenList?.(listId);
-        }}
-      />
     </View>
   );
 }

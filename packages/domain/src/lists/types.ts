@@ -1,9 +1,10 @@
+import type { EffortLevel } from '../train/effort';
 import type { WeightUnit } from '../train/units';
 import type { WatchlistItemStatus } from '../stash/types';
 
 export const KINEXUS_EXPORT_VERSION = 1 as const;
 
-export type KinexusListKind = 'watchlist' | 'workout' | 'wishlist' | 'shopping' | 'checklist';
+export type KinexusListKind = 'watchlist' | 'workout' | 'wishlist' | 'shopping' | 'checklist' | 'readlist';
 
 export type ListSourceFormat =
   | 'kinexus-json'
@@ -17,9 +18,12 @@ export type ListSourceFormat =
   | 'letterboxd-csv'
   | 'letterboxd-zip'
   | 'hevy-csv'
+  | 'hevy-link'
   | 'strong-csv'
+  | 'goodreads-csv'
   | 'unknown';
 
+export type ListExportFormat = 'json' | 'csv' | 'xlsx' | 'text' | 'letterboxd-csv' | 'goodreads-csv';
 /** Fields that can be mapped from tabular columns. */
 export type ImportField =
   | 'title'
@@ -81,6 +85,13 @@ export type WorkoutImportExercise = {
   /** Stored kg. */
   targetWeightKg: number | null;
   targetRpe: number | null;
+  /** Load/Effort for Hevy link import (and similar). */
+  targetEffort?: EffortLevel | null;
+  /** matched / likely / missing for link-import review. */
+  matchStatus?: 'matched' | 'likely' | 'missing';
+  /** When true, Import creates a personal custom exercise. */
+  willCreateCustom?: boolean;
+  sourceName?: string;
 };
 
 export type WorkoutImportSession = {
@@ -200,8 +211,6 @@ export type ImportApplySummary = {
   skippedInvalid: number;
   cancelled: boolean;
 };
-
-export type ListExportFormat = 'json' | 'csv' | 'xlsx' | 'text' | 'letterboxd-csv';
 
 export type BuiltExport = {
   fileName: string;

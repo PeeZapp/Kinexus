@@ -316,6 +316,7 @@ export type Database = {
           country: string | null;
           currency: string | null;
           timezone: string | null;
+          state: string;
           preferred_grocery_chain: string | null;
           created_by: string | null;
           created_at: string;
@@ -327,6 +328,7 @@ export type Database = {
           country?: string | null;
           currency?: string | null;
           timezone?: string | null;
+          state?: string;
           preferred_grocery_chain?: string | null;
           created_by?: string | null;
           created_at?: string;
@@ -337,7 +339,150 @@ export type Database = {
           country?: string | null;
           currency?: string | null;
           timezone?: string | null;
+          state?: string;
           preferred_grocery_chain?: string | null;
+        };
+        Relationships: [];
+      };
+      grocery_store_regions: {
+        Row: {
+          state: string;
+          store: 'woolworths' | 'coles';
+          store_id: string;
+          created_at: string;
+        };
+        Insert: {
+          state: string;
+          store: 'woolworths' | 'coles';
+          store_id: string;
+          created_at?: string;
+        };
+        Update: {
+          store_id?: string;
+        };
+        Relationships: [];
+      };
+      grocery_catalogue_items: {
+        Row: {
+          ingredient_key: string;
+          display_name: string;
+          search_query: string;
+          rank: number;
+          recipe_count: number;
+          week_start: string;
+          batch_day: number;
+          created_at: string;
+        };
+        Insert: {
+          ingredient_key: string;
+          display_name: string;
+          search_query: string;
+          rank: number;
+          recipe_count: number;
+          week_start: string;
+          batch_day: number;
+          created_at?: string;
+        };
+        Update: {
+          display_name?: string;
+          search_query?: string;
+          rank?: number;
+          recipe_count?: number;
+          batch_day?: number;
+        };
+        Relationships: [];
+      };
+      grocery_prices: {
+        Row: {
+          ingredient_key: string;
+          store: 'woolworths' | 'coles';
+          state: string;
+          product_id: string;
+          name: string;
+          brand: string | null;
+          price: number;
+          pack_size: string | null;
+          unit_price: number | null;
+          by_weight: boolean;
+          in_stock: boolean;
+          fetched_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          ingredient_key: string;
+          store: 'woolworths' | 'coles';
+          state: string;
+          product_id: string;
+          name: string;
+          brand?: string | null;
+          price: number;
+          pack_size?: string | null;
+          unit_price?: number | null;
+          by_weight?: boolean;
+          in_stock?: boolean;
+          fetched_at?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          product_id?: string;
+          name?: string;
+          brand?: string | null;
+          price?: number;
+          pack_size?: string | null;
+          unit_price?: number | null;
+          by_weight?: boolean;
+          in_stock?: boolean;
+          fetched_at?: string;
+        };
+        Relationships: [];
+      };
+      grocery_catalogue_requests: {
+        Row: {
+          ingredient_key: string;
+          search_query: string;
+          request_count: number;
+          last_requested_at: string;
+          created_at: string;
+        };
+        Insert: {
+          ingredient_key: string;
+          search_query: string;
+          request_count?: number;
+          last_requested_at?: string;
+          created_at?: string;
+        };
+        Update: {
+          search_query?: string;
+          request_count?: number;
+          last_requested_at?: string;
+        };
+        Relationships: [];
+      };
+      grocery_refresh_runs: {
+        Row: {
+          id: string;
+          week_start: string;
+          batch_day: number;
+          started_at: string;
+          finished_at: string | null;
+          continued: boolean;
+          stats: Json;
+        };
+        Insert: {
+          id?: string;
+          week_start: string;
+          batch_day: number;
+          started_at?: string;
+          finished_at?: string | null;
+          continued?: boolean;
+          stats?: Json;
+        };
+        Update: {
+          finished_at?: string | null;
+          continued?: boolean;
+          stats?: Json;
         };
         Relationships: [];
       };
@@ -1100,6 +1245,13 @@ export type Database = {
           detail_checked_on: string | null;
           is_owned: boolean;
           notes: string | null;
+          candidate_source_url: string | null;
+          candidate_price: number | null;
+          candidate_store_name: string | null;
+          candidate_currency: string | null;
+          previous_source_url: string | null;
+          previous_price: number | null;
+          previous_store_name: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -1122,6 +1274,13 @@ export type Database = {
           detail_checked_on?: string | null;
           is_owned?: boolean;
           notes?: string | null;
+          candidate_source_url?: string | null;
+          candidate_price?: number | null;
+          candidate_store_name?: string | null;
+          candidate_currency?: string | null;
+          previous_source_url?: string | null;
+          previous_price?: number | null;
+          previous_store_name?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1141,6 +1300,13 @@ export type Database = {
           detail_checked_on?: string | null;
           is_owned?: boolean;
           notes?: string | null;
+          candidate_source_url?: string | null;
+          candidate_price?: number | null;
+          candidate_store_name?: string | null;
+          candidate_currency?: string | null;
+          previous_source_url?: string | null;
+          previous_price?: number | null;
+          previous_store_name?: string | null;
         };
         Relationships: [];
       };
@@ -1710,6 +1876,221 @@ export type Database = {
           household_id: string;
           title_id: string;
           person_id: string;
+          score: number;
+          body?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          score?: number;
+          body?: string | null;
+        };
+        Relationships: [];
+      };
+      readlist_works: {
+        Row: {
+          id: string;
+          ol_work_id: string | null;
+          isbn13: string | null;
+          hardcover_id: string | null;
+          google_volume_id: string | null;
+          goodreads_id: string | null;
+          title: string;
+          authors: Json;
+          cover_url: string | null;
+          first_published_year: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          ol_work_id?: string | null;
+          isbn13?: string | null;
+          hardcover_id?: string | null;
+          google_volume_id?: string | null;
+          goodreads_id?: string | null;
+          title: string;
+          authors?: Json;
+          cover_url?: string | null;
+          first_published_year?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          ol_work_id?: string | null;
+          isbn13?: string | null;
+          hardcover_id?: string | null;
+          google_volume_id?: string | null;
+          goodreads_id?: string | null;
+          title?: string;
+          authors?: Json;
+          cover_url?: string | null;
+          first_published_year?: number | null;
+        };
+        Relationships: [];
+      };
+      readlist_editions: {
+        Row: {
+          id: string;
+          work_id: string;
+          format: 'print' | 'ebook' | 'audiobook';
+          isbn10: string | null;
+          isbn13: string | null;
+          ol_edition_id: string | null;
+          asin: string | null;
+          pages: number | null;
+          duration_seconds: number | null;
+          publisher: string | null;
+          published_date: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          work_id: string;
+          format: 'print' | 'ebook' | 'audiobook';
+          isbn10?: string | null;
+          isbn13?: string | null;
+          ol_edition_id?: string | null;
+          asin?: string | null;
+          pages?: number | null;
+          duration_seconds?: number | null;
+          publisher?: string | null;
+          published_date?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          format?: 'print' | 'ebook' | 'audiobook';
+          isbn10?: string | null;
+          isbn13?: string | null;
+          ol_edition_id?: string | null;
+          asin?: string | null;
+          pages?: number | null;
+          duration_seconds?: number | null;
+          publisher?: string | null;
+          published_date?: string | null;
+        };
+        Relationships: [];
+      };
+      readlist_lists: {
+        Row: {
+          id: string;
+          household_id: string;
+          created_by: string | null;
+          name: string;
+          visibility: 'household' | 'private' | 'people' | 'global';
+          is_default: boolean;
+          share_token: string | null;
+          is_shared: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          household_id: string;
+          created_by?: string | null;
+          name: string;
+          visibility?: 'household' | 'private' | 'people' | 'global';
+          is_default?: boolean;
+          share_token?: string | null;
+          is_shared?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          name?: string;
+          visibility?: 'household' | 'private' | 'people' | 'global';
+          is_default?: boolean;
+          share_token?: string | null;
+          is_shared?: boolean;
+        };
+        Relationships: [];
+      };
+      readlist_list_people: {
+        Row: {
+          household_id: string;
+          list_id: string;
+          person_id: string;
+          added_at: string;
+        };
+        Insert: {
+          household_id: string;
+          list_id: string;
+          person_id: string;
+          added_at?: string;
+        };
+        Update: {
+          added_at?: string;
+        };
+        Relationships: [];
+      };
+      readlist_items: {
+        Row: {
+          id: string;
+          list_id: string;
+          work_id: string;
+          preferred_edition_id: string | null;
+          status: 'want_to_read' | 'reading' | 'finished';
+          added_by: string | null;
+          added_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          list_id: string;
+          work_id: string;
+          preferred_edition_id?: string | null;
+          status?: 'want_to_read' | 'reading' | 'finished';
+          added_by?: string | null;
+          added_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          preferred_edition_id?: string | null;
+          status?: 'want_to_read' | 'reading' | 'finished';
+        };
+        Relationships: [];
+      };
+      readlist_progress: {
+        Row: {
+          id: string;
+          user_id: string;
+          work_id: string;
+          edition_id: string | null;
+          pages_read: number | null;
+          percent: number | null;
+          seconds_listened: number | null;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          work_id: string;
+          edition_id?: string | null;
+          pages_read?: number | null;
+          percent?: number | null;
+          seconds_listened?: number | null;
+          updated_at?: string;
+        };
+        Update: {
+          edition_id?: string | null;
+          pages_read?: number | null;
+          percent?: number | null;
+          seconds_listened?: number | null;
+        };
+        Relationships: [];
+      };
+      readlist_reviews: {
+        Row: {
+          id: string;
+          user_id: string;
+          work_id: string;
+          score: number;
+          body: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          work_id: string;
           score: number;
           body?: string | null;
           created_at?: string;
@@ -3370,6 +3751,22 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      set_readlist_list_visibility: {
+        Args: {
+          p_list_id: string;
+          p_visibility: string;
+          p_person_ids?: string[];
+        };
+        Returns: undefined;
+      };
+      set_readlist_list_link_share: {
+        Args: {
+          p_list_id: string;
+          p_enabled: boolean;
+          p_rotate?: boolean;
+        };
+        Returns: string | null;
+      };
       create_training_plan: {
         Args: {
           p_household_id: string;
@@ -3388,6 +3785,13 @@ export type Database = {
           p_duration_min?: number | null;
         };
         Returns: string;
+      };
+      queue_grocery_catalogue_request: {
+        Args: {
+          p_ingredient_key: string;
+          p_search_query: string;
+        };
+        Returns: undefined;
       };
       save_workout_to_library: {
         Args: {

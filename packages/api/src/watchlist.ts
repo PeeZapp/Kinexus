@@ -1,5 +1,6 @@
 import {
   audienceFromCertification,
+  certificationAllowed,
   isWatchlistGenre,
   isWatchlistMediaType,
   isWatchlistOfferType,
@@ -29,8 +30,11 @@ import {
   type WatchlistTasteSeed,
 } from '@kinexus/domain';
 
+import type { WatchlistWatchingContext } from './watchlist-watching.js';
+
 export const WATCHLIST_IMPORT_MATCH_BATCH_CAP = 40;
 const MATCH_CACHE_TTL_MS = 10 * 60 * 1000;
+const CERT_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 
@@ -47,7 +51,129 @@ type TmdbSearchItem = {
   popularity?: number;
   vote_average?: number;
   vote_count?: number;
+  genre_ids?: number[];
 };
+
+type AuCertCacheEntry = { at: number; certification: string | null };
+const auCertCache = new Map<string, AuCertCacheEntry>();
+const auCertInflight = new Map<string, Promise<string | null>>();
+
+function auCertCacheKey(mediaType: WatchlistMediaType, tmdbId: number): string {
+  return `${mediaType}-${tmdbId}`;
+}
+
+/** AU-only certification for a title. Cached; missing AU cert → null (no US fallback). */
+export async function fetchAuCertification(
+  mediaType: WatchlistMediaType,
+  tmdbId: number,
+): Promise<string | null> {
+  const key = auCertCacheKey(mediaType, tmdbId);
+  const cached = auCertCache.get(key);
+  if (cached && Date.now() - cached.at < CERT_CACHE_TTL_MS) return cached.certification;
+  const pending = auCertInflight.get(key);
+  if (pending) return pending;
+
+  const load = (async () => {
+    try {
+      const path = mediaType === 'tv' ? `/tv/${tmdbId}` : `/movie/${tmdbId}`;
+      const append = mediaType === 'tv' ? 'content_ratings' : 'release_dates';
+      const payload = await tmdbGet<TmdbTitlePayload>(path, {
+        append_to_response: append,
+        language: 'en-US',
+      });
+      let certification: string | null = null;
+      if (mediaType === 'movie') {
+        const region = (payload.release_dates?.results ?? []).find((row) => row.iso_3166_1 === 'AU');
+        certification =
+          region?.release_dates?.map((row) => row.certification?.trim()).find((value) => value) ?? null;
+      } else {
+        const region = (payload.content_ratings?.results ?? []).find((row) => row.iso_3166_1 === 'AU');
+        certification = region?.rating?.trim() || null;
+      }
+      auCertCache.set(key, { at: Date.now(), certification });
+      return certification;
+    } catch {
+      auCertCache.set(key, { at: Date.now(), certification: null });
+      return null;
+    } finally {
+      auCertInflight.delete(key);
+    }
+  })();
+
+  auCertInflight.set(key, load);
+  return load;
+}
+
+async function filterByAuCertification<T extends { tmdbId: number; mediaType: WatchlistMediaType }>(
+  rows: readonly T[],
+  watching: WatchlistWatchingContext | null | undefined,
+): Promise<T[]> {
+  if (!watching) return [...rows];
+  const kept: T[] = [];
+  const queue = [...rows];
+  while (queue.length > 0) {
+    const batch = queue.splice(0, 6);
+    const certs = await Promise.all(batch.map((row) => fetchAuCertification(row.mediaType, row.tmdbId)));
+    for (let index = 0; index < batch.length; index += 1) {
+      const row = batch[index];
+      if (!row) continue;
+      if (
+        certificationAllowed(certs[index], watching.maxCertification, {
+          allowMissing: watching.allowMissingCertification,
+        })
+      ) {
+        kept.push(row);
+      }
+    }
+  }
+  return kept;
+}
+
+function genreIdsOf(row: TmdbSearchItem): number[] {
+  return (row.genre_ids ?? []).filter((id) => Number.isInteger(id) && id > 0);
+}
+
+function tasteBoostPoints(
+  key: string,
+  genreIds: readonly number[],
+  watching: WatchlistWatchingContext | null | undefined,
+): number {
+  if (!watching) return 0;
+  let points = 0;
+  if (watching.taste.likedTitles.some((row) => watchlistTitleKey(row.mediaType, row.tmdbId) === key)) {
+    points += 20;
+  }
+  const liked = new Set(watching.taste.likedGenreIds);
+  const disliked = new Set(watching.taste.dislikedGenreIds);
+  for (const id of genreIds) {
+    if (liked.has(id)) points += 4;
+    if (disliked.has(id)) points -= 6;
+  }
+  return points;
+}
+
+function applyWatchingExclusions(
+  exclude: Set<string>,
+  watching: WatchlistWatchingContext | null | undefined,
+): Set<string> {
+  if (!watching) return exclude;
+  const next = new Set(exclude);
+  for (const key of watching.watchedKeys) next.add(key);
+  for (const key of watching.dislikedKeys) next.add(key);
+  return next;
+}
+
+function discoverCertificationParams(
+  mediaType: WatchlistMediaType,
+  watching: WatchlistWatchingContext | null | undefined,
+): Record<string, string> {
+  if (!watching || mediaType !== 'movie') return {};
+  if (watching.maxCertification === 'R18+') return {};
+  return {
+    certification_country: 'AU',
+    'certification.lte': watching.maxCertification,
+  };
+}
 
 type TmdbProviderOffer = {
   provider_id?: number;
@@ -194,17 +320,135 @@ function providersFromRegion(region: TmdbWatchProviders | undefined): WatchlistP
   return out;
 }
 
+type TmdbDirectorCandidate = {
+  id?: number;
+  name?: string;
+  known_for_department?: string;
+};
+
+type TmdbCrewCredit = TmdbSearchItem & {
+  job?: string | null;
+};
+
+const DIRECTOR_SEARCH_CAP = 20;
+/** Exact title is ~0.93 and a prefix title is ~0.84 from titleYearMatchConfidence. */
+const STRONG_TITLE_MATCH = 0.8;
+
+function matchText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Surname, full name, or a long prefix of the person's name. Substrings inside a token do not count. */
+export function isStrongDirectorNameMatch(query: string, name: string): boolean {
+  const q = matchText(query);
+  const person = matchText(name);
+  if (q.length < 2 || !person) return false;
+  if (q === person) return true;
+  const nameTokens = person.split(' ');
+  const queryTokens = q.split(' ');
+  if (queryTokens.length >= 2 && queryTokens.every((token) => nameTokens.includes(token))) return true;
+  if (queryTokens.length === 1 && queryTokens[0].length >= 4 && nameTokens.includes(queryTokens[0])) return true;
+  return q.length >= 4 && person.startsWith(`${q} `);
+}
+
+function isStrongTitleMatch(query: string, title: string): boolean {
+  return titleYearMatchConfidence({ title: query, year: null }, { title, year: null }) >= STRONG_TITLE_MATCH;
+}
+
+export function directorHitsFromCrew(
+  directorName: string,
+  crew: readonly TmdbCrewCredit[] | undefined,
+): WatchlistSearchHit[] {
+  const director = directorName.trim().slice(0, 120);
+  const byId = new Map<number, { hit: WatchlistSearchHit; popularity: number }>();
+  for (const row of crew ?? []) {
+    if ((row.job ?? '').trim() !== 'Director') continue;
+    const hit = hitFromTmdb(row, 'movie');
+    if (!hit) continue;
+    const popularity = Number(row.popularity) || 0;
+    const prev = byId.get(hit.tmdbId);
+    if (prev && prev.popularity >= popularity) continue;
+    byId.set(hit.tmdbId, {
+      hit: director ? { ...hit, director } : hit,
+      popularity,
+    });
+  }
+  return [...byId.values()]
+    .sort((a, b) => b.popularity - a.popularity)
+    .slice(0, DIRECTOR_SEARCH_CAP)
+    .map((row) => row.hit);
+}
+
+function hitKey(hit: WatchlistSearchHit): string {
+  return `${hit.mediaType}:${hit.tmdbId}`;
+}
+
+/** Strong title hits, then director films, then weaker title hits. Same tmdb id is kept once. */
+export function mergeWatchlistDirectorHits(
+  query: string,
+  titles: readonly WatchlistSearchHit[],
+  directorMovies: readonly WatchlistSearchHit[],
+): WatchlistSearchHit[] {
+  const strong: WatchlistSearchHit[] = [];
+  const rest: WatchlistSearchHit[] = [];
+  for (const hit of titles) {
+    if (isStrongTitleMatch(query, hit.title)) strong.push(hit);
+    else rest.push(hit);
+  }
+  const directedById = new Map(directorMovies.map((hit) => [hitKey(hit), hit]));
+  const seen = new Set<string>();
+  const out: WatchlistSearchHit[] = [];
+  const push = (hit: WatchlistSearchHit) => {
+    const key = hitKey(hit);
+    if (seen.has(key)) return;
+    seen.add(key);
+    const director = hit.director ?? directedById.get(key)?.director;
+    out.push(director && !hit.director ? { ...hit, director } : hit);
+  };
+  for (const hit of strong) push(hit);
+  for (const hit of directorMovies) push(hit);
+  for (const hit of rest) push(hit);
+  return out;
+}
+
+function topDirectingPerson(
+  query: string,
+  people: readonly TmdbDirectorCandidate[],
+): { id: number; name: string } | null {
+  const top = people[0];
+  if (!top || top.known_for_department !== 'Directing') return null;
+  const id = Number(top.id);
+  const name = (top.name ?? '').trim();
+  if (!Number.isInteger(id) || id <= 0 || !name) return null;
+  if (!isStrongDirectorNameMatch(query, name)) return null;
+  return { id, name: name.slice(0, 120) };
+}
+
 export async function searchWatchlistTitles(query: string, country: string): Promise<WatchlistSearchHit[]> {
   const q = query.trim();
   if (q.length < 2) throw new Error('Type at least two characters');
   if (q.length > 120) throw new Error('Search is too long');
   const region = normalizeCountryCode(country);
-  const payload = await tmdbGet<{ results?: TmdbSearchItem[] }>('/search/multi', {
-    query: q,
-    include_adult: 'false',
-    language: 'en-US',
-    region,
-  });
+  const [payload, people] = await Promise.all([
+    tmdbGet<{ results?: TmdbSearchItem[] }>('/search/multi', {
+      query: q,
+      include_adult: 'false',
+      language: 'en-US',
+      region,
+    }),
+    tmdbGet<{ results?: TmdbDirectorCandidate[] }>('/search/person', {
+      query: q,
+      include_adult: 'false',
+      language: 'en-US',
+    }).catch(() => ({ results: [] as TmdbDirectorCandidate[] })),
+  ]);
   const hits: WatchlistSearchHit[] = [];
   for (const row of payload.results ?? []) {
     if (!isWatchlistMediaType(row.media_type ?? '')) continue;
@@ -212,7 +456,16 @@ export async function searchWatchlistTitles(query: string, country: string): Pro
     if (hit) hits.push(hit);
     if (hits.length >= 12) break;
   }
-  return hits;
+  const director = topDirectingPerson(q, people.results ?? []);
+  if (!director) return hits;
+  try {
+    const credits = await tmdbGet<{ crew?: TmdbCrewCredit[] }>(`/person/${director.id}/movie_credits`, {
+      language: 'en-US',
+    });
+    return mergeWatchlistDirectorHits(q, hits, directorHitsFromCrew(director.name, credits.crew));
+  } catch {
+    return hits;
+  }
 }
 
 type TmdbTitlePayload = TmdbSearchItem & {
@@ -234,7 +487,27 @@ type TmdbTitlePayload = TmdbSearchItem & {
       iso_639_1?: string | null;
     }[];
   };
+  credits?: {
+    crew?: { job?: string | null; name?: string | null }[];
+  };
 };
+
+function directorsFromCrew(
+  crew: readonly { job?: string | null; name?: string | null }[] | undefined,
+): string | undefined {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const row of crew ?? []) {
+    if ((row.job ?? '').trim() !== 'Director') continue;
+    const name = (row.name ?? '').trim().slice(0, 120);
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  return names.length > 0 ? names.join(', ') : undefined;
+}
 
 function pickContentRating(payload: TmdbTitlePayload, mediaType: WatchlistMediaType, country: string): {
   contentRating: string | null;
@@ -268,7 +541,7 @@ export async function lookupWatchlistTitle(input: {
   const append =
     input.mediaType === 'tv'
       ? 'external_ids,watch/providers,videos,content_ratings'
-      : 'external_ids,watch/providers,videos,release_dates';
+      : 'external_ids,watch/providers,videos,release_dates,credits';
   const payload = await tmdbGet<TmdbTitlePayload>(path, {
     append_to_response: append,
     language: 'en-US',
@@ -277,8 +550,10 @@ export async function lookupWatchlistTitle(input: {
   if (!hit) throw new Error('Could not load that title');
   const region = payload['watch/providers']?.results?.[country];
   const rating = pickContentRating(payload, input.mediaType, country);
+  const director = input.mediaType === 'movie' ? directorsFromCrew(payload.credits?.crew) : undefined;
   return {
     ...hit,
+    ...(director ? { director } : {}),
     sourceUrl: input.sourceUrl ?? null,
     tmdbWatchUrl: region?.link ?? null,
     trailerUrl: pickYoutubeTrailerUrl(payload.videos?.results ?? []),
@@ -413,11 +688,22 @@ export async function recommendWatchlistTitles(input: {
   exclude: readonly { tmdbId: number; mediaType: WatchlistMediaType }[];
   country?: string;
   providerIds?: readonly number[];
+  watching?: WatchlistWatchingContext | null;
 }): Promise<{ band: number | null; results: WatchlistSuggestion[] }> {
   const providerIds = normalizeStreamingProviderIds(input.providerIds ?? []);
   const country = normalizeCountryCode(input.country);
   const filtering = providerIds.length > 0;
-  const ordered = [...input.seeds]
+  const watching = input.watching ?? null;
+  const seedPool =
+    input.seeds.length > 0
+      ? input.seeds
+      : (watching?.taste.likedTitles.slice(0, 8).map((row) => ({
+          tmdbId: row.tmdbId,
+          mediaType: row.mediaType,
+          title: `Title ${row.tmdbId}`,
+          userScore: row.score,
+        })) ?? []);
+  const ordered = [...seedPool]
     .sort((a, b) => (b.userScore ?? 0) - (a.userScore ?? 0))
     .slice(0, 6);
   if (ordered.length === 0) {
@@ -432,7 +718,12 @@ export async function recommendWatchlistTitles(input: {
           append_to_response: 'recommendations',
           language: 'en-US',
         });
-        return { seed, publicScore: publicScoreOf(payload), recs: payload.recommendations?.results ?? [] };
+        return {
+          seed,
+          publicScore: publicScoreOf(payload),
+          recs: payload.recommendations?.results ?? [],
+          genres: genreIdsOf(payload),
+        };
       } catch {
         return null;
       }
@@ -440,7 +731,10 @@ export async function recommendWatchlistTitles(input: {
   );
 
   const tasteSeeds: WatchlistTasteSeed[] = [];
-  const buckets = new Map<string, { row: TmdbSearchItem; mediaType: WatchlistMediaType; voteCount: number; sources: string[] }>();
+  const buckets = new Map<
+    string,
+    { row: TmdbSearchItem; mediaType: WatchlistMediaType; voteCount: number; sources: string[]; boost: number }
+  >();
   for (const row of loaded) {
     if (!row) continue;
     const key = watchlistTitleKey(row.seed.mediaType, row.seed.tmdbId);
@@ -450,12 +744,13 @@ export async function recommendWatchlistTitles(input: {
       userScore: row.seed.userScore,
       publicScore: row.publicScore,
     });
-    for (const rec of row.recs.slice(0, filtering ? 18 : 12)) {
+    for (const rec of row.recs.slice(0, filtering || watching ? 18 : 12)) {
       const rawMedia = rec.media_type ?? '';
       const mediaType: WatchlistMediaType = isWatchlistMediaType(rawMedia) ? rawMedia : row.seed.mediaType;
       const hit = hitFromTmdb(rec, mediaType);
       if (!hit) continue;
       const recKey = watchlistTitleKey(hit.mediaType, hit.tmdbId);
+      const boost = tasteBoostPoints(recKey, genreIdsOf(rec), watching);
       const current = buckets.get(recKey);
       if (!current) {
         buckets.set(recKey, {
@@ -463,29 +758,38 @@ export async function recommendWatchlistTitles(input: {
           mediaType,
           voteCount: Number(rec.vote_count) || 0,
           sources: [key],
+          boost,
         });
       } else if (!current.sources.includes(key)) {
         current.sources.push(key);
+        current.boost = Math.max(current.boost, boost);
       }
     }
   }
 
-  const exclude = new Set(input.exclude.map((row) => watchlistTitleKey(row.mediaType, row.tmdbId)));
+  const exclude = applyWatchingExclusions(
+    new Set(input.exclude.map((row) => watchlistTitleKey(row.mediaType, row.tmdbId))),
+    watching,
+  );
   const candidates: WatchlistTasteCandidate[] = [...buckets.entries()].map(([key, bucket]) => ({
     key,
     publicScore: publicScoreOf(bucket.row),
     voteCount: bucket.voteCount,
     sources: bucket.sources,
   }));
-  const ranked = rankWatchlistSuggestions(tasteSeeds, candidates, exclude, filtering ? 30 : 12);
+  const ranked = rankWatchlistSuggestions(tasteSeeds, candidates, exclude, filtering || watching ? 36 : 12);
+  const orderedRanks = ranked
+    .map((rank, index) => ({ rank, index, boost: buckets.get(rank.key)?.boost ?? 0 }))
+    .sort((a, b) => b.boost - a.boost || a.index - b.index);
   const suggestions: WatchlistSuggestion[] = [];
-  for (const rank of ranked) {
-    const bucket = buckets.get(rank.key);
+  for (const row of orderedRanks) {
+    const bucket = buckets.get(row.rank.key);
     if (!bucket) continue;
-    const suggestion = suggestionFromRow(bucket.row, bucket.mediaType, rank.reason);
+    const suggestion = suggestionFromRow(bucket.row, bucket.mediaType, row.rank.reason);
     if (suggestion) suggestions.push(suggestion);
   }
-  const results = filtering ? await keepOnServices(suggestions, country, providerIds, 12) : suggestions;
+  const ageSafe = await filterByAuCertification(suggestions, watching);
+  const results = filtering ? await keepOnServices(ageSafe, country, providerIds, 12) : ageSafe.slice(0, 12);
   return { band: watchlistTasteBand(tasteSeeds), results };
 }
 
@@ -495,14 +799,17 @@ export async function discoverWatchlistTitles(input: {
   mode: 'browse' | 'surprise';
   country?: string;
   providerIds?: readonly number[];
+  watching?: WatchlistWatchingContext | null;
 }): Promise<WatchlistSuggestion[]> {
   if (input.genreId != null && !isWatchlistGenre(input.mediaType, input.genreId)) {
     throw Object.assign(new Error('That genre is not available for this type'), { status: 400 });
   }
   const providerIds = normalizeStreamingProviderIds(input.providerIds ?? []);
   const filtering = providerIds.length > 0;
+  const watching = input.watching ?? null;
   const pages = input.mode === 'surprise' ? [filtering ? 1 : 1 + Math.floor(Math.random() * 5)] : [1, 2];
   const rows: TmdbSearchItem[] = [];
+  const likedGenre = watching?.taste.likedGenreIds[0] ?? null;
   for (const page of pages) {
     const params: Record<string, string> = {
       language: 'en-US',
@@ -511,6 +818,7 @@ export async function discoverWatchlistTitles(input: {
       'vote_count.gte': filtering ? '40' : input.mode === 'surprise' ? '400' : '80',
       'vote_average.gte': filtering ? '6' : input.mode === 'surprise' ? '7.5' : '6',
       page: String(page),
+      ...discoverCertificationParams(input.mediaType, watching),
     };
     if (filtering) {
       params.with_watch_providers = providerIds.join('|');
@@ -518,16 +826,29 @@ export async function discoverWatchlistTitles(input: {
       params.with_watch_monetization_types = 'flatrate|free|ads';
     }
     if (input.genreId != null) params.with_genres = String(input.genreId);
+    else if (likedGenre != null) params.with_genres = String(likedGenre);
     const path = input.mediaType === 'tv' ? '/discover/tv' : '/discover/movie';
     const payload = await tmdbGet<{ results?: TmdbSearchItem[] }>(path, params);
     rows.push(...(payload.results ?? []));
   }
-  const suggestions = rows
-    .map((row) => suggestionFromRow(row, input.mediaType, null))
-    .filter((row): row is WatchlistSuggestion => row != null);
-  if (input.mode !== 'surprise') return suggestions.slice(0, 40);
-  if (suggestions.length === 0) return [];
-  const pick = suggestions[Math.floor(Math.random() * suggestions.length)];
+
+  const exclude = applyWatchingExclusions(new Set(), watching);
+  const scored = rows
+    .map((row) => {
+      const suggestion = suggestionFromRow(row, input.mediaType, null);
+      if (!suggestion) return null;
+      const key = watchlistTitleKey(suggestion.mediaType, suggestion.tmdbId);
+      if (exclude.has(key)) return null;
+      return { suggestion, boost: tasteBoostPoints(key, genreIdsOf(row), watching) };
+    })
+    .filter((row): row is { suggestion: WatchlistSuggestion; boost: number } => row != null)
+    .sort((a, b) => b.boost - a.boost || (b.suggestion.publicScore ?? 0) - (a.suggestion.publicScore ?? 0));
+
+  const suggestions = scored.map((row) => row.suggestion);
+  const ageSafe = await filterByAuCertification(suggestions, watching);
+  if (input.mode !== 'surprise') return ageSafe.slice(0, 40);
+  if (ageSafe.length === 0) return [];
+  const pick = ageSafe[Math.floor(Math.random() * Math.min(ageSafe.length, 12))];
   return pick ? [pick] : [];
 }
 

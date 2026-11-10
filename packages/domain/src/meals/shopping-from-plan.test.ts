@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import { combineAmounts } from './amounts';
 import { shoppingMergeKey } from './ingredient-merge';
-import { groupShoppingByCategory, resolveShoppingCategory, shoppingFromPlan } from './shopping-from-plan';
+import {
+  groupShoppingByCategory,
+  resolveShoppingCategory,
+  shoppingFromPlan,
+  shoppingFromRecipe,
+} from './shopping-from-plan';
 import type { MealPlan, Recipe } from './types';
 
 function recipe(partial: Partial<Recipe> & Pick<Recipe, 'id' | 'name'>): Recipe {
@@ -400,5 +405,25 @@ describe('shoppingFromPlan', () => {
     expect(basil?.amount).toBe('120ml');
     expect(oil?.amount).toBe('85ml');
     expect(onion?.amount).toBe('3 onions');
+  });
+});
+
+describe('shoppingFromRecipe', () => {
+  it('returns scaled ingredients with recipe sources', () => {
+    const pasta = recipe({
+      id: 'pasta',
+      name: 'Pasta',
+      servings: 2,
+      mealSlots: ['dinner'],
+      ingredients: [
+        { name: 'Spaghetti', amount: '200g', category: 'grain' },
+        { name: 'Olive oil', amount: '1 tbsp', category: 'oil' },
+      ],
+    });
+    const items = shoppingFromRecipe({ recipe: pasta, servings: 4, country: 'AU' });
+    expect(items.find((item) => shoppingMergeKey(item.name) === 'spaghetti')?.amount).toBe('400g');
+    expect(items.find((item) => shoppingMergeKey(item.name) === 'olive oil')?.recipeSources).toEqual([
+      { recipeId: 'pasta', recipeName: 'Pasta' },
+    ]);
   });
 });

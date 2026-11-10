@@ -113,6 +113,11 @@ describe('parseQuantityLine / plain text', () => {
       ['bread', null],
     ]);
   });
+
+  it('strips checkboxes and blank lines', () => {
+    const rows = parsePlainTextList('☐ milk\n\n☑ eggs\n[ ] bread\n1. butter\n');
+    expect(rows.map((row) => row.title)).toEqual(['milk', 'eggs', 'bread', 'butter']);
+  });
 });
 
 describe('column mapping', () => {

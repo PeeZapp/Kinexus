@@ -7,6 +7,7 @@ import { ShareIntentProvider } from 'expo-share-intent';
 import 'react-native-reanimated';
 
 import { AuthProvider } from '@/src/lib/auth';
+import { AiStatusProvider } from '@/src/lib/ai-status-context';
 import { ExperienceProvider } from '@/src/lib/experience-mode';
 import { HouseholdProvider } from '@/src/lib/household';
 import { QueryProvider } from '@/src/lib/query';
@@ -27,23 +28,27 @@ export default function RootLayout() {
         <AuthProvider>
           <QueryProvider>
             <HouseholdProvider>
-              <ExperienceProvider>
-                <StatusBar style="light" />
-                <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0B1016' } }}>
-                  <Stack.Screen name="index" />
-                  <Stack.Screen name="(auth)" />
-                  <Stack.Screen name="(app)" />
-                  <Stack.Screen name="(staff)" />
-                  <Stack.Screen name="auth/callback" />
-                  <Stack.Screen name="invite/[token]" />
-                  <Stack.Screen name="share" />
-                  <Stack.Screen name="shareintent" />
-                  <Stack.Screen name="import" />
-                  <Stack.Screen name="recipes" />
-                  <Stack.Screen name="https/[...slug]" />
-                  <Stack.Screen name="http/[...slug]" />
-                </Stack>
-              </ExperienceProvider>
+              <AiStatusProvider>
+                <ExperienceProvider>
+                  <StatusBar style="light" />
+                  <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0B1016' } }}>
+                    <Stack.Screen name="index" />
+                    <Stack.Screen name="(auth)" />
+                    <Stack.Screen name="(app)" />
+                    <Stack.Screen name="(staff)" />
+                    <Stack.Screen name="auth/callback" />
+                    <Stack.Screen name="oauth/consent" />
+                    <Stack.Screen name="invite/[token]" />
+                    <Stack.Screen name="share" />
+                    <Stack.Screen name="u/[key]" />
+                    <Stack.Screen name="shareintent" />
+                    <Stack.Screen name="import" />
+                    <Stack.Screen name="recipes" />
+                    <Stack.Screen name="https/[...slug]" />
+                    <Stack.Screen name="http/[...slug]" />
+                  </Stack>
+                </ExperienceProvider>
+              </AiStatusProvider>
             </HouseholdProvider>
           </QueryProvider>
         </AuthProvider>

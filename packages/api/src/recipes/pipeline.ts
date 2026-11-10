@@ -11,13 +11,20 @@ import { extractJsonLdRecipe } from './extract-jsonld.js';
 import { extractMicrodataRecipe } from './extract-microdata.js';
 import { extractProvechoRecipe } from './extract-provecho.js';
 import { fetchVideoMetadata, videoMetadataToText, videoTextIsUsable } from './extract-video.js';
+import { collectRecipeImageCandidates } from './image-candidates.js';
 import { logRecipeImport } from './log.js';
 import type { ExtractedRecipeCore } from './parse.js';
-import { structureRecipeFromText, wrapCleanRecipe, type StructureResult, importLlmClients } from './structure-llm.js';
+import {
+  structureRecipeForHousehold,
+  wrapCleanRecipe,
+  type ImportAiContext,
+  type StructureResult,
+} from './structure-llm.js';
 import { getImportById, saveImport } from './store.js';
 
 export type RecipeImportRuntime = FetchPublicHtmlOptions & {
   structure?: (content: string) => Promise<StructureResult>;
+  aiContext?: ImportAiContext;
   now?: () => Date;
 };
 
@@ -33,6 +40,13 @@ export async function processRecipeImport(
   if (!current) throw new RecipeImportFailure('extraction_failed', 'Import not found');
   assertNotExpired(current.expiresAt);
 
+  const aiContext =
+    runtime.aiContext ??
+    (current.requestUserId && current.requestHouseholdId
+      ? { userId: current.requestUserId, householdId: current.requestHouseholdId }
+      : undefined);
+  const effectiveRuntime: RecipeImportRuntime = { ...runtime, aiContext };
+
   await saveImport({
     ...current,
     status: 'running',
@@ -42,9 +56,9 @@ export async function processRecipeImport(
 
   try {
     if (normalized.sourceKind === 'web') {
-      await runWebImport(id, normalized, runtime);
+      await runWebImport(id, normalized, effectiveRuntime);
     } else {
-      await runVideoImport(id, normalized, runtime);
+      await runVideoImport(id, normalized, effectiveRuntime);
     }
     const row = await getImportById(id);
     logRecipeImport({
@@ -98,9 +112,18 @@ async function runWebImport(id: string, normalized: NormalizedRecipeUrl, runtime
   const extracted = await extractRecipeFromHtml(html, runtime, true);
   if (!extracted.ok) {
     await rememberProvider(id, extracted.provider);
+    if (extracted.aiBlocked) {
+      throw new RecipeImportFailure(
+        extracted.aiBlocked === 'no_access' ? 'ai_no_access' : 'ai_key_paused',
+        extracted.aiBlocked === 'no_access'
+          ? 'AI is turned off for you in this household. Ask an admin.'
+          : "Your household's AI key isn't working. AI is paused until an admin fixes it.",
+      );
+    }
     throw notARecipeFailure();
   }
-  await persistSuccess(id, normalized, extracted.core, extracted.method, extracted.provider);
+  const withImages = await withCoverCandidates(extracted.core, normalized, runtime);
+  await persistSuccess(id, normalized, withImages, extracted.method, extracted.provider, extracted.aiBlocked);
 }
 
 async function runVideoImport(
@@ -127,12 +150,17 @@ async function runVideoImport(
     await saveImport({ ...(await requireRow(id)), progress: 45, phaseLabel: 'Reading the recipe…' });
     const linked = await tryLinkedRecipePages(meta.linkedUrls, runtime);
     if (linked.ok) {
-      const core = {
-        ...linked.core,
-        imageUrl: linked.core.imageUrl ?? meta.thumbnailUrl,
-        authorName: linked.core.authorName ?? meta.authorName,
-        siteName: linked.core.siteName ?? meta.siteName,
-      };
+      const core = await withCoverCandidates(
+        {
+          ...linked.core,
+          imageUrl: linked.core.imageUrl ?? meta.thumbnailUrl,
+          authorName: linked.core.authorName ?? meta.authorName,
+          siteName: linked.core.siteName ?? meta.siteName,
+        },
+        normalized,
+        runtime,
+        meta.thumbnailUrl,
+      );
       await persistSuccess(id, normalized, core, linked.method, linked.provider);
       return;
     }
@@ -155,23 +183,65 @@ async function runVideoImport(
   const structured = await runStructure(text, runtime, 'video');
   if (!structured.ok) {
     await rememberProvider(id, structured.provider);
+    if (structured.reason === 'ai_blocked' && structured.blocked) {
+      throw new RecipeImportFailure(
+        structured.blocked === 'no_access' ? 'ai_no_access' : 'ai_key_paused',
+        structured.blocked === 'no_access'
+          ? 'AI is turned off for you in this household. Ask an admin.'
+          : "Your household's AI key isn't working. AI is paused until an admin fixes it.",
+      );
+    }
     throw notARecipeFailure();
   }
 
   const method: RecipeExtractionMethod =
     normalized.sourceKind === 'youtube' && meta.hasCaptions ? 'transcript-llm' : 'caption-llm';
-  const core = {
-    ...structured.core,
-    imageUrl: structured.core.imageUrl ?? meta.thumbnailUrl,
-    authorName: structured.core.authorName ?? meta.authorName,
-    siteName: structured.core.siteName ?? meta.siteName,
-  };
+  const core = await withCoverCandidates(
+    {
+      ...structured.core,
+      imageUrl: structured.core.imageUrl ?? meta.thumbnailUrl,
+      authorName: structured.core.authorName ?? meta.authorName,
+      siteName: structured.core.siteName ?? meta.siteName,
+    },
+    normalized,
+    runtime,
+    meta.thumbnailUrl,
+  );
   await persistSuccess(id, normalized, core, method, structured.provider);
 }
 
+async function withCoverCandidates(
+  core: ExtractedRecipeCore,
+  normalized: NormalizedRecipeUrl,
+  runtime: RecipeImportRuntime,
+  thumbnailUrl?: string,
+): Promise<ExtractedRecipeCore> {
+  const collected = await collectRecipeImageCandidates({
+    youtubeVideoId: normalized.sourceKind === 'youtube' ? normalized.videoId : undefined,
+    seedUrls: [core.imageUrl, thumbnailUrl],
+    options: runtime,
+  });
+  const imageCandidates = collected.imageCandidates.length
+    ? collected.imageCandidates
+    : core.imageUrl
+      ? [core.imageUrl]
+      : undefined;
+  return {
+    ...core,
+    imageUrl: collected.imageUrl ?? imageCandidates?.[0] ?? core.imageUrl,
+    imageCandidates,
+  };
+}
+
 type HtmlExtract =
-  | { ok: true; core: ExtractedRecipeCore; method: RecipeExtractionMethod; provider?: string }
-  | { ok: false; provider?: string };
+  | {
+      ok: true;
+      core: ExtractedRecipeCore;
+      method: RecipeExtractionMethod;
+      provider?: string;
+      aiBlocked?: 'no_access' | 'key_paused';
+    }
+  | { ok: false; provider?: string; aiBlocked?: 'no_access' | 'key_paused' };
 
 async function tryLinkedRecipePages(urls: string[], runtime: RecipeImportRuntime): Promise<HtmlExtract> {
   let provider: string | undefined;
@@ -207,13 +277,32 @@ async function extractRecipeFromHtml(
   if (microdata && isCompleteCleanRecipe(microdata)) {
     return { ok: true, core: microdata, method: 'microdata' };
   }
-  if (!allowLlm) return { ok: false };
+  if (!allowLlm) {
+    const partial = jsonLd ?? extractJsonLdRecipe(html, { complete: false }) ?? microdata ?? provecho;
+    if (partial) return { ok: true, core: partial, method: jsonLd || provecho ? 'json-ld' : 'microdata' };
+    return { ok: false };
+  }
   const structured = await runStructure(
     webTextForLlm(html, jsonLd ?? extractJsonLdRecipe(html, { complete: false })),
     runtime,
     'web',
   );
-  if (!structured.ok) return { ok: false, provider: structured.provider };
+  if (!structured.ok) {
+    if (structured.reason === 'ai_blocked') {
+      const partialJsonLd = jsonLd ?? extractJsonLdRecipe(html, { complete: false }) ?? provecho;
+      const partial = partialJsonLd ?? microdata;
+      if (partial) {
+        return {
+          ok: true,
+          core: partial,
+          method: partialJsonLd ? 'json-ld' : 'microdata',
+          aiBlocked: structured.blocked,
+        };
+      }
+      return { ok: false, provider: structured.provider, aiBlocked: structured.blocked };
+    }
+    return { ok: false, provider: structured.provider };
+  }
   return { ok: true, core: structured.core, method: 'html-llm', provider: structured.provider };
 }
 
@@ -223,11 +312,7 @@ async function runStructure(
   kind: 'web' | 'video',
 ): Promise<StructureResult> {
   if (runtime.structure) return runtime.structure(content);
-  const clients = importLlmClients();
-  if (!process.env.DEEPSEEK_API_KEY?.trim() && !process.env.ANTHROPIC_API_KEY?.trim()) {
-    throw new RecipeImportFailure('extraction_failed', 'Import is not configured');
-  }
-  return structureRecipeFromText(content, clients, kind);
+  return structureRecipeForHousehold(content, runtime.aiContext, kind);
 }
 
 async function persistSuccess(
@@ -236,6 +321,7 @@ async function persistSuccess(
   core: Parameters<typeof wrapCleanRecipe>[0],
   method: RecipeExtractionMethod,
   provider?: string,
+  aiBlocked?: 'no_access' | 'key_paused',
 ): Promise<void> {
   assertNotExpired((await requireRow(id)).expiresAt);
   const recipe = wrapCleanRecipe(core, {
@@ -258,6 +344,7 @@ async function persistSuccess(
     extractionMethod: method,
     provider: provider ?? null,
     confidence: recipe.extraction.confidence,
+    aiBlocked,
   });
 }
 

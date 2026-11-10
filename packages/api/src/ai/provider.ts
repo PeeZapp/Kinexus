@@ -1,7 +1,6 @@
-import { AnthropicClient } from './anthropic.js';
-import { DeepSeekClient } from './deepseek.js';
+import { createPlatformAiClient } from './registry.js';
 
-export type AiProvider = 'anthropic' | 'deepseek';
+export type AiProvider = 'anthropic' | 'deepseek' | 'openai' | 'gemini' | 'perplexity';
 
 export type AiCompleteInput = {
   system?: string;
@@ -11,12 +10,20 @@ export type AiCompleteInput = {
   maxTokens?: number;
 };
 
+export type AiClientOptions = {
+  apiKey: string;
+  model: string;
+  baseUrl?: string;
+};
+
 export interface AiClient {
   readonly provider: AiProvider;
   complete(input: AiCompleteInput): Promise<string>;
 }
 
+export { createPlatformAiClient } from './registry.js';
+
+/** Platform env-key client. Household keys are not used here (17b). */
 export function createAiClient(provider?: AiProvider): AiClient {
-  const id = provider ?? (process.env.AI_PROVIDER === 'deepseek' ? 'deepseek' : 'anthropic');
-  return id === 'deepseek' ? new DeepSeekClient() : new AnthropicClient();
+  return createPlatformAiClient(provider);
 }

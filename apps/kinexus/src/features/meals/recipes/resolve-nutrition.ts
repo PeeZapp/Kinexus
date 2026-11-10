@@ -12,24 +12,27 @@ export async function resolveRecipeNutrition(input: {
   ingredients: Ingredient[];
   servings?: number;
   allowAi?: boolean;
-}): Promise<RecipeNutritionEstimate | null> {
+  householdId?: string;
+}): Promise<(RecipeNutritionEstimate & { resultsMayVary?: boolean }) | null> {
   const local = estimateRecipeNutrition(input.ingredients, input.servings);
-  if (!nutritionCoverageLow(local) || !input.allowAi || !isMealsApiConfigured()) return local;
+  if (!nutritionCoverageLow(local) || !input.allowAi || !input.householdId || !isMealsApiConfigured()) return local;
   try {
     const ai = await estimateRecipeNutritionFromApi({
       name: input.name,
       servings: input.servings,
       ingredients: input.ingredients,
+      householdId: input.householdId,
     });
-    if (ai.calories == null && ai.protein == null) return local;
+    if (ai.value.calories == null && ai.value.protein == null) return local;
     return {
-      calories: ai.calories ?? local?.calories ?? 0,
-      protein: ai.protein ?? local?.protein ?? 0,
-      carbs: ai.carbs ?? local?.carbs ?? 0,
-      fat: ai.fat ?? local?.fat ?? 0,
+      calories: ai.value.calories ?? local?.calories ?? 0,
+      protein: ai.value.protein ?? local?.protein ?? 0,
+      carbs: ai.value.carbs ?? local?.carbs ?? 0,
+      fat: ai.value.fat ?? local?.fat ?? 0,
       servings: Math.max(1, input.servings || 1),
       coveredIngredients: input.ingredients.length,
       totalIngredients: input.ingredients.length,
+      ...(ai.resultsMayVary ? { resultsMayVary: true } : {}),
     };
   } catch {
     return local;

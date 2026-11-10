@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import * as Linking from 'expo-linking';
 
-export type ShareKind = 'list' | 'workout' | 'watchlist' | 'plan';
+export type ShareKind = 'list' | 'workout' | 'watchlist' | 'plan' | 'readlist';
 
 export function buildShareUrl(kind: ShareKind, token: string): string {
   const path = `/share/${kind}/${encodeURIComponent(token.trim())}`;

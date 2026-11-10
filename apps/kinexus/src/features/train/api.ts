@@ -1707,7 +1707,7 @@ export async function applyGeneratedTrainingPlan(input: {
   audiencePersonIds?: string[];
   buddyUserIds?: string[];
   prefs?: Record<string, unknown>;
-  days: (GeneratedTrainDay & { scheduledTime?: string | null })[];
+  days: (GeneratedTrainDay & { scheduledTime?: string | null; workoutName?: string | null })[];
   /** When true (default), replace any owned plan for this week instead of stacking. */
   replaceExisting?: boolean;
 }): Promise<{ planId: string; workoutIds: Record<string, string> }> {

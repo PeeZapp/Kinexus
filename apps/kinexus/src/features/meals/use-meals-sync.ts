@@ -21,8 +21,11 @@ import {
   normalizeAudiencePersonIds,
   orderedMealSlotKeys,
   otherDaysToHideForNewSlot,
+  combineAmounts,
+  prefersMetricCountry,
   resolveShoppingCategory,
   shoppingFromPlan,
+  shoppingFromRecipe,
   shoppingMergeKey,
   shouldDropSlotFromActive,
 } from '@kinexus/domain';
@@ -59,7 +62,7 @@ import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 import { useOnline } from '@/src/lib/online';
 import { retainPostgresChannel } from '@/src/lib/realtime';
-import { mirrorRecipeImage } from '@/src/lib/meals-api';
+import { isRecipeImagesBucketUrl, mirrorRecipeImage } from '@/src/lib/meals-api';
 import { supabase } from '@/src/lib/supabase';
 
 export type PlanSlot = PlanOverlaySlot;
@@ -1368,6 +1371,121 @@ export function useMealsSync() {
     [householdId, online, queryClient, weekStart],
   );
 
+  const addRecipeToShoppingList = useCallback(
+    async (recipeId: string, servings?: number | null) => {
+      if (!householdId || !supabase) throw new Error('Not ready');
+      if (!online) throw new Error('Adding shopping items needs a connection');
+      const recipe =
+        (recipesQuery.data ?? []).find((row) => row.id === recipeId) ??
+        (await fetchRecipeById(recipeId, market.country, market.currency));
+      if (!recipe) throw new Error('Recipe not found');
+      const derived = shoppingFromRecipe({
+        recipe,
+        servings: servings ?? undefined,
+        country: market.country,
+      });
+      if (derived.length === 0) throw new Error('This recipe has no ingredients to add');
+
+      const existing = shoppingQuery.data ?? [];
+      const byKey = new Map<string, ShoppingListItem>();
+      for (const item of existing) {
+        const key = shoppingMergeKey(item.name) || item.name.toLowerCase().trim();
+        if (key && !byKey.has(key)) byKey.set(key, item);
+      }
+
+      const preferMetric = prefersMetricCountry(market.country);
+      let added = 0;
+      let merged = 0;
+      const inserts: {
+        household_id: string;
+        week_start: string;
+        name: string;
+        amount: string | null;
+        category: string;
+        checked: boolean;
+        metadata: Record<string, unknown>;
+      }[] = [];
+
+      for (const item of derived) {
+        const key = shoppingMergeKey(item.name) || item.name.toLowerCase().trim();
+        const prev = key ? byKey.get(key) : undefined;
+        const sources = [...(prev?.recipeSources ?? [])];
+        for (const source of item.recipeSources) {
+          if (!sources.some((row) => row.recipeId === source.recipeId)) sources.push(source);
+        }
+        if (prev) {
+          const amount =
+            combineAmounts([prev.amount ?? undefined, item.amount], {
+              preferMetric,
+              ingredientName: prev.name,
+              country: market.country,
+            }) ??
+            item.amount ??
+            prev.amount ??
+            null;
+          const mergedFrom = [
+            ...new Set([...(prev.mergedFrom ?? []), ...(item.mergedFrom ?? [])].filter(Boolean)),
+          ];
+          const { error } = await supabase
+            .from('shopping_items')
+            .update({
+              amount,
+              metadata: {
+                manual: prev.manual,
+                recipeSources: sources,
+                sharedMealCount: Math.max(prev.sharedMealCount, item.sharedMealCount),
+                mergedFrom,
+                linkedRecipeId: prev.linkedRecipeId ?? item.linkedRecipeId ?? null,
+                linkedRecipeName: prev.linkedRecipeName ?? item.linkedRecipeName ?? null,
+                madeFromRecipeId: prev.madeFromRecipeId ?? item.madeFromRecipeId ?? null,
+                madeFromRecipeName: prev.madeFromRecipeName ?? item.madeFromRecipeName ?? null,
+              },
+            })
+            .eq('id', prev.id);
+          if (error) throw error;
+          merged += 1;
+          continue;
+        }
+        inserts.push({
+          household_id: householdId,
+          week_start: weekStart,
+          name: item.name,
+          amount: item.amount ?? null,
+          category: item.category,
+          checked: false,
+          metadata: {
+            manual: true,
+            recipeSources: sources,
+            sharedMealCount: item.sharedMealCount,
+            mergedFrom: item.mergedFrom ?? [],
+            linkedRecipeId: item.linkedRecipeId ?? null,
+            linkedRecipeName: item.linkedRecipeName ?? null,
+            madeFromRecipeId: item.madeFromRecipeId ?? null,
+            madeFromRecipeName: item.madeFromRecipeName ?? null,
+          },
+        });
+        added += 1;
+      }
+
+      if (inserts.length > 0) {
+        const { error } = await supabase.from('shopping_items').insert(inserts);
+        if (error) throw error;
+      }
+      await queryClient.invalidateQueries({ queryKey: shoppingKey(householdId, weekStart) });
+      return { added, merged, total: derived.length };
+    },
+    [
+      householdId,
+      market.country,
+      market.currency,
+      online,
+      queryClient,
+      recipesQuery.data,
+      shoppingQuery.data,
+      weekStart,
+    ],
+  );
+
   const updateShoppingItem = useCallback(
     async (id: string, name: string, amount?: string) => {
       if (!householdId || !supabase) throw new Error('Not ready');
@@ -1521,15 +1639,26 @@ export function useMealsSync() {
     async (draft: Omit<Recipe, 'id' | 'householdId'>) => {
       if (!householdId || !supabase) throw new Error('Not ready');
       if (!online) throw new Error('Saving recipes needs a connection');
-      const { data, error } = await supabase.from('recipes').insert(recipeToInsert(householdId, draft)).select('*').single();
+      const externalImage =
+        draft.imageUrl && !isRecipeImagesBucketUrl(draft.imageUrl) ? draft.imageUrl : undefined;
+      const insertDraft = externalImage ? { ...draft, imageUrl: undefined } : draft;
+      const { data, error } = await supabase
+        .from('recipes')
+        .insert(recipeToInsert(householdId, insertDraft))
+        .select('*')
+        .single();
       if (error) throw error;
       let row = data;
-      if (row.source_url) {
+      if (externalImage) {
         try {
-          const mirrored = await mirrorRecipeImage(row.id);
-          if (mirrored.imageUrl) row = { ...row, image_url: mirrored.imageUrl };
-        } catch {
-          // The recipe is saved. A remote photo URL still shows if the copy fails.
+          const mirrored = await mirrorRecipeImage(row.id, externalImage);
+          row = { ...row, image_url: mirrored.imageUrl };
+        } catch (err) {
+          console.info('[recipe-image] mirror failed on save', {
+            recipeId: row.id,
+            message: err instanceof Error ? err.message : String(err),
+          });
+          row = { ...row, image_url: null };
         }
       }
       await queryClient.invalidateQueries({ queryKey: recipesPrefix(householdId) });
@@ -1817,72 +1946,122 @@ export function useMealsSync() {
       const recipes = hideReplacedCatalogRecipes(overlayHiddenRecipes(recipesQuery.data ?? [], hiddenQuery.data ?? []));
       const activeSlots = planQuery.data?.activeSlots ?? [...CORE_SLOTS];
       const existing = shoppingQuery.data ?? [];
-      const checkedByKey = new Map<string, boolean>();
+      const existingByKey = new Map<string, ShoppingListItem>();
       const keptMakeIds = new Set<string>();
       for (const item of existing) {
-        if (item.checked) {
-          const key = shoppingMergeKey(item.name) || item.name.toLowerCase().trim();
-          checkedByKey.set(key, true);
-        }
+        const key = shoppingMergeKey(item.name) || item.name.toLowerCase().trim();
+        if (key && !existingByKey.has(key)) existingByKey.set(key, item);
         if (item.madeFromRecipeId) keptMakeIds.add(item.madeFromRecipeId);
       }
-      const manuals = existing.filter((item) => item.manual);
       const derived = shoppingFromPlan({
         plan: { activeSlots, slots },
         recipes,
         country: market.country,
         makeRecipeIds: makeRecipeIds ?? [...keptMakeIds],
       });
-      await supabase.from('shopping_items').delete().eq('household_id', householdId).eq('week_start', weekStart);
-      const planRows = derived.map((item) => {
+      const derivedKeys = new Set(
+        derived.map((item) => shoppingMergeKey(item.name) || item.name.toLowerCase().trim()),
+      );
+      const touchedIds = new Set<string>();
+      const inserts: {
+        household_id: string;
+        week_start: string;
+        name: string;
+        amount: string | null;
+        category: string;
+        checked: boolean;
+        metadata: Record<string, unknown>;
+      }[] = [];
+
+      for (const item of derived) {
         const key = shoppingMergeKey(item.name) || item.name.toLowerCase().trim();
-        return {
+        const prev = key ? existingByKey.get(key) : undefined;
+        const sources = [...(prev?.recipeSources ?? [])];
+        for (const source of item.recipeSources) {
+          if (!sources.some((row) => row.recipeId === source.recipeId)) sources.push(source);
+        }
+        const mergedFrom = [
+          ...new Set([...(prev?.mergedFrom ?? []), ...(item.mergedFrom ?? [])].filter(Boolean)),
+        ];
+
+        if (prev?.manual) {
+          // Keep manual / recipe-added rows as they are; only attach plan sources.
+          touchedIds.add(prev.id);
+          const { error } = await supabase
+            .from('shopping_items')
+            .update({
+              metadata: {
+                manual: true,
+                recipeSources: sources,
+                sharedMealCount: Math.max(prev.sharedMealCount, item.sharedMealCount),
+                mergedFrom,
+                linkedRecipeId: prev.linkedRecipeId ?? item.linkedRecipeId ?? null,
+                linkedRecipeName: prev.linkedRecipeName ?? item.linkedRecipeName ?? null,
+                madeFromRecipeId: prev.madeFromRecipeId ?? item.madeFromRecipeId ?? null,
+                madeFromRecipeName: prev.madeFromRecipeName ?? item.madeFromRecipeName ?? null,
+              },
+            })
+            .eq('id', prev.id);
+          if (error) throw error;
+          continue;
+        }
+
+        const metadata = {
+          recipeSources: sources,
+          sharedMealCount: item.sharedMealCount,
+          isBaseRecipe: item.isBaseRecipe ?? false,
+          baseRecipeId: item.baseRecipeId ?? null,
+          linkedRecipeId: item.linkedRecipeId ?? null,
+          linkedRecipeName: item.linkedRecipeName ?? null,
+          madeFromRecipeId: item.madeFromRecipeId ?? null,
+          madeFromRecipeName: item.madeFromRecipeName ?? null,
+          mergedFrom,
+          manual: false,
+        };
+
+        if (prev) {
+          touchedIds.add(prev.id);
+          const { error } = await supabase
+            .from('shopping_items')
+            .update({
+              name: item.name,
+              amount: item.amount ?? null,
+              category: item.category,
+              checked: prev.checked,
+              metadata,
+            })
+            .eq('id', prev.id);
+          if (error) throw error;
+          continue;
+        }
+
+        inserts.push({
           household_id: householdId,
           week_start: weekStart,
           name: item.name,
           amount: item.amount ?? null,
           category: item.category,
-          checked: checkedByKey.get(key) === true,
-          metadata: {
-            recipeSources: item.recipeSources,
-            sharedMealCount: item.sharedMealCount,
-            isBaseRecipe: item.isBaseRecipe ?? false,
-            baseRecipeId: item.baseRecipeId ?? null,
-            linkedRecipeId: item.linkedRecipeId ?? null,
-            linkedRecipeName: item.linkedRecipeName ?? null,
-            madeFromRecipeId: item.madeFromRecipeId ?? null,
-            madeFromRecipeName: item.madeFromRecipeName ?? null,
-            mergedFrom: item.mergedFrom ?? [],
-            manual: false,
-          },
-        };
-      });
-      const derivedKeys = new Set(
-        derived.map((item) => shoppingMergeKey(item.name) || item.name.toLowerCase().trim()),
-      );
-      const manualRows = manuals
+          checked: false,
+          metadata,
+        });
+      }
+
+      if (inserts.length > 0) {
+        const { error } = await supabase.from('shopping_items').insert(inserts);
+        if (error) throw error;
+      }
+
+      const staleIds = existing
         .filter((item) => {
+          if (item.manual || touchedIds.has(item.id)) return false;
           const key = shoppingMergeKey(item.name) || item.name.toLowerCase().trim();
           return !derivedKeys.has(key);
         })
-        .map((item) => ({
-          household_id: householdId,
-          week_start: weekStart,
-          name: item.name,
-          amount: item.amount,
-          category: item.category,
-          checked: item.checked,
-          metadata: {
-            manual: true,
-            recipeSources: item.recipeSources,
-            sharedMealCount: item.sharedMealCount,
-            mergedFrom: item.mergedFrom,
-          },
-        }));
-      const rows = [...planRows, ...manualRows];
-      if (rows.length === 0) return;
-      const { error } = await supabase.from('shopping_items').insert(rows);
-      if (error) throw error;
+        .map((item) => item.id);
+      if (staleIds.length > 0) {
+        const { error } = await supabase.from('shopping_items').delete().in('id', staleIds);
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
       if (householdId) void queryClient.invalidateQueries({ queryKey: shoppingKey(householdId, weekStart) });
@@ -1997,6 +2176,7 @@ export function useMealsSync() {
     applyGeneratedPlan,
     toggleShoppingItem,
     addShoppingItem,
+    addRecipeToShoppingList,
     updateShoppingItem,
     saveShoppingQuotes,
     deleteShoppingItem,

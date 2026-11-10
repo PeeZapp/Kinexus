@@ -1,0 +1,9 @@
+{
+  "key": "/works/OL45804W",
+  "title": "The Hobbit",
+  "description": { "value": "A hobbit goes on an adventure." },
+  "covers": [14625765],
+  "subjects": ["Fantasy", "Dragons"],
+  "authors": [{ "author": { "key": "/authors/OL26320A" } }],
+  "first_publish_date": "1937"
+}

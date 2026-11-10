@@ -18,7 +18,7 @@ import { colors, radius, space } from '@/src/features/shell/theme';
 export function CatalogMobile(props: CatalogLayoutProps) {
   if (!props.selectedListId) {
     return (
-      <StashChrome desktop={false} kicker={props.kicker} title={props.title}>
+      <StashChrome desktop={false}>
         <PrimaryActions
           addLabel={props.onAddList ? 'New wishlist' : props.addItemLabel}
           onAdd={props.onAddList ?? props.onAddProduct}
@@ -48,7 +48,7 @@ export function CatalogMobile(props: CatalogLayoutProps) {
   }
 
   return (
-    <StashChrome desktop={false} kicker={props.kicker} title={props.selectedListName}>
+    <StashChrome desktop={false} title={props.selectedListName}>
       <ListBackLink
         label={props.parentListName ? props.parentListName : 'Wishlists'}
         onPress={props.onBack}

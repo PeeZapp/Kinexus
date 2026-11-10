@@ -60,8 +60,46 @@ export {
 
 export { linesFromDocxHtml, parseDocxBytes } from './parse-docx';
 export { looksLikeHevyCsv, parseHevyCsv } from './parse-hevy';
+export {
+  HEVY_LINK_PUBLIC_ERROR,
+  acceptHevyLinkExerciseMatch,
+  buildImportPlanFromHevyLink,
+  classifyHevyWorkoutImportUrl,
+  exerciseSetFingerprint,
+  findMatchingLibraryWorkout,
+  isHevyHost,
+  isHevyWorkoutImportUrl,
+  keepHevyLinkAsCustom,
+  mapHevyLinkIntensities,
+  matchHevyLinkExercises,
+  parseHevyShareHtml,
+} from './parse-hevy-link';
+export type {
+  ClassifiedHevyLink,
+  HevyLinkImportPreview,
+  HevyLinkKind,
+  HevyLinkMatchStatus,
+  HevyLinkMatchedExercise,
+  LibraryWorkoutFingerprint,
+  ParsedHevyLinkExercise,
+  ParsedHevyLinkSet,
+  ParsedHevyLinkWorkout,
+} from './parse-hevy-link';
 export { looksLikeImdbCsv, parseImdbCsv } from './parse-imdb';
 export { looksLikeLetterboxdCsv, parseLetterboxdCsv, parseLetterboxdZip } from './parse-letterboxd';
+export {
+  LIST_LINK_MAX_PAGES,
+  LIST_LINK_PUBLIC_ERROR,
+  buildImportPlanFromListLink,
+  classifyWatchlistListImportUrl,
+  isWatchlistListImportUrl,
+  listLinkItemsToImportRows,
+  mergeListLinkItems,
+  parseImdbListHtml,
+  parseLetterboxdListHtml,
+  parseListLinkHtml,
+} from './parse-list-link';
+export type { ListLinkItem, ListLinkSource, ParsedListLinkPage } from './parse-list-link';
 export { looksLikeStrongCsv, parseStrongCsv } from './parse-strong';
 export { parsePlainTextList, parseQuantityLine } from './parse-text';
 export { buildXlsxBytes, parseXlsxMatrix } from './parse-xlsx';

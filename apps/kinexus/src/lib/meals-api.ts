@@ -20,11 +20,12 @@ export type ImportedRecipe = {
   chefTip?: string;
   mealSlots: string[];
   imageUrl?: string;
+  imageCandidates?: string[];
 };
 
 export type ScrapeResponse =
   | { source: 'json-ld'; recipe: ImportedRecipe }
-  | { source: 'text'; content: string; imageUrl?: string }
+  | { source: 'text'; content: string; imageUrl?: string; imageCandidates?: string[] }
   | { source: 'blocked'; blocked: true }
   | { source: 'not-found'; url: string; recipeUrl: string; dishName?: string };
 
@@ -83,23 +84,37 @@ export async function verifyCreatorLinks(urls: string[]): Promise<{ ok: true }> 
   return post<{ ok: true }>('/creators/verify-links', { urls });
 }
 
-export async function extractRecipeFromText(content: string): Promise<ImportedRecipe> {
-  const data = await post<{ recipe: ImportedRecipe }>('/ai', { task: 'extract_recipe', content });
-  return data.recipe;
+export type AiCallResult<T> = { value: T; resultsMayVary?: boolean };
+
+export async function extractRecipeFromText(
+  content: string,
+  householdId: string,
+): Promise<AiCallResult<ImportedRecipe>> {
+  const data = await post<{ recipe: ImportedRecipe; resultsMayVary?: boolean }>('/ai', {
+    task: 'extract_recipe',
+    content,
+    householdId,
+  });
+  return { value: data.recipe, resultsMayVary: data.resultsMayVary };
 }
 
 export async function estimateRecipeNutritionFromApi(input: {
   name?: string;
   servings?: number;
   ingredients: { name: string; amount?: string }[];
-}): Promise<{ calories?: number; protein?: number; carbs?: number; fat?: number }> {
-  const data = await post<{ nutrition: { calories?: number; protein?: number; carbs?: number; fat?: number } }>('/ai', {
+  householdId: string;
+}): Promise<AiCallResult<{ calories?: number; protein?: number; carbs?: number; fat?: number }>> {
+  const data = await post<{
+    nutrition: { calories?: number; protein?: number; carbs?: number; fat?: number };
+    resultsMayVary?: boolean;
+  }>('/ai', {
     task: 'estimate_recipe_nutrition',
     name: input.name,
     servings: input.servings,
     ingredients: input.ingredients,
+    householdId: input.householdId,
   });
-  return data.nutrition;
+  return { value: data.nutrition, resultsMayVary: data.resultsMayVary };
 }
 
 export async function refreshRecipePrices(householdId?: string): Promise<{
@@ -111,26 +126,58 @@ export async function refreshRecipePrices(householdId?: string): Promise<{
   return post('/prices/refresh', { householdId });
 }
 
-export async function extractRecipeFromUrlHint(url: string): Promise<ImportedRecipe> {
-  const data = await post<{ recipe: ImportedRecipe }>('/ai', { task: 'extract_recipe_from_url', url });
-  return data.recipe;
+export async function extractRecipeFromUrlHint(
+  url: string,
+  householdId: string,
+): Promise<AiCallResult<ImportedRecipe>> {
+  const data = await post<{ recipe: ImportedRecipe; resultsMayVary?: boolean }>('/ai', {
+    task: 'extract_recipe_from_url',
+    url,
+    householdId,
+  });
+  return { value: data.recipe, resultsMayVary: data.resultsMayVary };
 }
 
-export async function generateRecipeFromName(name: string): Promise<ImportedRecipe> {
-  const data = await post<{ recipe: ImportedRecipe }>('/ai', { task: 'generate_recipe_from_name', name });
-  return data.recipe;
+export async function generateRecipeFromName(
+  name: string,
+  householdId: string,
+): Promise<AiCallResult<ImportedRecipe>> {
+  const data = await post<{ recipe: ImportedRecipe; resultsMayVary?: boolean }>('/ai', {
+    task: 'generate_recipe_from_name',
+    name,
+    householdId,
+  });
+  return { value: data.recipe, resultsMayVary: data.resultsMayVary };
 }
 
-export async function mirrorRecipeImage(recipeId: string): Promise<{ imageUrl: string | null }> {
-  return post<{ imageUrl: string | null }>('/recipes/mirror-image', { recipeId });
+export async function mirrorRecipeImage(
+  recipeId: string,
+  imageUrl?: string,
+): Promise<{ imageUrl: string | null }> {
+  return post<{ imageUrl: string | null }>('/recipes/mirror-image', {
+    recipeId,
+    ...(imageUrl ? { imageUrl } : {}),
+  });
 }
 
-export async function importRecipeFromUrl(url: string): Promise<ImportResult> {
+export function isRecipeImagesBucketUrl(url: string | null | undefined): boolean {
+  return Boolean(url?.includes('/storage/v1/object/public/recipe-images/'));
+}
+
+export async function importRecipeFromUrl(url: string, householdId: string): Promise<ImportResult & { resultsMayVary?: boolean }> {
   const scraped = await scrapeRecipe(url);
   if (scraped.source === 'json-ld') return { recipe: scraped.recipe, source: 'json-ld' };
   if (scraped.source === 'text') {
-    const recipe = await extractRecipeFromText(scraped.content);
-    return { recipe: { ...recipe, imageUrl: recipe.imageUrl ?? scraped.imageUrl }, source: 'text-scraped' };
+    const result = await extractRecipeFromText(scraped.content, householdId);
+    return {
+      recipe: {
+        ...result.value,
+        imageUrl: result.value.imageUrl ?? scraped.imageUrl,
+        imageCandidates: scraped.imageCandidates ?? result.value.imageCandidates,
+      },
+      source: 'text-scraped',
+      resultsMayVary: result.resultsMayVary,
+    };
   }
   if (scraped.source === 'not-found') {
     return {
@@ -145,24 +192,36 @@ export async function importRecipeFromUrl(url: string): Promise<ImportResult> {
   if (isSocialVideoUrl(url)) {
     return { source: 'not-found', missing: { url, recipeUrl: url, dishName: '' } };
   }
-  const recipe = await extractRecipeFromUrlHint(url);
-  return { recipe, source: 'blocked-ai' };
+  const result = await extractRecipeFromUrlHint(url, householdId);
+  return { recipe: result.value, source: 'blocked-ai', resultsMayVary: result.resultsMayVary };
 }
 
 export async function compareGroceryPrices(input: {
   country: string | null;
+  householdId?: string | null;
+  state?: string | null;
   fresh?: boolean;
   items: { id: string; name: string; amount: string | null; pins?: { chainId: string; productId: string }[] }[];
-}): Promise<{ comparison: GroceryComparison; warnings: { chainId: string; message: string }[] }> {
+}): Promise<{
+  comparison: GroceryComparison;
+  warnings: { chainId: string; message: string }[];
+  pricesAsOf: string | null;
+}> {
   return post('/grocery/compare', input);
 }
 
 export async function searchGroceryCatalog(input: {
   country: string | null;
+  householdId?: string | null;
+  state?: string | null;
   name: string;
   amount: string | null;
   query?: string;
-}): Promise<{ query: string; chains: { chainId: string; chainName: string; choices: CatalogueChoice[]; unavailable?: boolean }[] }> {
+}): Promise<{
+  query: string;
+  chains: { chainId: string; chainName: string; choices: CatalogueChoice[]; unavailable?: boolean }[];
+  pricesAsOf: string | null;
+}> {
   return post('/grocery/catalog', input);
 }
 

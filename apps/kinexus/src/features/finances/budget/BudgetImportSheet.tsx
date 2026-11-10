@@ -26,6 +26,8 @@ import { Btn, Field, Pill } from '@/src/features/household/ui';
 import { classifyBudgetMerchants } from '@/src/features/finances/finance-api';
 import { Sheet } from '@/src/features/meals/meals-kit';
 import { colors, radius, space } from '@/src/features/shell/theme';
+import { useAiStatus } from '@/src/lib/ai-status-context';
+import { useHousehold } from '@/src/lib/household';
 
 const FORMAT_LABEL = {
   csv: 'CSV',
@@ -75,6 +77,8 @@ export function BudgetImportSheet({
   onClose: () => void;
   onApply: (draft: StatementBudgetDraft, setPlanned: boolean) => Promise<void>;
 }) {
+  const { activeHousehold } = useHousehold();
+  const { blocked, blockedMessage, guardAi } = useAiStatus();
   const [step, setStep] = useState<Step>('upload');
   const [text, setText] = useState('');
   const [draft, setDraft] = useState<StatementBudgetDraft>(emptyStatementDraft());
@@ -132,15 +136,20 @@ export function BudgetImportSheet({
     setClassifying(true);
     try {
       const merchants = unsureMerchantsForAi(next);
-      if (merchants.length > 0) {
-        const guesses = await classifyBudgetMerchants({
-          merchants,
-          categories: categories.map((item) => ({ kind: item.kind, name: item.name })),
-        });
-        if (guesses.length > 0) next = applyAiMerchantGuesses(next, guesses);
+      if (merchants.length > 0 && activeHousehold?.id) {
+        if (!guardAi()) {
+          setLocalError(blockedMessage);
+        } else {
+          const guesses = await classifyBudgetMerchants({
+            householdId: activeHousehold.id,
+            merchants,
+            categories: categories.map((item) => ({ kind: item.kind, name: item.name })),
+          });
+          if (guesses.length > 0) next = applyAiMerchantGuesses(next, guesses);
+        }
       }
-    } catch {
-      // Local rules and questions still work if the classifier is offline.
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : 'Could not classify merchants');
     } finally {
       setClassifying(false);
     }
@@ -172,6 +181,7 @@ export function BudgetImportSheet({
             dateTo={parsedPreview?.dateTo ?? null}
             classifying={classifying}
             error={localError}
+            aiBlocked={Boolean(blocked)}
             onChangeText={setText}
             onPaste={() => void pasteClipboard()}
             onChooseFile={() => void chooseFile()}
@@ -218,6 +228,7 @@ function UploadStep({
   dateTo,
   classifying,
   error,
+  aiBlocked,
   onChangeText,
   onPaste,
   onChooseFile,
@@ -230,6 +241,7 @@ function UploadStep({
   dateTo: string | null;
   classifying: boolean;
   error: string | null;
+  aiBlocked?: boolean;
   onChangeText: (value: string) => void;
   onPaste: () => void;
   onChooseFile: () => void;
@@ -263,12 +275,14 @@ function UploadStep({
         </Text>
       ) : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Btn
-        label={classifying ? 'Reading merchants…' : 'Work out average budget'}
-        onPress={onAnalyse}
-        busy={classifying}
-        disabled={!text.trim()}
-      />
+      <View style={aiBlocked ? styles.aiDim : undefined}>
+        <Btn
+          label={classifying ? 'Reading merchants…' : 'Work out average budget'}
+          onPress={onAnalyse}
+          busy={classifying}
+          disabled={!text.trim()}
+        />
+      </View>
     </>
   );
 }
@@ -494,6 +508,7 @@ const styles = StyleSheet.create({
   hint: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
   warn: { color: colors.warning, fontSize: 13, lineHeight: 18 },
   error: { color: colors.danger, fontSize: 13 },
+  aiDim: { opacity: 0.45 },
   label: { color: colors.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
   paste: {
     backgroundColor: colors.bgElevated,

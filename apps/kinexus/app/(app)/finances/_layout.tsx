@@ -2,6 +2,7 @@ import { canViewFinances } from '@kinexus/domain';
 import { Slot } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
+import { AiBlockedBanner } from '@/src/features/ai/AiBlockedBanner';
 import { HouseholdGate } from '@/src/features/household/HouseholdGate';
 import { FinancesSubnav } from '@/src/features/finances/FinancesSubnav';
 import { EmptyState } from '@/src/features/shell/states';
@@ -15,6 +16,7 @@ export default function FinancesLayout() {
       {canViewFinances(role) ? (
       <View style={styles.root}>
         <FinancesSubnav />
+        <AiBlockedBanner />
         <View style={styles.body}>
           <Slot />
         </View>

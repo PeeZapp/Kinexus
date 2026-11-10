@@ -48,6 +48,112 @@ export function watchlistTitleKey(mediaType: WatchlistMediaType, tmdbId: number)
   return `${mediaType}-${tmdbId}`;
 }
 
+export const WATCHLIST_DISLIKED_SCORE = 4;
+
+export type PeopleTasteRating = {
+  personId: string;
+  tmdbId: number;
+  mediaType: WatchlistMediaType;
+  score: number;
+  genreIds?: readonly number[];
+};
+
+export type MergedPeopleTasteTitle = {
+  tmdbId: number;
+  mediaType: WatchlistMediaType;
+  score: number;
+};
+
+export type MergedPeopleTaste = {
+  likedTitles: MergedPeopleTasteTitle[];
+  dislikedTitles: MergedPeopleTasteTitle[];
+  likedGenreIds: number[];
+  dislikedGenreIds: number[];
+};
+
+function rankGenreIds(counts: Map<number, number>): number[] {
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0] - b[0])
+    .map(([id]) => id);
+}
+
+/**
+ * Merge ratings for the selected people into shared likes/dislikes.
+ * A title disliked by anyone selected is disliked for the group.
+ */
+export function mergePeopleTaste(
+  people: readonly { id: string }[],
+  ratings: readonly PeopleTasteRating[],
+): MergedPeopleTaste {
+  const selected = new Set(people.map((person) => person.id));
+  type Bucket = {
+    tmdbId: number;
+    mediaType: WatchlistMediaType;
+    maxScore: number;
+    minScore: number;
+    likedGenres: number[];
+    dislikedGenres: number[];
+  };
+  const byKey = new Map<string, Bucket>();
+
+  for (const rating of ratings) {
+    if (!selected.has(rating.personId) || !isWatchlistScore(rating.score)) continue;
+    if (!Number.isInteger(rating.tmdbId) || rating.tmdbId <= 0) continue;
+    const key = watchlistTitleKey(rating.mediaType, rating.tmdbId);
+    const genres = (rating.genreIds ?? []).filter((id) => Number.isInteger(id) && id > 0);
+    const current = byKey.get(key);
+    if (!current) {
+      byKey.set(key, {
+        tmdbId: rating.tmdbId,
+        mediaType: rating.mediaType,
+        maxScore: rating.score,
+        minScore: rating.score,
+        likedGenres: rating.score >= WATCHLIST_LIKED_SCORE ? [...genres] : [],
+        dislikedGenres: rating.score <= WATCHLIST_DISLIKED_SCORE ? [...genres] : [],
+      });
+      continue;
+    }
+    current.maxScore = Math.max(current.maxScore, rating.score);
+    current.minScore = Math.min(current.minScore, rating.score);
+    if (rating.score >= WATCHLIST_LIKED_SCORE) current.likedGenres.push(...genres);
+    if (rating.score <= WATCHLIST_DISLIKED_SCORE) current.dislikedGenres.push(...genres);
+  }
+
+  const likedTitles: MergedPeopleTasteTitle[] = [];
+  const dislikedTitles: MergedPeopleTasteTitle[] = [];
+  const likedGenreCounts = new Map<number, number>();
+  const dislikedGenreCounts = new Map<number, number>();
+
+  for (const row of byKey.values()) {
+    if (row.minScore <= WATCHLIST_DISLIKED_SCORE) {
+      dislikedTitles.push({ tmdbId: row.tmdbId, mediaType: row.mediaType, score: row.minScore });
+      for (const id of row.dislikedGenres) {
+        dislikedGenreCounts.set(id, (dislikedGenreCounts.get(id) ?? 0) + 1);
+      }
+      continue;
+    }
+    if (row.maxScore >= WATCHLIST_LIKED_SCORE) {
+      likedTitles.push({ tmdbId: row.tmdbId, mediaType: row.mediaType, score: row.maxScore });
+      for (const id of row.likedGenres) {
+        likedGenreCounts.set(id, (likedGenreCounts.get(id) ?? 0) + 1);
+      }
+    }
+  }
+
+  likedTitles.sort((a, b) => b.score - a.score || a.tmdbId - b.tmdbId);
+  dislikedTitles.sort((a, b) => a.score - b.score || a.tmdbId - b.tmdbId);
+
+  const dislikedGenreIds = new Set(rankGenreIds(dislikedGenreCounts));
+  const likedGenreIds = rankGenreIds(likedGenreCounts).filter((id) => !dislikedGenreIds.has(id));
+
+  return {
+    likedTitles,
+    dislikedTitles,
+    likedGenreIds,
+    dislikedGenreIds: [...dislikedGenreIds],
+  };
+}
+
 type SeedEntry = {
   title: Pick<WatchlistTitle, 'id' | 'tmdbId' | 'mediaType' | 'title'>;
   status: WatchlistItemStatus;

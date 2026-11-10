@@ -160,9 +160,10 @@ export {
   resolveShoppingCategory,
   shoppingCategoryEmoji,
   shoppingFromPlan,
+  shoppingFromRecipe,
   SHOPPING_CATEGORIES,
 } from './shopping-from-plan';
-export type { ShoppingFromPlanInput } from './shopping-from-plan';
+export type { ShoppingFromPlanInput, ShoppingFromRecipeInput } from './shopping-from-plan';
 
 export {
   dietaryRestrictionsFromPeople,

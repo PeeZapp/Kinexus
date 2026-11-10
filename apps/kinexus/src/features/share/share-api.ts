@@ -77,3 +77,20 @@ export async function fetchSharedTrainingPlan(token: string): Promise<SharedTrai
 export async function fetchSharedWatchlist(token: string): Promise<SharedWatchlistResponse> {
   return getShared(`/watchlist/shared/${encodeURIComponent(token.trim())}`);
 }
+
+export type SharedReadlistResponse = {
+  name: string;
+  ownerUsername: string | null;
+  books: Array<{
+    workId: string;
+    title: string;
+    authors: string[];
+    coverUrl: string | null;
+    year: number | null;
+    status: 'want_to_read' | 'reading' | 'finished';
+  }>;
+};
+
+export async function fetchSharedReadlist(token: string): Promise<SharedReadlistResponse> {
+  return getShared(`/readlist/shared/${encodeURIComponent(token.trim())}`);
+}

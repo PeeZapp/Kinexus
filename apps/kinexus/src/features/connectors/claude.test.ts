@@ -4,7 +4,7 @@ import {
   CLAUDE_COPY_URL_LABEL,
   CLAUDE_OPEN_LABEL,
   CLAUDE_PRODUCTION_MCP_URL,
-  CLAUDE_SETUP_STEPS,
+  CLAUDE_SETUP_PROMPT_SETTINGS,
   CLAUDE_TEST_PROMPT,
   CLAUDE_TIPS,
   claudeInstallDeepLink,
@@ -27,7 +27,7 @@ function conn(partial: Partial<McpConnection> & Pick<McpConnection, 'id' | 'plat
 }
 
 describe('Claude connector wizard', () => {
-  it('enables Claude with Copy URL / Open Claude deep link to production MCP', () => {
+  it('enables Claude with Copy URL / Open Claude install link to production MCP', () => {
     const claude = AI_CHAT_PLATFORMS.find((p) => p.id === 'claude');
     expect(claude?.enabled).toBe(true);
     expect(CLAUDE_COPY_URL_LABEL).toBe('Copy URL');
@@ -35,8 +35,9 @@ describe('Claude connector wizard', () => {
     expect(claude?.deepLink).toBe(claudeInstallDeepLink());
     expect(claude?.deepLink).toContain('modal=add-custom-connector');
     expect(claude?.deepLink).toContain(encodeURIComponent(CLAUDE_PRODUCTION_MCP_URL));
-    expect(CLAUDE_SETUP_STEPS).toHaveLength(4);
+    expect(claude?.appDeepLink).toBeUndefined();
     expect(CLAUDE_TIPS.some((t) => /Free plan/i.test(t))).toBe(true);
+    expect(CLAUDE_SETUP_PROMPT_SETTINGS.some((s) => /Sign in now/i.test(s))).toBe(true);
     expect(CLAUDE_TEST_PROMPT.length).toBeGreaterThan(0);
   });
 

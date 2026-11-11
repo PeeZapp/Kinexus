@@ -6,7 +6,7 @@ import {
   PERPLEXITY_OPEN_LABEL,
   PERPLEXITY_PLAN_NOTICE,
   PERPLEXITY_PRODUCTION_MCP_URL,
-  PERPLEXITY_SETUP_STEPS,
+  PERPLEXITY_SETUP_PROMPT_SETTINGS,
   PERPLEXITY_TEST_PROMPT,
   PERPLEXITY_TIPS,
   perplexityInstallDeepLink,
@@ -28,19 +28,20 @@ function conn(partial: Partial<McpConnection> & Pick<McpConnection, 'id' | 'plat
 }
 
 describe('Perplexity connector wizard', () => {
-  it('enables Perplexity with plan line, Copy URL, and Open Perplexity deep link', () => {
+  it('enables Perplexity with plan line, Copy URL, and Open Perplexity web link', () => {
     const perplexity = AI_CHAT_PLATFORMS.find((p) => p.id === 'perplexity');
     expect(perplexity?.enabled).toBe(true);
     expect(PERPLEXITY_COPY_URL_LABEL).toBe('Copy URL');
     expect(PERPLEXITY_OPEN_LABEL).toBe('Open Perplexity');
     expect(perplexity?.deepLink).toBe(perplexityInstallDeepLink());
     expect(perplexity?.deepLink).toContain('perplexity.ai/computer/plugins');
+    expect(perplexity?.appDeepLink).toBeUndefined();
     expect(PERPLEXITY_PRODUCTION_MCP_URL).toContain('/ai/mcp');
-    expect(PERPLEXITY_SETUP_STEPS).toHaveLength(4);
     expect(PERPLEXITY_PLAN_NOTICE).toBe('Needs Perplexity Pro, Max or Enterprise');
     expect(PERPLEXITY_TIPS.some((t) => /Pro|Max|Enterprise/i.test(t))).toBe(true);
     expect(PERPLEXITY_TIPS.some((t) => /admin|custom connectors/i.test(t))).toBe(true);
     expect(PERPLEXITY_TIPS.some((t) => /remove|re-add/i.test(t))).toBe(true);
+    expect(PERPLEXITY_SETUP_PROMPT_SETTINGS.some((s) => /website|phone/i.test(s))).toBe(true);
     expect(PERPLEXITY_TEST_PROMPT.length).toBeGreaterThan(0);
   });
 

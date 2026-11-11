@@ -9,56 +9,29 @@ export const CHATGPT_COPY_URL_LABEL = 'Copy URL';
 export const CHATGPT_OPEN_LABEL = 'Open ChatGPT';
 
 /**
- * Deepest Plugins entry OpenAI docs support without a prefilled URL modal.
- * Official copy: “Go to ChatGPT Plugins” — path verified against common chatgpt.com/plugins;
- * re-check after deploy if the UI moves.
+ * Verified web URL from OpenAI docs (“Go to ChatGPT Plugins”).
+ * No documented native-app deep link for adding custom MCP — web only.
  */
 export function chatgptInstallDeepLink(): string {
   return 'https://chatgpt.com/plugins';
 }
 
-/** Shown above the steps so Free/Plus/Pro users are not left waiting silently. */
+/** Shown in troubleshooting; Free/Plus/Pro users are not left waiting silently. */
 export const CHATGPT_PLAN_NOTICE =
   'Needs ChatGPT Business or Enterprise/Edu. Free and Plus can’t add custom MCP apps; Pro is read-only.';
 
-export type ChatgptSetupStep = {
-  n: number;
-  title: string;
-  detail: string;
-  /** Placeholder until real screenshots ship after deploy. */
-  image: 'placeholder';
-};
-
-export const CHATGPT_SETUP_STEPS: readonly ChatgptSetupStep[] = [
-  {
-    n: 1,
-    title: 'Open ChatGPT',
-    detail: 'Opens Plugins. Use Copy URL first — never type the address.',
-    image: 'placeholder',
-  },
-  {
-    n: 2,
-    title: 'Add custom MCP',
-    detail: 'Plus → Add custom MCP server → paste URL → OAuth.',
-    image: 'placeholder',
-  },
-  {
-    n: 3,
-    title: 'Sign in',
-    detail: 'Use the same Kinexus account → Allow.',
-    image: 'placeholder',
-  },
-  {
-    n: 4,
-    title: 'Done',
-    detail: 'Install the plugin, then return here — Connected appears automatically.',
-    image: 'placeholder',
-  },
+export const CHATGPT_TIPS: readonly string[] = [
+  CHATGPT_PLAN_NOTICE,
+  'Add custom MCP on the website (chatgpt.com/plugins). The phone app does not support adding custom MCP servers.',
+  'If your workspace needs it: Settings → Connectors → Advanced → enable Developer Mode.',
+  'If Connect fails, remove the plugin in ChatGPT and re-add it.',
+  'Sign in with the same Kinexus account you use here.',
 ];
 
-export const CHATGPT_TIPS: readonly string[] = [
-  'Custom MCP with write tools needs Business or Enterprise/Edu. Pro is read/fetch only.',
-  'Developer mode is not required in the current Plugins UI — acknowledge the risk warning instead.',
-  'If Connect fails, remove the plugin in ChatGPT and re-add it.',
-  'Sign in with the same Kinexus account you use here. Web only.',
+/** Platform settings for the pasteable guide (addressed to ChatGPT). */
+export const CHATGPT_SETUP_PROMPT_SETTINGS: readonly string[] = [
+  'Plan: Business/Enterprise/Edu for full access; Pro is read-only; Free and Plus cannot add custom MCP apps.',
+  'Developer mode: Workspace Settings → Connectors → Advanced → enable Developer Mode when your workspace requires it for custom MCP.',
+  'Path (website): chatgpt.com/plugins → Plus → Add custom MCP server → paste URL → OAuth → Create as a plugin → Install.',
+  'Add connectors on the ChatGPT website — the phone app does not support adding custom MCP servers.',
 ];

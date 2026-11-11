@@ -1,35 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AppState,
-  Image,
   Linking,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
   type AppStateStatus,
-  type ImageSourcePropType,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 
-import {
-  CHATGPT_COPY_URL_LABEL,
-  CHATGPT_OPEN_LABEL,
-  CHATGPT_PLAN_NOTICE,
-  CHATGPT_PRODUCTION_MCP_URL,
-  CHATGPT_SETUP_STEPS,
-  CHATGPT_TEST_PROMPT,
-  CHATGPT_TIPS,
-} from '@/src/features/connectors/chatgpt';
-import {
-  CLAUDE_COPY_URL_LABEL,
-  CLAUDE_OPEN_LABEL,
-  CLAUDE_PRODUCTION_MCP_URL,
-  CLAUDE_SETUP_STEPS,
-  CLAUDE_TEST_PROMPT,
-  CLAUDE_TIPS,
-  connectionForPlatform,
-} from '@/src/features/connectors/claude';
+import { connectionForPlatform } from '@/src/features/connectors/claude';
 import {
   listMcpConnections,
   revokeMcpConnection,
@@ -37,37 +19,24 @@ import {
 } from '@/src/features/connectors/connections-api';
 import { aiChatMcpUrl } from '@/src/features/connectors/mcp-url';
 import {
-  PERPLEXITY_COPY_URL_LABEL,
-  PERPLEXITY_OPEN_LABEL,
-  PERPLEXITY_PLAN_NOTICE,
-  PERPLEXITY_PRODUCTION_MCP_URL,
-  PERPLEXITY_SETUP_STEPS,
-  PERPLEXITY_TEST_PROMPT,
-  PERPLEXITY_TIPS,
-} from '@/src/features/connectors/perplexity';
+  aiChatPlatformById,
+  buildAiChatSetupPrompt,
+  connectWizardActions,
+  openTargetForPlatform,
+  visibleAiChatPlatforms,
+  type AiChatPlatform,
+} from '@/src/features/connectors/platforms';
 import {
   findNewConnection,
   POLL_INTERVAL_MS,
   shouldShowWaitingHint,
   shouldStopPolling,
 } from '@/src/features/connectors/poll';
-import {
-  aiChatPlatformById,
-  visibleAiChatPlatforms,
-  type AiChatPlatform,
-} from '@/src/features/connectors/platforms';
 import { Btn, Card, ErrorText } from '@/src/features/household/ui';
+import { Toast } from '@/src/features/meals/Toast';
 import { AppModal } from '@/src/features/shell/AppModal';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { confirmAction } from '@/src/lib/confirm';
-
-const FALLBACK_OPEN: Record<string, string> = {
-  chatgpt: 'https://chatgpt.com/plugins',
-  claude: 'https://claude.ai/customize/connectors',
-  perplexity: 'https://www.perplexity.ai/computer/plugins',
-};
-
-const SETUP_PLACEHOLDER = require('../../../assets/images/icon.png') as ImageSourcePropType;
 
 function formatConnectedDate(iso: string): string {
   const ms = Date.parse(iso);
@@ -95,23 +64,23 @@ function connectionLabel(row: McpConnection): { icon: string; name: string } {
   return { icon: name.slice(0, 1).toUpperCase() || 'A', name };
 }
 
-async function openPlatform(platform: AiChatPlatform): Promise<void> {
-  const url = platform.deepLink || FALLBACK_OPEN[platform.id] || '';
-  if (!url) return;
-  await Linking.openURL(url);
-}
-
-function mcpUrlForPlatform(platform: AiChatPlatform): string {
-  if (platform.id === 'chatgpt') return CHATGPT_PRODUCTION_MCP_URL;
-  if (platform.id === 'claude') return CLAUDE_PRODUCTION_MCP_URL;
-  if (platform.id === 'perplexity') return PERPLEXITY_PRODUCTION_MCP_URL;
+/** Public MCP URL for Copy URL / guide — always current origin helper. */
+function mcpUrlForCopy(): string {
   return aiChatMcpUrl();
 }
 
-function testPromptForPlatform(platformId: string): string {
-  if (platformId === 'chatgpt') return CHATGPT_TEST_PROMPT;
-  if (platformId === 'perplexity') return PERPLEXITY_TEST_PROMPT;
-  return CLAUDE_TEST_PROMPT;
+async function openPlatform(platform: AiChatPlatform): Promise<void> {
+  const isWeb = Platform.OS === 'web';
+  let canOpenApp = false;
+  if (!isWeb && platform.appDeepLink) {
+    try {
+      canOpenApp = await Linking.canOpenURL(platform.appDeepLink);
+    } catch {
+      canOpenApp = false;
+    }
+  }
+  const url = openTargetForPlatform(platform, mcpUrlForCopy(), { isWeb, canOpenApp });
+  if (url) await Linking.openURL(url);
 }
 
 export function ConnectedAiChats() {
@@ -121,15 +90,12 @@ export function ConnectedAiChats() {
   const [waiting, setWaiting] = useState<AiChatPlatform | null>(null);
   const [connectedFlash, setConnectedFlash] = useState(false);
   const [showHint, setShowHint] = useState(false);
-  const [tipsOpen, setTipsOpen] = useState(false);
-  const [copiedPrompt, setCopiedPrompt] = useState(false);
+  const [troubleOpen, setTroubleOpen] = useState(false);
+  const [copiedToast, setCopiedToast] = useState(false);
   const baselineRef = useRef<Set<string>>(new Set());
   const closedRef = useRef(false);
 
   const platforms = visibleAiChatPlatforms();
-  const chatgptConnected = Boolean(connectionForPlatform(connections, 'chatgpt'));
-  const claudeConnected = Boolean(connectionForPlatform(connections, 'claude'));
-  const perplexityConnected = Boolean(connectionForPlatform(connections, 'perplexity'));
 
   const reload = useCallback(async () => {
     const rows = await listMcpConnections();
@@ -162,8 +128,7 @@ export function ConnectedAiChats() {
     closedRef.current = false;
     setShowHint(false);
     setConnectedFlash(false);
-    setTipsOpen(false);
-    setCopiedPrompt(false);
+    setTroubleOpen(false);
     const startedAt = Date.now();
     const platformId = waiting.id;
 
@@ -239,26 +204,26 @@ export function ConnectedAiChats() {
     }
   }
 
-  async function onPick(platform: AiChatPlatform) {
+  function onPick(platform: AiChatPlatform) {
     setError(null);
     if (platform.directoryUrl) {
-      await Linking.openURL(platform.directoryUrl);
+      void Linking.openURL(platform.directoryUrl);
       setPickerOpen(false);
       return;
     }
-    await Clipboard.setStringAsync(mcpUrlForPlatform(platform));
     baselineRef.current = new Set(connections.map((row) => row.id));
     setWaiting(platform);
   }
 
-  async function copyUrl(platform: AiChatPlatform) {
-    await Clipboard.setStringAsync(mcpUrlForPlatform(platform));
+  async function copyUrl() {
+    await Clipboard.setStringAsync(mcpUrlForCopy());
+    setCopiedToast(true);
   }
 
-  async function copyTestPrompt(platformId: string) {
-    await Clipboard.setStringAsync(testPromptForPlatform(platformId));
-    setCopiedPrompt(true);
-    setTimeout(() => setCopiedPrompt(false), 1200);
+  async function copyGuide(platform: AiChatPlatform) {
+    const text = buildAiChatSetupPrompt(platform, mcpUrlForCopy());
+    await Clipboard.setStringAsync(text);
+    setCopiedToast(true);
   }
 
   return (
@@ -305,15 +270,13 @@ export function ConnectedAiChats() {
             <Text style={styles.sheetTitle}>Connect</Text>
             {platforms.map((platform) => {
               const already =
-                (platform.id === 'chatgpt' && chatgptConnected) ||
-                (platform.id === 'claude' && claudeConnected) ||
-                (platform.id === 'perplexity' && perplexityConnected) ||
+                Boolean(connectionForPlatform(connections, platform.id)) ||
                 connections.some((row) => row.platform === platform.id);
               return (
                 <Pressable
                   key={platform.id}
                   style={styles.platformRow}
-                  onPress={() => void onPick(platform)}
+                  onPress={() => onPick(platform)}
                   accessibilityRole="button">
                   <View style={styles.icon}>
                     <Text style={styles.iconLabel}>{platform.icon}</Text>
@@ -347,239 +310,67 @@ export function ConnectedAiChats() {
             {waiting ? (
               connectedFlash ? (
                 <Text style={styles.connectedFlash}>Connected ✓</Text>
-              ) : waiting.id === 'chatgpt' ? (
-                <ChatgptWizard
-                  tipsOpen={tipsOpen}
-                  onToggleTips={() => setTipsOpen((v) => !v)}
-                  copiedPrompt={copiedPrompt}
-                  showHint={showHint}
-                  onCopyUrl={() => void copyUrl(waiting)}
-                  onOpen={() => void openPlatform(waiting)}
-                  onCopyPrompt={() => void copyTestPrompt('chatgpt')}
-                />
-              ) : waiting.id === 'claude' ? (
-                <ClaudeWizard
-                  tipsOpen={tipsOpen}
-                  onToggleTips={() => setTipsOpen((v) => !v)}
-                  copiedPrompt={copiedPrompt}
-                  showHint={showHint}
-                  onCopyUrl={() => void copyUrl(waiting)}
-                  onOpen={() => void openPlatform(waiting)}
-                  onCopyPrompt={() => void copyTestPrompt('claude')}
-                />
-              ) : waiting.id === 'perplexity' ? (
-                <PerplexityWizard
-                  tipsOpen={tipsOpen}
-                  onToggleTips={() => setTipsOpen((v) => !v)}
-                  copiedPrompt={copiedPrompt}
-                  showHint={showHint}
-                  onCopyUrl={() => void copyUrl(waiting)}
-                  onOpen={() => void openPlatform(waiting)}
-                  onCopyPrompt={() => void copyTestPrompt('perplexity')}
-                />
               ) : (
-                <>
-                  <Image source={SETUP_PLACEHOLDER} style={styles.setupImage} resizeMode="contain" />
-                  <Text style={styles.setupLine}>
-                    Paste this in {waiting.name} → Add connector, then log in
-                  </Text>
-                  <Btn label={`Open ${waiting.name}`} onPress={() => void openPlatform(waiting)} />
-                  {showHint ? (
-                    <Pressable onPress={() => void copyUrl(waiting)} accessibilityRole="button">
-                      <Text style={styles.hint}>Still waiting… Copy link again</Text>
-                    </Pressable>
-                  ) : null}
-                </>
+                <ConnectWizard
+                  platform={waiting}
+                  troubleOpen={troubleOpen}
+                  onToggleTrouble={() => setTroubleOpen((v) => !v)}
+                  showHint={showHint}
+                  onCopyGuide={() => void copyGuide(waiting)}
+                  onOpen={() => void openPlatform(waiting)}
+                  onCopyUrl={() => void copyUrl()}
+                />
               )
             ) : null}
           </Pressable>
         </Pressable>
       </AppModal>
+
+      <Toast message="Copied" visible={copiedToast} durationMs={1200} onDismiss={() => setCopiedToast(false)} />
     </Card>
   );
 }
 
-function ChatgptWizard({
-  tipsOpen,
-  onToggleTips,
-  copiedPrompt,
+function ConnectWizard({
+  platform,
+  troubleOpen,
+  onToggleTrouble,
   showHint,
-  onCopyUrl,
+  onCopyGuide,
   onOpen,
-  onCopyPrompt,
+  onCopyUrl,
 }: {
-  tipsOpen: boolean;
-  onToggleTips: () => void;
-  copiedPrompt: boolean;
+  platform: AiChatPlatform;
+  troubleOpen: boolean;
+  onToggleTrouble: () => void;
   showHint: boolean;
-  onCopyUrl: () => void;
+  onCopyGuide: () => void;
   onOpen: () => void;
-  onCopyPrompt: () => void;
+  onCopyUrl: () => void;
 }) {
+  const actions = connectWizardActions(platform);
   return (
     <View style={styles.wizard}>
-      <Text style={styles.planNotice}>{CHATGPT_PLAN_NOTICE}</Text>
-      <View style={styles.actions}>
-        <Btn label={CHATGPT_COPY_URL_LABEL} variant="secondary" onPress={onCopyUrl} />
-        <Btn label={CHATGPT_OPEN_LABEL} onPress={onOpen} />
+      <Text style={styles.status}>Waiting for Connected…</Text>
+
+      <View style={styles.actionBlock}>
+        <Btn label={actions.copyGuide} onPress={onCopyGuide} />
+        <Text style={styles.explainer}>{actions.explainer}</Text>
       </View>
 
-      {CHATGPT_SETUP_STEPS.map((step) => (
-        <View key={step.n} style={styles.stepRow}>
-          {/* PLACEHOLDER: replace with real ChatGPT Plugins screenshots after deploy */}
-          <Image source={SETUP_PLACEHOLDER} style={styles.stepImage} resizeMode="contain" accessibilityLabel={`Step ${step.n} screenshot placeholder`} />
-          <View style={styles.stepMeta}>
-            <Text style={styles.stepTitle}>
-              {step.n}. {step.title}
-            </Text>
-            <Text style={styles.stepDetail}>{step.detail}</Text>
-          </View>
-        </View>
-      ))}
+      <Btn label={actions.open} variant="secondary" onPress={onOpen} />
+      <Btn label={actions.copyUrl} variant="secondary" onPress={onCopyUrl} />
 
-      <Pressable onPress={onToggleTips} accessibilityRole="button">
-        <Text style={styles.tipsToggle}>{tipsOpen ? 'Tips ▾' : 'Tips ▸'}</Text>
+      <Pressable onPress={onToggleTrouble} accessibilityRole="button">
+        <Text style={styles.tipsToggle}>{troubleOpen ? 'Having trouble? ▾' : 'Having trouble? ▸'}</Text>
       </Pressable>
-      {tipsOpen
-        ? CHATGPT_TIPS.map((tip) => (
+      {troubleOpen
+        ? platform.tips.map((tip) => (
             <Text key={tip} style={styles.tip}>
               {tip}
             </Text>
           ))
         : null}
-
-      <View style={styles.testBlock}>
-        <Text style={styles.testHeading}>Test it</Text>
-        <Text style={styles.testPrompt}>{CHATGPT_TEST_PROMPT}</Text>
-        <Btn label={copiedPrompt ? 'Copied' : 'Copy'} variant="secondary" onPress={onCopyPrompt} />
-      </View>
-
-      {showHint ? (
-        <Pressable onPress={onCopyUrl} accessibilityRole="button">
-          <Text style={styles.hint}>Still waiting… Copy URL again</Text>
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
-function ClaudeWizard({
-  tipsOpen,
-  onToggleTips,
-  copiedPrompt,
-  showHint,
-  onCopyUrl,
-  onOpen,
-  onCopyPrompt,
-}: {
-  tipsOpen: boolean;
-  onToggleTips: () => void;
-  copiedPrompt: boolean;
-  showHint: boolean;
-  onCopyUrl: () => void;
-  onOpen: () => void;
-  onCopyPrompt: () => void;
-}) {
-  return (
-    <View style={styles.wizard}>
-      <View style={styles.actions}>
-        <Btn label={CLAUDE_COPY_URL_LABEL} variant="secondary" onPress={onCopyUrl} />
-        <Btn label={CLAUDE_OPEN_LABEL} onPress={onOpen} />
-      </View>
-
-      {CLAUDE_SETUP_STEPS.map((step) => (
-        <View key={step.n} style={styles.stepRow}>
-          {/* PLACEHOLDER: replace with real Claude UI screenshots after deploy */}
-          <Image source={SETUP_PLACEHOLDER} style={styles.stepImage} resizeMode="contain" accessibilityLabel={`Step ${step.n} screenshot placeholder`} />
-          <View style={styles.stepMeta}>
-            <Text style={styles.stepTitle}>
-              {step.n}. {step.title}
-            </Text>
-            <Text style={styles.stepDetail}>{step.detail}</Text>
-          </View>
-        </View>
-      ))}
-
-      <Pressable onPress={onToggleTips} accessibilityRole="button">
-        <Text style={styles.tipsToggle}>{tipsOpen ? 'Tips ▾' : 'Tips ▸'}</Text>
-      </Pressable>
-      {tipsOpen
-        ? CLAUDE_TIPS.map((tip) => (
-            <Text key={tip} style={styles.tip}>
-              {tip}
-            </Text>
-          ))
-        : null}
-
-      <View style={styles.testBlock}>
-        <Text style={styles.testHeading}>Test it</Text>
-        <Text style={styles.testPrompt}>{CLAUDE_TEST_PROMPT}</Text>
-        <Btn label={copiedPrompt ? 'Copied' : 'Copy'} variant="secondary" onPress={onCopyPrompt} />
-      </View>
-
-      {showHint ? (
-        <Pressable onPress={onCopyUrl} accessibilityRole="button">
-          <Text style={styles.hint}>Still waiting… Copy URL again</Text>
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
-function PerplexityWizard({
-  tipsOpen,
-  onToggleTips,
-  copiedPrompt,
-  showHint,
-  onCopyUrl,
-  onOpen,
-  onCopyPrompt,
-}: {
-  tipsOpen: boolean;
-  onToggleTips: () => void;
-  copiedPrompt: boolean;
-  showHint: boolean;
-  onCopyUrl: () => void;
-  onOpen: () => void;
-  onCopyPrompt: () => void;
-}) {
-  return (
-    <View style={styles.wizard}>
-      <Text style={styles.planNotice}>{PERPLEXITY_PLAN_NOTICE}</Text>
-      <View style={styles.actions}>
-        <Btn label={PERPLEXITY_COPY_URL_LABEL} variant="secondary" onPress={onCopyUrl} />
-        <Btn label={PERPLEXITY_OPEN_LABEL} onPress={onOpen} />
-      </View>
-
-      {PERPLEXITY_SETUP_STEPS.map((step) => (
-        <View key={step.n} style={styles.stepRow}>
-          {/* PLACEHOLDER: replace with real Perplexity Plugins screenshots after deploy */}
-          <Image source={SETUP_PLACEHOLDER} style={styles.stepImage} resizeMode="contain" accessibilityLabel={`Step ${step.n} screenshot placeholder`} />
-          <View style={styles.stepMeta}>
-            <Text style={styles.stepTitle}>
-              {step.n}. {step.title}
-            </Text>
-            <Text style={styles.stepDetail}>{step.detail}</Text>
-          </View>
-        </View>
-      ))}
-
-      <Pressable onPress={onToggleTips} accessibilityRole="button">
-        <Text style={styles.tipsToggle}>{tipsOpen ? 'Tips ▾' : 'Tips ▸'}</Text>
-      </Pressable>
-      {tipsOpen
-        ? PERPLEXITY_TIPS.map((tip) => (
-            <Text key={tip} style={styles.tip}>
-              {tip}
-            </Text>
-          ))
-        : null}
-
-      <View style={styles.testBlock}>
-        <Text style={styles.testHeading}>Test it</Text>
-        <Text style={styles.testPrompt}>{PERPLEXITY_TEST_PROMPT}</Text>
-        <Btn label={copiedPrompt ? 'Copied' : 'Copy'} variant="secondary" onPress={onCopyPrompt} />
-      </View>
 
       {showHint ? (
         <Pressable onPress={onCopyUrl} accessibilityRole="button">
@@ -637,13 +428,6 @@ const styles = StyleSheet.create({
   },
   platformName: { color: colors.text, fontSize: 16, fontWeight: '600', flex: 1 },
   platformConnected: { color: colors.accent, fontSize: 13, fontWeight: '700' },
-  setupImage: {
-    width: '100%',
-    height: 160,
-    borderRadius: radius.md,
-    backgroundColor: colors.bgElevated,
-  },
-  setupLine: { color: colors.text, fontSize: 15, textAlign: 'center' },
   hint: { color: colors.textMuted, fontSize: 13, textAlign: 'center', fontWeight: '600' },
   connectedFlash: {
     color: colors.accent,
@@ -653,23 +437,9 @@ const styles = StyleSheet.create({
     paddingVertical: space.md,
   },
   wizard: { gap: 12 },
-  planNotice: { color: colors.text, fontSize: 13, fontWeight: '600' },
-  actions: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  stepRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
-  stepImage: {
-    width: 56,
-    height: 56,
-    borderRadius: radius.sm,
-    backgroundColor: colors.bgElevated,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  stepMeta: { flex: 1, gap: 2, minWidth: 0 },
-  stepTitle: { color: colors.text, fontSize: 14, fontWeight: '700' },
-  stepDetail: { color: colors.textMuted, fontSize: 13 },
+  status: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+  actionBlock: { gap: 6 },
+  explainer: { color: colors.textMuted, fontSize: 13 },
   tipsToggle: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
   tip: { color: colors.textMuted, fontSize: 13 },
-  testBlock: { gap: 8, paddingTop: 4 },
-  testHeading: { color: colors.text, fontSize: 14, fontWeight: '700' },
-  testPrompt: { color: colors.text, fontSize: 14 },
 });

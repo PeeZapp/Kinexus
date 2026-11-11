@@ -5,7 +5,7 @@ import {
   CHATGPT_OPEN_LABEL,
   CHATGPT_PLAN_NOTICE,
   CHATGPT_PRODUCTION_MCP_URL,
-  CHATGPT_SETUP_STEPS,
+  CHATGPT_SETUP_PROMPT_SETTINGS,
   CHATGPT_TEST_PROMPT,
   CHATGPT_TIPS,
   chatgptInstallDeepLink,
@@ -28,17 +28,18 @@ function conn(partial: Partial<McpConnection> & Pick<McpConnection, 'id' | 'plat
 }
 
 describe('ChatGPT connector wizard', () => {
-  it('enables ChatGPT with Copy URL / Open ChatGPT deep link to production MCP', () => {
+  it('enables ChatGPT with Copy URL / Open ChatGPT web Plugins link', () => {
     const chatgpt = AI_CHAT_PLATFORMS.find((p) => p.id === 'chatgpt');
     expect(chatgpt?.enabled).toBe(true);
     expect(CHATGPT_COPY_URL_LABEL).toBe('Copy URL');
     expect(CHATGPT_OPEN_LABEL).toBe('Open ChatGPT');
     expect(chatgpt?.deepLink).toBe(chatgptInstallDeepLink());
     expect(chatgpt?.deepLink).toContain('chatgpt.com/plugins');
+    expect(chatgpt?.appDeepLink).toBeUndefined();
     expect(CHATGPT_PRODUCTION_MCP_URL).toContain('/ai/mcp');
-    expect(CHATGPT_SETUP_STEPS).toHaveLength(4);
     expect(CHATGPT_PLAN_NOTICE).toMatch(/Business|Enterprise/i);
     expect(CHATGPT_TIPS.some((t) => /Business|Enterprise|Pro/i.test(t))).toBe(true);
+    expect(CHATGPT_SETUP_PROMPT_SETTINGS.some((s) => /Developer [Mm]ode/i.test(s))).toBe(true);
     expect(CHATGPT_TEST_PROMPT.length).toBeGreaterThan(0);
   });
 

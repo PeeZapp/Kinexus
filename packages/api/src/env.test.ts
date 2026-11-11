@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 describe('corsOrigins', () => {
-  it('always includes Claude, ChatGPT, and Perplexity origins for connector setup', () => {
+  it('always includes Claude, ChatGPT, Perplexity, and Grok origins for connector setup', () => {
     process.env.CORS_ORIGIN = 'http://localhost:5300';
     delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
     delete process.env.VERCEL_URL;
@@ -30,5 +30,6 @@ describe('corsOrigins', () => {
     expect(origins).toContain('https://chat.openai.com');
     expect(origins).toContain('https://www.perplexity.ai');
     expect(origins).toContain('https://enterprise.perplexity.ai');
+    expect(origins).toContain('https://grok.com');
   });
 });

@@ -9,54 +9,27 @@ export const PERPLEXITY_COPY_URL_LABEL = 'Copy URL';
 export const PERPLEXITY_OPEN_LABEL = 'Open Perplexity';
 
 /**
- * Deepest Plugins entry Perplexity docs support without a prefilled URL modal.
- * Help Center: open Plugins → Add custom → Add MCP connector.
+ * Verified Plugins URL from Perplexity Help Center.
+ * No documented native-app deep link for adding custom MCP — add on the website.
  */
 export function perplexityInstallDeepLink(): string {
   return 'https://www.perplexity.ai/computer/plugins';
 }
 
-/** Shown above the steps so Free users are not left waiting silently. */
+/** Shown in troubleshooting so Free users are not left waiting silently. */
 export const PERPLEXITY_PLAN_NOTICE = 'Needs Perplexity Pro, Max or Enterprise';
 
-export type PerplexitySetupStep = {
-  n: number;
-  title: string;
-  detail: string;
-  /** Placeholder until real screenshots ship after deploy. */
-  image: 'placeholder';
-};
-
-export const PERPLEXITY_SETUP_STEPS: readonly PerplexitySetupStep[] = [
-  {
-    n: 1,
-    title: 'Open Perplexity',
-    detail: 'Opens Plugins. Use Copy URL first — never type the address.',
-    image: 'placeholder',
-  },
-  {
-    n: 2,
-    title: 'Add custom MCP',
-    detail: 'Add custom → Add MCP connector → Remote → paste URL.',
-    image: 'placeholder',
-  },
-  {
-    n: 3,
-    title: 'Choose OAuth',
-    detail: 'Advanced → Authentication → OAuth (Streamable HTTP).',
-    image: 'placeholder',
-  },
-  {
-    n: 4,
-    title: 'Done',
-    detail: 'Add → open the card → Allow with the same Kinexus account.',
-    image: 'placeholder',
-  },
-];
-
 export const PERPLEXITY_TIPS: readonly string[] = [
-  'Needs Perplexity Pro, Max or Enterprise.',
+  PERPLEXITY_PLAN_NOTICE,
+  'Add the connector on the website (Plugins). The phone app may not support adding custom connectors.',
   'Org admins may turn off Allow members to add custom connectors.',
   'If Connect fails, remove the connector in Perplexity and re-add it.',
   'Sign in with the same Kinexus account you use here.',
+];
+
+/** Platform settings for the pasteable guide (addressed to Perplexity). */
+export const PERPLEXITY_SETUP_PROMPT_SETTINGS: readonly string[] = [
+  'Plan: Perplexity Pro, Max, or Enterprise.',
+  'Path (website): Plugins → Add custom → Add MCP connector → Remote → paste URL → Advanced → Authentication → OAuth; Transport → Streamable HTTP.',
+  'Add connectors on the Perplexity website — the phone app may not support adding custom connectors.',
 ];

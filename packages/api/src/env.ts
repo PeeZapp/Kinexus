@@ -12,7 +12,7 @@ export function requiredEnv(name: string): string {
   return value;
 }
 
-/** Browser origins that load /ai/mcp during connector setup (Claude + ChatGPT + Perplexity UIs). */
+/** Browser origins that load /ai/mcp during connector setup (Claude + ChatGPT + Perplexity + Grok UIs). */
 export const MCP_CONNECTOR_BROWSER_ORIGINS = [
   'https://claude.ai',
   'https://www.claude.ai',
@@ -22,6 +22,8 @@ export const MCP_CONNECTOR_BROWSER_ORIGINS = [
   'https://www.perplexity.ai',
   'https://perplexity.ai',
   'https://enterprise.perplexity.ai',
+  'https://grok.com',
+  'https://www.grok.com',
 ] as const;
 
 export function corsOrigins(): string[] {

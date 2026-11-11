@@ -14,20 +14,8 @@ export function oauthProtectedResourceBody(request: Request): Record<string, unk
     resource,
     authorization_servers: authorizationServers,
     bearer_methods_supported: ['header'],
-    scopes_supported: [
-      'openid',
-      'email',
-      'profile',
-      'offline_access',
-      'meals:read',
-      'meals:write',
-      'fitness:read',
-      'fitness:write',
-      'watchlists:read',
-      'watchlists:write',
-      'wishlists:read',
-      'wishlists:write',
-    ],
+    // Supabase Auth supports OIDC scopes only; app scopes live on mcp_connections.
+    scopes_supported: ['openid', 'email', 'profile', 'offline_access'],
     resource_documentation: new URL('/docs/ai-connectors', origin.endsWith('/') ? origin : `${origin}/`).toString(),
   };
 }

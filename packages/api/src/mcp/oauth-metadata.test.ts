@@ -18,10 +18,12 @@ describe('oauth protected resource metadata', () => {
       resource?: string;
       authorization_servers?: string[];
       bearer_methods_supported?: string[];
+      scopes_supported?: string[];
     };
     expect(body.resource).toBe('https://kinexus-green.vercel.app/ai/mcp');
     expect(body.authorization_servers).toEqual(['https://example.supabase.co/auth/v1']);
     expect(body.bearer_methods_supported).toEqual(['header']);
+    expect(body.scopes_supported).toEqual(['openid', 'email', 'profile', 'offline_access']);
   });
 
   it('serves the same shape at the root protected-resource path', async () => {

@@ -1,19 +1,76 @@
 import { type ReactNode, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 
 import { formatMoney, resolveShoppingCategory, shoppingCategoryEmoji, storeListLabel, type ShoppingCostEstimate } from '@kinexus/domain';
 
+import { publicWebOrigin } from '@/src/features/connectors/mcp-url';
 import { Btn, ErrorText, Field } from '@/src/features/household/ui';
 import type { ShoppingListItem } from '@/src/features/meals/mappers';
+import { Toast } from '@/src/features/meals/Toast';
 import type { ShoppingItemPrice } from '@/src/features/meals/shopping/use-grocery-prices';
 import { OfflineBanner, Sheet } from '@/src/features/meals/meals-kit';
 import { WeekSwitcher } from '@/src/features/meals/plan/PlanShared';
 import { colors, radius, space } from '@/src/features/shell/theme';
+import { getPwaInstallPlatform } from '@/src/lib/pwa';
 
 type DetailSheet =
   | { kind: 'recipes'; item: ShoppingListItem }
   | { kind: 'merged'; item: ShoppingListItem }
   | null;
+
+function showOpenOnDesktop(): boolean {
+  if (Platform.OS === 'ios' || Platform.OS === 'android') return true;
+  if (Platform.OS !== 'web') return false;
+  const platform = getPwaInstallPlatform();
+  return platform === 'ios' || platform === 'android';
+}
+
+function shoppingDesktopLink(weekStart: string): string {
+  return `${publicWebOrigin()}/meals/shopping?week=${encodeURIComponent(weekStart)}`;
+}
+
+function OpenOnDesktop({ weekStart }: { weekStart: string }) {
+  const [open, setOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  if (!showOpenOnDesktop()) return null;
+  const url = shoppingDesktopLink(weekStart);
+
+  async function copy() {
+    await Clipboard.setStringAsync(url);
+    setToast('Copied');
+  }
+
+  async function share() {
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        await navigator.share({ url, title: 'Shopping list' });
+      } else {
+        await Share.share({ message: url, url, title: 'Shopping list' });
+      }
+    } catch {
+      // cancelled
+    }
+  }
+
+  return (
+    <>
+      <Pressable onPress={() => setOpen(true)} hitSlop={6}>
+        <Text style={styles.openDesktop}>Open on desktop</Text>
+      </Pressable>
+      <Sheet visible={open} title="Open on desktop" onClose={() => setOpen(false)}>
+        <View style={styles.openDesktopBody}>
+          <Text style={styles.sheetLead}>
+            Open this list on your computer. Sign in there with the same account; it stays in sync.
+          </Text>
+          <Btn label="Copy link" onPress={() => void copy()} />
+          <Btn label="Share" variant="secondary" onPress={() => void share()} />
+        </View>
+      </Sheet>
+      <Toast visible={toast !== null} message={toast ?? ''} onDismiss={() => setToast(null)} />
+    </>
+  );
+}
 
 export function ShoppingList({
   title,
@@ -446,6 +503,7 @@ export function ShoppingChrome({
       </View>
       {shopPicker}
       {costEstimate ? <ShoppingTotal estimate={costEstimate} stores={stores} /> : null}
+      <OpenOnDesktop weekStart={weekStart} />
       {children}
     </ScrollView>
   );
@@ -475,6 +533,8 @@ const styles = StyleSheet.create({
   totalValue: { color: colors.text, fontSize: 22, fontWeight: '800' },
   block: { gap: 12 },
   heading: { color: colors.text, fontSize: 18, fontWeight: '700' },
+  openDesktop: { color: colors.accent, fontSize: 13, fontWeight: '700', alignSelf: 'flex-start' },
+  openDesktopBody: { gap: 10, paddingBottom: 8 },
   cat: { gap: 6 },
   catTitle: { color: colors.textMuted, fontWeight: '800', fontSize: 13 },
   row: {

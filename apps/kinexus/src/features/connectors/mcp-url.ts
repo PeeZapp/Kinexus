@@ -1,4 +1,4 @@
-export function buildAiChatMcpUrl(origins: {
+export function resolvePublicWebOrigin(origins: {
   pageOrigin?: string;
   webUrl?: string;
   apiUrl?: string;
@@ -8,7 +8,15 @@ export function buildAiChatMcpUrl(origins: {
   const api = (origins.apiUrl ?? '').replace(/\/$/, '');
   const origin =
     [page, configured].find((value) => value && isPublicHttps(value)) || api || page || configured || 'http://localhost:5301';
-  return `${origin.replace(/\/$/, '')}/ai/mcp`;
+  return origin.replace(/\/$/, '');
+}
+
+export function buildAiChatMcpUrl(origins: {
+  pageOrigin?: string;
+  webUrl?: string;
+  apiUrl?: string;
+}): string {
+  return `${resolvePublicWebOrigin(origins)}/ai/mcp`;
 }
 
 function isPublicHttps(value: string): boolean {
@@ -22,12 +30,23 @@ function isPublicHttps(value: string): boolean {
   }
 }
 
+function pageOrigin(): string {
+  return typeof window !== 'undefined' && typeof window.location?.origin === 'string' ? window.location.origin : '';
+}
+
+/** Public site origin (same rules as the MCP URL, without the path). */
+export function publicWebOrigin(): string {
+  return resolvePublicWebOrigin({
+    pageOrigin: pageOrigin(),
+    webUrl: process.env.EXPO_PUBLIC_WEB_URL,
+    apiUrl: process.env.EXPO_PUBLIC_API_URL,
+  });
+}
+
 /** Public AI-chat MCP resource URL copied into ChatGPT / Claude / Perplexity. */
 export function aiChatMcpUrl(): string {
-  const page =
-    typeof window !== 'undefined' && typeof window.location?.origin === 'string' ? window.location.origin : '';
   return buildAiChatMcpUrl({
-    pageOrigin: page,
+    pageOrigin: pageOrigin(),
     webUrl: process.env.EXPO_PUBLIC_WEB_URL,
     apiUrl: process.env.EXPO_PUBLIC_API_URL,
   });

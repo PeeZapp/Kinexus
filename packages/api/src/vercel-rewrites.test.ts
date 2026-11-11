@@ -101,6 +101,15 @@ describe('vercel.json API rewrites', () => {
     expect(missing, `Missing vercel.json API rewrites for: ${missing.join(', ')}`).toEqual([]);
   });
 
+  it('does not rewrite /kinexus-trolley.zip so the static public file is served', () => {
+    const vercel = JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8')) as {
+      rewrites?: Rewrite[];
+    };
+    const path = '/kinexus-trolley.zip';
+    const hit = (vercel.rewrites ?? []).find((r) => vercelSourceToRegex(r.source).test(path));
+    expect(hit, `rewrite must not catch ${path}: ${hit?.source ?? ''}`).toBeUndefined();
+  });
+
   it('keeps API rewrites before SPA catch-alls that would shadow them', () => {
     const vercel = JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8')) as {
       rewrites?: Rewrite[];

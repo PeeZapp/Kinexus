@@ -1,12 +1,14 @@
-import { Redirect, Slot } from 'expo-router';
+import { Redirect, Slot, usePathname } from 'expo-router';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { AppChrome } from '@/src/features/shell/AppChrome';
 import { colors } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
+import { rememberAuthReturn } from '@/src/lib/auth-return';
 
 export default function AppGroupLayout() {
   const { user, isReady } = useAuth();
+  const pathname = usePathname();
 
   if (!isReady) {
     return (
@@ -17,6 +19,9 @@ export default function AppGroupLayout() {
   }
 
   if (!user) {
+    const search =
+      typeof window !== 'undefined' && typeof window.location?.search === 'string' ? window.location.search : '';
+    rememberAuthReturn(`${pathname}${search}`);
     return <Redirect href="/sign-in" />;
   }
 

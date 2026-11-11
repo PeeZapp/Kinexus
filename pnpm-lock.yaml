@@ -14,6 +14,9 @@ importers:
       esbuild:
         specifier: ^0.25.12
         version: 0.25.12
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
 
   apps/kinexus:
     dependencies:

@@ -7,8 +7,29 @@ import { shopCartUrl } from '@kinexus/domain';
 import { Btn, ErrorText } from '@/src/features/household/ui';
 import { stageShopFill } from '@/src/features/meals/shopping/shop-fill';
 import { createGroceryHandoff } from '@/src/lib/meals-api';
-import { canFillTrolley } from '@/src/lib/pwa';
+import { canFillTrolley, getPwaInstallPlatform } from '@/src/lib/pwa';
+import { useTrolleyExtension } from '@/src/lib/trolley-extension';
 import { colors, radius } from '@/src/features/shell/theme';
+
+function isDesktopWeb(): boolean {
+  return Platform.OS === 'web' && getPwaInstallPlatform() === 'other';
+}
+
+function extensionsPageUrl(): string {
+  if (typeof navigator !== 'undefined' && /Edg\//.test(navigator.userAgent)) return 'edge://extensions';
+  return 'chrome://extensions';
+}
+
+function downloadExtensionZip() {
+  if (typeof document === 'undefined') return;
+  const a = document.createElement('a');
+  a.href = '/kinexus-trolley.zip';
+  a.download = 'kinexus-trolley.zip';
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
 
 export function ShoppingBot({
   householdId,
@@ -30,6 +51,9 @@ export function ShoppingBot({
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'shop' | 'trolley' | null>(null);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const extensionPresent = useTrolleyExtension();
+  const desktopWeb = isDesktopWeb();
 
   if (chains.length === 0) return null;
 
@@ -75,6 +99,9 @@ export function ShoppingBot({
     }
   }
 
+  const showFill = canFillTrolley() && (!desktopWeb || extensionPresent);
+  const showGetExtension = desktopWeb && !extensionPresent;
+
   return (
     <View style={styles.wrap}>
       <View style={styles.shops}>
@@ -91,13 +118,30 @@ export function ShoppingBot({
           );
         })}
       </View>
-      {canFillTrolley() ? (
+      {showFill ? (
         <Btn
           label="Fill trolley"
           disabled={!online || !preferredChainId || busy != null}
           busy={busy === 'trolley'}
           onPress={() => void fill()}
         />
+      ) : null}
+      {showGetExtension ? (
+        <View style={styles.guide}>
+          <Btn label="Get trolley extension" variant="secondary" onPress={() => setGuideOpen((open) => !open)} />
+          {guideOpen ? (
+            <View style={styles.panel}>
+              <Text style={styles.panelTitle}>Fill your Coles or Woolworths trolley from this list</Text>
+              <Btn label="Download" onPress={downloadExtensionZip} />
+              <Text style={styles.step}>1. Unzip it.</Text>
+              <Text style={styles.step}>
+                2. Open {extensionsPageUrl()}, turn on Developer mode, click Load unpacked and pick the folder.
+              </Text>
+              <Text style={styles.step}>3. Come back here.</Text>
+              <Text style={styles.note}>Works in Chrome or Edge on a computer.</Text>
+            </View>
+          ) : null}
+        </View>
       ) : null}
       <ErrorText message={error} />
     </View>
@@ -117,4 +161,9 @@ const styles = StyleSheet.create({
   shopOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   shopText: { color: colors.text, fontSize: 13, fontWeight: '700' },
   shopTextOn: { color: colors.accent },
+  guide: { gap: 8 },
+  panel: { gap: 8 },
+  panelTitle: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  step: { color: colors.text, fontSize: 13, lineHeight: 18 },
+  note: { color: colors.textMuted, fontSize: 12 },
 });

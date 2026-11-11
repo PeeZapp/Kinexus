@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kinexus trolley",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Adds a Kinexus shopping list to your Coles or Woolworths trolley.",
   "host_permissions": [
     "https://www.woolworths.com.au/*",
@@ -16,6 +16,15 @@
       "js": ["fill.js"],
       "run_at": "document_start",
       "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://kinexus-green.vercel.app/*",
+        "http://localhost:5301/*",
+        "http://127.0.0.1:5301/*"
+      ],
+      "js": ["kinexus.js"],
+      "run_at": "document_start"
     }
   ]
 }

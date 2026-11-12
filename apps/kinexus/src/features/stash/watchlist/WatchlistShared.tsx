@@ -533,7 +533,21 @@ export function openExternal(url: string | null | undefined) {
   void Linking.openURL(url);
 }
 
-export function WatchlistAttribution({ country }: { country: string }) {
+export function WatchlistAttribution({
+  country,
+  provider = 'tmdb',
+}: {
+  country: string;
+  provider?: 'tmdb' | 'trakt';
+}) {
+  if (provider === 'trakt') {
+    return (
+      <View style={styles.attrBlock}>
+        <Text style={styles.attr}>This product uses Trakt but is not endorsed or certified by Trakt.</Text>
+        <Text style={styles.attr}>Streaming data via Streaming Availability.</Text>
+      </View>
+    );
+  }
   return <Text style={styles.attr}>Streaming for {country} via JustWatch / TMDB.</Text>;
 }
 
@@ -704,4 +718,5 @@ const styles = StyleSheet.create({
   availMoreLabel: { color: colors.accent, fontSize: 13, fontWeight: '700' },
   emptyProviders: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
   attr: { color: colors.textDim, fontSize: 11, lineHeight: 16 },
+  attrBlock: { gap: 2 },
 });

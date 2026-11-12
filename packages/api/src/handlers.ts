@@ -26,17 +26,10 @@ import { fetchArchiveFrameHtml } from './scrape/archive-frame.js';
 import { lookupCollectible, parseCollectibleKind, searchCollectibles } from './scrape/collectibles.js';
 import { scrapeRecipeSource } from './scrape/recipe-source.js';
 import {
-  discoverWatchlistTitles,
-  listStreamingServices,
-  lookupWatchlistTitle,
-  matchWatchlistImportRows,
-  recommendWatchlistTitles,
-  resolveWatchlistUrl,
-  searchWatchlistPeople,
-  searchWatchlistTitles,
+  getWatchlistProvider,
+  resolveWatchlistProviderName,
   WATCHLIST_IMPORT_MATCH_BATCH_CAP,
-  watchlistPersonMovies,
-  watchlistTitleCast,
+  watchlistWriteForbidden,
   type WatchlistImportMatchRow,
 } from './watchlist.js';
 import { assertWatchlistImportMatchRateLimit } from './watchlist-import-rate-limit.js';
@@ -508,37 +501,52 @@ function tmdbError(err: unknown, fallback: string): { status: number; body: { er
     return { status: 503, body: { error: message } };
   }
   if (message.includes('rejected the API key')) return { status: 503, body: { error: message } };
-  if (status === 400 || status === 404 || status === 422) return { status, body: { error: message } };
+  if (status === 400 || status === 403 || status === 404 || status === 422) return { status, body: { error: message } };
   if (message.includes('Type at least') || message.includes('too long') || message.includes('required')) {
     return { status: 400, body: { error: message } };
   }
   return { status: 500, body: { error: message.slice(0, 300) } };
 }
 
-export async function handleWatchlistSearch(body: { query?: unknown; country?: unknown }) {
+export async function handleWatchlistSearch(
+  body: { query?: unknown; country?: unknown },
+  request?: Request,
+) {
   try {
+    const provider = getWatchlistProvider(request);
     const query = typeof body.query === 'string' ? body.query : '';
     const country = typeof body.country === 'string' ? body.country : 'AU';
-    const results = await searchWatchlistTitles(query, country);
+    const results = await provider.searchWatchlistTitles(query, country);
     return { status: 200 as const, body: { results } };
   } catch (err) {
     return tmdbError(err, 'Could not search titles');
   }
 }
 
-export async function handleWatchlistLookup(body: {
-  tmdbId?: unknown;
-  mediaType?: unknown;
-  country?: unknown;
-  sourceUrl?: unknown;
-}) {
+export async function handleWatchlistLookup(
+  body: {
+    tmdbId?: unknown;
+    mediaType?: unknown;
+    country?: unknown;
+    sourceUrl?: unknown;
+    /** When true, this lookup feeds a DB write (add / refresh). Blocked in Trakt preview. */
+    persist?: unknown;
+  },
+  request?: Request,
+) {
   try {
+    const providerName = resolveWatchlistProviderName(request);
+    if (body.persist === true) {
+      const blocked = watchlistWriteForbidden(providerName);
+      if (blocked) return blocked;
+    }
+    const provider = getWatchlistProvider(request);
     const tmdbId = Number(body.tmdbId);
     const mediaType = typeof body.mediaType === 'string' ? body.mediaType : '';
     if (!isWatchlistMediaType(mediaType)) return { status: 400 as const, body: { error: 'mediaType must be movie or tv' } };
     const country = typeof body.country === 'string' ? body.country : 'AU';
     const sourceUrl = typeof body.sourceUrl === 'string' ? body.sourceUrl : null;
-    const title = await lookupWatchlistTitle({ tmdbId, mediaType, country, sourceUrl });
+    const title = await provider.lookupWatchlistTitle({ tmdbId, mediaType, country, sourceUrl });
     return { status: 200 as const, body: { title } };
   } catch (err) {
     return tmdbError(err, 'Could not load that title');
@@ -583,10 +591,11 @@ function parseProviderIds(value: unknown): number[] {
   return normalizeStreamingProviderIds(value);
 }
 
-export async function handleWatchlistServices(body: { country?: unknown }) {
+export async function handleWatchlistServices(body: { country?: unknown }, request?: Request) {
   try {
+    const provider = getWatchlistProvider(request);
     const country = normalizeCountryCode(typeof body.country === 'string' ? body.country : 'AU');
-    const services = await listStreamingServices(country);
+    const services = await provider.listStreamingServices(country);
     return { status: 200 as const, body: { services } };
   } catch (err) {
     return tmdbError(err, 'Could not load streaming services');
@@ -604,6 +613,7 @@ export async function handleWatchlistRecommend(
   request?: Request,
 ) {
   try {
+    const provider = getWatchlistProvider(request);
     const personIds = parsePersonIds(body.personIds);
     let watching = null;
     if (personIds.length > 0) {
@@ -616,7 +626,7 @@ export async function handleWatchlistRecommend(
     if (seeds.length === 0 && !(watching && watching.taste.likedTitles.length > 0)) {
       return { status: 400 as const, body: { error: 'Rate a few titles you liked first' } };
     }
-    const result = await recommendWatchlistTitles({
+    const result = await provider.recommendWatchlistTitles({
       seeds,
       exclude: parseExclude(body.exclude),
       country: typeof body.country === 'string' ? body.country : 'AU',
@@ -641,6 +651,7 @@ export async function handleWatchlistDiscover(
   request?: Request,
 ) {
   try {
+    const provider = getWatchlistProvider(request);
     const mediaType = typeof body.mediaType === 'string' ? body.mediaType : '';
     if (!isWatchlistMediaType(mediaType)) return { status: 400 as const, body: { error: 'mediaType must be movie or tv' } };
     const mode = body.mode === 'surprise' ? 'surprise' : 'browse';
@@ -656,7 +667,7 @@ export async function handleWatchlistDiscover(
       if ('error' in loaded) return { status: loaded.status, body: { error: loaded.error } };
       watching = loaded;
     }
-    const results = await discoverWatchlistTitles({
+    const results = await provider.discoverWatchlistTitles({
       mediaType,
       genreId,
       mode,
@@ -670,44 +681,48 @@ export async function handleWatchlistDiscover(
   }
 }
 
-export async function handleWatchlistPeople(body: { query?: unknown }) {
+export async function handleWatchlistPeople(body: { query?: unknown }, request?: Request) {
   try {
+    const provider = getWatchlistProvider(request);
     const query = typeof body.query === 'string' ? body.query : '';
-    const people = await searchWatchlistPeople(query);
+    const people = await provider.searchWatchlistPeople(query);
     return { status: 200 as const, body: { people } };
   } catch (err) {
     return tmdbError(err, 'Could not search people');
   }
 }
 
-export async function handleWatchlistCast(body: { tmdbId?: unknown; mediaType?: unknown }) {
+export async function handleWatchlistCast(body: { tmdbId?: unknown; mediaType?: unknown }, request?: Request) {
   try {
+    const provider = getWatchlistProvider(request);
     const tmdbId = Number(body.tmdbId);
     const mediaType = typeof body.mediaType === 'string' ? body.mediaType : '';
     if (!isWatchlistMediaType(mediaType)) return { status: 400 as const, body: { error: 'mediaType must be movie or tv' } };
-    const cast = await watchlistTitleCast({ tmdbId, mediaType });
+    const cast = await provider.watchlistTitleCast({ tmdbId, mediaType });
     return { status: 200 as const, body: { cast } };
   } catch (err) {
     return tmdbError(err, 'Could not load the cast');
   }
 }
 
-export async function handleWatchlistPersonMovies(body: { personId?: unknown }) {
+export async function handleWatchlistPersonMovies(body: { personId?: unknown }, request?: Request) {
   try {
+    const provider = getWatchlistProvider(request);
     const personId = Number(body.personId);
-    const filmography = await watchlistPersonMovies(personId);
+    const filmography = await provider.watchlistPersonMovies(personId);
     return { status: 200 as const, body: filmography };
   } catch (err) {
     return tmdbError(err, 'Could not load that filmography');
   }
 }
 
-export async function handleWatchlistResolve(body: { url?: unknown; country?: unknown }) {
+export async function handleWatchlistResolve(body: { url?: unknown; country?: unknown }, request?: Request) {
   try {
+    const provider = getWatchlistProvider(request);
     const url = typeof body.url === 'string' ? body.url.trim() : '';
     if (!url) return { status: 400 as const, body: { error: 'A URL is required' } };
     const country = typeof body.country === 'string' ? body.country : 'AU';
-    const results = await resolveWatchlistUrl(url, normalizeCountryCode(country));
+    const results = await provider.resolveWatchlistUrl(url, normalizeCountryCode(country));
     return { status: 200 as const, body: { results } };
   } catch (err) {
     return tmdbError(err, 'Could not resolve that link');
@@ -743,8 +758,12 @@ function parseImportMatchRows(value: unknown): WatchlistImportMatchRow[] {
 export async function handleWatchlistImportMatch(
   userId: string,
   body: { rows?: unknown; country?: unknown },
+  request?: Request,
 ) {
   try {
+    const blocked = watchlistWriteForbidden(resolveWatchlistProviderName(request));
+    if (blocked) return blocked;
+    const provider = getWatchlistProvider(request);
     assertWatchlistImportMatchRateLimit(userId);
     const rows = parseImportMatchRows(body.rows);
     if (rows.length === 0) return { status: 400 as const, body: { error: 'At least one row is required' } };
@@ -754,7 +773,7 @@ export async function handleWatchlistImportMatch(
         body: { error: `Match at most ${WATCHLIST_IMPORT_MATCH_BATCH_CAP} rows per request` },
       };
     }
-    const results = await matchWatchlistImportRows({
+    const results = await provider.matchWatchlistImportRows({
       rows,
       country: typeof body.country === 'string' ? body.country : 'AU',
     });

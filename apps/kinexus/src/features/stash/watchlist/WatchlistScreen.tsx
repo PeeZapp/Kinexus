@@ -35,9 +35,11 @@ import { buildShareUrl } from '@/src/features/share/share-url';
 import { sharePreview } from '@/src/features/share/link-share';
 import { WatchlistDesktop, type WatchlistLayoutProps } from '@/src/features/stash/watchlist/WatchlistDesktop';
 import { WatchlistMobile } from '@/src/features/stash/watchlist/WatchlistMobile';
+import { WatchlistProviderToggle } from '@/src/features/stash/watchlist/WatchlistProviderToggle';
 import type { WatchlistCardReview, WatchlistListCardModel } from '@/src/features/stash/watchlist/WatchlistShared';
 import { IdeasSheet, type WatchlistIdeaSource, type WatchlistIdeasMode } from '@/src/features/stash/watchlist/IdeasSheet';
 import { ServicesSheet } from '@/src/features/stash/watchlist/ServicesSheet';
+import { useWatchlistCatalogProvider } from '@/src/features/stash/watchlist-provider-switch';
 import {
   EMPTY_STREAMING_PREFS,
   loadWatchlistStreamingPrefs,
@@ -117,6 +119,7 @@ export function WatchlistScreen() {
   const selfId = selfAdultId(people, user?.id, selfName);
   const personId = selfId;
   const watchlist = useWatchlistSync();
+  const { previewOnly } = useWatchlistCatalogProvider();
   const [catalogQuery, setCatalogQuery] = useState('');
   const [catalogHits, setCatalogHits] = useState<WatchlistSearchHitWithRole[]>([]);
   const [catalogSearching, setCatalogSearching] = useState(false);
@@ -862,6 +865,7 @@ export function WatchlistScreen() {
     },
     country: watchlist.country,
     online: watchlist.online,
+    previewOnly,
   };
 
   const watchedTitle = watchedDraft
@@ -914,6 +918,7 @@ export function WatchlistScreen() {
     <View style={{ flex: 1 }}>
       <ErrorText message={actionError ?? (watchlist.error ? watchlistActionError(watchlist.error) : null)} />
       {mode === 'desktop' ? <WatchlistDesktop {...layout} /> : <WatchlistMobile {...layout} />}
+      <WatchlistProviderToggle />
       <AddWatchlistSheet
         visible={addList}
         busy={busy}

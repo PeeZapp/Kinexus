@@ -107,6 +107,8 @@ export type WatchlistLayoutProps = {
   onOpen: (entry: WatchlistEntry) => void;
   country: string;
   online: boolean;
+  /** DEV Trakt preview: disable add/import writes. */
+  previewOnly?: boolean;
 };
 
 function DetailShell({ desktop, children }: { desktop: boolean; children: ReactNode }) {
@@ -141,11 +143,12 @@ export function WatchlistDesktop(props: WatchlistLayoutProps) {
           onAdd={props.onAddList}
           extraLabel="Add title"
           onExtra={props.onAddTitle}
-          onImport={props.onImport}
+          onImport={props.previewOnly ? undefined : props.onImport}
           onExport={props.onExport}
           exportLabel={props.exportLabel}
-          disabled={!props.online}
+          disabled={!props.online || Boolean(props.previewOnly)}
         />
+        {props.previewOnly ? <Text style={styles.previewHint}>Preview only</Text> : null}
         <WatchlistIdeaActions
           onNext={props.onWhatNext}
           onSurprise={props.onSurprise}
@@ -231,11 +234,12 @@ export function WatchlistDesktop(props: WatchlistLayoutProps) {
       <PrimaryActions
         addLabel="Add title"
         onAdd={props.onAddTitle}
-        onImport={props.onImport}
+        onImport={props.previewOnly ? undefined : props.onImport}
         onExport={props.onExport}
         exportLabel={props.exportLabel}
-        disabled={!props.online}
+        disabled={!props.online || Boolean(props.previewOnly)}
       />
+      {props.previewOnly ? <Text style={styles.previewHint}>Preview only</Text> : null}
 
       <WatchlistDetailToolbar
         catalogQuery={props.catalogQuery}
@@ -266,7 +270,7 @@ export function WatchlistDesktop(props: WatchlistLayoutProps) {
         setProviderId={props.setProviderId}
         providerOptions={props.providerOptions}
         onSettings={canSettings ? () => props.onSettings?.(props.selectedListId!) : undefined}
-        online={props.online}
+        online={props.online && !props.previewOnly}
       />
 
       {props.entries.length === 0 ? (
@@ -288,7 +292,7 @@ export function WatchlistDesktop(props: WatchlistLayoutProps) {
           ))}
         </View>
       )}
-      <WatchlistAttribution country={props.country} />
+      <WatchlistAttribution country={props.country} provider={props.previewOnly ? 'trakt' : 'tmdb'} />
     </DetailShell>
   );
 }
@@ -302,4 +306,5 @@ const styles = StyleSheet.create({
   meta: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
   listGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  previewHint: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
 });

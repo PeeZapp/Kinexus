@@ -64,6 +64,12 @@ Registry: `packages/api/src/mcp/registry.ts`
 | `preview_add_meal` / `preview_move_meal` / `preview_remove_meal` | write | Plan slot changes; filled slots need explicit `overwrite` |
 | `preview_plan_meals` | write | Multi-slot plan preview (lists every slot) |
 | `preview_add_to_shopping_list` | write | Preview manual shopping item |
+| `get_readlist` | read (`watchlists:read`) | Your books grouped by Want to read / Reading / Read |
+| `search_books` | read | Catalogue search; returns stable book ids (never invent titles) |
+| `recommend_books` | read | Non-AI similar picks from finished/highly rated; skips books already listed |
+| `preview_add_to_readlist` | write (`watchlists:write`) | Preview add by book ids (multi-add = one confirmation) |
+| `preview_update_readlist_status` | write | Preview status change for an entry |
+| `preview_remove_from_readlist` | write | Preview remove an entry |
 | `commit` | write | Commit one preview (all steps); rejects missing/expired/mismatched/already-committed |
 
 Writes use preview → commit (`packages/api/src/mcp/preview.ts`, 10-minute TTL). The user confirms once per request.

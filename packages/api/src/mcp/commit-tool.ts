@@ -8,6 +8,7 @@ import { commitMealsPreview } from './meals/writes.js';
 import { resolveCallerHousehold } from './meals/shared.js';
 import { commitFitnessPreview } from './fitness/writes.js';
 import { commitListsPreview, LISTS_PREVIEW_TOOLS } from './lists/writes.js';
+import { commitReadlistPreview, READLIST_PREVIEW_TOOLS } from './readlist/writes.js';
 
 const MEALS_PREVIEW_TOOLS = new Set([
   'preview_create_recipe',
@@ -40,6 +41,7 @@ const FITNESS_PREVIEW_TOOLS = new Set([
 ]);
 
 const LISTS_PREVIEW_TOOL_SET = new Set<string>(LISTS_PREVIEW_TOOLS);
+const READLIST_PREVIEW_TOOL_SET = new Set<string>(READLIST_PREVIEW_TOOLS);
 
 const commitInput = z.object({ previewId: z.string() });
 const commitOutput = z.object({
@@ -70,14 +72,14 @@ async function householdIdOrNull(caller: McpCaller): Promise<string | null> {
 }
 
 /**
- * Single confirmation tool for all write previews (meals + fitness + lists).
+ * Single confirmation tool for all write previews (meals + fitness + lists + readlist).
  * Routes by the stored preview tool name and checks the matching write scope.
  */
 export const commitTool: McpToolDefinition<typeof commitInput, typeof commitOutput> = {
   name: 'commit',
   title: 'Commit write preview',
   description:
-    'Commit a write preview after the user confirms. Works for meals, fitness, and lists previews. Rejects missing, expired, mismatched, or already-committed previews. One confirmation applies all steps in the preview.',
+    'Commit a write preview after the user confirms. Works for meals, fitness, lists, and readlist previews. Rejects missing, expired, mismatched, or already-committed previews. One confirmation applies all steps in the preview.',
   inputSchema: commitInput,
   outputSchema: commitOutput,
   scope: null,
@@ -102,6 +104,10 @@ export const commitTool: McpToolDefinition<typeof commitInput, typeof commitOutp
         const writeScope = tool.includes('wishlist') || tool.includes('price_update') ? 'wishlists:write' : 'watchlists:write';
         if (!hasScope(caller.scopes, writeScope)) throw new Error(`Missing scope ${writeScope}`);
         result = await commitListsPreview(caller, args);
+      } else if (READLIST_PREVIEW_TOOL_SET.has(tool)) {
+        // Readlist reuses watchlists:write so existing connections keep access without reconnect.
+        if (!hasScope(caller.scopes, 'watchlists:write')) throw new Error('Missing scope watchlists:write');
+        result = await commitReadlistPreview(caller, args);
       } else {
         throw new Error(`Unknown preview tool "${tool}"`);
       }

@@ -68,6 +68,25 @@ describe('workout session rpc wrappers', () => {
       p_weight: '70',
       p_reps: '5',
       p_done: true,
+      p_duration_sec: null,
+      p_distance_km: null,
+      p_update_duration: false,
+      p_update_distance: false,
+    });
+  });
+
+  it('update_workout_set duration and distance', async () => {
+    const rpc = okRpc('update_workout_set');
+    await callUpdateWorkoutSet({ rpc }, 'set-2', { durationSec: 90, distanceKm: 1.5 });
+    expect(rpc).toHaveBeenCalledWith('update_workout_set', {
+      p_set_id: 'set-2',
+      p_weight: null,
+      p_reps: null,
+      p_done: null,
+      p_duration_sec: 90,
+      p_distance_km: 1.5,
+      p_update_duration: true,
+      p_update_distance: true,
     });
   });
 

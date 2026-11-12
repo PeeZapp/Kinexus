@@ -8,6 +8,7 @@ import { commitTool } from './commit-tool.js';
 import { FITNESS_MCP_TOOLS } from './fitness/tools.js';
 import { LISTS_MCP_TOOLS } from './lists/tools.js';
 import { MEALS_MCP_TOOLS } from './meals/tools.js';
+import { READLIST_MCP_TOOLS } from './readlist/tools.js';
 
 export type McpToolAnnotations = {
   readOnlyHint: boolean;
@@ -90,6 +91,7 @@ export const MCP_TOOL_REGISTRY: readonly AnyMcpTool[] = [
   ...(MEALS_MCP_TOOLS as readonly AnyMcpTool[]),
   ...(FITNESS_MCP_TOOLS as readonly AnyMcpTool[]),
   ...(LISTS_MCP_TOOLS as readonly AnyMcpTool[]),
+  ...(READLIST_MCP_TOOLS as readonly AnyMcpTool[]),
   commitTool as AnyMcpTool,
 ];
 

@@ -36,7 +36,13 @@ export async function callAppendWorkoutSet(
 export async function callUpdateWorkoutSet(
   client: WorkoutSessionRpcClient,
   setId: string,
-  patch: { weight?: string; reps?: string; done?: boolean },
+  patch: {
+    weight?: string;
+    reps?: string;
+    done?: boolean;
+    durationSec?: number | null;
+    distanceKm?: number | null;
+  },
 ): Promise<void> {
   const call = updateWorkoutSetCall(setId, patch);
   await callRpc(client, call.rpc, call.args);

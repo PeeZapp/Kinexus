@@ -9,6 +9,7 @@ import type {
   WatchlistSuggestion,
 } from '@kinexus/domain';
 
+import { getWatchlistCatalogProvider } from '@/src/features/stash/watchlist-provider-switch';
 import { supabase } from '@/src/lib/supabase';
 
 function configuredUrl(): string {
@@ -28,11 +29,17 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error('Sign in required');
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  };
+  const provider = getWatchlistCatalogProvider();
+  if (provider !== 'tmdb') headers['X-Kinexus-Watchlist-Provider'] = provider;
   let res: Response;
   try {
     res = await fetch(`${configuredUrl()}${path}`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
     });
   } catch (err) {
@@ -235,6 +242,8 @@ export async function lookupWatchlistCatalog(input: {
   mediaType: WatchlistMediaType;
   country: string;
   sourceUrl?: string | null;
+  /** True when this lookup will write/refresh a stored title row. */
+  persist?: boolean;
 }): Promise<WatchlistResolvedTitle> {
   const payload = await post<{ title?: WatchlistResolvedTitle }>('/watchlist/lookup', input);
   if (!payload.title) throw new Error('No catalog match for that title');

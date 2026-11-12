@@ -38,11 +38,12 @@ export function WatchlistMobile(props: WatchlistLayoutProps) {
           onAdd={props.onAddList}
           extraLabel="Add title"
           onExtra={props.onAddTitle}
-          onImport={props.onImport}
+          onImport={props.previewOnly ? undefined : props.onImport}
           onExport={props.onExport}
           exportLabel={props.exportLabel}
-          disabled={!props.online}
+          disabled={!props.online || Boolean(props.previewOnly)}
         />
+        {props.previewOnly ? <Text style={styles.previewHint}>Preview only</Text> : null}
         <WatchlistIdeaActions
           onNext={props.onWhatNext}
           onSurprise={props.onSurprise}
@@ -124,11 +125,12 @@ export function WatchlistMobile(props: WatchlistLayoutProps) {
       <PrimaryActions
         addLabel="Add title"
         onAdd={props.onAddTitle}
-        onImport={props.onImport}
+        onImport={props.previewOnly ? undefined : props.onImport}
         onExport={props.onExport}
         exportLabel={props.exportLabel}
-        disabled={!props.online}
+        disabled={!props.online || Boolean(props.previewOnly)}
       />
+      {props.previewOnly ? <Text style={styles.previewHint}>Preview only</Text> : null}
 
       <WatchlistDetailToolbar
         catalogQuery={props.catalogQuery}
@@ -159,7 +161,7 @@ export function WatchlistMobile(props: WatchlistLayoutProps) {
         setProviderId={props.setProviderId}
         providerOptions={props.providerOptions}
         onSettings={canSettings ? () => props.onSettings?.(props.selectedListId!) : undefined}
-        online={props.online}
+        online={props.online && !props.previewOnly}
       />
 
       {props.entries.length === 0 ? (
@@ -180,7 +182,7 @@ export function WatchlistMobile(props: WatchlistLayoutProps) {
           ))}
         </View>
       )}
-      <WatchlistAttribution country={props.country} />
+      <WatchlistAttribution country={props.country} provider={props.previewOnly ? 'trakt' : 'tmdb'} />
     </ScrollView>
   );
 }
@@ -193,4 +195,5 @@ const styles = StyleSheet.create({
   meta: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
   listStack: { gap: space.md },
   stack: { gap: 8 },
+  previewHint: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
 });

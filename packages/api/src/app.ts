@@ -543,7 +543,7 @@ function registerMealsRoutes(router: Hono) {
     const authed = await userFromRequest(c.req.raw);
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
-    const result = await handleWatchlistPeople(body as { query?: unknown });
+    const result = await handleWatchlistPeople(body as { query?: unknown }, c.req.raw);
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 
@@ -551,7 +551,7 @@ function registerMealsRoutes(router: Hono) {
     const authed = await userFromRequest(c.req.raw);
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
-    const result = await handleWatchlistCast(body as { tmdbId?: unknown; mediaType?: unknown });
+    const result = await handleWatchlistCast(body as { tmdbId?: unknown; mediaType?: unknown }, c.req.raw);
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 
@@ -559,7 +559,7 @@ function registerMealsRoutes(router: Hono) {
     const authed = await userFromRequest(c.req.raw);
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
-    const result = await handleWatchlistPersonMovies(body as { personId?: unknown });
+    const result = await handleWatchlistPersonMovies(body as { personId?: unknown }, c.req.raw);
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 
@@ -567,7 +567,7 @@ function registerMealsRoutes(router: Hono) {
     const authed = await userFromRequest(c.req.raw);
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
-    const result = await handleWatchlistSearch(body as { query?: unknown; country?: unknown });
+    const result = await handleWatchlistSearch(body as { query?: unknown; country?: unknown }, c.req.raw);
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 
@@ -576,7 +576,14 @@ function registerMealsRoutes(router: Hono) {
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
     const result = await handleWatchlistLookup(
-      body as { tmdbId?: unknown; mediaType?: unknown; country?: unknown; sourceUrl?: unknown },
+      body as {
+        tmdbId?: unknown;
+        mediaType?: unknown;
+        country?: unknown;
+        sourceUrl?: unknown;
+        persist?: unknown;
+      },
+      c.req.raw,
     );
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
@@ -739,7 +746,7 @@ function registerMealsRoutes(router: Hono) {
     const authed = await userFromRequest(c.req.raw);
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
-    const result = await handleWatchlistServices(body as { country?: unknown });
+    const result = await handleWatchlistServices(body as { country?: unknown }, c.req.raw);
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 
@@ -782,7 +789,7 @@ function registerMealsRoutes(router: Hono) {
     const authed = await userFromRequest(c.req.raw);
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const body = await c.req.json().catch(() => ({}));
-    const result = await handleWatchlistResolve(body as { url?: unknown; country?: unknown });
+    const result = await handleWatchlistResolve(body as { url?: unknown; country?: unknown }, c.req.raw);
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
 
@@ -793,6 +800,7 @@ function registerMealsRoutes(router: Hono) {
     const result = await handleWatchlistImportMatch(
       authed.user.id,
       body as { rows?: unknown; country?: unknown },
+      c.req.raw,
     );
     return c.json(result.body, result.status as ContentfulStatusCode);
   });

@@ -30,12 +30,19 @@ import {
 
 import { disableEntityShare, enableEntityShare, resetEntityShare } from '@/src/features/share/link-share';
 import { lookupWatchlistCatalog } from '@/src/features/stash/watchlist-api';
+import { isWatchlistPreviewOnly } from '@/src/features/stash/watchlist-provider-switch';
 import { ensureSocialAlias } from '@/src/features/stash/watchlist-social';
 import { watchlistItemFromRow, watchlistListFromRow, watchlistReviewFromRow, watchlistTitleFromRow } from '@/src/features/stash/watchlist-mappers';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 import { useOnline } from '@/src/lib/online';
 import { supabase } from '@/src/lib/supabase';
+
+function assertWatchlistWritable() {
+  if (isWatchlistPreviewOnly()) {
+    throw new Error('Preview only — switch back to TMDB to save.');
+  }
+}
 
 export type WatchlistGlobalPublish = {
   blurb: string;
@@ -349,6 +356,7 @@ export function useWatchlistSync() {
 
   const upsertTitle = useCallback(
     async (resolved: WatchlistResolvedTitle) => {
+      assertWatchlistWritable();
       if (!householdId || !supabase) throw new Error('Not ready');
       const existing = (titlesQuery.data ?? []).find(
         (row) => row.tmdbId === resolved.tmdbId && row.mediaType === resolved.mediaType,
@@ -399,6 +407,7 @@ export function useWatchlistSync() {
         mediaType: input.hit.mediaType,
         country,
         sourceUrl: input.sourceUrl ?? null,
+        persist: true,
       }).catch((): WatchlistResolvedTitle => ({
         ...input.hit,
         sourceUrl: input.sourceUrl ?? null,
@@ -473,12 +482,14 @@ export function useWatchlistSync() {
 
   const addTitleToList = useCallback(
     async (listId: string, hit: WatchlistSearchHit, opts?: { sourceUrl?: string | null; status?: WatchlistItemStatus }) => {
+      assertWatchlistWritable();
       if (!householdId || !supabase) throw new Error('Not ready');
       const resolved = await lookupWatchlistCatalog({
         tmdbId: hit.tmdbId,
         mediaType: hit.mediaType,
         country,
         sourceUrl: opts?.sourceUrl ?? null,
+        persist: true,
       }).catch((): WatchlistResolvedTitle => ({
         ...hit,
         sourceUrl: opts?.sourceUrl ?? null,
@@ -585,6 +596,7 @@ export function useWatchlistSync() {
 
   const refreshTitle = useCallback(
     async (title: WatchlistTitle, force = false) => {
+      assertWatchlistWritable();
       if (!householdId || !supabase) throw new Error('Not ready');
       if (!force && !providersAreStale(title, country) && title.trailerUrl) return title;
       const resolved = await lookupWatchlistCatalog({
@@ -592,6 +604,7 @@ export function useWatchlistSync() {
         mediaType: title.mediaType,
         country,
         sourceUrl: title.sourceUrl,
+        persist: true,
       });
       const { error } = await supabase.from('watchlist_titles').update(providersPatch(resolved)).eq('id', title.id);
       throwIfError(error);
@@ -603,6 +616,7 @@ export function useWatchlistSync() {
 
   const saveReview = useCallback(
     async (titleId: string, personIdToSave: string, score: number, body: string) => {
+      assertWatchlistWritable();
       if (!householdId || !supabase) throw new Error('Not ready');
       if (!isWatchlistScore(score)) throw new Error('Score must be from 1 to 10');
       const text = body.trim();

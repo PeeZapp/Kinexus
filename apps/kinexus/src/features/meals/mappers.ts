@@ -222,6 +222,7 @@ function groceryQuoteFromJson(value: Json | null): StoredGroceryQuote | null {
     amount: typeof rec.amount === 'string' ? rec.amount : null,
     quotes,
     pins: pins.length > 0 ? pins : undefined,
+    matcherVersion: typeof rec.matcherVersion === 'number' ? rec.matcherVersion : undefined,
   };
 }
 

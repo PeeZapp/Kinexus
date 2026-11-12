@@ -133,12 +133,13 @@ export function ShoppingBot({
             <View style={styles.panel}>
               <Text style={styles.panelTitle}>Fill your Coles or Woolworths trolley from this list</Text>
               <Btn label="Download" onPress={downloadExtensionZip} />
-              <Text style={styles.step}>1. Unzip it.</Text>
+              <Text style={styles.step}>1. Right-click the zip → Extract All (opening it is not enough).</Text>
               <Text style={styles.step}>
-                2. Open {extensionsPageUrl()}, turn on Developer mode, click Load unpacked and pick the folder.
+                2. Open {extensionsPageUrl()}, turn on Developer mode, click Load unpacked, then select the
+                extracted folder that contains manifest.json. There is no installer — that folder is the
+                extension.
               </Text>
-              <Text style={styles.step}>3. Come back here.</Text>
-              <Text style={styles.note}>Works in Chrome or Edge on a computer.</Text>
+              <Text style={styles.step}>3. Refresh this page.</Text>
             </View>
           ) : null}
         </View>
@@ -165,5 +166,4 @@ const styles = StyleSheet.create({
   panel: { gap: 8 },
   panelTitle: { color: colors.text, fontSize: 14, fontWeight: '700' },
   step: { color: colors.text, fontSize: 13, lineHeight: 18 },
-  note: { color: colors.textMuted, fontSize: 12 },
 });

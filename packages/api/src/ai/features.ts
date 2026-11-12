@@ -5,6 +5,7 @@ export type AiFeature =
   | 'generate_recipe_from_name'
   | 'estimate_recipe_nutrition'
   | 'classify_budget'
+  | 'read_bank_screenshots'
   | 'recipe_import_structure'
   | 'catalog_refresh'
   | 'readlist_recommend';

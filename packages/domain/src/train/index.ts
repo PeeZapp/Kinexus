@@ -10,6 +10,29 @@ export type {
   WorkoutExercise,
 } from './types';
 export {
+  TARGET_UNITS,
+  TRACKING_TYPES,
+  defaultTrackingTargets,
+  formatTrackingTarget,
+  inferTracking,
+  isTargetUnit,
+  isTrackingType,
+  targetUnitFrom,
+  targetUnitLabel,
+  trackingChipLabel,
+  trackingCompatTargets,
+  trackingToUnit,
+  trackingTypeFrom,
+  unitToTracking,
+} from './tracking';
+export type {
+  InferTrackingInput,
+  TargetUnit,
+  TrackingTargetRow,
+  TrackingTargets,
+  TrackingType,
+} from './tracking';
+export {
   TRAIN_BUDDY_PERMISSION_KEYS,
   TRAIN_BUDDY_PERMISSION_LABELS,
   TRAIN_BUDDY_STATUSES,

@@ -47,6 +47,9 @@ const QUALIFIER_TOKENS = new Set([
   'quartered', 'cubed', 'shredded', 'torn', 'julienned', 'deseeded', 'seeded',
   'heaped', 'level', 'scant', 'pure', 'plain', 'granulated', 'unsalted', 'extra', 'virgin',
   'english', 'cracked', 'flaky', 'coarse', 'fine', 'kosher', 'rolled',
+  'microplaned', 'zested', 'smashed', 'bruised', 'pounded', 'blanched', 'rinsed', 'drained',
+  'softened', 'melted', 'beaten', 'sifted', 'optional', 'plus', 'leftover', 'leftovers',
+  'steamed',
 ]);
 
 const HERBS = new Set([
@@ -132,7 +135,22 @@ const KEY_ALIASES: Record<string, string> = {
   'coriander powder': 'ground coriander',
 };
 
-const DROP_PHRASES = ['free range', 'bone in', 'skin on', 'extra virgin', 'all purpose', 'extra large'];
+const DROP_PHRASES = [
+  'free range',
+  'bone in',
+  'skin on',
+  'extra virgin',
+  'all purpose',
+  'extra large',
+  'patted dry',
+  'at room temperature',
+  'room temperature',
+  'to taste',
+  'to serve',
+  'for serving',
+  'for garnish',
+  'or more',
+];
 
 function collapseSpaces(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
@@ -203,6 +221,48 @@ function dropShoppingPhrases(value: string): string {
   return collapseSpaces(n);
 }
 
+/** Prep notes after a comma, or in ( ) / [ ], are not a different product to buy. */
+function stripPrepClauses(value: string): string {
+  let n = value;
+  const comma = n.indexOf(',');
+  if (comma >= 0) n = n.slice(0, comma);
+  n = n.replace(/\([^)]*\)/g, ' ');
+  n = n.replace(/\[[^\]]*\]/g, ' ');
+  return collapseSpaces(n);
+}
+
+const AMOUNT_UNIT_TOKENS = new Set([
+  'g',
+  'kg',
+  'ml',
+  'l',
+  'oz',
+  'lb',
+  'tsp',
+  'tbsp',
+  'cup',
+  'cups',
+  'clove',
+  'cloves',
+]);
+
+/** Recipe lines sometimes embed the amount in the name ("2 cloves garlic", "1 cup rice"). */
+function dropAmountTokens(value: string): string {
+  return collapseSpaces(
+    value
+      .split(' ')
+      .filter((token) => {
+        if (!token) return false;
+        if (/^\d+(?:[./]\d+)?$/.test(token)) return false;
+        if (/^[½⅓⅔¼¾⅛⅜⅝⅞]$/.test(token)) return false;
+        if (/^\d+(?:[./]\d+)?(?:g|kg|ml|l|oz|lb|tsp|tbsp|cups?|cloves?)$/.test(token)) return false;
+        if (AMOUNT_UNIT_TOKENS.has(token)) return false;
+        return true;
+      })
+      .join(' '),
+  );
+}
+
 function finishKey(key: string): string {
   const singular = normalizePlural(collapseSpaces(key));
   return KEY_ALIASES[singular] ?? singular;
@@ -227,6 +287,7 @@ export function shoppingMergeKey(name: string): string {
   let n = collapseSpaces(name.toLowerCase().replace(/[-/]/g, ' '));
   if (!n) return '';
 
+  n = stripPrepClauses(n);
   n = n.replace(/\bgarlic\s+cloves?\b/g, 'garlic');
   n = n.replace(/\bcloves?\s+(?:of\s+)?garlic\b/g, 'garlic');
 
@@ -239,6 +300,7 @@ export function shoppingMergeKey(name: string): string {
   n = n.replace(/\b(?:minced|ground)\s+(beef|pork|lamb|chicken|turkey|veal)\b/g, '$1 mince');
   n = dropShoppingPhrases(n);
   n = dropQualifiers(n);
+  n = dropAmountTokens(n);
   if (!n) n = collapseSpaces(name.toLowerCase());
 
   n = n.replace(/\bchili\b/g, 'chilli');

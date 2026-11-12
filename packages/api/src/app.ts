@@ -7,6 +7,7 @@ import { corsOrigins } from './env.js';
 import {
   handleAi,
   handleBudgetClassify,
+  handleBudgetTransactionsRead,
   handleCollectibleLookup,
   handleCollectibleSearch,
   handleScrape,
@@ -523,6 +524,17 @@ function registerMealsRoutes(router: Hono) {
     const result = await handleBudgetClassify(
       authed.user.id,
       body as { merchants?: unknown; categories?: unknown; householdId?: unknown },
+    );
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.post('/budget/transactions/read', async (c) => {
+    const authed = await userFromRequest(c.req.raw);
+    if ('error' in authed) return c.json({ error: authed.error }, authed.status);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await handleBudgetTransactionsRead(
+      authed.user.id,
+      body as { householdId?: unknown; localDate?: unknown; images?: unknown },
     );
     return c.json(result.body, result.status as ContentfulStatusCode);
   });

@@ -1,4 +1,5 @@
 import type { EffortLevel } from './effort';
+import type { TargetUnit, TrackingType } from './tracking';
 
 export type RestExtra = 'off' | 'quiz' | 'memory';
 
@@ -14,6 +15,8 @@ export type CatalogExercise = {
   category?: string | null;
   /** When set, wins over the compound-name heuristic. */
   isCompound?: boolean | null;
+  /** Catalogue / custom exercise steps when present. */
+  instructions?: string[] | null;
 };
 
 export type RemixPick = {
@@ -46,8 +49,14 @@ export type WorkoutExercise = {
   exerciseId: string | null;
   name: string;
   position: number;
+  /** Defaults to reps when omitted (legacy rows / part-2 surfaces). */
+  tracking?: TrackingType;
+  targetUnit?: TargetUnit;
   targetSets: number;
   targetReps: string;
+  /** Seconds: total for time/min, per-round for intervals/sec. */
+  targetDurationSec?: number | null;
+  targetDistanceKm?: number | null;
   /** Stored kg. Null when unset or using effort only. */
   targetWeight: number | null;
   targetEffort: EffortLevel | null;
@@ -66,8 +75,12 @@ export type WorkoutBuilderSeed = {
   exercises: {
     exerciseId: string | null;
     name: string;
+    tracking?: TrackingType;
+    targetUnit?: TargetUnit;
     targetSets: number;
     targetReps: string;
+    targetDurationSec?: number | null;
+    targetDistanceKm?: number | null;
     targetWeight?: number | null;
     targetEffort?: EffortLevel | null;
     targetRpe?: number | null;
@@ -82,8 +95,12 @@ export type BuiltExercise = {
   exerciseId: string | null;
   name: string;
   category: string | null;
+  tracking?: TrackingType;
+  targetUnit?: TargetUnit;
   targetSets: number;
   targetReps: string;
+  targetDurationSec?: number | null;
+  targetDistanceKm?: number | null;
   targetWeight: number | null;
   targetEffort: EffortLevel | null;
   targetRpe: number | null;

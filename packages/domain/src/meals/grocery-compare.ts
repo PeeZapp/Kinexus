@@ -146,9 +146,70 @@ const CONFLICTS = new Set([
   'dressing',
   'canned',
   'tinned',
+  'jar',
 ]);
 
+/**
+ * Ready-made / convenience signals on a product. Ignored when the ingredient
+ * itself names that convenience (microwave rice, rotisserie chicken, …).
+ */
+const PREPARED_PHRASES = [
+  'heat and eat',
+  'herb and garlic',
+  'honey soy',
+  'lemon pepper',
+  'peri peri',
+  'quick cook',
+].sort((a, b) => b.length - a.length);
+
+const PREPARED = new Set([
+  'cooked',
+  'precooked',
+  'roast',
+  'roasted',
+  'bbq',
+  'barbecue',
+  'grilled',
+  'smoked',
+  'pulled',
+  'shredded',
+  'rotisserie',
+  'seasoned',
+  'marinade',
+  'tikka',
+  'tandoori',
+  'satay',
+  'teriyaki',
+  'ready',
+  'microwave',
+  'pouch',
+  'instant',
+  'express',
+  'cup',
+  'meal',
+  'deli',
+]);
+
+/** Product words that do not make a match less scratch-like once the cut matches. */
+const RANK_NOISE = new Set([
+  'fillet',
+  'fillets',
+  'raw',
+  'rspca',
+  'skinless',
+  'boneless',
+  'approved',
+  'australian',
+  'loose',
+  'bulb',
+]);
+
+const RANK_NOISE_PHRASES = ['free range'];
+
 const STOP = new Set(['of', 'and', 'the', 'fresh', 'loose', 'approx', 'each', 'pack', 'per']);
+
+/** Bump when auto-match rules change so unpinned saved quotes re-match. */
+export const GROCERY_MATCHER_VERSION = 1;
 
 export function catalogueQuery(name: string): string {
   const key = shoppingMergeKey(name);
@@ -223,6 +284,18 @@ function phraseIn(haystack: string, phrase: string): boolean {
   return new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`).test(haystack);
 }
 
+/** Pack forms that come with named convenience ingredients (microwave rice → pouch). */
+const CONVENIENCE_PACK = new Set(['microwave', 'pouch', 'instant', 'express', 'cup', 'ready']);
+
+function queryHasPreparedSignal(query: string, signal: string): boolean {
+  if (signal.includes(' ')) return phraseIn(query, signal);
+  const queryTokens = tokens(query);
+  if (queryTokens.includes(signal) || queryTokens.includes(singular(signal))) return true;
+  // "microwave rice" may still be sold as a pouch / cup / instant pack.
+  if (CONVENIENCE_PACK.has(signal) && queryTokens.some((token) => CONVENIENCE_PACK.has(token))) return true;
+  return false;
+}
+
 /** True when the product is the ingredient, not a sauce, variety, or ready meal. */
 export function offerMatchesIngredient(ingredientName: string, productName: string): boolean {
   const query = softenPlurals(catalogueQuery(ingredientName));
@@ -238,10 +311,51 @@ export function offerMatchesIngredient(ingredientName: string, productName: stri
   const productTokens = tokens(product);
   const productSet = new Set(productTokens);
   if (!queryTokens.every((token) => productSet.has(token))) return false;
+  for (const phrase of PREPARED_PHRASES) {
+    if (phraseIn(product, phrase) && !queryHasPreparedSignal(query, phrase)) return false;
+  }
   for (const token of productTokens) {
     if ((CONFLICTS.has(token) || CONFLICTS.has(`${token}s`)) && !queryTokens.includes(token)) return false;
+    if ((PREPARED.has(token) || PREPARED.has(`${token}s`)) && !queryHasPreparedSignal(query, token)) return false;
   }
   return true;
+}
+
+function packSizeToken(token: string): boolean {
+  if (/^\d+(?:\.\d+)?$/.test(token)) return true;
+  if (/^\d+(?:\.\d+)?(?:kg|g|ml|l)$/.test(token)) return true;
+  return token === 'kg' || token === 'g' || token === 'ml' || token === 'l' || token === 'pk' || token === 'ct' || token === 'ea';
+}
+
+/** Extra product words beyond the ingredient; lower is a closer scratch match. */
+export function catalogueExtraTokens(ingredientName: string, offer: CatalogueOffer): number {
+  const query = softenPlurals(catalogueQuery(ingredientName));
+  const querySet = new Set(tokens(query));
+  let product = softenPlurals(offer.name.toLowerCase().replace(/\s+/g, ' ').trim());
+  const brand = offer.brand?.toLowerCase().trim();
+  if (brand) {
+    const escaped = brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    product = product.replace(new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`, 'g'), ' ');
+  }
+  for (const phrase of RANK_NOISE_PHRASES) {
+    product = product.replace(new RegExp(`\\b${phrase}\\b`, 'g'), ' ');
+  }
+  const extras = tokens(product).filter(
+    (token) => !querySet.has(token) && !RANK_NOISE.has(token) && !packSizeToken(token) && !STOP.has(token),
+  );
+  return extras.length;
+}
+
+function betterCataloguePick(
+  ingredientName: string,
+  a: { offer: CatalogueOffer; price: number; packs: number },
+  b: { offer: CatalogueOffer; price: number; packs: number },
+): boolean {
+  const extraA = catalogueExtraTokens(ingredientName, a.offer);
+  const extraB = catalogueExtraTokens(ingredientName, b.offer);
+  if (extraA !== extraB) return extraA < extraB;
+  if (a.price !== b.price) return a.price < b.price;
+  return a.offer.shelfPrice < b.offer.shelfPrice;
 }
 
 type Need = { grams?: number; ml?: number; count?: number };
@@ -329,10 +443,17 @@ export function catalogueChoices(
       matches: offerMatchesIngredient(ingredientName, offer.name),
     });
   }
-  rows.sort(
-    (a, b) =>
-      Number(b.matches) - Number(a.matches) || a.price - b.price || a.productName.localeCompare(b.productName),
-  );
+  rows.sort((a, b) => {
+    if (a.matches !== b.matches) return Number(b.matches) - Number(a.matches);
+    const offerA = offers.find((row) => row.productId === a.productId);
+    const offerB = offers.find((row) => row.productId === b.productId);
+    if (offerA && offerB) {
+      const extraA = catalogueExtraTokens(ingredientName, offerA);
+      const extraB = catalogueExtraTokens(ingredientName, offerB);
+      if (extraA !== extraB) return extraA - extraB;
+    }
+    return a.price - b.price || a.productName.localeCompare(b.productName);
+  });
   return rows;
 }
 
@@ -359,9 +480,8 @@ export function pickCatalogueOffer(
   for (const offer of pool) {
     const cost = lineCost(offer, need);
     if (!cost || cost.price <= 0) continue;
-    if (!best || cost.price < best.price || (cost.price === best.price && offer.shelfPrice < best.offer.shelfPrice)) {
-      best = { offer, ...cost };
-    }
+    const row = { offer, ...cost };
+    if (!best || betterCataloguePick(ingredientName, row, best)) best = row;
   }
   return best;
 }
@@ -378,7 +498,23 @@ export type StoredGroceryQuote = {
   quotes: GroceryLineQuote[];
   /** Product the household chose for a chain. Kept across price re-checks. */
   pins?: GroceryProductPin[];
+  /** Auto-match rules version used when quotes were last saved. */
+  matcherVersion?: number;
 };
+
+/** Stamp the current matcher version onto a quote about to be saved. */
+export function withGroceryMatcherVersion(quote: StoredGroceryQuote): StoredGroceryQuote {
+  return { ...quote, matcherVersion: GROCERY_MATCHER_VERSION };
+}
+
+/** Name and amount only — used to keep pins when the matcher version is stale. */
+export function storedGroceryQuoteIdentityMatches(
+  item: { name: string; amount?: string | null },
+  quote: StoredGroceryQuote | null | undefined,
+): boolean {
+  if (!quote || quote.name !== item.name) return false;
+  return (quote.amount ?? null) === (item.amount ?? null);
+}
 
 /** Replace one chain's product and remember that choice. */
 export function applyCataloguePick(
@@ -386,12 +522,12 @@ export function applyCataloguePick(
   item: { name: string; amount?: string | null },
   picked: GroceryLineQuote,
 ): StoredGroceryQuote {
-  const current = quote && storedGroceryQuoteMatches(item, quote) ? quote : null;
+  const current = quote && storedGroceryQuoteIdentityMatches(item, quote) ? quote : null;
   const quotes = (current?.quotes ?? []).filter((row) => row.chainId !== picked.chainId);
   quotes.push(picked);
   const pins = (current?.pins ?? []).filter((pin) => pin.chainId !== picked.chainId);
   pins.push({ chainId: picked.chainId, productId: picked.productId });
-  return { name: item.name, amount: item.amount ?? null, quotes, pins };
+  return withGroceryMatcherVersion({ name: item.name, amount: item.amount ?? null, quotes, pins });
 }
 
 /**
@@ -420,8 +556,9 @@ export function storedGroceryQuoteMatches(
   item: { name: string; amount?: string | null },
   quote: StoredGroceryQuote | null | undefined,
 ): boolean {
-  if (!quote || quote.name !== item.name) return false;
-  return (quote.amount ?? null) === (item.amount ?? null);
+  if (!storedGroceryQuoteIdentityMatches(item, quote)) return false;
+  // Unpinned auto-picks from an older matcher must re-run; pins still merge via quotesWithPins.
+  return (quote!.matcherVersion ?? 0) >= GROCERY_MATCHER_VERSION;
 }
 
 export function comparisonFromLineQuotes(input: {

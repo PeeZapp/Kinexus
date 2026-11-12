@@ -86,3 +86,27 @@ export async function classifyBudgetMerchants(input: {
   const payload = await post<{ assignments?: AiMerchantGuess[] }>('/budget/classify', input);
   return payload.assignments ?? [];
 }
+
+export type BankScreenshotTxn = {
+  date: string;
+  description: string;
+  amount: number;
+  pending: boolean;
+  merchantKey: string;
+};
+
+export async function readBudgetTransactionsFromScreenshots(input: {
+  householdId: string;
+  localDate: string;
+  images: Array<{ mime: 'image/jpeg' | 'image/png' | 'image/webp'; base64: string }>;
+}): Promise<{ transactions: BankScreenshotTxn[]; skipped: number }> {
+  if (input.images.length === 0) return { transactions: [], skipped: 0 };
+  const payload = await post<{ transactions?: BankScreenshotTxn[]; skipped?: number }>(
+    '/budget/transactions/read',
+    input,
+  );
+  return {
+    transactions: payload.transactions ?? [],
+    skipped: payload.skipped ?? 0,
+  };
+}

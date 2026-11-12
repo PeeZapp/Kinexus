@@ -2936,8 +2936,12 @@ export type Database = {
           exercise_id: string | null;
           name: string;
           position: number;
+          tracking: 'reps' | 'time' | 'intervals' | 'distance';
+          target_unit: 'reps' | 'sec' | 'min' | 'km' | 'm' | null;
           target_sets: number;
           target_reps: string;
+          target_duration_sec: number | null;
+          target_distance_km: number | null;
           superset_id: string | null;
           target_weight: number | null;
           target_effort: 'light' | 'moderate' | 'heavy' | 'max' | null;
@@ -2951,8 +2955,12 @@ export type Database = {
           exercise_id?: string | null;
           name: string;
           position: number;
+          tracking?: 'reps' | 'time' | 'intervals' | 'distance';
+          target_unit?: 'reps' | 'sec' | 'min' | 'km' | 'm' | null;
           target_sets?: number;
           target_reps?: string;
+          target_duration_sec?: number | null;
+          target_distance_km?: number | null;
           superset_id?: string | null;
           target_weight?: number | null;
           target_effort?: 'light' | 'moderate' | 'heavy' | 'max' | null;
@@ -2963,8 +2971,12 @@ export type Database = {
           name?: string;
           exercise_id?: string | null;
           position?: number;
+          tracking?: 'reps' | 'time' | 'intervals' | 'distance';
+          target_unit?: 'reps' | 'sec' | 'min' | 'km' | 'm' | null;
           target_sets?: number;
           target_reps?: string;
+          target_duration_sec?: number | null;
+          target_distance_km?: number | null;
           superset_id?: string | null;
           target_weight?: number | null;
           target_effort?: 'light' | 'moderate' | 'heavy' | 'max' | null;
@@ -3109,6 +3121,8 @@ export type Database = {
           weight: string;
           reps: string;
           done: boolean;
+          duration_sec: number | null;
+          distance_km: number | null;
         };
         Insert: {
           id?: string;
@@ -3122,6 +3136,8 @@ export type Database = {
           weight?: string;
           reps?: string;
           done?: boolean;
+          duration_sec?: number | null;
+          distance_km?: number | null;
         };
         Update: {
           weight?: string;
@@ -3129,6 +3145,8 @@ export type Database = {
           done?: boolean;
           exercise_id?: string | null;
           exercise_name?: string;
+          duration_sec?: number | null;
+          distance_km?: number | null;
         };
         Relationships: [];
       };
@@ -3829,6 +3847,10 @@ export type Database = {
           p_weight?: string | null;
           p_reps?: string | null;
           p_done?: boolean | null;
+          p_duration_sec?: number | null;
+          p_distance_km?: number | null;
+          p_update_duration?: boolean;
+          p_update_distance?: boolean;
         };
         Returns: undefined;
       };

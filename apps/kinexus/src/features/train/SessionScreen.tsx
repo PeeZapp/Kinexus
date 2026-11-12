@@ -9,6 +9,7 @@ import {
   canPublishTrainGlobal,
   clusterExercises,
   exerciseSearchScore,
+  formatTrackingTarget,
   generateFromCategoryMix,
   getRemixDefaultsForCategory,
   isDurationTarget,
@@ -18,8 +19,14 @@ import {
   remixCategoryOf,
   sessionHasLoggedSets,
   shuffledRestQuiz,
+  targetUnitFrom,
   toStoredKg,
+  trackingToUnit,
+  trackingTypeFrom,
+  unitToTracking,
   type RestExtra,
+  type TargetUnit,
+  type TrackingType,
 } from '@kinexus/domain';
 
 import { useWakeLock } from '@/src/features/cook/use-wake-lock';
@@ -87,6 +94,64 @@ function templateSignature(workout: WorkoutDraft): string {
     .sort((a, b) => a.position - b.position)
     .map((exercise) => `${exercise.position}:${exercise.exerciseId ?? ''}`)
     .join('|');
+}
+
+function resolveSessionUnit(
+  plan: Pick<WorkoutExercise, 'tracking' | 'targetUnit' | 'targetDistanceKm'> | undefined,
+  group: SessionSet[],
+): TargetUnit {
+  if (plan?.targetUnit || plan?.tracking) {
+    return targetUnitFrom(plan.targetUnit, plan.tracking, {
+      targetDistanceKm: plan.targetDistanceKm ?? group[0]?.distanceKm ?? null,
+    });
+  }
+  const hasDuration = group.some((set) => set.durationSec != null);
+  const hasDistance = group.some((set) => set.distanceKm != null);
+  if (hasDuration && !hasDistance) {
+    return group.length > 1 ? 'sec' : 'min';
+  }
+  if (hasDistance && !hasDuration) {
+    return trackingToUnit('distance', { targetDistanceKm: group[0]?.distanceKm ?? null });
+  }
+  if (hasDuration && hasDistance) return 'min';
+  if (isDurationTarget(group[0]?.reps)) return 'min';
+  return 'reps';
+}
+
+function resolveSessionTracking(
+  plan: Pick<WorkoutExercise, 'tracking' | 'targetUnit' | 'targetDistanceKm'> | undefined,
+  group: SessionSet[],
+): TrackingType {
+  if (plan?.tracking) return trackingTypeFrom(plan.tracking);
+  return unitToTracking(resolveSessionUnit(plan, group));
+}
+
+function minutesFromSet(set: SessionSet): string {
+  if (set.durationSec != null && set.durationSec > 0) {
+    return String(Math.max(1, Math.round(set.durationSec / 60)));
+  }
+  const parsed = Number.parseInt(set.reps, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? String(parsed) : '';
+}
+
+function secondsFromSet(set: SessionSet): string {
+  if (set.durationSec != null && set.durationSec > 0) return String(set.durationSec);
+  const parsed = Number.parseInt(set.reps, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? String(parsed) : '';
+}
+
+function kmFromSet(set: SessionSet): string {
+  if (set.distanceKm != null && set.distanceKm > 0) return String(set.distanceKm);
+  const parsed = Number.parseFloat(set.reps);
+  return Number.isFinite(parsed) && parsed > 0 ? String(parsed) : '';
+}
+
+function metresFromSet(set: SessionSet): string {
+  if (set.distanceKm != null && set.distanceKm > 0) {
+    return String(Math.max(1, Math.round(set.distanceKm * 1000)));
+  }
+  const parsed = Number.parseInt(set.reps, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? String(parsed) : '';
 }
 
 function exerciseSignature(sets: SessionSet[]): string {
@@ -530,6 +595,8 @@ export function SessionScreen({
         weight: weightDisplay !== undefined ? weightDisplay : updated.weight,
         reps: updated.reps,
         done: updated.done,
+        durationSec: updated.durationSec,
+        distanceKm: updated.distanceKm,
       },
       weightDisplay !== undefined ? weightUnit : 'kg',
     );
@@ -783,15 +850,25 @@ export function SessionScreen({
     setFinishing(true);
     setError(null);
     try {
-      const sessionExercises = groups.flatMap(([, group]) => {
+      const sessionExercises = groups.flatMap(([position, group]) => {
         const exerciseId = group[0]?.exerciseId;
         if (!exerciseId) return [];
+        const plan = savedPlan(position, exerciseId);
+        const unit = resolveSessionUnit(plan, group);
+        const tracking = resolveSessionTracking(plan, group);
         return [
           {
             exerciseId,
             name: group[0]?.exerciseName ?? 'Exercise',
+            tracking,
+            targetUnit: unit,
             targetSets: group.length,
             targetReps: group[0]?.reps || '10',
+            targetDurationSec: group[0]?.durationSec ?? plan?.targetDurationSec ?? null,
+            targetDistanceKm:
+              unit === 'min' || unit === 'km' || unit === 'm'
+                ? (group[0]?.distanceKm ?? plan?.targetDistanceKm ?? null)
+                : null,
             targetWeight: null as number | null,
             targetEffort: null,
             targetRpe: null,
@@ -941,11 +1018,26 @@ export function SessionScreen({
             const name = group[0]?.exerciseName ?? 'Exercise';
             const exerciseId = group[0]?.exerciseId;
             const record = exerciseId ? records[exerciseId] : undefined;
-            const progress = applyLoggedSets(record ?? null, group);
+            const plan = savedPlan(position, exerciseId);
+            const unit = resolveSessionUnit(plan, group);
+            const tracking = resolveSessionTracking(plan, group);
+            const progress =
+              unit === 'reps' ? applyLoggedSets(record ?? null, group) : null;
             const doneCount = group.filter((set) => set.done).length;
             const targetReps = group[0]?.reps || '';
-            const durationMode = isDurationTarget(targetReps);
-            const plan = savedPlan(position, exerciseId);
+            const targetRepsHint = (plan?.targetReps || targetReps).trim();
+            const showOptionalKm =
+              unit === 'min' &&
+              ((plan?.targetDistanceKm != null && plan.targetDistanceKm > 0) ||
+                group.some((set) => set.distanceKm != null && set.distanceKm > 0));
+            const trackingLabel = formatTrackingTarget({
+              tracking,
+              targetUnit: unit,
+              targetSets: plan?.targetSets ?? group.length,
+              targetReps: plan?.targetReps || targetReps,
+              targetDurationSec: plan?.targetDurationSec ?? group[0]?.durationSec ?? null,
+              targetDistanceKm: plan?.targetDistanceKm ?? group[0]?.distanceKm ?? null,
+            });
             const part = cluster.type === 'superset' ? `Part ${cluster.indices.indexOf(slot) + 1}` : '';
             if (mode === 'compact') {
               const exerciseDone = group.length > 0 && doneCount === group.length;
@@ -961,9 +1053,7 @@ export function SessionScreen({
                       <Text style={styles.compactName} numberOfLines={1}>
                         {exerciseTitle(name)}
                       </Text>
-                      <Text style={styles.compactMeta}>
-                        {durationMode ? targetReps || '–' : `${group.length} × ${targetReps || '–'}`}
-                      </Text>
+                      <Text style={styles.compactMeta}>{trackingLabel}</Text>
                     </Pressable>
                     <View style={styles.compactActions}>
                       <Pressable
@@ -1016,11 +1106,11 @@ export function SessionScreen({
                 </View>
               );
             }
-            const targetLabel = durationMode ? '' : weightLabel(plan?.targetWeight, weightUnit);
-            const lastLabel = durationMode ? '' : weightLabel(record?.lastWeight, weightUnit);
+            const targetLabel = unit === 'reps' ? weightLabel(plan?.targetWeight, weightUnit) : '';
+            const lastLabel = unit === 'reps' ? weightLabel(record?.lastWeight, weightUnit) : '';
             const metaBits = [
               part,
-              durationMode ? null : `${doneCount}/${group.length}`,
+              unit === 'reps' ? `${doneCount}/${group.length}` : trackingLabel,
               plan?.targetRpe != null ? `RPE ${plan.targetRpe}` : '',
               targetLabel,
               lastLabel ? `Last ${lastLabel}` : '',
@@ -1087,16 +1177,117 @@ export function SessionScreen({
                 <View style={styles.sets}>
                   {group.map((set, index) => (
                     <View key={set.id} style={[styles.setRow, set.done && styles.setRowDone]}>
-                      {durationMode ? null : <Text style={styles.setIndex}>{index + 1}</Text>}
-                      {durationMode ? (
+                      {unit === 'reps' || unit === 'sec' || group.length > 1 ? (
+                        <Text style={styles.setIndex}>{index + 1}</Text>
+                      ) : null}
+                      {unit === 'min' ? (
+                        <>
+                          <View style={styles.setField}>
+                            <Text style={styles.setFieldLabel}>min</Text>
+                            <TextInput
+                              value={minutesFromSet(set)}
+                              keyboardType="number-pad"
+                              onChangeText={(raw) => {
+                                const digits = raw.replace(/[^\d]/g, '');
+                                const minutes = Number.parseInt(digits, 10);
+                                if (!digits) {
+                                  void patch(set, { durationSec: null, reps: '' });
+                                  return;
+                                }
+                                if (!Number.isFinite(minutes) || minutes < 1) return;
+                                void patch(set, {
+                                  durationSec: Math.min(86400, minutes * 60),
+                                  reps: `${minutes} min`,
+                                });
+                              }}
+                              style={styles.setInput}
+                            />
+                          </View>
+                          {showOptionalKm ? (
+                            <View style={styles.setField}>
+                              <Text style={styles.setFieldLabel}>km</Text>
+                              <TextInput
+                                value={set.distanceKm != null ? String(set.distanceKm) : ''}
+                                keyboardType="decimal-pad"
+                                onChangeText={(raw) => {
+                                  const cleaned = raw.replace(/[^\d.]/g, '');
+                                  if (!cleaned) {
+                                    void patch(set, { distanceKm: null });
+                                    return;
+                                  }
+                                  const km = Number.parseFloat(cleaned);
+                                  if (!Number.isFinite(km) || km < 0) return;
+                                  void patch(set, { distanceKm: Math.min(999, km) });
+                                }}
+                                style={styles.setInput}
+                              />
+                            </View>
+                          ) : null}
+                        </>
+                      ) : unit === 'sec' ? (
                         <View style={styles.setField}>
-                          <Text style={styles.setFieldLabel}>Duration</Text>
+                          <Text style={styles.setFieldLabel}>sec</Text>
                           <TextInput
-                            value={set.reps}
-                            onChangeText={(reps) => void patch(set, { reps })}
+                            value={secondsFromSet(set)}
+                            keyboardType="number-pad"
+                            onChangeText={(raw) => {
+                              const digits = raw.replace(/[^\d]/g, '');
+                              const seconds = Number.parseInt(digits, 10);
+                              if (!digits) {
+                                void patch(set, { durationSec: null, reps: '' });
+                                return;
+                              }
+                              if (!Number.isFinite(seconds) || seconds < 1) return;
+                              void patch(set, {
+                                durationSec: Math.min(86400, seconds),
+                                reps: `${seconds} s`,
+                              });
+                            }}
                             style={styles.setInput}
-                            autoCapitalize="none"
-                            autoCorrect={false}
+                          />
+                        </View>
+                      ) : unit === 'km' ? (
+                        <View style={styles.setField}>
+                          <Text style={styles.setFieldLabel}>km</Text>
+                          <TextInput
+                            value={kmFromSet(set)}
+                            keyboardType="decimal-pad"
+                            onChangeText={(raw) => {
+                              const cleaned = raw.replace(/[^\d.]/g, '');
+                              if (!cleaned) {
+                                void patch(set, { distanceKm: null, reps: '' });
+                                return;
+                              }
+                              const km = Number.parseFloat(cleaned);
+                              if (!Number.isFinite(km) || km < 0) return;
+                              void patch(set, {
+                                distanceKm: Math.min(999, km),
+                                reps: `${km} km`,
+                              });
+                            }}
+                            style={styles.setInput}
+                          />
+                        </View>
+                      ) : unit === 'm' ? (
+                        <View style={styles.setField}>
+                          <Text style={styles.setFieldLabel}>m</Text>
+                          <TextInput
+                            value={metresFromSet(set)}
+                            keyboardType="number-pad"
+                            onChangeText={(raw) => {
+                              const digits = raw.replace(/[^\d]/g, '');
+                              if (!digits) {
+                                void patch(set, { distanceKm: null, reps: '' });
+                                return;
+                              }
+                              const metres = Number.parseInt(digits, 10);
+                              if (!Number.isFinite(metres) || metres < 1) return;
+                              void patch(set, {
+                                distanceKm: Math.min(99.999, metres / 1000),
+                                reps: `${metres} m`,
+                              });
+                            }}
+                            style={styles.setInput}
                           />
                         </View>
                       ) : (
@@ -1111,8 +1302,16 @@ export function SessionScreen({
                             />
                           </View>
                           <View style={styles.setField}>
-                            <Text style={styles.setFieldLabel}>Reps</Text>
-                            <TextInput value={set.reps} onChangeText={(reps) => void patch(set, { reps })} style={styles.setInput} />
+                            <Text style={styles.setFieldLabel} numberOfLines={1}>
+                              {targetRepsHint || 'Reps'}
+                            </Text>
+                            <TextInput
+                              value={set.reps}
+                              onChangeText={(reps) => void patch(set, { reps })}
+                              style={styles.setInput}
+                              placeholder={targetRepsHint || undefined}
+                              placeholderTextColor={colors.textDim}
+                            />
                           </View>
                         </>
                       )}
@@ -1121,12 +1320,16 @@ export function SessionScreen({
                         accessibilityState={{ checked: set.done }}
                         accessibilityLabel={
                           set.done
-                            ? durationMode
+                            ? unit === 'min'
                               ? `${exerciseTitle(name)} done`
-                              : `Set ${index + 1} done`
-                            : durationMode
+                              : unit === 'sec'
+                                ? `Round ${index + 1} done`
+                                : `Set ${index + 1} done`
+                            : unit === 'min'
                               ? `Check off ${exerciseTitle(name)}`
-                              : `Check off set ${index + 1}`
+                              : unit === 'sec'
+                                ? `Check off round ${index + 1}`
+                                : `Check off set ${index + 1}`
                         }
                         onPress={() => {
                           const done = !set.done;
@@ -1140,7 +1343,7 @@ export function SessionScreen({
                     </View>
                   ))}
                 </View>
-                {durationMode ? null : (
+                {unit === 'reps' ? (
                   <View style={styles.setActions}>
                     <Pressable
                       accessibilityRole="button"
@@ -1158,7 +1361,7 @@ export function SessionScreen({
                       <Text style={[styles.remove, group.length <= 1 && styles.actionDisabled]}>− Set</Text>
                     </Pressable>
                   </View>
-                )}
+                ) : null}
               </View>
             );
           });
@@ -1576,7 +1779,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
     paddingHorizontal: 8,
   },
-  setFieldLabel: { color: colors.textDim, fontSize: 11, fontWeight: '700' },
+  setFieldLabel: { color: colors.textDim, fontSize: 11, fontWeight: '700', flexShrink: 0, maxWidth: '70%' },
   setInput: { flex: 1, minWidth: 0, color: colors.text, fontSize: 15, fontWeight: '700', paddingVertical: 4 },
   setCheck: {
     width: 32,

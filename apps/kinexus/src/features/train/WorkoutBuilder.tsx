@@ -19,9 +19,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   canPublishTrainGlobal,
   clusterExercises,
+  defaultTrackingTargets,
   exerciseGuideKind,
+  formatTrackingTarget,
   guideOptionsFor,
   guideTitleFor,
+  inferTracking,
   linkSuperset,
   normalizeSupersets,
   normalizeTrainShare,
@@ -32,6 +35,12 @@ import {
   estimateWorkout,
   getRemixDefaultsForCategory,
   remixCategoryOf,
+  TARGET_UNITS,
+  targetUnitFrom,
+  targetUnitLabel,
+  trackingCompatTargets,
+  trackingTypeFrom,
+  unitToTracking,
   TRAIN_GLOBAL_EQUIPMENT,
   TRAIN_GLOBAL_GOALS,
   TRAIN_GLOBAL_LEVELS,
@@ -42,6 +51,7 @@ import {
   unlinkSuperset,
   type EffortLevel,
   type RemixCategory,
+  type TargetUnit,
   type TrainGlobalEquipment,
   type TrainGlobalGoal,
   type TrainGlobalLevel,
@@ -62,6 +72,7 @@ import {
   type ExerciseGroup,
 } from '@/src/features/train/custom-exercises-api';
 import { exerciseFacts, exerciseTitle, prettyLabel } from '@/src/features/train/format';
+import { normaliseRepsTarget } from '@/src/features/train/normalise-reps-target';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
 import {
@@ -92,8 +103,12 @@ export type WorkoutBuilderSeed = {
   exercises: {
     exerciseId: string | null;
     name: string;
+    tracking?: ReturnType<typeof trackingTypeFrom>;
+    targetUnit?: TargetUnit;
     targetSets: number;
     targetReps: string;
+    targetDurationSec?: number | null;
+    targetDistanceKm?: number | null;
     /** Stored kg. */
     targetWeight?: number | null;
     targetEffort?: EffortLevel | null;
@@ -124,9 +139,13 @@ type BuiltExercise = {
   exerciseId: string | null;
   name: string;
   category: RemixCategory | null;
+  targetUnit: TargetUnit;
   /** Raw sets text while editing; parsed on blur/save. */
   targetSets: string;
+  /** Amount in the exercise unit (reps range, sec, min, km, or m). */
   targetReps: string;
+  /** Optional km when unit is min (walk 60 min · 5 km). */
+  distanceRaw: string;
   /** Stored kg. */
   targetWeight: number | null;
   targetEffort: EffortLevel | null;
@@ -140,13 +159,64 @@ function parseSets(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   const value = Number.parseInt(trimmed, 10);
-  if (!Number.isFinite(value) || value < 1) return null;
+  if (!Number.isFinite(value) || value < 1 || value > 20) return null;
   return value;
 }
 
 function repsValid(raw: string): boolean {
   const trimmed = raw.trim();
   return trimmed.length > 0 && trimmed !== '0';
+}
+
+function amountRawFromSeed(
+  exercise: WorkoutBuilderSeed['exercises'][number],
+  unit: TargetUnit,
+): string {
+  if (unit === 'min') {
+    if (exercise.targetDurationSec != null && exercise.targetDurationSec > 0) {
+      return String(Math.max(1, Math.round(exercise.targetDurationSec / 60)));
+    }
+    const minutes = Number.parseInt(exercise.targetReps, 10);
+    return Number.isFinite(minutes) && minutes > 0 ? String(minutes) : '30';
+  }
+  if (unit === 'sec') {
+    if (exercise.targetDurationSec != null && exercise.targetDurationSec > 0) {
+      return String(exercise.targetDurationSec);
+    }
+    const seconds = Number.parseInt(exercise.targetReps, 10);
+    return Number.isFinite(seconds) && seconds > 0 ? String(seconds) : '30';
+  }
+  if (unit === 'km') {
+    if (exercise.targetDistanceKm != null && exercise.targetDistanceKm > 0) {
+      return String(exercise.targetDistanceKm);
+    }
+    const km = Number.parseFloat(exercise.targetReps);
+    return Number.isFinite(km) && km > 0 ? String(km) : '2';
+  }
+  if (unit === 'm') {
+    if (exercise.targetDistanceKm != null && exercise.targetDistanceKm > 0) {
+      return String(Math.max(1, Math.round(exercise.targetDistanceKm * 1000)));
+    }
+    const metres = Number.parseInt(exercise.targetReps, 10);
+    return Number.isFinite(metres) && metres > 0 ? String(metres) : '200';
+  }
+  return exercise.targetReps;
+}
+
+function amountValid(unit: TargetUnit, raw: string): boolean {
+  const trimmed = raw.trim();
+  if (unit === 'reps') return repsValid(trimmed);
+  const value = unit === 'km' ? Number.parseFloat(trimmed) : Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(value)) return false;
+  if (unit === 'sec') return value >= 5 && value <= 3600;
+  if (unit === 'min') return value >= 1 && value <= 1440;
+  if (unit === 'km') return value >= 0.01 && value <= 999;
+  if (unit === 'm') return value >= 1 && value <= 99999;
+  return false;
+}
+
+function fadeSets(unit: TargetUnit, setsRaw: string): boolean {
+  return (unit === 'min' || unit === 'km' || unit === 'm') && (parseSets(setsRaw) ?? 1) === 1;
 }
 
 type CatalogRow = {
@@ -173,20 +243,31 @@ function ensureLibrary(force = false): Promise<LibraryExercise[]> {
 }
 
 function toSelected(seed: WorkoutBuilderSeed): BuiltExercise[] {
-  return seed.exercises.map((exercise, index) => ({
-    key: exercise.exerciseId ?? `saved-${index}`,
-    exerciseId: exercise.exerciseId,
-    name: exercise.name,
-    category: null,
-    targetSets: String(exercise.targetSets),
-    targetReps: exercise.targetReps,
-    targetWeight: exercise.targetWeight ?? null,
-    targetEffort: exercise.targetEffort ?? null,
-    targetRpe: exercise.targetRpe ?? null,
-    note: exercise.note ?? '',
-    personalNote: seed.notes?.find((note) => note.position === index)?.body ?? '',
-    supersetId: exercise.supersetId ?? null,
-  }));
+  return seed.exercises.map((exercise, index) => {
+    const tracking = trackingTypeFrom(exercise.tracking);
+    const targetUnit = targetUnitFrom(exercise.targetUnit, tracking, {
+      targetDistanceKm: exercise.targetDistanceKm,
+    });
+    return {
+      key: exercise.exerciseId ?? `saved-${index}`,
+      exerciseId: exercise.exerciseId,
+      name: exercise.name,
+      category: null,
+      targetUnit,
+      targetSets: String(exercise.targetSets),
+      targetReps: amountRawFromSeed(exercise, targetUnit),
+      distanceRaw:
+        targetUnit === 'min' && exercise.targetDistanceKm != null && exercise.targetDistanceKm > 0
+          ? String(exercise.targetDistanceKm)
+          : '',
+      targetWeight: exercise.targetWeight ?? null,
+      targetEffort: exercise.targetEffort ?? null,
+      targetRpe: exercise.targetRpe ?? null,
+      note: exercise.note ?? '',
+      personalNote: seed.notes?.find((note) => note.position === index)?.body ?? '',
+      supersetId: exercise.supersetId ?? null,
+    };
+  });
 }
 
 function nextSupersetId(): string {
@@ -390,7 +471,14 @@ export function WorkoutBuilder({
   function addExercise(exercise: LibraryExercise) {
     if (!editable) return;
     const nextCategory = remixCategoryOf(exercise);
-    const defaults = getRemixDefaultsForCategory(nextCategory ?? '');
+    const targetUnit = inferTracking({
+      name: exercise.name,
+      category: nextCategory ?? exercise.category,
+      canonicalKey: exercise.canonicalKey,
+      instructions: exercise.instructions,
+    });
+    const trackingDefaults = defaultTrackingTargets(targetUnit);
+    const repsDefaults = getRemixDefaultsForCategory(nextCategory ?? '');
     setSelected((rows) => {
       if (rows.some((row) => row.exerciseId === exercise.id)) return rows;
       return [
@@ -400,8 +488,26 @@ export function WorkoutBuilder({
           exerciseId: exercise.id,
           name: exercise.name,
           category: nextCategory,
-          targetSets: String(defaults.sets),
-          targetReps: defaults.reps,
+          targetUnit,
+          targetSets:
+            targetUnit === 'reps' ? String(repsDefaults.sets) : String(trackingDefaults.targetSets),
+          targetReps:
+            targetUnit === 'reps'
+              ? repsDefaults.reps
+              : amountRawFromSeed(
+                  {
+                    exerciseId: exercise.id,
+                    name: exercise.name,
+                    tracking: trackingDefaults.tracking,
+                    targetUnit,
+                    targetSets: trackingDefaults.targetSets,
+                    targetReps: trackingDefaults.targetReps,
+                    targetDurationSec: trackingDefaults.targetDurationSec,
+                    targetDistanceKm: trackingDefaults.targetDistanceKm,
+                  },
+                  targetUnit,
+                ),
+          distanceRaw: '',
           targetWeight: null,
           targetEffort: null,
           targetRpe: null,
@@ -496,14 +602,35 @@ export function WorkoutBuilder({
     }
     for (const exercise of selected) {
       if (parseSets(exercise.targetSets) === null) {
-        setError(`Sets required for ${exerciseTitle(exercise.name)}`);
+        setError(`Sets 1–20 for ${exerciseTitle(exercise.name)}`);
         focusProblem('exercise', exercise.key);
         return;
       }
-      if (!repsValid(exercise.targetReps)) {
-        setError(`Reps required for ${exerciseTitle(exercise.name)}`);
+      if (!amountValid(exercise.targetUnit, exercise.targetReps)) {
+        const label =
+          exercise.targetUnit === 'reps'
+            ? 'Reps'
+            : exercise.targetUnit === 'sec'
+              ? 'Seconds 5–3600'
+              : exercise.targetUnit === 'min'
+                ? 'Minutes 1–1440'
+                : exercise.targetUnit === 'km'
+                  ? 'Km 0.01–999'
+                  : 'Metres 1–99999';
+        setError(`${label} for ${exerciseTitle(exercise.name)}`);
         focusProblem('exercise', exercise.key);
         return;
+      }
+      if (exercise.targetUnit === 'min') {
+        const kmRaw = exercise.distanceRaw.trim();
+        if (kmRaw) {
+          const km = Number.parseFloat(kmRaw);
+          if (!Number.isFinite(km) || km < 0.01 || km > 999) {
+            setError(`Km 0.01–999 for ${exerciseTitle(exercise.name)}`);
+            focusProblem('exercise', exercise.key);
+            return;
+          }
+        }
       }
     }
     setBusy(true);
@@ -521,17 +648,131 @@ export function WorkoutBuilder({
         equipment,
         splitId: meta.splitId,
         durationMin: estimate.minutes > 0 ? estimate.minutes : meta.durationMin,
-        exercises: selected.map((exercise) => ({
-          exerciseId: exercise.exerciseId,
-          name: exercise.name,
-          targetSets: parseSets(exercise.targetSets)!,
-          targetReps: exercise.targetReps.trim(),
-          targetWeight: exercise.targetWeight,
-          targetEffort: exercise.targetEffort,
-          targetRpe: exercise.targetRpe,
-          note: exercise.note.trim().slice(0, 160),
-          supersetId: exercise.supersetId,
-        })),
+        exercises: selected.map((exercise) => {
+          const sets = parseSets(exercise.targetSets)!;
+          const unit = exercise.targetUnit;
+          if (unit === 'min') {
+            const minutes = Number.parseInt(exercise.targetReps.trim(), 10);
+            const kmRaw = exercise.distanceRaw.trim();
+            const km = kmRaw ? Number.parseFloat(kmRaw) : null;
+            const compat = trackingCompatTargets({
+              tracking: 'time',
+              targetUnit: 'min',
+              targetSets: sets,
+              targetReps: `${minutes} min`,
+              targetDurationSec: minutes * 60,
+              targetDistanceKm: km != null && Number.isFinite(km) ? km : null,
+            });
+            return {
+              exerciseId: exercise.exerciseId,
+              name: exercise.name,
+              tracking: compat.tracking,
+              targetUnit: compat.targetUnit,
+              targetSets: compat.targetSets,
+              targetReps: compat.targetReps,
+              targetDurationSec: compat.targetDurationSec,
+              targetDistanceKm: compat.targetDistanceKm,
+              targetWeight: exercise.targetWeight,
+              targetEffort: exercise.targetEffort,
+              targetRpe: exercise.targetRpe,
+              note: exercise.note.trim().slice(0, 160),
+              supersetId: exercise.supersetId,
+            };
+          }
+          if (unit === 'sec') {
+            const seconds = Number.parseInt(exercise.targetReps.trim(), 10);
+            const compat = trackingCompatTargets({
+              tracking: 'intervals',
+              targetUnit: 'sec',
+              targetSets: sets,
+              targetReps: `${seconds} s`,
+              targetDurationSec: seconds,
+              targetDistanceKm: null,
+            });
+            return {
+              exerciseId: exercise.exerciseId,
+              name: exercise.name,
+              tracking: compat.tracking,
+              targetUnit: compat.targetUnit,
+              targetSets: compat.targetSets,
+              targetReps: compat.targetReps,
+              targetDurationSec: compat.targetDurationSec,
+              targetDistanceKm: null,
+              targetWeight: exercise.targetWeight,
+              targetEffort: exercise.targetEffort,
+              targetRpe: exercise.targetRpe,
+              note: exercise.note.trim().slice(0, 160),
+              supersetId: exercise.supersetId,
+            };
+          }
+          if (unit === 'km') {
+            const km = Number.parseFloat(exercise.targetReps.trim());
+            const compat = trackingCompatTargets({
+              tracking: 'distance',
+              targetUnit: 'km',
+              targetSets: sets,
+              targetReps: `${km} km`,
+              targetDurationSec: null,
+              targetDistanceKm: km,
+            });
+            return {
+              exerciseId: exercise.exerciseId,
+              name: exercise.name,
+              tracking: compat.tracking,
+              targetUnit: compat.targetUnit,
+              targetSets: compat.targetSets,
+              targetReps: compat.targetReps,
+              targetDurationSec: null,
+              targetDistanceKm: compat.targetDistanceKm,
+              targetWeight: exercise.targetWeight,
+              targetEffort: exercise.targetEffort,
+              targetRpe: exercise.targetRpe,
+              note: exercise.note.trim().slice(0, 160),
+              supersetId: exercise.supersetId,
+            };
+          }
+          if (unit === 'm') {
+            const metres = Number.parseInt(exercise.targetReps.trim(), 10);
+            const compat = trackingCompatTargets({
+              tracking: 'distance',
+              targetUnit: 'm',
+              targetSets: sets,
+              targetReps: `${metres} m`,
+              targetDurationSec: null,
+              targetDistanceKm: metres / 1000,
+            });
+            return {
+              exerciseId: exercise.exerciseId,
+              name: exercise.name,
+              tracking: compat.tracking,
+              targetUnit: compat.targetUnit,
+              targetSets: compat.targetSets,
+              targetReps: compat.targetReps,
+              targetDurationSec: null,
+              targetDistanceKm: compat.targetDistanceKm,
+              targetWeight: exercise.targetWeight,
+              targetEffort: exercise.targetEffort,
+              targetRpe: exercise.targetRpe,
+              note: exercise.note.trim().slice(0, 160),
+              supersetId: exercise.supersetId,
+            };
+          }
+          return {
+            exerciseId: exercise.exerciseId,
+            name: exercise.name,
+            tracking: 'reps' as const,
+            targetUnit: 'reps' as const,
+            targetSets: sets,
+            targetReps: normaliseRepsTarget(exercise.targetReps),
+            targetDurationSec: null,
+            targetDistanceKm: null,
+            targetWeight: exercise.targetWeight,
+            targetEffort: exercise.targetEffort,
+            targetRpe: exercise.targetRpe,
+            note: exercise.note.trim().slice(0, 160),
+            supersetId: exercise.supersetId,
+          };
+        }),
         start,
       });
     } catch (err: unknown) {
@@ -677,6 +918,10 @@ export function WorkoutBuilder({
             (exercise.exerciseId ? library.find((item) => item.id === exercise.exerciseId) : undefined) ??
             library.find((item) => item.name.toLowerCase() === exercise.name.toLowerCase());
           if (!editable) {
+            const unit = exercise.targetUnit;
+            const amount = Number.parseFloat(exercise.targetReps);
+            const kmRaw = exercise.distanceRaw.trim();
+            const optionalKm = kmRaw ? Number.parseFloat(kmRaw) : null;
             return (
               <View key={exercise.key} style={styles.selectedRow}>
                 <Text style={styles.selectedTitle}>
@@ -684,7 +929,28 @@ export function WorkoutBuilder({
                   {cluster.type === 'superset' ? ` · Part ${part + 1}` : ''}
                 </Text>
                 <Text style={styles.meta}>
-                  {exercise.targetSets} × {exercise.targetReps}
+                  {formatTrackingTarget({
+                    tracking: unitToTracking(unit),
+                    targetUnit: unit,
+                    targetSets: parseSets(exercise.targetSets) ?? 1,
+                    targetReps: exercise.targetReps,
+                    targetDurationSec:
+                      unit === 'min'
+                        ? (Number.parseInt(exercise.targetReps, 10) || 30) * 60
+                        : unit === 'sec'
+                          ? Number.parseInt(exercise.targetReps, 10) || 30
+                          : null,
+                    targetDistanceKm:
+                      unit === 'km'
+                        ? Number.isFinite(amount)
+                          ? amount
+                          : 2
+                        : unit === 'm'
+                          ? (Number.parseInt(exercise.targetReps, 10) || 200) / 1000
+                          : optionalKm != null && Number.isFinite(optionalKm)
+                            ? optionalKm
+                            : null,
+                  })}
                 </Text>
               </View>
             );
@@ -722,12 +988,50 @@ export function WorkoutBuilder({
               onCancelPair={() => setPairFrom(null)}
               onPair={() => pairWith(exercise.key)}
               onUnlink={() => unlink(exercise.key)}
+              onUnit={(targetUnit) => {
+                const defaults = defaultTrackingTargets(targetUnit);
+                const repsDefaults = getRemixDefaultsForCategory(exercise.category ?? '');
+                setSelected((current) =>
+                  current.map((row) =>
+                    row.key === exercise.key
+                      ? {
+                          ...row,
+                          targetUnit,
+                          targetSets:
+                            targetUnit === 'reps'
+                              ? String(repsDefaults.sets)
+                              : String(defaults.targetSets),
+                          targetReps:
+                            targetUnit === 'reps'
+                              ? repsDefaults.reps
+                              : amountRawFromSeed(
+                                  {
+                                    exerciseId: row.exerciseId,
+                                    name: row.name,
+                                    tracking: defaults.tracking,
+                                    targetUnit,
+                                    targetSets: defaults.targetSets,
+                                    targetReps: defaults.targetReps,
+                                    targetDurationSec: defaults.targetDurationSec,
+                                    targetDistanceKm: defaults.targetDistanceKm,
+                                  },
+                                  targetUnit,
+                                ),
+                          distanceRaw: targetUnit === 'min' ? row.distanceRaw : '',
+                        }
+                      : row,
+                  ),
+                );
+              }}
               onSets={(value) => {
                 const targetSets = value.replace(/[^\d]/g, '');
                 setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetSets } : row)));
               }}
               onReps={(targetReps) => {
                 setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetReps } : row)));
+              }}
+              onDistance={(distanceRaw) => {
+                setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, distanceRaw } : row)));
               }}
               onEffort={(targetEffort) => {
                 setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetEffort } : row)));
@@ -1142,17 +1446,19 @@ function LabeledSlot({
   keyboard,
   width,
   fill = false,
+  faded = false,
 }: {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
   editable: boolean;
-  keyboard?: 'number-pad' | 'default';
+  keyboard?: 'number-pad' | 'decimal-pad' | 'default';
   width?: number;
   fill?: boolean;
+  faded?: boolean;
 }) {
   return (
-    <View style={[styles.slot, fill ? styles.slotFill : { width }]}>
+    <View style={[styles.slot, fill ? styles.slotFill : { width }, faded && styles.slotFaded]}>
       <Text style={styles.slotLabel}>{label}</Text>
       <TextInput
         editable={editable}
@@ -1198,8 +1504,10 @@ function SelectedExercise({
   onUnlink,
   onDetails,
   detailsReady,
+  onUnit,
   onSets,
   onReps,
+  onDistance,
   onEffort,
 }: {
   exercise: BuiltExercise;
@@ -1221,12 +1529,22 @@ function SelectedExercise({
   onUnlink: () => void;
   onDetails: () => void;
   detailsReady: boolean;
+  onUnit: (value: TargetUnit) => void;
   onSets: (value: string) => void;
   onReps: (value: string) => void;
+  onDistance: (value: string) => void;
   onEffort: (value: EffortLevel | null) => void;
 }) {
   const guideKind = exerciseGuideKind(exercise.category);
   const guideOptions = guideOptionsFor(guideKind);
+  const [unitOpen, setUnitOpen] = useState(false);
+  const setsFaded = fadeSets(exercise.targetUnit, exercise.targetSets);
+  const amountKeyboard =
+    exercise.targetUnit === 'reps'
+      ? 'default'
+      : exercise.targetUnit === 'km'
+        ? 'decimal-pad'
+        : 'number-pad';
   const [dragging, setDragging] = useState(false);
   const translateY = useRef(new Animated.Value(0)).current;
   const drag = useRef({
@@ -1387,23 +1705,87 @@ function SelectedExercise({
             ) : null}
           </View>
         </View>
-        {exercise.category || part ? (
-          <View style={styles.selectedSub}>
-            {exercise.category ? <CategoryMark category={exercise.category} /> : null}
-            {part ? <Text style={styles.part}>Part {part}</Text> : null}
-          </View>
-        ) : null}
+        <View style={styles.selectedSub}>
+          {exercise.category ? <CategoryMark category={exercise.category} /> : null}
+          {part ? <Text style={styles.part}>Part {part}</Text> : null}
+        </View>
         <View style={styles.targets}>
-          <LabeledSlot label="Sets" editable={editable} keyboard="number-pad" value={exercise.targetSets} onChangeText={onSets} width={84} />
-          <Text style={styles.times}>×</Text>
           <LabeledSlot
-            label="Reps"
+            label="Sets"
             editable={editable}
-            keyboard="default"
-            value={exercise.targetReps ?? ''}
-            onChangeText={onReps}
-            width={84}
+            keyboard="number-pad"
+            value={exercise.targetSets}
+            onChangeText={onSets}
+            width={72}
+            faded={setsFaded}
           />
+          <Text style={[styles.times, setsFaded && styles.slotFaded]}>×</Text>
+          <View style={[styles.slot, styles.slotFill, styles.amountSlot]}>
+            <TextInput
+              editable={editable}
+              keyboardType={amountKeyboard}
+              value={exercise.targetReps ?? ''}
+              onChangeText={(value) => {
+                if (exercise.targetUnit === 'reps') {
+                  onReps(value);
+                  return;
+                }
+                if (exercise.targetUnit === 'km') {
+                  onReps(value.replace(/[^\d.]/g, ''));
+                  return;
+                }
+                onReps(value.replace(/[^\d]/g, ''));
+              }}
+              style={[styles.slotInput, styles.slotInputFill]}
+            />
+            <View style={styles.unitWrap}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Unit ${targetUnitLabel(exercise.targetUnit)}`}
+                disabled={!editable}
+                onPress={() => setUnitOpen((open) => !open)}
+                hitSlop={6}
+                style={({ pressed }) => [styles.unitButton, pressed && editable && styles.pressed]}>
+                <Text style={styles.unitLabel}>{targetUnitLabel(exercise.targetUnit)} ▾</Text>
+              </Pressable>
+              {unitOpen && editable ? (
+                <View style={styles.unitMenu}>
+                  {TARGET_UNITS.map((unit) => (
+                    <Pressable
+                      key={unit}
+                      accessibilityRole="button"
+                      onPress={() => {
+                        onUnit(unit);
+                        setUnitOpen(false);
+                      }}
+                      style={({ pressed }) => [
+                        styles.unitOption,
+                        unit === exercise.targetUnit && styles.unitOptionOn,
+                        pressed && styles.pressed,
+                      ]}>
+                      <Text
+                        style={[
+                          styles.unitOptionLabel,
+                          unit === exercise.targetUnit && styles.unitOptionLabelOn,
+                        ]}>
+                        {targetUnitLabel(unit)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          </View>
+          {exercise.targetUnit === 'min' ? (
+            <LabeledSlot
+              label="km"
+              editable={editable}
+              keyboard="decimal-pad"
+              value={exercise.distanceRaw}
+              onChangeText={(value) => onDistance(value.replace(/[^\d.]/g, ''))}
+              width={72}
+            />
+          ) : null}
         </View>
         <View style={styles.loadGuide}>
           <Text style={styles.loadGuideLabel}>{guideTitleFor(guideKind)}</Text>
@@ -1591,7 +1973,7 @@ const styles = StyleSheet.create({
   },
   supersetLabel: { color: colors.accent, fontSize: 11, fontWeight: '800', paddingHorizontal: 2 },
   selectedSub: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
-  targets: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
+  targets: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, zIndex: 2 },
   loadGuide: { gap: 6, minWidth: 0, maxWidth: '100%' },
   loadGuideLabel: { color: colors.textDim, fontSize: 11, fontWeight: '700' },
   effortRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, minWidth: 0 },
@@ -1608,11 +1990,13 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     paddingHorizontal: 10,
   },
-  slotFill: { flex: 1, minWidth: 120 },
-  slotLabel: { color: colors.textDim, fontSize: 11, fontWeight: '700' },
+  amountSlot: { position: 'relative', zIndex: 4, minWidth: 120, flexBasis: 120 },
+  slotFaded: { opacity: 0.4 },
+  slotFill: { flex: 1, minWidth: 88, flexBasis: 88 },
+  slotLabel: { color: colors.textDim, fontSize: 11, fontWeight: '700', flexShrink: 0 },
   slotInput: {
     flex: 1,
-    minWidth: 22,
+    minWidth: 40,
     height: 34,
     paddingVertical: 0,
     paddingHorizontal: 0,
@@ -1621,7 +2005,32 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
   },
-  slotInputFill: { textAlign: 'left' },
+  slotInputFill: { textAlign: 'left', minWidth: 56 },
+  unitWrap: { position: 'relative', flexShrink: 0, zIndex: 5 },
+  unitButton: { paddingHorizontal: 2, paddingVertical: 2 },
+  unitLabel: { color: colors.textDim, fontSize: 11, fontWeight: '700' },
+  unitMenu: {
+    position: 'absolute',
+    top: '100%',
+    right: 0,
+    marginTop: 4,
+    minWidth: 72,
+    backgroundColor: colors.bgElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingVertical: 4,
+    zIndex: 20,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  unitOption: { paddingHorizontal: 10, paddingVertical: 8 },
+  unitOptionOn: { backgroundColor: colors.bgHover },
+  unitOptionLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
+  unitOptionLabelOn: { color: colors.text },
   part: { color: colors.textDim, fontSize: 12, fontWeight: '700' },
   listWrap: { flex: 1, minHeight: 180 },
   listWrapSplit: { gap: 10 },

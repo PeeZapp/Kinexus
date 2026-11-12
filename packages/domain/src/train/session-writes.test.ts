@@ -4,6 +4,7 @@ import {
   abandonWorkoutSessionCall,
   isStaleEmptySession,
   sessionHasLoggedSets,
+  updateWorkoutSetCall,
 } from './session-writes.js';
 
 describe('session-writes helpers', () => {
@@ -11,6 +12,28 @@ describe('session-writes helpers', () => {
     expect(abandonWorkoutSessionCall('sess-1')).toEqual({
       rpc: 'abandon_workout_session',
       args: { p_session_id: 'sess-1' },
+    });
+  });
+
+  it('passes duration and distance update flags', () => {
+    expect(
+      updateWorkoutSetCall('set-1', {
+        done: true,
+        durationSec: 1800,
+        distanceKm: 5,
+      }),
+    ).toEqual({
+      rpc: 'update_workout_set',
+      args: {
+        p_set_id: 'set-1',
+        p_weight: null,
+        p_reps: null,
+        p_done: true,
+        p_duration_sec: 1800,
+        p_distance_km: 5,
+        p_update_duration: true,
+        p_update_distance: true,
+      },
     });
   });
 

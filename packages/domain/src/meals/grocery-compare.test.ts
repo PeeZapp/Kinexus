@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { lookupChainsForCountry } from './grocery-chains';
 import {
+  GROCERY_MATCHER_VERSION,
   catalogueQuery,
   applyCataloguePick,
   catalogueChoices,
@@ -13,6 +14,7 @@ import {
   parsePackSize,
   parseUnitPrice,
   pickCatalogueOffer,
+  withGroceryMatcherVersion,
   type CatalogueOffer,
   type GroceryLineQuote,
 } from './grocery-compare';
@@ -52,6 +54,28 @@ describe('catalogue parsing', () => {
     expect(offerMatchesIngredient('chicken breast', 'Crumbed Chicken Schnitzel')).toBe(false);
     expect(offerMatchesIngredient('chicken breast', 'Inghams Chicken Breast Kyiv 700g')).toBe(false);
     expect(offerMatchesIngredient('chicken breast', 'Chicken Breast Fillets 500g')).toBe(true);
+  });
+
+  it('strips prep noise so garlic searches the bulb, not a paste jar', () => {
+    expect(catalogueQuery('2 cloves garlic, microplaned')).toBe('garlic');
+    expect(catalogueQuery('garlic (microplaned)')).toBe('garlic');
+    expect(catalogueQuery('3 garlic cloves, finely grated')).toBe('garlic');
+    expect(offerMatchesIngredient('2 cloves garlic, microplaned', 'Woolworths Garlic Bulb')).toBe(true);
+    expect(offerMatchesIngredient('garlic (microplaned)', 'Coles Garlic Loose')).toBe(true);
+    expect(offerMatchesIngredient('garlic', 'Garlic Paste')).toBe(false);
+    expect(offerMatchesIngredient('garlic', 'Minced Garlic Jar')).toBe(false);
+  });
+
+  it('rejects cook-from-scratch conflicts unless the ingredient names them', () => {
+    expect(offerMatchesIngredient('chicken breast', 'Steggles Cooked Chicken Breast Sliced')).toBe(false);
+    expect(offerMatchesIngredient('chicken breast', 'Woolworths Roast Chicken Breast')).toBe(false);
+    expect(offerMatchesIngredient('chicken breast', 'Lilydale BBQ Chicken Breast Pieces')).toBe(false);
+    expect(offerMatchesIngredient('chicken breast', 'Chicken Breast Fillets Lemon Pepper')).toBe(false);
+    expect(offerMatchesIngredient('rice', 'Sunrice Microwave Jasmine Rice Pouch 250g')).toBe(false);
+    expect(offerMatchesIngredient('rice', 'Rice Cup')).toBe(false);
+    expect(offerMatchesIngredient('microwave rice', 'Sunrice Microwave Jasmine Rice Pouch 250g')).toBe(true);
+    expect(offerMatchesIngredient('rotisserie chicken', 'Woolworths RSPCA Approved Rotisserie Chicken')).toBe(true);
+    expect(offerMatchesIngredient('frozen peas', 'Woolworths Frozen Peas 1kg')).toBe(true);
   });
 });
 
@@ -127,6 +151,76 @@ describe('pickCatalogueOffer', () => {
     ]);
     expect(picked?.offer.name).toBe('Rice 1kg');
   });
+
+  it('picks raw chicken breast over cheaper cooked or flavoured packs', () => {
+    const picked = pickCatalogueOffer('500g chicken breast', '500g', [
+      offer({ name: 'Steggles Cooked Chicken Breast Sliced', productId: 'cooked', shelfPrice: 5, packGrams: 250 }),
+      offer({ name: 'Woolworths Roast Chicken Breast', productId: 'roast', shelfPrice: 6, packGrams: 300 }),
+      offer({ name: 'Lilydale BBQ Chicken Breast Pieces', productId: 'bbq', shelfPrice: 7, packGrams: 400 }),
+      offer({ name: 'Chicken Breast Fillets Lemon Pepper', productId: 'lemon', shelfPrice: 8, packGrams: 500 }),
+      offer({
+        name: 'Chicken Breast Fillets 500g',
+        productId: 'fillet',
+        brand: 'Woolworths',
+        shelfPrice: 11,
+        packGrams: 500,
+      }),
+    ]);
+    expect(picked?.offer.productId).toBe('fillet');
+  });
+
+  it('prefers the product with fewer extra tokens even when dearer', () => {
+    const picked = pickCatalogueOffer('chicken breast', '500g', [
+      offer({
+        name: 'Lilydale Chicken Breast Fillets Pieces',
+        productId: 'pieces',
+        brand: 'Lilydale',
+        shelfPrice: 8,
+        packGrams: 500,
+      }),
+      offer({
+        name: 'Chicken Breast Fillets 500g',
+        productId: 'fillet',
+        shelfPrice: 11,
+        packGrams: 500,
+      }),
+    ]);
+    expect(picked?.offer.productId).toBe('fillet');
+  });
+
+  it('picks a raw rice bag over microwave pouches and cups', () => {
+    const pouch = offer({
+      name: 'Sunrice Microwave Jasmine Rice Pouch 250g',
+      productId: 'pouch',
+      shelfPrice: 2,
+      packGrams: 250,
+    });
+    const cup = offer({ name: 'Rice Cup', productId: 'cup', shelfPrice: 1.5, packCount: 1 });
+    const bag = offer({ name: 'Sunrice Jasmine Rice 1kg', productId: 'bag', brand: 'Sunrice', shelfPrice: 3, packGrams: 1000 });
+    expect(pickCatalogueOffer('1 cup rice', '1 cup', [pouch, cup, bag])?.offer.productId).toBe('bag');
+    expect(pickCatalogueOffer('cooked jasmine rice', null, [pouch, cup, bag])?.offer.productId).toBe('bag');
+    expect(pickCatalogueOffer('microwave rice', null, [pouch, cup, bag])?.offer.productId).toBe('pouch');
+  });
+
+  it('still matches named convenience products', () => {
+    expect(
+      pickCatalogueOffer('rotisserie chicken', null, [
+        offer({
+          name: 'Woolworths RSPCA Approved Rotisserie Chicken',
+          productId: 'roti',
+          brand: 'Woolworths',
+          shelfPrice: 12,
+        }),
+        offer({ name: 'Chicken Breast Fillets 500g', productId: 'fillet', shelfPrice: 11, packGrams: 500 }),
+      ])?.offer.productId,
+    ).toBe('roti');
+    expect(
+      pickCatalogueOffer('frozen peas', '500g', [
+        offer({ name: 'Woolworths Frozen Peas 1kg', productId: 'peas', brand: 'Woolworths', shelfPrice: 3.5, packGrams: 1000 }),
+        offer({ name: 'Fresh Peas 200g', productId: 'fresh', shelfPrice: 4, packGrams: 200 }),
+      ])?.offer.productId,
+    ).toBe('peas');
+  });
 });
 
 describe('compareShoppingList', () => {
@@ -173,11 +267,18 @@ describe('compareShoppingList', () => {
 });
 
 describe('saved quotes', () => {
-  it('keeps a saved price only for the same name and amount', () => {
-    const quote = { name: 'chicken breast', amount: '650g', quotes: [] };
+  it('keeps a saved price only for the same name, amount, and matcher version', () => {
+    const quote = withGroceryMatcherVersion({ name: 'chicken breast', amount: '650g', quotes: [] });
     expect(storedGroceryQuoteMatches({ name: 'chicken breast', amount: '650g' }, quote)).toBe(true);
     expect(storedGroceryQuoteMatches({ name: 'chicken breast', amount: '300g' }, quote)).toBe(false);
     expect(storedGroceryQuoteMatches({ name: 'chicken breast', amount: '650g' }, null)).toBe(false);
+    expect(
+      storedGroceryQuoteMatches(
+        { name: 'chicken breast', amount: '650g' },
+        { name: 'chicken breast', amount: '650g', quotes: [] },
+      ),
+    ).toBe(false);
+    expect(GROCERY_MATCHER_VERSION).toBeGreaterThan(0);
   });
 
   it('rebuilds the cheapest shop from saved line quotes', () => {
@@ -258,6 +359,7 @@ describe('catalogue picks', () => {
     );
     expect(next.quotes.map((row) => row.productId)).toEqual(['fillet']);
     expect(next.pins).toEqual([{ chainId: 'woolworths', productId: 'fillet' }]);
+    expect(next.matcherVersion).toBe(GROCERY_MATCHER_VERSION);
   });
 
   it('keeps a pinned product when a re-check would pick another', () => {

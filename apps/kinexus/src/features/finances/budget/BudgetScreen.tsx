@@ -39,7 +39,9 @@ import { Btn, ErrorText } from '@/src/features/household/ui';
 import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/FilterMenu';
 import { FinancesChrome, MoneyBar } from '@/src/features/finances/FinancesShared';
 import { BudgetEntrySheet, BudgetLineSheet } from '@/src/features/finances/sheets';
+import { AddTransactionsSheet } from '@/src/features/finances/budget/AddTransactionsSheet';
 import { BudgetSetupSheet } from '@/src/features/finances/budget/BudgetSetupSheet';
+import { Toast } from '@/src/features/meals/Toast';
 import { actionErrorMessage, useFinancesSync, type BudgetLineDraft } from '@/src/features/finances/use-finances-sync';
 import { EmptyState, LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
@@ -79,6 +81,8 @@ export function BudgetScreen() {
   const [lineOpen, setLineOpen] = useState(false);
   const [editing, setEditing] = useState<FinanceBudgetLine | null>(null);
   const [entryOpen, setEntryOpen] = useState(false);
+  const [addTxnsOpen, setAddTxnsOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const [addingTo, setAddingTo] = useState<FinanceBudgetLine | null>(null);
   const [defaultKind, setDefaultKind] = useState<FinanceBudgetLineKind>('expense');
   const [parentForNew, setParentForNew] = useState<FinanceBudgetLine | null>(null);
@@ -209,6 +213,17 @@ export function BudgetScreen() {
                     onPress={() => {
                       setAddingTo(null);
                       setEntryOpen(true);
+                    }}
+                    disabled={!finances.online}
+                  />
+                ) : null}
+                {canEnter ? (
+                  <Btn
+                    label="Add transactions"
+                    variant="secondary"
+                    onPress={() => {
+                      setActionError(null);
+                      setAddTxnsOpen(true);
                     }}
                     disabled={!finances.online}
                   />
@@ -402,6 +417,24 @@ export function BudgetScreen() {
           }
         }}
       />
+      <AddTransactionsSheet
+        visible={addTxnsOpen}
+        lines={finances.lines}
+        txns={finances.txns}
+        currency={finances.currency}
+        busy={busy}
+        error={actionError}
+        onClose={() => {
+          setAddTxnsOpen(false);
+          setActionError(null);
+        }}
+        onAdded={(count) => setToast(`Added ${count} transaction${count === 1 ? '' : 's'}`)}
+        onSave={async (rows) => {
+          const ok = await run(() => finances.createImportedTxns(rows));
+          if (!ok) throw new Error('Could not add transactions');
+        }}
+      />
+      <Toast visible={toast !== null} message={toast ?? ''} onDismiss={() => setToast(null)} />
     </>
   );
 }

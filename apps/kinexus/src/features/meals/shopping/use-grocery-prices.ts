@@ -5,7 +5,9 @@ import {
   formatMoney,
   lookupChainsForCountry,
   quotesWithPins,
+  storedGroceryQuoteIdentityMatches,
   storedGroceryQuoteMatches,
+  withGroceryMatcherVersion,
   type GroceryComparison,
   type StoredGroceryQuote,
 } from '@kinexus/domain';
@@ -100,7 +102,7 @@ export function useGroceryPrices(input: {
           id: item.id,
           name: item.name,
           amount: item.amount,
-          pins: storedGroceryQuoteMatches(item, item.quote) ? item.quote?.pins : undefined,
+          pins: storedGroceryQuoteIdentityMatches(item, item.quote) ? item.quote?.pins : undefined,
         })),
       })
         .then(async (result) => {
@@ -108,16 +110,16 @@ export function useGroceryPrices(input: {
           const latest = itemsRef.current;
           const rows = targets.map((item) => {
             const current = latest.find((row) => row.id === item.id) ?? item;
-            const pins = storedGroceryQuoteMatches(current, current.quote) ? current.quote?.pins : undefined;
+            const pins = storedGroceryQuoteIdentityMatches(current, current.quote) ? current.quote?.pins : undefined;
             const fresh = result.comparison.items.find((row) => row.itemId === item.id)?.quotes ?? [];
             return {
               id: item.id,
-              quote: {
+              quote: withGroceryMatcherVersion({
                 name: item.name,
                 amount: item.amount,
                 quotes: quotesWithPins(fresh, current.quote?.quotes ?? [], pins),
                 pins: pins && pins.length > 0 ? pins : undefined,
-              },
+              }),
             };
           });
           await saveRef.current(rows);

@@ -8,6 +8,7 @@ import {
 } from './ai/extract.js';
 import { estimateRecipeNutritionWithAi } from './ai/nutrition.js';
 import { classifyBudgetMerchantsWithAi, type BudgetClassifyMerchant } from './ai/classify-budget.js';
+import { readBankScreenshotsWithAi } from './ai/read-bank-screenshots.js';
 import type { AiImageInput } from './ai/provider.js';
 import {
   AiBlockedError,
@@ -424,6 +425,76 @@ function parseClassifyCategories(value: unknown): BudgetCategoryOption[] {
     rows.push({ kind: kindRaw as FinanceBudgetLineKind, name: name.slice(0, 40) });
   }
   return budgetCategoryOptions(rows);
+}
+
+const MAX_SCREENSHOTS = 6;
+const MAX_SCREENSHOT_BODY_CHARS = 5_500_000;
+
+function parseScreenshotImages(value: unknown): AiImageInput[] {
+  if (!Array.isArray(value)) return [];
+  const out: AiImageInput[] = [];
+  for (const row of value) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+    const rec = row as Record<string, unknown>;
+    const mimeRaw = String(rec.mime ?? rec.contentType ?? 'image/jpeg').toLowerCase();
+    const mime =
+      mimeRaw === 'image/png' || mimeRaw === 'image/webp' || mimeRaw === 'image/jpeg'
+        ? (mimeRaw as AiImageInput['mime'])
+        : null;
+    const base64 = String(rec.base64 ?? '').replace(/^data:[^;]+;base64,/, '').trim();
+    if (!mime || !base64) continue;
+    out.push({ mime, base64 });
+    if (out.length >= MAX_SCREENSHOTS) break;
+  }
+  return out;
+}
+
+export async function handleBudgetTransactionsRead(
+  userId: string,
+  body: {
+    householdId?: unknown;
+    localDate?: unknown;
+    images?: unknown;
+  },
+) {
+  const householdId = typeof body.householdId === 'string' ? body.householdId.trim() : '';
+  if (!householdId) return { status: 400 as const, body: { error: 'householdId is required' } };
+  const localDate =
+    typeof body.localDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.localDate.trim())
+      ? body.localDate.trim()
+      : new Date().toISOString().slice(0, 10);
+  const images = parseScreenshotImages(body.images);
+  if (images.length === 0) return { status: 400 as const, body: { error: 'Add at least one screenshot' } };
+  if (images.length > MAX_SCREENSHOTS) {
+    return { status: 400 as const, body: { error: 'Up to 6 screenshots at a time' } };
+  }
+  const bodyChars = images.reduce((sum, image) => sum + image.base64.length, 0);
+  if (bodyChars > MAX_SCREENSHOT_BODY_CHARS) {
+    return { status: 400 as const, body: { error: 'Screenshots are too large. Try fewer or smaller images.' } };
+  }
+  try {
+    const resolved = await resolveVisionAiClient({
+      userId,
+      householdId,
+      feature: 'read_bank_screenshots',
+    });
+    const result = await readBankScreenshotsWithAi(resolved, images, localDate);
+    return {
+      status: 200 as const,
+      body: {
+        transactions: result.value.transactions,
+        skipped: result.value.skipped,
+        provider: result.provider,
+        ...(result.resultsMayVary ? { resultsMayVary: true } : {}),
+      },
+    };
+  } catch (err) {
+    if (err instanceof AiBlockedError) return aiBlockedHttp(err);
+    const message = scrubErrorMessage(err);
+    if (message.includes('is not set')) return { status: 503 as const, body: { error: 'AI provider is not configured' } };
+    if (message.includes('Not a member')) return { status: 403 as const, body: { error: message } };
+    return { status: 500 as const, body: { error: message.slice(0, 300) } };
+  }
 }
 
 function tmdbError(err: unknown, fallback: string): { status: number; body: { error: string; errorCode?: string } } {

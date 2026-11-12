@@ -844,6 +844,38 @@ export function useFinancesSync() {
     [budgetQuery.data, householdId, linesQuery.data, queryClient, userId],
   );
 
+  const createImportedTxns = useCallback(
+    async (
+      rows: readonly {
+        date: string;
+        description: string;
+        amount: number;
+        merchantKey: string;
+        lineId: string | null;
+        ignored: boolean;
+      }[],
+    ) => {
+      if (!householdId || !supabase || !budgetQuery.data) throw new Error('Not ready');
+      if (rows.length === 0) return;
+      const insertRows: Database['public']['Tables']['finance_budget_txns']['Insert'][] = rows.map((row) => ({
+        id: Crypto.randomUUID(),
+        household_id: householdId,
+        budget_id: budgetQuery.data!.id,
+        line_id: row.ignored ? null : row.lineId,
+        txn_date: row.date.slice(0, 10),
+        description: row.description.slice(0, 240),
+        merchant_key: (row.merchantKey || merchantKey(row.description)).slice(0, 80) || 'UNKNOWN',
+        amount: row.amount,
+        ignored: Boolean(row.ignored),
+        source: 'import',
+        created_by: userId,
+      }));
+      await insertTxnRows(insertRows);
+      await queryClient.invalidateQueries({ queryKey: txnsKey(householdId) });
+    },
+    [budgetQuery.data, householdId, queryClient, userId],
+  );
+
   const deleteTxn = useCallback(
     async (id: string) => {
       if (!householdId || !supabase) throw new Error('Not ready');
@@ -1655,6 +1687,7 @@ export function useFinancesSync() {
     moveLine,
     saveBudgetPlan,
     createTxn,
+    createImportedTxns,
     deleteTxn,
     clearBudget,
     applyAutoDebits,

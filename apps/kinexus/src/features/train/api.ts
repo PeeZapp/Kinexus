@@ -17,6 +17,8 @@ import type {
   TrainGlobalLevel,
   TrainingPlanDayStatus,
   TrainingPlanWeekRow,
+  TargetUnit,
+  TrackingType,
   TrainVisibility,
   WeightUnit,
 } from '@kinexus/domain';
@@ -57,6 +59,10 @@ import {
   replaceSessionExerciseCall,
   rewriteSessionSetsCall,
   sessionHasLoggedSets,
+  targetUnitFrom,
+  trackingCompatTargets,
+  trackingTypeFrom,
+  unitToTracking,
   updateWorkoutSetCall,
   isTrainVisibility,
   normalizeTrainGlobalEquipment,
@@ -108,8 +114,12 @@ export type WorkoutExercise = {
   exerciseId: string | null;
   name: string;
   position: number;
+  tracking: TrackingType;
+  targetUnit: TargetUnit;
   targetSets: number;
   targetReps: string;
+  targetDurationSec: number | null;
+  targetDistanceKm: number | null;
   /** Stored kg. */
   targetWeight: number | null;
   targetEffort: EffortLevel | null;
@@ -121,8 +131,12 @@ export type WorkoutExercise = {
 export type WorkoutExerciseInput = {
   exerciseId: string | null;
   name: string;
+  tracking?: TrackingType;
+  targetUnit?: TargetUnit;
   targetSets: number;
   targetReps: string;
+  targetDurationSec?: number | null;
+  targetDistanceKm?: number | null;
   targetWeight?: number | null;
   targetEffort?: EffortLevel | null;
   targetRpe?: number | null;
@@ -242,6 +256,8 @@ export type SessionSet = LoggedSet & {
   exerciseName: string;
   position: number;
   setIndex: number;
+  durationSec: number | null;
+  distanceKm: number | null;
 };
 
 function db() {
@@ -377,8 +393,12 @@ function mapWorkoutDraft(
       exercise_id: string | null;
       name: string;
       position: number;
+      tracking?: string | null;
+      target_unit?: string | null;
       target_sets: number;
       target_reps: string;
+      target_duration_sec?: number | null;
+      target_distance_km?: number | null;
       target_weight: number | null;
       target_effort: string | null;
       target_rpe: number | null;
@@ -412,19 +432,28 @@ function mapWorkoutDraft(
     notes: notesByWorkout?.get(row.id) ?? [],
     exercises: [...(row.workout_exercises ?? [])]
       .sort((a, b) => a.position - b.position)
-      .map((exercise) => ({
-        id: exercise.id,
-        exerciseId: exercise.exercise_id,
-        name: exercise.name,
-        position: exercise.position,
-        targetSets: exercise.target_sets,
-        targetReps: exercise.target_reps,
-        targetWeight: exercise.target_weight,
-        targetEffort: effortLevelFrom(exercise.target_effort),
-        targetRpe: rpeFromDb(exercise.target_rpe),
-        note: exercise.note ?? '',
-        supersetId: exercise.superset_id ?? null,
-      })),
+      .map((exercise) => {
+        const tracking = trackingTypeFrom(exercise.tracking);
+        const targetDistanceKm =
+          exercise.target_distance_km == null ? null : Number(exercise.target_distance_km);
+        return {
+          id: exercise.id,
+          exerciseId: exercise.exercise_id,
+          name: exercise.name,
+          position: exercise.position,
+          tracking,
+          targetUnit: targetUnitFrom(exercise.target_unit, tracking, { targetDistanceKm }),
+          targetSets: exercise.target_sets,
+          targetReps: exercise.target_reps,
+          targetDurationSec: exercise.target_duration_sec ?? null,
+          targetDistanceKm,
+          targetWeight: exercise.target_weight,
+          targetEffort: effortLevelFrom(exercise.target_effort),
+          targetRpe: rpeFromDb(exercise.target_rpe),
+          note: exercise.note ?? '',
+          supersetId: exercise.superset_id ?? null,
+        };
+      }),
   };
 }
 
@@ -595,20 +624,37 @@ async function replaceWorkoutChildren(
     const { error } = await db()
       .from('workout_exercises')
       .insert(
-        exercises.map((exercise, position) => ({
-          workout_id: workoutId,
-          household_id: householdId,
-          exercise_id: exercise.exerciseId,
-          name: exercise.name,
-          position,
-          target_sets: exercise.targetSets,
-          target_reps: exercise.targetReps,
-          target_weight: exercise.targetWeight ?? null,
-          target_effort: exercise.targetEffort ?? null,
-          target_rpe: exercise.targetRpe ?? null,
-          note: (exercise.note ?? '').trim().slice(0, 160),
-          superset_id: exercise.supersetId ?? null,
-        })),
+        exercises.map((exercise, position) => {
+          const tracking = trackingTypeFrom(exercise.tracking ?? unitToTracking(targetUnitFrom(exercise.targetUnit)));
+          const compat = trackingCompatTargets({
+            tracking,
+            targetUnit: targetUnitFrom(exercise.targetUnit, tracking, {
+              targetDistanceKm: exercise.targetDistanceKm ?? null,
+            }),
+            targetSets: exercise.targetSets,
+            targetReps: exercise.targetReps,
+            targetDurationSec: exercise.targetDurationSec ?? null,
+            targetDistanceKm: exercise.targetDistanceKm ?? null,
+          });
+          return {
+            workout_id: workoutId,
+            household_id: householdId,
+            exercise_id: exercise.exerciseId,
+            name: exercise.name,
+            position,
+            tracking: compat.tracking,
+            target_unit: compat.targetUnit,
+            target_sets: compat.targetSets,
+            target_reps: compat.targetReps,
+            target_duration_sec: compat.targetDurationSec,
+            target_distance_km: compat.targetDistanceKm,
+            target_weight: exercise.targetWeight ?? null,
+            target_effort: exercise.targetEffort ?? null,
+            target_rpe: exercise.targetRpe ?? null,
+            note: (exercise.note ?? '').trim().slice(0, 160),
+            superset_id: exercise.supersetId ?? null,
+          };
+        }),
       );
     if (error) throw new Error(error.message);
   }
@@ -939,19 +985,45 @@ export async function loadGlobalWorkouts(userId: string | null): Promise<GlobalW
       myScore: ratings?.mine ?? null,
       exercises: [...(row.workout_exercises ?? [])]
         .sort((a, b) => a.position - b.position)
-        .map((exercise) => ({
-          id: exercise.id,
-          exerciseId: exercise.exercise_id,
-          name: exercise.name,
-          position: exercise.position,
-          targetSets: exercise.target_sets,
-          targetReps: exercise.target_reps,
-          targetWeight: exercise.target_weight,
-          targetEffort: effortLevelFrom(exercise.target_effort),
-          targetRpe: rpeFromDb(exercise.target_rpe),
-          note: exercise.note ?? '',
-          supersetId: exercise.superset_id ?? null,
-        })),
+        .map((exercise) => {
+          const rowExercise = exercise as {
+            id: string;
+            exercise_id: string | null;
+            name: string;
+            position: number;
+            tracking?: string | null;
+            target_unit?: string | null;
+            target_sets: number;
+            target_reps: string;
+            target_duration_sec?: number | null;
+            target_distance_km?: number | null;
+            target_weight: number | null;
+            target_effort: string | null;
+            target_rpe: number | null;
+            note: string | null;
+            superset_id: string | null;
+          };
+          const tracking = trackingTypeFrom(rowExercise.tracking);
+          const targetDistanceKm =
+            rowExercise.target_distance_km == null ? null : Number(rowExercise.target_distance_km);
+          return {
+            id: rowExercise.id,
+            exerciseId: rowExercise.exercise_id,
+            name: rowExercise.name,
+            position: rowExercise.position,
+            tracking,
+            targetUnit: targetUnitFrom(rowExercise.target_unit, tracking, { targetDistanceKm }),
+            targetSets: rowExercise.target_sets,
+            targetReps: rowExercise.target_reps,
+            targetDurationSec: rowExercise.target_duration_sec ?? null,
+            targetDistanceKm,
+            targetWeight: rowExercise.target_weight,
+            targetEffort: effortLevelFrom(rowExercise.target_effort),
+            targetRpe: rpeFromDb(rowExercise.target_rpe),
+            note: rowExercise.note ?? '',
+            supersetId: rowExercise.superset_id ?? null,
+          };
+        }),
     };
   });
 }
@@ -1103,6 +1175,10 @@ export async function clearOpenSession(userId: string, workoutId: string): Promi
   if (error) throw error;
 }
 
+function sessionSetCount(exercise: Pick<WorkoutExercise, 'targetSets'>): number {
+  return Math.max(1, exercise.targetSets || 1);
+}
+
 function sessionSetRowsFromWorkout(input: {
   sessionId: string;
   householdId: string;
@@ -1110,8 +1186,13 @@ function sessionSetRowsFromWorkout(input: {
   workout: WorkoutDraft;
   records: Record<string, ExerciseRecord>;
 }) {
-  return input.workout.exercises.flatMap((exercise) =>
-    Array.from({ length: Math.max(1, exercise.targetSets || 1) }, (_, setIndex) => ({
+  return input.workout.exercises.flatMap((exercise) => {
+    const tracking = trackingTypeFrom(exercise.tracking);
+    const unit = targetUnitFrom(exercise.targetUnit, tracking, {
+      targetDistanceKm: exercise.targetDistanceKm,
+    });
+    const count = sessionSetCount(exercise);
+    return Array.from({ length: count }, (_, setIndex) => ({
       session_id: input.sessionId,
       household_id: input.householdId,
       user_id: input.userId,
@@ -1119,17 +1200,23 @@ function sessionSetRowsFromWorkout(input: {
       exercise_name: exercise.name,
       position: exercise.position,
       set_index: setIndex,
-      weight: exercise.exerciseId
-        ? input.records[exercise.exerciseId]?.lastWeight ||
-          (exercise.targetWeight != null ? String(exercise.targetWeight) : '') ||
-          ''
-        : exercise.targetWeight != null
-          ? String(exercise.targetWeight)
+      weight:
+        unit === 'reps'
+          ? exercise.exerciseId
+            ? input.records[exercise.exerciseId]?.lastWeight ||
+              (exercise.targetWeight != null ? String(exercise.targetWeight) : '') ||
+              ''
+            : exercise.targetWeight != null
+              ? String(exercise.targetWeight)
+              : ''
           : '',
       reps: exercise.targetReps,
       done: false,
-    })),
-  );
+      duration_sec: unit === 'sec' || unit === 'min' ? exercise.targetDurationSec : null,
+      distance_km:
+        unit === 'min' || unit === 'km' || unit === 'm' ? exercise.targetDistanceKm : null,
+    }));
+  });
 }
 
 export async function openSession(input: {
@@ -1158,6 +1245,8 @@ export async function openSession(input: {
       set_index: row.set_index,
       weight: row.weight,
       reps: row.reps,
+      duration_sec: row.duration_sec,
+      distance_km: row.distance_km,
     })),
   });
   if (error) throw new Error(error.message);
@@ -1349,18 +1438,34 @@ async function loadSets(sessionId: string): Promise<SessionSet[]> {
     weight: row.weight,
     reps: row.reps,
     done: row.done,
+    durationSec: row.duration_sec ?? null,
+    distanceKm: row.distance_km == null ? null : Number(row.distance_km),
   }));
 }
 
 /** Persist a set. `weight` is in `weightUnit` and stored as kg. */
 export async function updateSet(
   setId: string,
-  patch: { weight?: string; reps?: string; done?: boolean },
+  patch: {
+    weight?: string;
+    reps?: string;
+    done?: boolean;
+    durationSec?: number | null;
+    distanceKm?: number | null;
+  },
   weightUnit: WeightUnit = 'kg',
 ): Promise<void> {
-  const row: { weight?: string; reps?: string; done?: boolean } = {};
+  const row: {
+    weight?: string;
+    reps?: string;
+    done?: boolean;
+    durationSec?: number | null;
+    distanceKm?: number | null;
+  } = {};
   if (patch.reps !== undefined) row.reps = patch.reps;
   if (patch.done !== undefined) row.done = patch.done;
+  if (patch.durationSec !== undefined) row.durationSec = patch.durationSec;
+  if (patch.distanceKm !== undefined) row.distanceKm = patch.distanceKm;
   if (patch.weight !== undefined) {
     const trimmed = patch.weight.trim();
     if (!trimmed) row.weight = '';
@@ -1496,6 +1601,8 @@ export async function addSessionSet(input: {
       weight: last.weight,
       reps: last.reps,
       done: false,
+      duration_sec: last.durationSec,
+      distance_km: last.distanceKm,
     },
   ]);
   const { error } = await db().rpc(rpc.appendWorkoutSet, call.args);
@@ -1583,7 +1690,9 @@ export async function finishSession(input: {
     groups.set(set.exerciseId, group);
   }
   for (const [exerciseId, sets] of groups) {
-    const update = applyLoggedSets(input.records[exerciseId] ?? null, sets);
+    // Time / intervals / distance sets are not weight×reps PRs.
+    const strengthSets = sets.filter((set) => set.durationSec == null && set.distanceKm == null);
+    const update = applyLoggedSets(input.records[exerciseId] ?? null, strengthSets);
     if (!update) continue;
     const { error } = await db().from('exercise_records').upsert({
       user_id: input.userId,

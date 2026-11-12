@@ -235,6 +235,23 @@ export {
   txnsForMonth,
 } from './statement-import';
 export type { BankStatementFormat, BankStatementImport, BankStatementTxn } from './statement-import';
+export { BANKS, bankById } from './banks';
+export type { BankConfig, BankId } from './banks';
+export {
+  buildTxnReview,
+  chooseTxnPrefill,
+  collapseBatchDuplicates,
+  findRememberedLineId,
+  groupReviewRowsByDate,
+  matchesExistingTxn,
+} from './txn-review';
+export type {
+  AiMerchantPrefill,
+  BuildTxnReviewInput,
+  ReviewPrefill,
+  ReviewTxnInput,
+  ReviewTxnRow,
+} from './txn-review';
 export {
   AUTO_CATEGORY_CONFIDENCE,
   MAX_STATEMENT_QUESTIONS,

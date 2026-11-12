@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { combineAmounts } from './amounts';
-import { shoppingMergeKey } from './ingredient-merge';
+import { shoppingMergeKey, splitShoppingIngredientName } from './ingredient-merge';
 import {
   groupShoppingByCategory,
   resolveShoppingCategory,
@@ -119,6 +119,27 @@ describe('shoppingMergeKey', () => {
     expect(shoppingMergeKey('chicken breast')).not.toBe(shoppingMergeKey('chicken thigh'));
     expect(shoppingMergeKey('smoked paprika')).not.toBe(shoppingMergeKey('paprika'));
     expect(shoppingMergeKey('whole wheat flour')).not.toBe(shoppingMergeKey('flour'));
+  });
+
+  it('drops comma/bracket prep notes and common prep words', () => {
+    expect(shoppingMergeKey('2 cloves garlic, microplaned')).toBe('garlic');
+    expect(shoppingMergeKey('garlic (microplaned)')).toBe('garlic');
+    expect(shoppingMergeKey('3 garlic cloves, finely grated')).toBe('garlic');
+    expect(shoppingMergeKey('cooked jasmine rice')).toBe(shoppingMergeKey('jasmine rice'));
+    expect(shoppingMergeKey('leftover rice')).toBe('rice');
+    expect(shoppingMergeKey('steamed rice')).toBe('rice');
+    expect(shoppingMergeKey('butter, softened')).toBe('butter');
+    expect(shoppingMergeKey('salt to taste')).toBe('salt');
+  });
+});
+
+describe('splitShoppingIngredientName', () => {
+  it('splits short and-pairs and leaves single names alone', () => {
+    expect(splitShoppingIngredientName('salt and black pepper')).toEqual(['salt', 'black pepper']);
+    expect(splitShoppingIngredientName('garlic')).toEqual(['garlic']);
+    expect(splitShoppingIngredientName('bacon and egg muffin with melted cheese')).toEqual([
+      'bacon and egg muffin with melted cheese',
+    ]);
   });
 });
 

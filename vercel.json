@@ -19,6 +19,14 @@
         { "key": "Content-Type", "value": "application/manifest+json; charset=utf-8" },
         { "key": "Cache-Control", "value": "public, max-age=3600" }
       ]
+    },
+    {
+      "source": "/kinexus-trolley.zip",
+      "headers": [
+        { "key": "Content-Type", "value": "application/zip" },
+        { "key": "Content-Disposition", "value": "attachment; filename=\"kinexus-trolley.zip\"" },
+        { "key": "Cache-Control", "value": "public, max-age=300" }
+      ]
     }
   ],
   "rewrites": [
@@ -41,6 +49,7 @@
     { "source": "/collectibles/search", "destination": "/api?__path=/collectibles/search" },
     { "source": "/collectibles/lookup", "destination": "/api?__path=/collectibles/lookup" },
     { "source": "/budget/classify", "destination": "/api?__path=/budget/classify" },
+    { "source": "/budget/transactions/read", "destination": "/api?__path=/budget/transactions/read" },
     { "source": "/watchlist/search", "destination": "/api?__path=/watchlist/search" },
     { "source": "/watchlist/lookup", "destination": "/api?__path=/watchlist/lookup" },
     { "source": "/watchlist/resolve", "destination": "/api?__path=/watchlist/resolve" },

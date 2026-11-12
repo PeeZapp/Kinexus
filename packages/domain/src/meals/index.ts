@@ -207,8 +207,10 @@ export { GROCERY_CHAINS, groceryChainById, lookupChainsForCountry } from './groc
 export type { GroceryChain } from './grocery-chains';
 
 export {
+  GROCERY_MATCHER_VERSION,
   applyCataloguePick,
   catalogueChoices,
+  catalogueExtraTokens,
   catalogueQuery,
   compareShoppingList,
   comparisonFromLineQuotes,
@@ -217,7 +219,9 @@ export {
   parseUnitPrice,
   pickCatalogueOffer,
   quotesWithPins,
+  storedGroceryQuoteIdentityMatches,
   storedGroceryQuoteMatches,
+  withGroceryMatcherVersion,
 } from './grocery-compare';
 export type {
   CatalogueChoice,

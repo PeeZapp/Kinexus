@@ -6,6 +6,8 @@ export type SessionSetWrite = {
   weight?: string;
   reps?: string;
   done?: boolean;
+  duration_sec?: number | null;
+  distance_km?: number | null;
 };
 
 export function appendWorkoutSetCall(sessionId: string, sets: readonly SessionSetWrite[]) {
@@ -17,7 +19,13 @@ export function appendWorkoutSetCall(sessionId: string, sets: readonly SessionSe
 
 export function updateWorkoutSetCall(
   setId: string,
-  patch: { weight?: string; reps?: string; done?: boolean },
+  patch: {
+    weight?: string;
+    reps?: string;
+    done?: boolean;
+    durationSec?: number | null;
+    distanceKm?: number | null;
+  },
 ) {
   return {
     rpc: 'update_workout_set' as const,
@@ -26,6 +34,10 @@ export function updateWorkoutSetCall(
       p_weight: patch.weight ?? null,
       p_reps: patch.reps ?? null,
       p_done: patch.done ?? null,
+      p_duration_sec: patch.durationSec === undefined ? null : patch.durationSec,
+      p_distance_km: patch.distanceKm === undefined ? null : patch.distanceKm,
+      p_update_duration: patch.durationSec !== undefined,
+      p_update_distance: patch.distanceKm !== undefined,
     },
   };
 }

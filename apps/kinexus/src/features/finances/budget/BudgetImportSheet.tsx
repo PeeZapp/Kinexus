@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
 
 import {
   applyAiMerchantGuesses,
@@ -23,6 +22,11 @@ import {
 } from '@kinexus/domain';
 
 import { Btn, Field, Pill } from '@/src/features/household/ui';
+import {
+  MAX_STATEMENT_CHARS,
+  pasteStatementText,
+  pickStatementFile,
+} from '@/src/features/finances/budget/statement-file';
 import { classifyBudgetMerchants } from '@/src/features/finances/finance-api';
 import { Sheet } from '@/src/features/meals/meals-kit';
 import { colors, radius, space } from '@/src/features/shell/theme';
@@ -36,27 +40,7 @@ const FORMAT_LABEL = {
   text: 'pasted text',
 } as const;
 
-const MAX_STATEMENT_CHARS = 2_000_000;
-
 type Step = 'upload' | 'questions' | 'review';
-
-function pickStatementFile(): Promise<string | null> {
-  if (typeof document === 'undefined') return Promise.resolve(null);
-  return new Promise((resolve) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.csv,.ofx,.qfx,.qif,.txt,text/csv,text/plain,application/x-ofx';
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (!file) {
-        resolve(null);
-        return;
-      }
-      void file.text().then(resolve, () => resolve(null));
-    };
-    input.click();
-  });
-}
 
 export function BudgetImportSheet({
   visible,
@@ -106,8 +90,8 @@ export function BudgetImportSheet({
   }, [visible]);
 
   async function pasteClipboard() {
-    const next = await Clipboard.getStringAsync();
-    if (next.trim()) setText(next);
+    const next = await pasteStatementText();
+    if (next) setText(next);
   }
 
   async function chooseFile() {

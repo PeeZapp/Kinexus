@@ -81,4 +81,12 @@ export const rpc = {
   canViewTrainBuddyEvent: 'can_view_train_buddy_event',
   canViewTrainTogetherInvite: 'can_view_train_together_invite',
   trainGlobalWorkoutScore: 'train_global_workout_score',
+  createGroupWorkout: 'create_group_workout',
+  inviteGroupWorkoutBuddy: 'invite_group_workout_buddy',
+  joinGroupWorkoutByCode: 'join_group_workout_by_code',
+  leaveGroupWorkout: 'leave_group_workout',
+  addGroupWorkoutPick: 'add_group_workout_pick',
+  removeGroupWorkoutPick: 'remove_group_workout_pick',
+  closeGroupWorkoutIfDue: 'close_group_workout_if_due',
+  buildGroupWorkout: 'build_group_workout',
 } as const;

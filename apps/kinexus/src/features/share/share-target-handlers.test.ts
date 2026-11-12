@@ -1,12 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { guessShareTarget, shareTargetPrimaryActionLabel } from '@kinexus/domain';
-
-import { decideShareIntent } from '@/src/features/share/share-intent-route';
-import { handoffShareTarget } from '@/src/features/share/share-target-handlers';
+import { guessShareFiles, guessShareTarget, shareTargetPrimaryActionLabel } from '@kinexus/domain';
 
 const writeLastUsed = vi.fn(async () => undefined);
 const stashImport = vi.fn();
+const stashBudget = vi.fn();
+
+vi.mock('expo-file-system/legacy', () => ({
+  EncodingType: { Base64: 'base64', UTF8: 'utf8' },
+  readAsStringAsync: vi.fn(async () => ''),
+}));
+
+vi.mock('@/src/features/lists/list-file-io', () => ({
+  readListFileUri: vi.fn(async () => ({ fileName: 'import', mimeType: null, text: '', bytes: null })),
+}));
 
 vi.mock('@/src/features/share/share-target-last-list', async () => {
   const actual = await vi.importActual<typeof import('@/src/features/share/share-target-last-list')>(
@@ -22,6 +29,13 @@ vi.mock('@/src/features/lists/list-import-stash', () => ({
   stashListImport: (...args: unknown[]) => stashImport(...args),
 }));
 
+vi.mock('@/src/features/finances/budget/budget-txn-share-stash', () => ({
+  stashBudgetTxnShare: (...args: unknown[]) => stashBudget(...args),
+}));
+
+const { decideShareIntent } = await import('@/src/features/share/share-intent-route');
+const { handoffShareTarget } = await import('@/src/features/share/share-target-handlers');
+
 describe('share target picker model', () => {
   it('uses the top guess as the primary action label', () => {
     const guess = guessShareTarget({ url: 'https://www.imdb.com/title/tt0133093/' });
@@ -31,12 +45,26 @@ describe('share target picker model', () => {
 });
 
 describe('decideShareIntent', () => {
-  it('bypasses the picker for list import files', () => {
+  it('opens the picker for multi-candidate files', () => {
     const decision = decideShareIntent({
-      files: [{ fileName: 'watchlist.csv', path: '/tmp/watchlist.csv', mimeType: 'text/csv' }],
-      text: 'https://example.com',
+      files: [{ fileName: 'shot.jpg', path: '/tmp/shot.jpg', mimeType: 'image/jpeg' }],
     });
-    expect(decision.kind).toBe('file');
+    expect(decision.kind).toBe('files');
+    if (decision.kind === 'files') {
+      expect(decision.auto).toBe(false);
+      expect(decision.guess.targets).toEqual(['bank_transactions', 'list_import']);
+    }
+  });
+
+  it('auto-routes single-candidate list files', () => {
+    const decision = decideShareIntent({
+      files: [{ fileName: 'watchlist.xlsx', path: '/tmp/watchlist.xlsx', mimeType: 'application/vnd.ms-excel' }],
+    });
+    expect(decision.kind).toBe('files');
+    if (decision.kind === 'files') {
+      expect(decision.auto).toBe(true);
+      expect(decision.guess.targets).toEqual(['list_import']);
+    }
   });
 
   it('opens the picker for shared links', () => {
@@ -50,12 +78,25 @@ describe('decideShareIntent', () => {
       expect(decision.guess.preview.title).toBe('The Matrix');
     }
   });
+
+  it('ranks bank csv headers ahead of list import', () => {
+    expect(
+      guessShareFiles([
+        {
+          fileName: 'export.csv',
+          mimeType: 'text/csv',
+          textPreview: 'Date,Description,Amount\n1,Coffee,-4',
+        },
+      ]).targets[0],
+    ).toBe('bank_transactions');
+  });
 });
 
 describe('handoffShareTarget', () => {
   beforeEach(() => {
     writeLastUsed.mockClear();
     stashImport.mockClear();
+    stashBudget.mockClear();
   });
 
   it('hands recipe to /import', async () => {
@@ -186,5 +227,29 @@ describe('handoffShareTarget', () => {
       pathname: '/lists/import',
       params: { kind: 'workout', linkUrl: 'https://hevy.com/workout/9zxJ5CLFduN' },
     });
+  });
+
+  it('hands bank transactions to finances with stash', async () => {
+    const replace = vi.fn();
+    const file = new File(['Date,Description,Amount\n01/01/2026,Coffee,-4.5\n'], 'commbank.csv', {
+      type: 'text/csv',
+    });
+    await handoffShareTarget(
+      {
+        target: 'bank_transactions',
+        url: null,
+        text: null,
+        list: null,
+        files: [{ fileName: 'commbank.csv', mimeType: 'text/csv', file }],
+      },
+      { replace },
+    );
+    expect(stashBudget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'statement',
+        fileName: 'commbank.csv',
+      }),
+    );
+    expect(replace).toHaveBeenCalledWith({ pathname: '/finances', params: { addTransactions: '1' } });
   });
 });

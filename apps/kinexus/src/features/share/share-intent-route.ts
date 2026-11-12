@@ -1,9 +1,17 @@
-import { guessShareTarget, isListImportFileName, type ShareTargetGuess } from '@kinexus/domain';
+import {
+  guessShareFiles,
+  guessShareTarget,
+  type ShareTargetGuess,
+} from '@kinexus/domain';
 
 export type ShareIntentFile = {
   fileName?: string | null;
   path?: string | null;
   mimeType?: string | null;
+  /** Optional text peek for CSV / statement classification. */
+  textPreview?: string | null;
+  /** Optional web File / blob handle when available. */
+  file?: File | null;
 };
 
 export type ShareIntentPayload = {
@@ -14,16 +22,35 @@ export type ShareIntentPayload = {
 };
 
 export type ShareIntentDecision =
-  | { kind: 'file'; file: ShareIntentFile }
+  | {
+      kind: 'files';
+      files: ShareIntentFile[];
+      guess: ShareTargetGuess;
+      auto: boolean;
+    }
   | { kind: 'picker'; guess: ShareTargetGuess; payload: { url: string | null; text: string | null; title: string | null } }
   | { kind: 'empty' };
 
-/** Decide whether a share opens list-file import or the target picker. */
+/** Decide whether a share opens file handoff, the target picker, or nothing. */
 export function decideShareIntent(payload: ShareIntentPayload): ShareIntentDecision {
-  const file = payload.files?.[0] ?? null;
-  const fileName = file?.fileName ?? '';
-  if (file && isListImportFileName(fileName)) {
-    return { kind: 'file', file };
+  const files = (payload.files ?? []).filter(
+    (file) => Boolean(file.fileName?.trim() || file.path?.trim() || file.mimeType?.trim() || file.file),
+  );
+
+  if (files.length > 0) {
+    const guess = guessShareFiles(
+      files.map((file) => ({
+        fileName: file.fileName,
+        mimeType: file.mimeType,
+        textPreview: file.textPreview,
+      })),
+    );
+    return {
+      kind: 'files',
+      files,
+      guess,
+      auto: guess.targets.length <= 1,
+    };
   }
 
   const guess = guessShareTarget({

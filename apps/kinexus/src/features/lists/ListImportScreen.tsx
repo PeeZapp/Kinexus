@@ -3,6 +3,8 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import {
+  defaultTargetFor,
+  trackingCompatTargets,
   watchlistEntries,
   type ExistingDedupeItem,
   type HistoryDedupeItem,
@@ -177,23 +179,86 @@ export function ListImportScreen() {
             ...current.exercises.map((exercise) => ({
               exerciseId: exercise.exerciseId,
               name: exercise.name,
+              tracking: exercise.tracking,
+              targetUnit: exercise.targetUnit,
               targetSets: exercise.targetSets,
               targetReps: exercise.targetReps,
+              targetDurationSec: exercise.targetDurationSec,
+              targetDistanceKm: exercise.targetDistanceKm,
               targetWeight: exercise.targetWeight,
               targetEffort: exercise.targetEffort,
               targetRpe: exercise.targetRpe,
               note: exercise.note,
               supersetId: exercise.supersetId,
             })),
-            {
-              exerciseId: null as string | null,
-              name: row.title,
-              targetSets: row.sets ?? 3,
-              targetReps: row.reps ?? '8',
-              targetWeight: workoutWeightToKg(row.weight, weightUnit),
-              note: row.notes ?? '',
-              supersetId: null as string | null,
-            },
+            (() => {
+              const hasLoad =
+                (row.reps != null && String(row.reps).trim() !== '') ||
+                (row.weight != null && row.weight > 0);
+              const durationSec = row.durationSec;
+              const distanceKm = row.distanceKm;
+              if (!hasLoad && ((durationSec != null && durationSec > 0) || (distanceKm != null && distanceKm > 0))) {
+                const sets = Math.max(1, row.sets ?? 1);
+                const fromDistance =
+                  distanceKm != null && distanceKm > 0
+                    ? trackingCompatTargets({
+                        tracking: 'distance',
+                        targetUnit: distanceKm < 1 ? 'm' : 'km',
+                        targetSets: sets,
+                        targetReps: distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm} km`,
+                        targetDurationSec: null,
+                        targetDistanceKm: distanceKm,
+                      })
+                    : null;
+                const fromDuration =
+                  !fromDistance && durationSec != null && durationSec > 0
+                    ? trackingCompatTargets({
+                        tracking: durationSec < 120 ? 'intervals' : 'time',
+                        targetUnit: durationSec < 120 ? 'sec' : 'min',
+                        targetSets: sets,
+                        targetReps:
+                          durationSec < 120
+                            ? `${durationSec} s`
+                            : `${Math.max(1, Math.round(durationSec / 60))} min`,
+                        targetDurationSec:
+                          durationSec < 120 ? durationSec : Math.max(1, Math.round(durationSec / 60)) * 60,
+                        targetDistanceKm: null,
+                      })
+                    : null;
+                const targets = fromDistance ?? fromDuration!;
+                return {
+                  exerciseId: null as string | null,
+                  name: row.title,
+                  tracking: targets.tracking,
+                  targetUnit: targets.targetUnit,
+                  targetSets: targets.targetSets,
+                  targetReps: targets.targetReps,
+                  targetDurationSec: targets.targetDurationSec,
+                  targetDistanceKm: targets.targetDistanceKm,
+                  targetWeight: null as number | null,
+                  note: row.notes ?? '',
+                  supersetId: null as string | null,
+                };
+              }
+              const defaults = defaultTargetFor({
+                name: row.title,
+                targetSets: row.sets ?? 3,
+                targetReps: row.reps ?? '8',
+              });
+              return {
+                exerciseId: null as string | null,
+                name: row.title,
+                tracking: defaults.tracking,
+                targetUnit: defaults.targetUnit,
+                targetSets: defaults.targetSets,
+                targetReps: defaults.targetReps,
+                targetDurationSec: defaults.targetDurationSec,
+                targetDistanceKm: defaults.targetDistanceKm,
+                targetWeight: workoutWeightToKg(row.weight, weightUnit),
+                note: row.notes ?? '',
+                supersetId: null as string | null,
+              };
+            })(),
           ];
           await saveWorkout(listId, activeHousehold.id, {
             name: current.name,
@@ -222,8 +287,12 @@ export function ListImportScreen() {
                     .map((exercise) => ({
                       exerciseId: exercise.exerciseId,
                       name: exercise.name,
+                      tracking: exercise.tracking,
+                      targetUnit: exercise.targetUnit,
                       targetSets: exercise.targetSets,
                       targetReps: exercise.targetReps,
+                      targetDurationSec: exercise.targetDurationSec,
+                      targetDistanceKm: exercise.targetDistanceKm,
                       targetWeight: exercise.targetWeightKg,
                       targetEffort: exercise.targetEffort ?? null,
                       targetRpe: exercise.targetRpe,
@@ -277,6 +346,7 @@ export function ListImportScreen() {
                       weightKg: set.weightKg,
                       reps: set.reps,
                       durationSec: set.durationSec,
+                      distanceKm: set.distanceM != null ? set.distanceM / 1000 : null,
                     })),
                   })),
                 });

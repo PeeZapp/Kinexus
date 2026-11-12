@@ -109,6 +109,7 @@ export {
   acceptExerciseMatch,
   applyHistoryDedupe,
   applyRoutineDedupe,
+  buildExerciseFromSets,
   historyDedupeKey,
   keepExerciseFreeText,
   matchPlanExercises,
@@ -118,6 +119,7 @@ export {
   routinesFromSessions,
   routinesToRows,
   summarizeWorkoutImport,
+  trackingTargetsFromImportSets,
 } from './workout-import';
 export type { HistoryDedupeItem, ParsedWorkoutFile } from './workout-import';
 

@@ -210,6 +210,81 @@ describe('generateTrainPlan', () => {
     expect(aVol).toBeGreaterThanOrEqual(bVol);
   });
 
+  it('generates cardio / plank / distance targets with tracking fields', () => {
+    const cardioCatalogue: CatalogExercise[] = [
+      {
+        id: 'walk1',
+        name: 'Outdoor Walk',
+        bodyPart: 'cardio',
+        equipment: 'bodyweight',
+        targetMuscle: '',
+        canonicalKey: 'outdoor walk',
+        category: 'Cardio',
+      },
+      {
+        id: 'plank1',
+        name: 'Plank',
+        bodyPart: 'core',
+        equipment: 'bodyweight',
+        targetMuscle: 'abs',
+        category: 'Core',
+      },
+      {
+        id: 'row2k',
+        name: 'Row 2 km',
+        bodyPart: 'cardio',
+        equipment: 'machine',
+        targetMuscle: '',
+        canonicalKey: 'rowing stationary',
+        category: 'Cardio',
+      },
+      ...catalogue,
+    ];
+    const plan = generateTrainPlan(
+      baseInput({
+        catalogue: cardioCatalogue,
+        days: ['monday', 'wednesday'],
+        daysPerWeek: 2,
+        durationMin: 60,
+        focusByDay: { monday: 'Walk', wednesday: 'Core' },
+        seed: 7,
+      }),
+    );
+    const walkDay = plan.find((d) => d.day === 'monday' && !d.restDay);
+    expect(walkDay?.exercises[0]).toMatchObject({
+      tracking: 'time',
+      targetUnit: 'min',
+      targetSets: 1,
+      targetDurationSec: 60 * 60,
+      targetReps: '60 min',
+    });
+
+    const coreDay = plan.find((d) => d.day === 'wednesday' && !d.restDay);
+    const plank = coreDay?.exercises.find((e) => /plank/i.test(e.name));
+    expect(plank).toMatchObject({
+      tracking: 'intervals',
+      targetUnit: 'sec',
+      targetDurationSec: 30,
+    });
+
+    const rowDay = generateTrainPlan(
+      baseInput({
+        catalogue: cardioCatalogue,
+        days: ['friday'],
+        daysPerWeek: 1,
+        durationMin: 30,
+        focusByDay: { friday: 'Row' },
+        seed: 4,
+      }),
+    ).find((d) => d.day === 'friday' && !d.restDay);
+    expect(rowDay?.exercises[0]).toMatchObject({
+      tracking: 'distance',
+      targetUnit: 'km',
+      targetDistanceKm: 2,
+      targetReps: '2 km',
+    });
+  });
+
   it('orders compounds before isolation work', () => {
     const plan = generateTrainPlan(
       baseInput({

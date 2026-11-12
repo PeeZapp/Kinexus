@@ -2,11 +2,15 @@
    Network-first for pages so deploys are not stuck behind a stale shell.
    Cache-first only for hashed Expo assets. Do not precache the whole site.
    Succeeded recipe-import JSON is network-first with a dedicated cache.
-   Intercepts Web Share Target POSTs so Android installed PWAs can receive shares. */
+   Intercepts Web Share Target POSTs so Android installed PWAs can receive shares.
+   Shared files are stashed in Cache API, then the client takes them on /share/recipe. */
 
-const VERSION = 'kinexus-pwa-v3';
+const VERSION = 'kinexus-pwa-v4';
 const STATIC_CACHE = `${VERSION}-static`;
 const RECIPE_CACHE = 'kinexus-recipes-v1';
+const SHARE_FILES_CACHE = 'kinexus-share-files-v1';
+const SHARE_FILES_INDEX_KEY = '/__kinexus_share_files_index__';
+const SHARE_FILE_KEY_PREFIX = '/__kinexus_share_file__/';
 const RECIPE_JSON = /^\/api\/recipes\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SHARE_RECIPE_PATH = '/share/recipe';
 
@@ -31,7 +35,11 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       const keys = await caches.keys();
-      await Promise.all(keys.filter((key) => !key.startsWith(VERSION) && key !== RECIPE_CACHE).map((key) => caches.delete(key)));
+      await Promise.all(
+        keys
+          .filter((key) => !key.startsWith(VERSION) && key !== RECIPE_CACHE && key !== SHARE_FILES_CACHE)
+          .map((key) => caches.delete(key)),
+      );
       await self.clients.claim();
     })(),
   );
@@ -68,6 +76,46 @@ self.addEventListener('fetch', (event) => {
   }
 });
 
+async function stashShareFiles(files) {
+  const cache = await caches.open(SHARE_FILES_CACHE);
+  const existing = await cache.match(SHARE_FILES_INDEX_KEY);
+  if (existing) {
+    try {
+      const prev = await existing.json();
+      await Promise.all((prev || []).map((entry) => cache.delete(entry.key)));
+    } catch {
+      /* ignore */
+    }
+    await cache.delete(SHARE_FILES_INDEX_KEY);
+  }
+
+  const index = [];
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    if (!file || typeof file !== 'object') continue;
+    const key = `${SHARE_FILE_KEY_PREFIX}${i}`;
+    const type = file.type || 'application/octet-stream';
+    const name = file.name || `shared-${i}`;
+    await cache.put(
+      key,
+      new Response(file, {
+        headers: {
+          'Content-Type': type,
+          'X-File-Name': encodeURIComponent(name),
+        },
+      }),
+    );
+    index.push({ key, name, type });
+  }
+  await cache.put(
+    SHARE_FILES_INDEX_KEY,
+    new Response(JSON.stringify(index), {
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  );
+  return index.length;
+}
+
 async function handleShareTarget(request) {
   try {
     const formData = await request.formData();
@@ -75,6 +123,11 @@ async function handleShareTarget(request) {
     for (const key of ['url', 'text', 'title']) {
       const value = formData.get(key);
       if (typeof value === 'string' && value.trim()) params.set(key, value);
+    }
+    const files = formData.getAll('files').filter((entry) => entry && typeof entry === 'object' && 'arrayBuffer' in entry);
+    if (files.length > 0) {
+      const count = await stashShareFiles(files);
+      if (count > 0) params.set('sharedFiles', '1');
     }
     const target = params.toString() ? `${SHARE_RECIPE_PATH}?${params}` : SHARE_RECIPE_PATH;
     return Response.redirect(target, 303);

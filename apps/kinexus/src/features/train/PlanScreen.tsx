@@ -5,6 +5,7 @@ import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import {
   TRAIN_SESSION_TYPES,
   buildIntentWeekDays,
+  formatTrackingTarget,
   mondayWeekStart,
   remixCategoryOf,
   sessionTypeIdFromFocus,
@@ -132,7 +133,17 @@ function cardsForPlan(
     const exerciseNames = (workout?.exercises ?? [])
       .slice()
       .sort((a, b) => a.position - b.position)
-      .map((exercise) => exercise.name)
+      .map((exercise) => {
+        const target = formatTrackingTarget({
+          tracking: exercise.tracking,
+          targetUnit: exercise.targetUnit,
+          targetSets: exercise.targetSets,
+          targetReps: exercise.targetReps,
+          targetDurationSec: exercise.targetDurationSec,
+          targetDistanceKm: exercise.targetDistanceKm,
+        });
+        return target ? `${exercise.name} · ${target}` : exercise.name;
+      })
       .filter(Boolean);
     return {
       id: day.id,
@@ -679,8 +690,12 @@ export function PlanScreen() {
               {
                 exerciseId: exercise.exerciseId,
                 name: exercise.name,
+                tracking: exercise.tracking,
+                targetUnit: exercise.targetUnit,
                 targetSets: exercise.targetSets,
                 targetReps: exercise.targetReps,
+                targetDurationSec: exercise.targetDurationSec,
+                targetDistanceKm: exercise.targetDistanceKm,
                 targetWeight: exercise.targetWeight,
                 targetEffort: exercise.targetEffort,
                 targetRpe: exercise.targetRpe,

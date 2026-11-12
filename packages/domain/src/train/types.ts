@@ -22,8 +22,12 @@ export type CatalogExercise = {
 export type RemixPick = {
   exerciseId: string;
   name: string;
+  tracking?: TrackingType;
+  targetUnit?: TargetUnit;
   targetSets: number;
   targetReps: string;
+  targetDurationSec?: number | null;
+  targetDistanceKm?: number | null;
 };
 
 export type LoggedSet = {

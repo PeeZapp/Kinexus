@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 
-import { effortLevelFrom } from '@kinexus/domain';
+import { effortLevelFrom, formatTrackingTarget, targetUnitFrom, trackingTypeFrom } from '@kinexus/domain';
 
 import { fetchSharedWorkout, type SharedWorkoutResponse } from '@/src/features/share/share-api';
 import { createWorkout } from '@/src/features/train/api';
@@ -85,16 +85,25 @@ export function SharedWorkoutScreen() {
         splitId: null,
         durationMin: data.durationMin,
         personIds: [],
-        exercises: data.exercises.map((exercise) => ({
-          exerciseId: null,
-          name: exercise.name,
-          targetSets: exercise.sets,
-          targetReps: exercise.reps,
-          targetEffort: effortLevelFrom(exercise.effort),
-          targetRpe: exercise.rpe,
-          note: exercise.note,
-          supersetId: exercise.supersetId,
-        })),
+        exercises: data.exercises.map((exercise) => {
+          const tracking = trackingTypeFrom(exercise.tracking);
+          const targetDistanceKm = exercise.targetDistanceKm ?? null;
+          const targetUnit = targetUnitFrom(exercise.targetUnit, tracking, { targetDistanceKm });
+          return {
+            exerciseId: null,
+            name: exercise.name,
+            tracking,
+            targetUnit,
+            targetSets: exercise.sets,
+            targetReps: exercise.reps,
+            targetDurationSec: exercise.targetDurationSec ?? null,
+            targetDistanceKm,
+            targetEffort: effortLevelFrom(exercise.effort),
+            targetRpe: exercise.rpe,
+            note: exercise.note,
+            supersetId: exercise.supersetId,
+          };
+        }),
       });
       setStatus('Saved to your workouts');
       router.push(`/train/${id}` as Href);
@@ -156,7 +165,14 @@ export function SharedWorkoutScreen() {
                 <View key={`${clusterIndex}-${index}-${exercise.name}`} style={styles.card}>
                   <Text style={styles.exerciseName}>{exercise.name}</Text>
                   <Text style={styles.plan}>
-                    {exercise.sets} × {exercise.reps}
+                    {formatTrackingTarget({
+                      tracking: exercise.tracking,
+                      targetUnit: exercise.targetUnit,
+                      targetSets: exercise.sets,
+                      targetReps: exercise.reps,
+                      targetDurationSec: exercise.targetDurationSec,
+                      targetDistanceKm: exercise.targetDistanceKm,
+                    })}
                     {exercise.rpe != null ? ` · RPE ${exercise.rpe}` : ''}
                   </Text>
                   {effort ? <EffortBadge effort={effort} /> : null}

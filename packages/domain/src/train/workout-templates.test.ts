@@ -56,6 +56,43 @@ describe('workout-templates', () => {
     expect(filled[0]?.name).toBe('Assault Bike');
     expect(filled[0]?.targetReps).toBe('25 min');
     expect(filled[0]?.targetSets).toBe(1);
+    expect(filled[0]?.tracking).toBe('time');
+    expect(filled[0]?.targetUnit).toBe('min');
+    expect(filled[0]?.targetDurationSec).toBe(25 * 60);
+  });
+
+  it('fills a plank as intervals and a distance-named row as km', () => {
+    const withHolds: CatalogExercise[] = [
+      ...catalogue,
+      ex('plank1', 'Plank', 'core', 'abs', { category: 'Core', equipment: 'bodyweight' }),
+      ex('row2k', 'Row 2 km', 'cardio', '', {
+        canonicalKey: 'rowing stationary',
+        category: 'Cardio',
+        equipment: 'machine',
+      }),
+    ];
+    const core = fillWorkoutFromSessionType({
+      sessionTypeId: 'core',
+      durationMin: 20,
+      catalogue: withHolds,
+      seed: 9,
+    });
+    const plank = core.find((row) => /plank/i.test(row.name));
+    expect(plank?.targetUnit).toBe('sec');
+    expect(plank?.tracking).toBe('intervals');
+    expect(plank?.targetDurationSec).toBe(30);
+
+    const row = fillWorkoutFromSessionType({
+      sessionTypeId: 'row',
+      durationMin: 30,
+      catalogue: withHolds,
+      seed: 2,
+    });
+    expect(row).toHaveLength(1);
+    expect(row[0]?.targetUnit).toBe('km');
+    expect(row[0]?.tracking).toBe('distance');
+    expect(row[0]?.targetDistanceKm).toBe(2);
+    expect(row[0]?.targetReps).toBe('2 km');
   });
 
   it('fills strength session types from categories', () => {
@@ -96,7 +133,18 @@ describe('workout-templates', () => {
     expect(walk).toHaveLength(1);
     expect(walk[0]?.targetReps).toBe('30 min');
     expect(walk[0]?.targetSets).toBe(1);
+    expect(walk[0]?.targetUnit).toBe('min');
+    expect(walk[0]?.targetDurationSec).toBe(30 * 60);
     expect(walk[0]?.name.toLowerCase()).toContain('walk');
+
+    const longWalk = fillWorkoutFromSessionType({
+      sessionTypeId: walkId!,
+      durationMin: 60,
+      catalogue,
+      seed: 2,
+    });
+    expect(longWalk[0]?.targetReps).toBe('60 min');
+    expect(longWalk[0]?.targetDurationSec).toBe(60 * 60);
   });
 
   it('quietly widens Upper Push when the narrow pool is empty', () => {

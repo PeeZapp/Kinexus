@@ -86,8 +86,12 @@ export function RemixScreen() {
         exercises: picks.map((pick) => ({
           exerciseId: pick.exerciseId,
           name: pick.name,
+          tracking: pick.tracking,
+          targetUnit: pick.targetUnit,
           targetSets: pick.targetSets,
           targetReps: pick.targetReps,
+          targetDurationSec: pick.targetDurationSec,
+          targetDistanceKm: pick.targetDistanceKm,
         })),
       });
       setBuildOpen(false);

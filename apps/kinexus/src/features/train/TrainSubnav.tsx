@@ -22,6 +22,7 @@ const TABS = [
         !path.startsWith('/train/remix') &&
         !path.startsWith('/train/library') &&
         !path.startsWith('/train/buddies') &&
+        !path.startsWith('/train/group') &&
         !path.startsWith('/train/plan') &&
         !path.startsWith('/train/family') &&
         !path.startsWith('/train/workouts')),
@@ -29,7 +30,11 @@ const TABS = [
   { href: '/train/family' as Href, label: 'Family', match: (path: string) => path.startsWith('/train/family') },
   { href: '/train/remix' as Href, label: 'Remix', match: (path: string) => path.startsWith('/train/remix') },
   { href: '/train/library' as Href, label: 'Library', match: (path: string) => path.startsWith('/train/library') },
-  { href: '/train/buddies' as Href, label: 'Buddies', match: (path: string) => path.startsWith('/train/buddies') },
+  {
+    href: '/train/buddies' as Href,
+    label: 'Buddies',
+    match: (path: string) => path.startsWith('/train/buddies') || path.startsWith('/train/group'),
+  },
 ];
 
 export function TrainSubnav() {

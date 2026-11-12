@@ -47,8 +47,12 @@ const sampleDay = (overrides?: Partial<ApplyTrainingPlanDay>): ApplyTrainingPlan
     {
       exerciseId: 'ex1',
       name: 'Bench Press',
+      tracking: 'reps',
+      targetUnit: 'reps',
       targetSets: 3,
       targetReps: '8-12',
+      targetDurationSec: null,
+      targetDistanceKm: null,
       targetRpe: 7,
       category: 'Chest',
     },

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -28,9 +28,11 @@ import {
   readBudgetTransactionsFromScreenshots,
 } from '@/src/features/finances/finance-api';
 import { Sheet } from '@/src/features/meals/meals-kit';
+import type { StashedBudgetTxnShare } from '@/src/features/finances/budget/budget-txn-share-stash';
 import {
   pickRecipePhotos,
   prepareBankScreenshots,
+  recipePhotosFromSharedImages,
   releaseRecipePhotoPreview,
 } from '@/src/features/meals/recipes/recipe-photo-import';
 import { colors, radius, space } from '@/src/features/shell/theme';
@@ -60,6 +62,8 @@ export function AddTransactionsSheet({
   currency,
   busy,
   error,
+  sharedIntake = null,
+  onSharedIntakeConsumed,
   onClose,
   onAdded,
   onSave,
@@ -70,6 +74,9 @@ export function AddTransactionsSheet({
   currency: string;
   busy?: boolean;
   error?: string | null;
+  /** Shared screenshots / statement from the share target handoff. */
+  sharedIntake?: StashedBudgetTxnShare | null;
+  onSharedIntakeConsumed?: () => void;
   onClose: () => void;
   onAdded: (count: number) => void;
   onSave: (
@@ -98,6 +105,8 @@ export function AddTransactionsSheet({
   const [pickingCategoryFor, setPickingCategoryFor] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  const [sharedAiOff, setSharedAiOff] = useState(false);
+  const intakeStarted = useRef(false);
 
   const bank = bankById(bankId);
   const selectedCount = rows.filter((row) => row.selected && !row.alreadyAdded).length;
@@ -107,7 +116,10 @@ export function AddTransactionsSheet({
   const categoryTarget = rows.find((row) => row.id === pickingCategoryFor) ?? null;
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      intakeStarted.current = false;
+      return;
+    }
     setStep('source');
     setBankOpen(false);
     setFileText('');
@@ -116,12 +128,102 @@ export function AddTransactionsSheet({
     setPickingCategoryFor(null);
     setLocalError(null);
     setWorking(false);
-    if (!user?.id) return;
+    setSharedAiOff(false);
+  }, [visible]);
+
+  useEffect(() => {
+    if (!visible || !user?.id) return;
     void AsyncStorage.getItem(BANK_KEY(user.id)).then((raw) => {
       const next = bankById(raw);
       setBankId(next?.id ?? null);
     });
   }, [user?.id, visible]);
+
+  useEffect(() => {
+    if (!visible || !sharedIntake || intakeStarted.current) return;
+    intakeStarted.current = true;
+    const intake = sharedIntake;
+    let cancelled = false;
+
+    void (async () => {
+      if (intake.kind === 'statement') {
+        setFileText(intake.text);
+        setStep('file');
+        setLocalError(null);
+        const raw = intake.text.trim();
+        if (!raw) {
+          setLocalError(
+            /\.pdf$/i.test(intake.fileName) || intake.mimeType === 'application/pdf'
+              ? 'Paste the statement text from that PDF, then continue.'
+              : 'Paste a statement or choose a file first',
+          );
+          return;
+        }
+        if (raw.length > MAX_STATEMENT_CHARS) {
+          setLocalError('That file is too large.');
+          return;
+        }
+        const parsed = parseBankStatement(raw);
+        if (parsed.transactions.length === 0) {
+          setLocalError('No transactions found.');
+          return;
+        }
+        setWorking(true);
+        try {
+          if (cancelled) return;
+          await goToReview(
+            parsed.transactions.map((txn) => ({
+              ...txn,
+              pending: false,
+            })),
+          );
+        } catch (err) {
+          if (!cancelled) setLocalError(err instanceof Error ? err.message : 'Could not read that file');
+        } finally {
+          if (!cancelled) setWorking(false);
+        }
+        return;
+      }
+
+      if (aiOff) {
+        setSharedAiOff(true);
+        setStep('source');
+        return;
+      }
+
+      setWorking(true);
+      setLocalError(null);
+      let picked: Awaited<ReturnType<typeof recipePhotosFromSharedImages>> = [];
+      try {
+        if (!activeHousehold?.id) throw new Error('Pick a household first');
+        picked = await recipePhotosFromSharedImages(intake.screenshots);
+        if (cancelled) return;
+        const images = await prepareBankScreenshots(picked);
+        if (estimatedBodyBytes(images) > BODY_CAP) {
+          throw new Error('Those screenshots are too large together. Try fewer or crop tighter.');
+        }
+        const read = await readBudgetTransactionsFromScreenshots({
+          householdId: activeHousehold.id,
+          localDate: localDateIso(),
+          images,
+        });
+        if (cancelled) return;
+        await goToReview(read.transactions);
+      } catch (err) {
+        if (!cancelled) setLocalError(err instanceof Error ? err.message : 'Could not read screenshots');
+        if (!cancelled) setStep('source');
+      } finally {
+        for (const file of picked) releaseRecipePhotoPreview(file);
+        if (!cancelled) setWorking(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Process each sharedIntake once per open; goToReview uses latest lines/txns.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, sharedIntake, aiOff, activeHousehold?.id]);
 
   async function rememberBank(id: BankId) {
     setBankId(id);
@@ -354,6 +456,7 @@ export function AddTransactionsSheet({
           setPickingCategoryFor(null);
           return;
         }
+        onSharedIntakeConsumed?.();
         onClose();
       }}>
       <View style={styles.stack}>
@@ -364,6 +467,7 @@ export function AddTransactionsSheet({
             bankOpen={bankOpen}
             desktopWeb={desktopWeb}
             aiOff={aiOff}
+            sharedAiOff={sharedAiOff}
             working={working}
             error={localError ?? error}
             onToggleBank={() => setBankOpen((value) => !value)}
@@ -372,6 +476,12 @@ export function AddTransactionsSheet({
             onChooseScreenshots={() => void chooseScreenshots()}
             onFileInstead={() => {
               setLocalError(null);
+              setSharedAiOff(false);
+              setStep('file');
+            }}
+            onEnterManually={() => {
+              setLocalError(null);
+              setSharedAiOff(false);
               setStep('file');
             }}
           />
@@ -440,6 +550,7 @@ function SourceStep({
   bankOpen,
   desktopWeb,
   aiOff,
+  sharedAiOff,
   working,
   error,
   onToggleBank,
@@ -447,12 +558,14 @@ function SourceStep({
   onOpenBank,
   onChooseScreenshots,
   onFileInstead,
+  onEnterManually,
 }: {
   bankName: string | null;
   bankLoginUrl: string;
   bankOpen: boolean;
   desktopWeb: boolean;
   aiOff: boolean;
+  sharedAiOff: boolean;
   working: boolean;
   error?: string | null;
   onToggleBank: () => void;
@@ -460,6 +573,7 @@ function SourceStep({
   onOpenBank: () => void;
   onChooseScreenshots: () => void;
   onFileInstead: () => void;
+  onEnterManually: () => void;
 }) {
   const copy = desktopWeb
     ? 'Log in, download your recent transactions as CSV (or take screenshots), then come back and add the file.'
@@ -467,13 +581,17 @@ function SourceStep({
       ? `Open ${bankName}, screenshot your recent transactions, then come back and pick them.`
       : 'Open your bank app, screenshot your recent transactions, then come back and pick them.';
 
-  const screenshotBlock = aiOff ? (
-    <Text style={styles.warn}>Screenshot reading needs AI, which is off for you in this household.</Text>
-  ) : (
-    <Btn label={working ? 'Reading…' : 'Choose screenshots'} onPress={onChooseScreenshots} busy={working} />
-  );
+  const screenshotBlock =
+    aiOff || sharedAiOff ? (
+      <>
+        <Text style={styles.warn}>Screenshot reading needs AI, which is off for you in this household.</Text>
+        {sharedAiOff ? <Btn label="Enter manually" variant="secondary" onPress={onEnterManually} disabled={working} /> : null}
+      </>
+    ) : (
+      <Btn label={working ? 'Reading…' : 'Choose screenshots'} onPress={onChooseScreenshots} busy={working} />
+    );
 
-  const fileBlock = (
+  const fileBlock = sharedAiOff ? null : (
     <Btn label="Paste or upload a file instead" variant="secondary" onPress={onFileInstead} disabled={working} />
   );
 
@@ -490,8 +608,8 @@ function SourceStep({
           ))}
         </View>
       ) : null}
-      <Text style={styles.hint}>{copy}</Text>
-      {desktopWeb && bankLoginUrl ? (
+      {sharedAiOff ? null : <Text style={styles.hint}>{copy}</Text>}
+      {desktopWeb && bankLoginUrl && !sharedAiOff ? (
         <Btn label="Open internet banking" variant="secondary" onPress={onOpenBank} disabled={working} />
       ) : null}
       {desktopWeb ? (

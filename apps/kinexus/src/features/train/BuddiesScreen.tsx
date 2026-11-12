@@ -13,6 +13,8 @@ import { PublicName } from '@/src/features/shell/PublicName';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { BuddyDetailSheet } from '@/src/features/train/BuddyDetailSheet';
 import { BuddyPermissionsSheet } from '@/src/features/train/BuddyPermissionsSheet';
+import { GroupWorkoutFormSheet } from '@/src/features/train/GroupWorkoutFormSheet';
+import { GroupWorkoutJoinSheet } from '@/src/features/train/GroupWorkoutJoinSheet';
 import { loadBuddySharedWorkouts, loadWorkouts, type WorkoutDraft } from '@/src/features/train/api';
 import {
   blockTrainBuddy,
@@ -35,6 +37,10 @@ import {
   type TrainBuddyFeedEvent,
   type TrainTogetherInvite,
 } from '@/src/features/train/buddies-api';
+import {
+  listMyGroupWorkouts,
+  type GroupWorkoutSummary,
+} from '@/src/features/train/group-workouts-api';
 import { TrainSettingsPanel } from '@/src/features/train/TrainSettingsPanel';
 import {
   Badge,
@@ -48,9 +54,19 @@ import {
   TrainButton,
   TrainPage,
 } from '@/src/features/train/ui';
+import { ProfileAvatar } from '@/src/features/shell/ProfileAvatar';
 import { useAuth } from '@/src/lib/auth';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useHousehold } from '@/src/lib/household';
+
+function groupStatusChip(group: GroupWorkoutSummary): string {
+  if (group.status === 'cancelled') return 'Cancelled';
+  if (group.status === 'closed' || group.status === 'built') return 'Ready';
+  const closes = new Date(group.closesAt);
+  const day = closes.toLocaleDateString(undefined, { weekday: 'short' });
+  const time = closes.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return `Picking · closes ${day} ${time}`;
+}
 
 type HubTab = 'buddies' | 'activity' | 'together';
 
@@ -80,6 +96,10 @@ export function BuddiesScreen() {
   const [togetherWorkoutId, setTogetherWorkoutId] = useState<string | null>(null);
   const [togetherBuddyIds, setTogetherBuddyIds] = useState<string[]>([]);
   const [togetherWhen, setTogetherWhen] = useState('');
+  const [groupWorkouts, setGroupWorkouts] = useState<GroupWorkoutSummary[]>([]);
+  const [groupFormOpen, setGroupFormOpen] = useState(false);
+  const [groupJoinOpen, setGroupJoinOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<GroupWorkoutSummary | null>(null);
 
   const refresh = useCallback(async () => {
     if (!userId) {
@@ -89,15 +109,17 @@ export function BuddiesScreen() {
       setMyWorkouts([]);
       setFeed([]);
       setTogether([]);
+      setGroupWorkouts([]);
       return;
     }
-    const [rows, invites, shared, events, togetherRows, workouts] = await Promise.all([
+    const [rows, invites, shared, events, togetherRows, workouts, groups] = await Promise.all([
       loadTrainBuddies(userId),
       loadMyTrainBuddyInvites(),
       loadBuddySharedWorkouts(),
       loadTrainBuddyFeed(userId),
       loadTrainTogetherInvites(userId),
       activeHousehold ? loadWorkouts(activeHousehold.id) : Promise.resolve([] as WorkoutDraft[]),
+      listMyGroupWorkouts(),
     ]);
     setConnections(rows.filter((row) => row.status !== 'blocked'));
     setPendingInvites(
@@ -109,6 +131,7 @@ export function BuddiesScreen() {
     setFeed(events);
     setTogether(togetherRows);
     setMyWorkouts(workouts.filter((workout) => workout.createdBy === userId));
+    setGroupWorkouts(groups);
   }, [activeHousehold, userId]);
 
   useFocusEffect(
@@ -222,6 +245,63 @@ export function BuddiesScreen() {
 
         {tab === 'buddies' ? (
           <>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Group workouts</Text>
+              <View style={styles.actions}>
+                <TrainButton
+                  label="New group workout"
+                  disabled={busy}
+                  onPress={() => {
+                    setEditingGroup(null);
+                    setGroupFormOpen(true);
+                  }}
+                />
+                <TrainButton
+                  label="Join with code"
+                  tone="ghost"
+                  disabled={busy}
+                  onPress={() => setGroupJoinOpen(true)}
+                />
+              </View>
+              {groupWorkouts.length === 0 ? <Text style={styles.muted}>No group workouts yet.</Text> : null}
+              {groupWorkouts.map((group) => (
+                <Card key={group.id} onPress={() => router.push(`/train/group/${group.id}` as Href)}>
+                  <Text style={styles.eventTitle}>{group.title}</Text>
+                  <Text style={styles.meta}>
+                    {new Date(`${group.workoutDate}T12:00:00`).toLocaleDateString(undefined, {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                  </Text>
+                  <Pill label={groupStatusChip(group)} />
+                  <View style={styles.avatarRow}>
+                    {group.members.slice(0, 6).map((member) => (
+                      <ProfileAvatar key={member.id} avatarUrl={member.avatarUrl} size={28} />
+                    ))}
+                  </View>
+                  <Text style={styles.meta}>
+                    {group.myPickCount} of {group.picksPerPerson} picks
+                  </Text>
+                  <View style={styles.actions}>
+                    <TextAction
+                      label="Open"
+                      onPress={() => router.push(`/train/group/${group.id}` as Href)}
+                    />
+                    {group.creatorId === userId && group.status === 'picking' ? (
+                      <TextAction
+                        label="Edit"
+                        onPress={() => {
+                          setEditingGroup(group);
+                          setGroupFormOpen(true);
+                        }}
+                      />
+                    ) : null}
+                  </View>
+                </Card>
+              ))}
+            </View>
+
             {sharedWorkouts.length > 0 ? (
               <Card>
                 <Text style={styles.heading}>Shared with you</Text>
@@ -517,6 +597,32 @@ export function BuddiesScreen() {
           );
         }}
       />
+
+      <GroupWorkoutFormSheet
+        visible={groupFormOpen}
+        editing={editingGroup}
+        buddies={connections}
+        onClose={() => {
+          setGroupFormOpen(false);
+          setEditingGroup(null);
+        }}
+        onSaved={(result) => {
+          void refresh().catch((err: unknown) =>
+            setError(err instanceof Error ? err.message : 'Could not refresh'),
+          );
+          // Stay on the sheet when a join code is shown so it can be copied.
+          if (result.joinCode) return;
+          setGroupFormOpen(false);
+          setEditingGroup(null);
+          if (result.id) router.push(`/train/group/${result.id}` as Href);
+        }}
+      />
+
+      <GroupWorkoutJoinSheet
+        visible={groupJoinOpen}
+        onClose={() => setGroupJoinOpen(false)}
+        onJoined={(id) => router.push(`/train/group/${id}` as Href)}
+      />
     </TrainPage>
   );
 }
@@ -537,4 +643,5 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm },
   picks: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   eventTitle: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  avatarRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
 });

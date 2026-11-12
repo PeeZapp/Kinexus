@@ -1,3 +1,4 @@
+import { defaultTargetFor, targetUnitFrom, unitToTracking } from './tracking';
 import type { CatalogExercise, RemixPick } from './types';
 
 export const REMIX_CATEGORIES = [
@@ -247,12 +248,25 @@ function pickExercisesForCategory(
   const defaults = getRemixDefaultsForCategory(category);
   if (count <= 0) return [];
   const filtered = pool.filter((exercise) => exerciseMatchesRemixCategory(exercise, category));
-  return weightedSampleWithoutReplacement(filtered, Math.min(count, filtered.length), random).map((exercise) => ({
-    exerciseId: exercise.id,
-    name: exercise.name,
-    targetSets: defaults.sets,
-    targetReps: defaults.reps,
-  }));
+  return weightedSampleWithoutReplacement(filtered, Math.min(count, filtered.length), random).map((exercise) => {
+    const targets = defaultTargetFor({
+      name: exercise.name,
+      category: exercise.category ?? category,
+      canonicalKey: exercise.canonicalKey,
+      instructions: exercise.instructions,
+      repsDefaults: { sets: defaults.sets, reps: defaults.reps },
+    });
+    return {
+      exerciseId: exercise.id,
+      name: exercise.name,
+      tracking: targets.tracking,
+      targetUnit: targets.targetUnit,
+      targetSets: targets.targetSets,
+      targetReps: targets.targetReps,
+      targetDurationSec: targets.targetDurationSec,
+      targetDistanceKm: targets.targetDistanceKm,
+    };
+  });
 }
 
 export function generateFromCategoryMix(
@@ -298,11 +312,37 @@ export function swapSimilarExercises(
     }
     used.add(pick.id);
     changed += 1;
+    const nextDefaults = defaultTargetFor({
+      name: pick.name,
+      category: pick.category ?? category,
+      canonicalKey: pick.canonicalKey,
+      instructions: pick.instructions,
+      repsDefaults: getRemixDefaultsForCategory(category),
+    });
+    const prevUnit = targetUnitFrom(exercise.targetUnit, exercise.tracking, {
+      targetDistanceKm: exercise.targetDistanceKm,
+    });
+    if (prevUnit !== nextDefaults.targetUnit) {
+      return {
+        exerciseId: pick.id,
+        name: pick.name,
+        tracking: nextDefaults.tracking,
+        targetUnit: nextDefaults.targetUnit,
+        targetSets: nextDefaults.targetSets,
+        targetReps: nextDefaults.targetReps,
+        targetDurationSec: nextDefaults.targetDurationSec,
+        targetDistanceKm: nextDefaults.targetDistanceKm,
+      };
+    }
     return {
       exerciseId: pick.id,
       name: pick.name,
+      tracking: exercise.tracking ?? unitToTracking(prevUnit),
+      targetUnit: prevUnit,
       targetSets: exercise.targetSets,
       targetReps: exercise.targetReps,
+      targetDurationSec: exercise.targetDurationSec ?? null,
+      targetDistanceKm: exercise.targetDistanceKm ?? null,
     };
   });
   return { exercises, changed, kept };

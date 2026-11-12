@@ -10,6 +10,7 @@ import {
   remixCategoryOf,
   remixExerciseCount,
   nextSimilarExercise,
+  swapSimilarExercises,
 } from './remix';
 import type { CatalogExercise } from './types';
 
@@ -75,6 +76,53 @@ describe('remix categories', () => {
     const encoded = encodeRemixSplit(['Full Body', 'Legs'], [100, 80]);
     expect(parseRemixSplit(encoded)).toEqual({ categories: ['Full Body', 'Legs'], weights: [100, 80] });
     expect(buildRemixWorkoutLabel(['Chest', 'Triceps'], 40)).toBe('Chest · Triceps · 40m');
+  });
+});
+
+describe('swapSimilarExercises tracking', () => {
+  it('uses defaults when swapping reps → time', () => {
+    const pool: CatalogExercise[] = [
+      { id: 'squat', name: 'Back squat', bodyPart: 'legs', equipment: 'barbell', targetMuscle: 'quads', category: 'Legs' },
+      {
+        id: 'walk',
+        name: 'Outdoor Walk',
+        bodyPart: 'cardio',
+        equipment: 'bodyweight',
+        targetMuscle: '',
+        category: 'Cardio',
+      },
+      {
+        id: 'jog',
+        name: 'Treadmill Jog',
+        bodyPart: 'cardio',
+        equipment: 'machine',
+        targetMuscle: '',
+        category: 'Cardio',
+      },
+    ];
+    // Same-category Cardio swap: plank-like reps target should not copy onto a walk.
+    const swapped = swapSimilarExercises(
+      [
+        {
+          exerciseId: 'walk',
+          name: 'Outdoor Walk',
+          tracking: 'reps',
+          targetUnit: 'reps',
+          targetSets: 3,
+          targetReps: '8-10',
+          targetDurationSec: null,
+          targetDistanceKm: null,
+        },
+      ],
+      pool,
+      () => 0,
+    );
+    expect(swapped.changed).toBe(1);
+    expect(swapped.exercises[0]?.exerciseId).toBe('jog');
+    expect(swapped.exercises[0]?.targetUnit).toBe('min');
+    expect(swapped.exercises[0]?.tracking).toBe('time');
+    expect(swapped.exercises[0]?.targetDurationSec).toBe(30 * 60);
+    expect(swapped.exercises[0]?.targetReps).toBe('30 min');
   });
 });
 

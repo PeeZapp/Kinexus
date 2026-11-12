@@ -18,6 +18,10 @@ export type TrainImportLinkExercise = {
   willCreateCustom: boolean;
   targetSets: number;
   targetReps: string;
+  tracking?: HevyLinkMatchedExercise['tracking'];
+  targetUnit?: HevyLinkMatchedExercise['targetUnit'];
+  targetDurationSec?: number | null;
+  targetDistanceKm?: number | null;
   targetEffort: EffortLevel | null;
   targetWeightKg: number | null;
   sets: Array<{
@@ -64,6 +68,10 @@ export function trainImportLinkToPreview(payload: TrainImportLinkResponse): Hevy
         })),
         targetSets: ex.targetSets,
         targetReps: ex.targetReps,
+        tracking: ex.tracking,
+        targetUnit: ex.targetUnit,
+        targetDurationSec: ex.targetDurationSec ?? null,
+        targetDistanceKm: ex.targetDistanceKm ?? null,
         targetWeightKg: ex.targetWeightKg,
         targetRpe: null,
         targetEffort: ex.targetEffort,

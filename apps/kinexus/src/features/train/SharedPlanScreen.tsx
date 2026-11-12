@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 
-import { DAYS, mondayWeekStart, type Day } from '@kinexus/domain';
+import { DAYS, formatTrackingTarget, mondayWeekStart, type Day } from '@kinexus/domain';
 
 import { fetchSharedTrainingPlan, type SharedTrainingPlanResponse } from '@/src/features/share/share-api';
 import { copySharedTrainingPlan } from '@/src/features/train/api';
@@ -140,7 +140,16 @@ export function SharedPlanScreen() {
                     {card.exercises.map((exercise, index) => (
                       <Text key={`${exercise.name}-${index}`} style={styles.exercise}>
                         {exercise.name}
-                        {exercise.sets ? ` · ${exercise.sets}×${exercise.reps}` : ''}
+                        {exercise.sets
+                          ? ` · ${formatTrackingTarget({
+                              tracking: exercise.tracking,
+                              targetUnit: exercise.targetUnit,
+                              targetSets: exercise.sets,
+                              targetReps: exercise.reps,
+                              targetDurationSec: exercise.targetDurationSec,
+                              targetDistanceKm: exercise.targetDistanceKm,
+                            })}`
+                          : ''}
                       </Text>
                     ))}
                   </>

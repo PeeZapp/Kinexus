@@ -42,6 +42,10 @@ export type TrainImportLinkResult = {
     willCreateCustom: boolean;
     targetSets: number;
     targetReps: string;
+    tracking?: HevyLinkMatchedExercise['tracking'];
+    targetUnit?: HevyLinkMatchedExercise['targetUnit'];
+    targetDurationSec?: number | null;
+    targetDistanceKm?: number | null;
     targetEffort: HevyLinkMatchedExercise['targetEffort'];
     targetWeightKg: number | null;
     sets: Array<{
@@ -127,6 +131,10 @@ function toResult(
       willCreateCustom: ex.willCreateCustom,
       targetSets: ex.targetSets,
       targetReps: ex.targetReps,
+      tracking: ex.tracking,
+      targetUnit: ex.targetUnit,
+      targetDurationSec: ex.targetDurationSec ?? null,
+      targetDistanceKm: ex.targetDistanceKm ?? null,
       targetEffort: ex.targetEffort,
       targetWeightKg: ex.targetWeightKg,
       sets: ex.sets.map((set) => ({
@@ -218,6 +226,10 @@ export function previewToDomain(result: TrainImportLinkResult): HevyLinkImportPr
       })),
       targetSets: ex.targetSets,
       targetReps: ex.targetReps,
+      tracking: ex.tracking,
+      targetUnit: ex.targetUnit,
+      targetDurationSec: ex.targetDurationSec ?? null,
+      targetDistanceKm: ex.targetDistanceKm ?? null,
       targetWeightKg: ex.targetWeightKg,
       targetRpe: null,
       targetEffort: ex.targetEffort,

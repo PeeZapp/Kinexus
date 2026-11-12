@@ -452,9 +452,9 @@ export function matchHevyLinkExercises(
   return parsed.exercises.map((ex, index) => {
     const sets = toImportSets(ex.sets);
     const base = buildExerciseFromSets(ex.name, sets);
-    // Prefer modal reps across sets (buildExerciseFromSets already does this).
+    // Prefer modal reps across sets for strength rows (don't clobber time/distance targets).
     const repValues = sets.map((set) => set.reps).filter((v): v is string => Boolean(v));
-    if (repValues.length > 0) {
+    if (repValues.length > 0 && (base.targetUnit ?? 'reps') === 'reps') {
       base.targetReps = mostCommonReps(repValues);
     }
     const candidates = rankExerciseMatches(ex.name, catalog);

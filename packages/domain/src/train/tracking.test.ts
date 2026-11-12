@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  defaultTargetFor,
   defaultTrackingTargets,
   formatTrackingTarget,
   inferTracking,
+  progressTrackingTargets,
   trackingCompatTargets,
   trackingToUnit,
   unitToTracking,
@@ -162,5 +164,89 @@ describe('defaultTrackingTargets / formatTrackingTarget / compat', () => {
         targetDistanceKm: null,
       }),
     ).toMatchObject({ targetSets: 3, targetReps: '45 s', targetDurationSec: 45, targetUnit: 'sec' });
+  });
+});
+
+describe('defaultTargetFor / progressTrackingTargets', () => {
+  it('returns time / intervals / distance defaults from inference', () => {
+    expect(defaultTargetFor({ name: 'Outdoor Walk', category: 'Cardio' })).toMatchObject({
+      tracking: 'time',
+      targetUnit: 'min',
+      targetSets: 1,
+      targetDurationSec: 30 * 60,
+      targetReps: '30 min',
+    });
+    expect(defaultTargetFor({ name: 'Plank', category: 'Core' })).toMatchObject({
+      tracking: 'intervals',
+      targetUnit: 'sec',
+      targetSets: 3,
+      targetDurationSec: 30,
+      targetReps: '30 s',
+    });
+    expect(defaultTargetFor({ name: 'Row 2 km', category: 'Cardio' })).toMatchObject({
+      tracking: 'distance',
+      targetUnit: 'km',
+      targetSets: 1,
+      targetDistanceKm: 2,
+      targetReps: '2 km',
+    });
+    expect(defaultTargetFor({ name: '400 m Repeats', category: 'Cardio' })).toMatchObject({
+      tracking: 'distance',
+      targetUnit: 'm',
+      targetDistanceKm: 0.2,
+      targetReps: '200 m',
+    });
+  });
+
+  it('lets explicit template values win over inference', () => {
+    expect(
+      defaultTargetFor({
+        name: 'Outdoor Walk',
+        category: 'Cardio',
+        targetUnit: 'min',
+        targetSets: 1,
+        targetDurationSec: 60 * 60,
+        targetReps: '60 min',
+      }),
+    ).toMatchObject({
+      targetUnit: 'min',
+      targetSets: 1,
+      targetDurationSec: 3600,
+      targetReps: '60 min',
+    });
+  });
+
+  it('bumps duration and distance ~10% per progression step', () => {
+    const base = defaultTargetFor({ name: 'Outdoor Walk', category: 'Cardio' });
+    expect(progressTrackingTargets(base, 1)).toMatchObject({
+      targetDurationSec: 33 * 60,
+      targetReps: '33 min',
+    });
+    expect(progressTrackingTargets(base, 2).targetDurationSec).toBe(36 * 60);
+
+    const km = defaultTargetFor({ name: 'Row 2 km', category: 'Cardio' });
+    expect(progressTrackingTargets(km, 1)).toMatchObject({
+      targetDistanceKm: 2,
+      targetReps: '2 km',
+    });
+    // 2 * 1.1 = 2.2 → rounds to 2; two steps 2 * 1.21 = 2.42 → 2.5
+    expect(progressTrackingTargets(km, 2)).toMatchObject({
+      targetDistanceKm: 2.5,
+      targetReps: '2.5 km',
+    });
+
+    const metres = defaultTargetFor({ name: '400 m Repeats', category: 'Cardio' });
+    expect(progressTrackingTargets(metres, 1).targetDistanceKm).toBe(0.2);
+    // 200 * 1.21 ≈ 242 → rounds to 250 m
+    expect(progressTrackingTargets(metres, 2)).toMatchObject({
+      targetDistanceKm: 0.25,
+      targetReps: '250 m',
+    });
+  });
+
+  it('leaves interval hold duration alone under progression', () => {
+    const plank = defaultTargetFor({ name: 'Plank', category: 'Core', progressionStep: 2 });
+    expect(plank.targetDurationSec).toBe(30);
+    expect(plank.targetReps).toBe('30 s');
   });
 });

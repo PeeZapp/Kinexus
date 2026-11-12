@@ -6,6 +6,8 @@ import {
   isTrainTogetherStatus,
   normalizeBuddyUsername,
   normalizeTrainGlobalEquipment,
+  targetUnitFrom,
+  trackingTypeFrom,
   type TrainBuddyEventType,
   type TrainBuddyPermissions,
   type TrainBuddyStatus,
@@ -317,8 +319,12 @@ function mapWorkoutRow(row: {
     exercise_id: string | null;
     name: string;
     position: number;
+    tracking?: string | null;
+    target_unit?: string | null;
     target_sets: number;
     target_reps: string;
+    target_duration_sec?: number | null;
+    target_distance_km?: number | null;
     target_weight: number | null;
     target_effort: string | null;
     target_rpe: number | null;
@@ -336,6 +342,8 @@ function mapWorkoutRow(row: {
     shareToken: row.share_token,
     isShared: Boolean(row.is_shared),
     planOnly: false,
+    inLibrary: true,
+    groupWorkoutId: null,
     level: row.level ?? null,
     goal: row.goal ?? null,
     equipment: normalizeTrainGlobalEquipment(row.equipment),
@@ -347,19 +355,28 @@ function mapWorkoutRow(row: {
     notes: [],
     exercises: [...(row.workout_exercises ?? [])]
       .sort((a, b) => a.position - b.position)
-      .map((exercise) => ({
-        id: exercise.id,
-        exerciseId: exercise.exercise_id,
-        name: exercise.name,
-        position: exercise.position,
-        targetSets: exercise.target_sets,
-        targetReps: exercise.target_reps,
-        targetWeight: exercise.target_weight,
-        targetEffort: effortLevelFrom(exercise.target_effort),
-        targetRpe: rpeFromDb(exercise.target_rpe),
-        note: exercise.note ?? '',
-        supersetId: exercise.superset_id ?? null,
-      })),
+      .map((exercise) => {
+        const tracking = trackingTypeFrom(exercise.tracking);
+        const targetDistanceKm =
+          exercise.target_distance_km == null ? null : Number(exercise.target_distance_km);
+        return {
+          id: exercise.id,
+          exerciseId: exercise.exercise_id,
+          name: exercise.name,
+          position: exercise.position,
+          tracking,
+          targetUnit: targetUnitFrom(exercise.target_unit, tracking, { targetDistanceKm }),
+          targetSets: exercise.target_sets,
+          targetReps: exercise.target_reps,
+          targetDurationSec: exercise.target_duration_sec ?? null,
+          targetDistanceKm,
+          targetWeight: exercise.target_weight,
+          targetEffort: effortLevelFrom(exercise.target_effort),
+          targetRpe: rpeFromDb(exercise.target_rpe),
+          note: exercise.note ?? '',
+          supersetId: exercise.superset_id ?? null,
+        };
+      }),
   };
 }
 

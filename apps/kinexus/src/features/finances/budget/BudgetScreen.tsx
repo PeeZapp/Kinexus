@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import {
   budgetLineGroups,
@@ -40,6 +41,12 @@ import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/
 import { FinancesChrome, MoneyBar } from '@/src/features/finances/FinancesShared';
 import { BudgetEntrySheet, BudgetLineSheet } from '@/src/features/finances/sheets';
 import { AddTransactionsSheet } from '@/src/features/finances/budget/AddTransactionsSheet';
+import {
+  clearStashedBudgetTxnShare,
+  peekStashedBudgetTxnShare,
+  takeStashedBudgetTxnShare,
+  type StashedBudgetTxnShare,
+} from '@/src/features/finances/budget/budget-txn-share-stash';
 import { BudgetSetupSheet } from '@/src/features/finances/budget/BudgetSetupSheet';
 import { Toast } from '@/src/features/meals/Toast';
 import { actionErrorMessage, useFinancesSync, type BudgetLineDraft } from '@/src/features/finances/use-finances-sync';
@@ -72,6 +79,8 @@ export function BudgetScreen() {
   const { mode } = useExperienceMode();
   const { user } = useAuth();
   const { role } = useHousehold();
+  const router = useRouter();
+  const params = useLocalSearchParams<{ addTransactions?: string | string[] }>();
   const finances = useFinancesSync();
   const canPlan = canManageBudgetPlan(role);
   const canEnter = canEnterBudgetAmounts(role);
@@ -82,6 +91,7 @@ export function BudgetScreen() {
   const [editing, setEditing] = useState<FinanceBudgetLine | null>(null);
   const [entryOpen, setEntryOpen] = useState(false);
   const [addTxnsOpen, setAddTxnsOpen] = useState(false);
+  const [sharedIntake, setSharedIntake] = useState<StashedBudgetTxnShare | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [addingTo, setAddingTo] = useState<FinanceBudgetLine | null>(null);
   const [defaultKind, setDefaultKind] = useState<FinanceBudgetLineKind>('expense');
@@ -91,6 +101,21 @@ export function BudgetScreen() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const monthView = useMemo(() => ({ spreadPeriodical }), [spreadPeriodical]);
+
+  useEffect(() => {
+    const flag = Array.isArray(params.addTransactions) ? params.addTransactions[0] : params.addTransactions;
+    const stashed = peekStashedBudgetTxnShare();
+    if (flag !== '1' && !stashed) return;
+    const intake = takeStashedBudgetTxnShare();
+    if (!intake) return;
+    setSharedIntake(intake);
+    setAddTxnsOpen(true);
+    setActionError(null);
+    if (flag === '1') {
+      router.replace('/finances');
+    }
+  }, [params.addTransactions, router]);
+
   const budgetReady = isBudgetSet(finances.lines, finances.txns, finances.budget?.setupCompletedAt);
   const monthLines = useMemo(
     () => linesForMonth(finances.lines, finances.txns, monthStart, monthView),
@@ -424,7 +449,11 @@ export function BudgetScreen() {
         currency={finances.currency}
         busy={busy}
         error={actionError}
+        sharedIntake={sharedIntake}
+        onSharedIntakeConsumed={() => setSharedIntake(null)}
         onClose={() => {
+          clearStashedBudgetTxnShare();
+          setSharedIntake(null);
           setAddTxnsOpen(false);
           setActionError(null);
         }}

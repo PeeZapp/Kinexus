@@ -6,6 +6,12 @@ import {
   remixCategoryOf,
   type RemixCategory,
 } from './remix';
+import {
+  defaultTargetFor,
+  progressionStepForLevel,
+  type TargetUnit,
+  type TrackingType,
+} from './tracking';
 import type { CatalogExercise, RemixPick } from './types';
 import {
   displayFocusLabel,
@@ -66,8 +72,12 @@ export type GeneratePlanInput = {
 export type GeneratedTrainExercise = {
   exerciseId: string;
   name: string;
+  tracking: TrackingType;
+  targetUnit: TargetUnit;
   targetSets: number;
   targetReps: string;
+  targetDurationSec: number | null;
+  targetDistanceKm: number | null;
   targetRpe: number;
   category: RemixCategory | null;
 };
@@ -632,7 +642,18 @@ export function generateTrainPlan(input: GeneratePlanInput): GeneratedTrainDay[]
           const group = volumeCategory(ex);
           weeklySets.set(group, (weeklySets.get(group) ?? 0) + pick.targetSets);
         }
-        return pick;
+        return {
+          exerciseId: pick.exerciseId,
+          name: pick.name,
+          tracking: pick.tracking,
+          targetUnit: pick.targetUnit,
+          targetSets: pick.targetSets,
+          targetReps: pick.targetReps,
+          targetDurationSec: pick.targetDurationSec,
+          targetDistanceKm: pick.targetDistanceKm,
+          targetRpe: pick.targetRpe,
+          category: pick.category,
+        };
       });
     }
 
@@ -646,20 +667,37 @@ export function generateTrainPlan(input: GeneratePlanInput): GeneratedTrainDay[]
       });
       const raw = generateFromCategoryMix(cats, weights, input.durationMin, dayPool, random);
       const ordered = compoundFirstOrder(raw, byId);
+      const step = progressionStepForLevel(input.level);
       exercises = ordered.map((pick: RemixPick) => {
         const ex = byId.get(pick.exerciseId);
         const category = ex ? remixCategoryOf(ex) : null;
         const rx = prescriptionFor(input.goal, input.level, category);
+        const targets = defaultTargetFor({
+          name: pick.name,
+          category: ex?.category ?? category,
+          canonicalKey: ex?.canonicalKey,
+          instructions: ex?.instructions,
+          repsDefaults: { sets: rx.sets, reps: rx.reps },
+          progressionStep: step,
+        });
+        // Intervals: keep hold duration; sets are the progression lever from rx.
+        const targetSets = targets.targetUnit === 'sec' ? rx.sets : targets.targetSets;
+        const targetReps =
+          targets.targetUnit === 'reps' ? rx.reps : targets.targetReps;
         if (!allowDup) usedExerciseIds.add(pick.exerciseId);
         if (ex) {
           const group = volumeCategory(ex);
-          weeklySets.set(group, (weeklySets.get(group) ?? 0) + rx.sets);
+          weeklySets.set(group, (weeklySets.get(group) ?? 0) + targetSets);
         }
         return {
           exerciseId: pick.exerciseId,
           name: pick.name,
-          targetSets: rx.sets,
-          targetReps: rx.reps,
+          tracking: targets.tracking,
+          targetUnit: targets.targetUnit,
+          targetSets,
+          targetReps,
+          targetDurationSec: targets.targetDurationSec,
+          targetDistanceKm: targets.targetDistanceKm,
           targetRpe: rx.rpe,
           category,
         };

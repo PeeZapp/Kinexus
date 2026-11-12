@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { shopCartUrl, trolleyLinesParam, trolleyOrder, trolleyShopUrl } from './trolley-order';
-import type { StoredGroceryQuote } from './grocery-compare';
+import { withGroceryMatcherVersion, type StoredGroceryQuote } from './grocery-compare';
 
 function quote(chainId: string, productId: string, productName: string): StoredGroceryQuote {
-  return {
+  return withGroceryMatcherVersion({
     name: 'chicken breast',
     amount: '500g',
     quotes: [
@@ -19,7 +19,7 @@ function quote(chainId: string, productId: string, productName: string): StoredG
         packs: 1,
       },
     ],
-  };
+  });
 }
 
 describe('shopCartUrl', () => {

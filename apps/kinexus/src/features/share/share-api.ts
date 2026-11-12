@@ -26,6 +26,10 @@ export type SharedWorkoutResponse = {
     name: string;
     sets: number;
     reps: string;
+    tracking?: 'reps' | 'time' | 'intervals' | 'distance';
+    targetUnit?: 'reps' | 'sec' | 'min' | 'km' | 'm';
+    targetDurationSec?: number | null;
+    targetDistanceKm?: number | null;
     effort: string | null;
     rpe: number | null;
     note: string;
@@ -62,6 +66,10 @@ export type SharedTrainingPlanResponse = {
       name: string;
       sets: number;
       reps: string;
+      tracking?: 'reps' | 'time' | 'intervals' | 'distance';
+      targetUnit?: 'reps' | 'sec' | 'min' | 'km' | 'm';
+      targetDurationSec?: number | null;
+      targetDistanceKm?: number | null;
       effort: string | null;
       rpe: number | null;
       note: string;

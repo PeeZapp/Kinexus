@@ -751,6 +751,44 @@ describe('fitness MCP tools', () => {
     expect(client._workoutExercises[0]?.target_effort).toBe('moderate');
   });
 
+  it('create workout accepts unit/amount/distance_km targets', async () => {
+    const client = fitnessClient({
+      userId: 'user-a',
+      householdId: 'hh-a',
+      exercises: [
+        {
+          id: 'ex-walk',
+          name: 'Treadmill Walk',
+          status: 'active',
+          merged_into: null,
+          scope: 'global',
+          source: 'kinexus',
+          body_part: 'cardio',
+          equipment: 'machine',
+          target_muscle: 'cardiovascular system',
+          category: 'Cardio',
+        },
+      ],
+    });
+    const caller = callerFor(client);
+    const preview = await previewCreateWorkout(caller, {
+      name: 'Walk Day',
+      exercises: [{ name: 'Treadmill Walk', unit: 'min', amount: 45, distance_km: 5 }],
+      decision: 'create_new',
+    });
+    expect(preview.kind).toBe('preview');
+    if (preview.kind !== 'preview') return;
+    expect(preview.steps.some((step) => /45 min.*5 km/i.test(step))).toBe(true);
+    const committed = await commitFitnessPreview(caller, { previewId: preview.previewId });
+    expect(committed.ok).toBe(true);
+    expect(client._workoutExercises[0]).toMatchObject({
+      tracking: 'time',
+      target_unit: 'min',
+      target_duration_sec: 2700,
+      target_distance_km: 5,
+    });
+  });
+
   it('create_training_plan creates intent days with no workouts', async () => {
     const client = fitnessClient({ userId: 'user-a', householdId: 'hh-a' });
     const caller = callerFor(client);

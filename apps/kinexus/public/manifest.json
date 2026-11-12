@@ -21,7 +21,52 @@
     "params": {
       "title": "title",
       "text": "text",
-      "url": "url"
+      "url": "url",
+      "files": [
+        {
+          "name": "files",
+          "accept": [
+            "image/*",
+            "image/jpeg",
+            "image/png",
+            "image/heic",
+            "image/heif",
+            "image/webp",
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".heic",
+            ".heif",
+            ".webp",
+            "text/csv",
+            "text/plain",
+            "text/tab-separated-values",
+            "application/json",
+            "application/zip",
+            "application/x-ofx",
+            "application/vnd.intu.qfx",
+            "application/x-qif",
+            "application/vnd.intu.qbo",
+            "application/pdf",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".csv",
+            ".tsv",
+            ".txt",
+            ".json",
+            ".zip",
+            ".ofx",
+            ".qfx",
+            ".qif",
+            ".qbo",
+            ".pdf",
+            ".xls",
+            ".xlsx",
+            ".docx"
+          ]
+        }
+      ]
     }
   },
   "icons": [

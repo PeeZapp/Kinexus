@@ -12,11 +12,14 @@ export type {
 export {
   TARGET_UNITS,
   TRACKING_TYPES,
+  defaultTargetFor,
   defaultTrackingTargets,
   formatTrackingTarget,
   inferTracking,
   isTargetUnit,
   isTrackingType,
+  progressTrackingTargets,
+  progressionStepForLevel,
   targetUnitFrom,
   targetUnitLabel,
   trackingChipLabel,
@@ -26,6 +29,7 @@ export {
   unitToTracking,
 } from './tracking';
 export type {
+  DefaultTargetForInput,
   InferTrackingInput,
   TargetUnit,
   TrackingTargetRow,
@@ -127,6 +131,20 @@ export {
   nextSimilarExercise,
 } from './remix';
 export type { RemixCategory } from './remix';
+export {
+  GROUP_WORKOUT_JOIN_ALPHABET,
+  generateJoinCode,
+  groupPickTier,
+  isGroupPickingDue,
+  orderGroupPicks,
+} from './group-workout';
+export type {
+  GroupWorkoutDueGroup,
+  GroupWorkoutDueMember,
+  GroupWorkoutDuePick,
+  GroupWorkoutOrderPick,
+  GroupWorkoutStatus,
+} from './group-workout';
 export {
   MAX_SESSIONS_PER_GROUP,
   WEEKLY_VOLUME_TARGET,

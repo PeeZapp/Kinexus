@@ -156,6 +156,17 @@ describe('match + intensity', () => {
     expect(matched.find((ex) => ex.sourceName === 'Running')?.matchStatus).toBe('matched');
   });
 
+  it('maps Hevy link duration/distance sets onto tracking targets', () => {
+    const parsed = parseHevyShareHtml(WORKOUT_FIXTURE);
+    const matched = matchHevyLinkExercises(parsed, CATALOG);
+    const running = matched.find((ex) => ex.sourceName === 'Running');
+    expect(running).toMatchObject({
+      tracking: 'distance',
+      targetUnit: 'km',
+      targetDistanceKm: 1.6,
+    });
+  });
+
   it('maps Load heavy/medium/light + bodyweight Light; cardio Effort Medium', () => {
     const parsed = parseHevyShareHtml(WORKOUT_FIXTURE);
     const intensities = mapHevyLinkIntensities(parsed.exercises, new Map([

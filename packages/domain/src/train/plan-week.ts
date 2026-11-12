@@ -9,6 +9,7 @@ import {
   type SavedWorkoutCandidate,
 } from './generate-plan';
 import type { PlanCalendarDeletePush, PlanCalendarPush } from './plan-calendar';
+import { trackingCompatTargets, trackingTypeFrom, targetUnitFrom, unitToTracking } from './tracking';
 import type { CatalogExercise } from './types';
 import { isTrainVisibility, type TrainVisibility } from './visibility';
 
@@ -311,6 +312,10 @@ export type SharedTrainingPlanCopyDay = {
     name: string;
     sets: number;
     reps: string;
+    tracking?: string | null;
+    targetUnit?: string | null;
+    targetDurationSec?: number | null;
+    targetDistanceKm?: number | null;
     effort: string | null;
     rpe: number | null;
     note: string;
@@ -414,8 +419,12 @@ export async function handleCopySharedTrainingPlan(
             exercise_id: null,
             name: exercise.name,
             position: index,
+            tracking: exercise.tracking ?? 'reps',
+            target_unit: exercise.targetUnit ?? 'reps',
             target_sets: exercise.sets,
             target_reps: exercise.reps,
+            target_duration_sec: exercise.targetDurationSec ?? null,
+            target_distance_km: exercise.targetDistanceKm ?? null,
             target_effort: exercise.effort,
             target_rpe: exercise.rpe,
             note: exercise.note,
@@ -1151,17 +1160,36 @@ export async function handleRegenerateRemainingDays(
 
       workoutId = String((workoutInsert.data as { id: string }).id);
       const exercisesInsert = await client.from('workout_exercises').insert(
-        day.exercises.map((exercise, index) => ({
-          workout_id: workoutId,
-          household_id: plan.householdId,
-          exercise_id: /^[0-9a-f-]{36}$/i.test(exercise.exerciseId) ? exercise.exerciseId : null,
-          name: exercise.name,
-          position: index,
-          target_sets: exercise.targetSets,
-          target_reps: exercise.targetReps,
-          target_rpe: exercise.targetRpe,
-          note: '',
-        })),
+        day.exercises.map((exercise, index) => {
+          const tracking = trackingTypeFrom(
+            exercise.tracking ?? unitToTracking(targetUnitFrom(exercise.targetUnit)),
+          );
+          const compat = trackingCompatTargets({
+            tracking,
+            targetUnit: targetUnitFrom(exercise.targetUnit, tracking, {
+              targetDistanceKm: exercise.targetDistanceKm ?? null,
+            }),
+            targetSets: exercise.targetSets,
+            targetReps: exercise.targetReps,
+            targetDurationSec: exercise.targetDurationSec ?? null,
+            targetDistanceKm: exercise.targetDistanceKm ?? null,
+          });
+          return {
+            workout_id: workoutId,
+            household_id: plan.householdId,
+            exercise_id: /^[0-9a-f-]{36}$/i.test(exercise.exerciseId) ? exercise.exerciseId : null,
+            name: exercise.name,
+            position: index,
+            tracking: compat.tracking,
+            target_unit: compat.targetUnit,
+            target_sets: compat.targetSets,
+            target_reps: compat.targetReps,
+            target_duration_sec: compat.targetDurationSec,
+            target_distance_km: compat.targetDistanceKm,
+            target_rpe: exercise.targetRpe,
+            note: '',
+          };
+        }),
       );
       if (exercisesInsert.error) {
         return { status: 500, body: { error: exercisesInsert.error.message } };

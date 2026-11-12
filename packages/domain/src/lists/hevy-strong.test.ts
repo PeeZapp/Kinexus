@@ -27,7 +27,7 @@ const HEVY_KG = `title,start_time,end_time,description,exercise_title,superset_i
 Push Day,"5 Jan 2026, 17:00","5 Jan 2026, 18:10",,"Bench Press (Barbell)",,,"0",normal,60,8,,,7.5
 Push Day,"5 Jan 2026, 17:00","5 Jan 2026, 18:10",,"Bench Press (Barbell)",,,"1",normal,60,8,,,
 Push Day,"5 Jan 2026, 17:00","5 Jan 2026, 18:10",,"Bench Press (Barbell)",,,"2",normal,62.5,6,,,
-Push Day,"5 Jan 2026, 17:00","5 Jan 2026, 18:10",,"Plank",,,"0",normal,,,45,60,
+Push Day,"5 Jan 2026, 17:00","5 Jan 2026, 18:10",,"Plank",,,"0",normal,,,,60,
 Leg Day,"6 Jan 2026, 09:00","6 Jan 2026, 10:00",,"Back Squat",,,"0",warmup,40,5,,,
 Leg Day,"6 Jan 2026, 09:00","6 Jan 2026, 10:00",,"Back Squat",,,"1",normal,100,5,,,8
 `;
@@ -88,6 +88,11 @@ describe('Hevy CSV', () => {
     expect(bench.sets).toHaveLength(3);
     const plank = push.exercises.find((exercise) => exercise.name === 'Plank')!;
     expect(plank.sets[0]?.durationSec).toBe(60);
+    expect(plank).toMatchObject({
+      tracking: 'intervals',
+      targetUnit: 'sec',
+      targetDurationSec: 60,
+    });
     const legs = parsed.sessions.find((session) => session.name === 'Leg Day')!;
     const squat = legs.exercises[0]!;
     // warmup excluded from target sets
@@ -105,6 +110,32 @@ describe('Hevy CSV', () => {
     const cardio = parsed.sessions[0]!.exercises[1]!;
     expect(cardio.sets[0]?.distanceM).toBeGreaterThan(2000);
     expect(cardio.sets[0]?.durationSec).toBe(900);
+    expect(cardio).toMatchObject({
+      tracking: 'distance',
+      targetUnit: 'km',
+    });
+    expect(cardio.targetDistanceKm).toBeGreaterThan(2);
+  });
+
+  it('maps a Hevy 5 km row to distance/km and converts miles', () => {
+    const kmCsv = `title,start_time,end_time,description,exercise_title,superset_id,exercise_notes,set_index,set_type,weight_kg,reps,distance_km,duration_seconds,rpe
+Run,"5 Jan 2026, 17:00","5 Jan 2026, 18:00",,"Outdoor Run",,,"0",normal,,,5,,
+`;
+    const kmParsed = parseHevyCsv(kmCsv);
+    expect(kmParsed.sessions[0]!.exercises[0]).toMatchObject({
+      tracking: 'distance',
+      targetUnit: 'km',
+      targetDistanceKm: 5,
+    });
+
+    const miCsv = `title,start_time,end_time,description,exercise_title,superset_id,exercise_notes,set_index,set_type,weight_lbs,reps,distance_miles,duration_seconds,rpe
+Run,"5 Jan 2026, 17:00","5 Jan 2026, 18:00",,"Outdoor Run",,,"0",normal,,,3.1,,
+`;
+    const miParsed = parseHevyCsv(miCsv);
+    const miles = miParsed.sessions[0]!.exercises[0]!;
+    expect(miles.tracking).toBe('distance');
+    expect(miles.targetDistanceKm).toBeGreaterThan(4.9);
+    expect(miles.targetDistanceKm).toBeLessThan(5.1);
   });
 });
 
@@ -127,6 +158,26 @@ describe('Strong CSV', () => {
     expect(legs.exercises[0]!.targetSets).toBe(2);
     expect(legs.exercises[0]!.targetWeightKg).toBe(100);
     expect(legs.exercises[1]!.sets[0]?.durationSec).toBe(45);
+    expect(legs.exercises[1]).toMatchObject({
+      tracking: 'intervals',
+      targetUnit: 'sec',
+      targetDurationSec: 45,
+    });
+  });
+
+  it('maps a 1800 s Strong duration row to time/min', () => {
+    const csv = `Date,Workout Name,Duration,Exercise Name,Set Order,Weight,Reps,Distance,Seconds,Notes,Workout Notes,RPE
+2021-07-24 10:37:18,Walk,30m,Treadmill Walk,1,,,,1800,,,
+`;
+    const parsed = parseStrongCsv(csv);
+    const walk = parsed.sessions[0]!.exercises[0]!;
+    expect(walk.sets[0]?.durationSec).toBe(1800);
+    expect(walk).toMatchObject({
+      tracking: 'time',
+      targetUnit: 'min',
+      targetDurationSec: 1800,
+      targetReps: '30 min',
+    });
   });
 
   it('parses semicolon lb export', () => {

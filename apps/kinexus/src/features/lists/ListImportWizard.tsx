@@ -11,6 +11,7 @@ import {
   buildImportPlanFromHevyLink,
   buildImportPlanFromListLink,
   findMatchingLibraryWorkout,
+  formatTrackingTarget,
   formatWeight,
   isHevyWorkoutImportUrl,
   isWatchlistListImportUrl,
@@ -77,6 +78,8 @@ const FIELD_OPTIONS: { value: ImportField; label: string }[] = [
   { value: 'sets', label: 'Sets' },
   { value: 'reps', label: 'Reps' },
   { value: 'weight', label: 'Weight' },
+  { value: 'duration', label: 'Duration' },
+  { value: 'distance', label: 'Distance' },
   { value: 'tmdbId', label: 'TMDB' },
   { value: 'mediaType', label: 'Media' },
   { value: 'imdbId', label: 'IMDb' },
@@ -972,7 +975,16 @@ export function ListImportWizard({
                   <View key={`hevy-ex-${index}`} style={styles.row}>
                     <Text style={styles.rowTitle} numberOfLines={1}>
                       {exercise.sourceName ?? exercise.name}
-                      {exercise.targetSets ? ` · ${exercise.targetSets}×${exercise.targetReps}` : ''}
+                      {exercise.targetSets
+                        ? ` · ${formatTrackingTarget({
+                            tracking: exercise.tracking,
+                            targetUnit: exercise.targetUnit,
+                            targetSets: exercise.targetSets,
+                            targetReps: exercise.targetReps,
+                            targetDurationSec: exercise.targetDurationSec,
+                            targetDistanceKm: exercise.targetDistanceKm,
+                          })}`
+                        : ''}
                     </Text>
                     <Text style={styles.rowMeta}>{exercise.matchStatus ?? exercise.status}</Text>
                   </View>

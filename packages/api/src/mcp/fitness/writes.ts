@@ -4,6 +4,7 @@ import {
   canFillSessionType,
   displayFocusLabel,
   fillWorkoutFromSessionTypeWidened,
+  formatTrackingTarget,
   handleApplyTrainingPlan,
   handleAttachWorkoutToPlanDay,
   handleDeleteTrainingPlan,
@@ -44,6 +45,7 @@ import {
   parseIntensity,
   parseIsoDate,
   resolveCallerHousehold,
+  resolveExerciseWriteTargets,
   type ChatExerciseScope,
   type CustomExerciseDraft,
   type WorkoutExerciseDraft,
@@ -201,26 +203,31 @@ function draftCustom(input: {
   };
 }
 
+type ExerciseWriteInput = {
+  exerciseId?: string;
+  name: string;
+  targetSets?: number;
+  targetReps?: string;
+  unit?: string;
+  amount?: string | number;
+  distance_km?: number;
+  intensity?: string;
+  note?: string;
+  createIfMissing?: boolean;
+  custom?: {
+    scope?: ChatExerciseScope;
+    bodyPart?: string;
+    equipment?: string;
+    targetMuscle?: string;
+    category?: string | null;
+    difficulty?: 'beginner' | 'intermediate' | 'advanced' | null;
+    groupId?: string | null;
+  };
+};
+
 async function resolveExerciseDrafts(
   client: SupabaseClient,
-  inputs: {
-    exerciseId?: string;
-    name: string;
-    targetSets?: number;
-    targetReps?: string;
-    intensity?: string;
-    note?: string;
-    createIfMissing?: boolean;
-    custom?: {
-      scope?: ChatExerciseScope;
-      bodyPart?: string;
-      equipment?: string;
-      targetMuscle?: string;
-      category?: string | null;
-      difficulty?: 'beginner' | 'intermediate' | 'advanced' | null;
-      groupId?: string | null;
-    };
-  }[],
+  inputs: ExerciseWriteInput[],
 ): Promise<{ exercises: WorkoutExerciseDraft[]; customExercises: CustomExerciseDraft[]; missing: string[] }> {
   const exercises: WorkoutExerciseDraft[] = [];
   const customExercises: CustomExerciseDraft[] = [];
@@ -232,16 +239,19 @@ async function resolveExerciseDrafts(
     if (!name) continue;
     let exerciseId = item.exerciseId?.trim() || null;
     let resolvedName = name;
+    let category: string | null = item.custom?.category ?? null;
     let proposeCreate: CustomExerciseDraft | null = null;
 
     if (exerciseId) {
       const existing = await loadExerciseOrThrow(client, exerciseId);
       resolvedName = existing.name;
+      category = (existing as { category?: string | null }).category ?? category;
     } else {
       const found = await findExerciseByName(client, name);
       if (found) {
         exerciseId = found.id;
         resolvedName = found.name;
+        category = (found as { category?: string | null }).category ?? category;
       } else if (item.createIfMissing !== false) {
         const draft = draftCustom({
           name,
@@ -264,11 +274,25 @@ async function resolveExerciseDrafts(
       }
     }
 
+    const targets = resolveExerciseWriteTargets({
+      name: resolvedName,
+      unit: item.unit,
+      amount: item.amount,
+      distanceKm: item.distance_km,
+      targetSets: item.targetSets,
+      targetReps: item.targetReps,
+      category,
+    });
+
     exercises.push({
       exerciseId,
       name: resolvedName,
-      targetSets: Math.max(1, item.targetSets ?? 3),
-      targetReps: (item.targetReps ?? '8-12').trim() || '8-12',
+      tracking: targets.tracking,
+      targetUnit: targets.targetUnit,
+      targetSets: targets.targetSets,
+      targetReps: targets.targetReps,
+      targetDurationSec: targets.targetDurationSec,
+      targetDistanceKm: targets.targetDistanceKm,
       intensity: parseIntensity(item.intensity),
       note: item.note?.trim() || undefined,
       proposeCreate,
@@ -278,29 +302,16 @@ async function resolveExerciseDrafts(
   return { exercises, customExercises, missing };
 }
 
+function exercisePreviewStep(exercise: WorkoutExerciseDraft): string {
+  return `${exercise.name} — ${formatTrackingTarget(exercise)}`;
+}
+
 export async function previewCreateWorkout(
   caller: McpCaller,
   input: {
     name: string;
     durationMin?: number | null;
-    exercises?: {
-      exerciseId?: string;
-      name: string;
-      targetSets?: number;
-      targetReps?: string;
-      intensity?: string;
-      note?: string;
-      createIfMissing?: boolean;
-      custom?: {
-        scope?: ChatExerciseScope;
-        bodyPart?: string;
-        equipment?: string;
-        targetMuscle?: string;
-        category?: string | null;
-        difficulty?: 'beginner' | 'intermediate' | 'advanced' | null;
-        groupId?: string | null;
-      };
-    }[];
+    exercises?: ExerciseWriteInput[];
     decision?: 'create_new' | 'reuse';
     reuseWorkoutId?: string;
   },
@@ -362,6 +373,7 @@ export async function previewCreateWorkout(
   const steps = [
     ...resolved.customExercises.map((c) => `Create custom exercise "${c.name}" (${c.scope})`),
     `Create private library workout "${name}" with ${resolved.exercises.length} exercise(s)`,
+    ...resolved.exercises.map((ex) => exercisePreviewStep(ex)),
   ];
   return savePreview(
     caller,
@@ -387,24 +399,7 @@ export async function previewUpdateWorkout(
     workoutId: string;
     name?: string;
     durationMin?: number | null;
-    exercises?: {
-      exerciseId?: string;
-      name: string;
-      targetSets?: number;
-      targetReps?: string;
-      intensity?: string;
-      note?: string;
-      createIfMissing?: boolean;
-      custom?: {
-        scope?: ChatExerciseScope;
-        bodyPart?: string;
-        equipment?: string;
-        targetMuscle?: string;
-        category?: string | null;
-        difficulty?: 'beginner' | 'intermediate' | 'advanced' | null;
-        groupId?: string | null;
-      };
-    }[];
+    exercises?: ExerciseWriteInput[];
   },
 ): Promise<PreviewResult> {
   const { householdId, role } = await resolveCallerHousehold(caller.client, caller.userId);
@@ -418,6 +413,18 @@ export async function previewUpdateWorkout(
       name: ex.name,
       targetSets: ex.targetSets,
       targetReps: ex.targetReps,
+      unit: ex.targetUnit,
+      amount:
+        ex.targetUnit === 'min' && ex.targetDurationSec != null
+          ? Math.round(ex.targetDurationSec / 60)
+          : ex.targetUnit === 'sec' && ex.targetDurationSec != null
+            ? ex.targetDurationSec
+            : ex.targetUnit === 'km' && ex.targetDistanceKm != null
+              ? ex.targetDistanceKm
+              : ex.targetUnit === 'm' && ex.targetDistanceKm != null
+                ? Math.round(ex.targetDistanceKm * 1000)
+                : ex.targetReps,
+      distance_km: ex.targetDistanceKm ?? undefined,
       intensity: ex.intensity ?? undefined,
       note: ex.note,
       createIfMissing: false,
@@ -452,6 +459,7 @@ export async function previewUpdateWorkout(
     [
       ...resolved.customExercises.map((c) => `Create custom exercise "${c.name}" (${c.scope})`),
       `Update workout ${existing.workout.id}`,
+      ...resolved.exercises.map((ex) => exercisePreviewStep(ex)),
     ],
   );
 }
@@ -1055,8 +1063,12 @@ async function replaceWorkoutExercises(
       exercise_id: exercise.exerciseId,
       name: exercise.name,
       position,
+      tracking: exercise.tracking,
+      target_unit: exercise.targetUnit,
       target_sets: exercise.targetSets,
       target_reps: exercise.targetReps,
+      target_duration_sec: exercise.targetDurationSec,
+      target_distance_km: exercise.targetDistanceKm,
       target_weight: null,
       target_effort: exercise.intensity,
       target_rpe: null,
@@ -1348,8 +1360,12 @@ async function executeWrite(
       const exercises: WorkoutExerciseDraft[] = filled.map((ex) => ({
         exerciseId: ex.exerciseId,
         name: ex.name,
+        tracking: ex.tracking,
+        targetUnit: ex.targetUnit,
         targetSets: ex.targetSets,
         targetReps: ex.targetReps,
+        targetDurationSec: ex.targetDurationSec,
+        targetDistanceKm: ex.targetDistanceKm,
         intensity: null,
       }));
       let workoutId = payload.existingWorkoutId ?? null;

@@ -219,6 +219,61 @@ export async function prepareBankScreenshots(files: readonly RecipePhotoFile[]):
   return out;
 }
 
+/** Build recipe-photo files from shared image bytes (incl. HEIC on native via ImageManipulator). */
+export async function recipePhotosFromSharedImages(
+  files: readonly { fileName: string; mimeType: string | null; bytes: Uint8Array }[],
+): Promise<RecipePhotoFile[]> {
+  const out: RecipePhotoFile[] = [];
+  for (const file of files.slice(0, 6)) {
+    const mime = (file.mimeType ?? '').toLowerCase();
+    const lower = file.fileName.toLowerCase();
+    const heic = mime.includes('heic') || mime.includes('heif') || lower.endsWith('.heic') || lower.endsWith('.heif');
+    const contentType = contentTypeFor(file.fileName, file.mimeType);
+    if (!contentType && !heic) throw new Error('Use a JPEG, PNG, HEIC, or WebP photo');
+    if (file.bytes.byteLength > MAX_BYTES) throw new Error('Image must be under 5 MB');
+
+    if (heic && Platform.OS !== 'web') {
+      const cacheDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+      if (!cacheDir) throw new Error('Could not read that screenshot');
+      const tempUri = `${cacheDir}share-heic-${Date.now()}-${Math.random().toString(36).slice(2)}.heic`;
+      await FileSystem.writeAsStringAsync(tempUri, bytesToBase64(file.bytes), {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      try {
+        const converted = await ImageManipulator.manipulateAsync(tempUri, [], {
+          compress: 1,
+          format: ImageManipulator.SaveFormat.JPEG,
+          base64: true,
+        });
+        if (!converted.base64) throw new Error('Could not read that screenshot');
+        const bytes = base64ToBytes(converted.base64);
+        out.push({
+          bytes,
+          contentType: 'image/jpeg',
+          fileName: file.fileName.replace(/\.(heic|heif)$/i, '.jpg'),
+          previewUrl: converted.uri,
+        });
+      } finally {
+        await FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => undefined);
+      }
+      continue;
+    }
+
+    if (!contentType) throw new Error('Use a JPEG, PNG, HEIC, or WebP photo');
+    const previewUrl =
+      Platform.OS === 'web' && typeof URL !== 'undefined'
+        ? URL.createObjectURL(new Blob([Uint8Array.from(file.bytes)], { type: contentType }))
+        : '';
+    out.push({
+      bytes: file.bytes,
+      contentType,
+      fileName: file.fileName || `shot.${contentType === 'image/png' ? 'png' : contentType === 'image/webp' ? 'webp' : 'jpg'}`,
+      previewUrl,
+    });
+  }
+  return out;
+}
+
 export async function uploadRecipePhoto(householdId: string, file: RecipePhotoFile): Promise<string> {
   if (!supabase) throw new Error('Supabase is not configured');
   const ext = file.contentType === 'image/png' ? 'png' : file.contentType === 'image/webp' ? 'webp' : 'jpg';

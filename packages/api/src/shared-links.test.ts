@@ -88,8 +88,12 @@ describe('handleGetSharedWorkout', () => {
             {
               name: 'Bench',
               position: 0,
+              tracking: 'reps',
+              target_unit: 'reps',
               target_sets: 3,
               target_reps: '8',
+              target_duration_sec: null,
+              target_distance_km: null,
               target_effort: 'heavy',
               target_rpe: 8,
               note: 'Pause',
@@ -118,6 +122,10 @@ describe('handleGetSharedWorkout', () => {
           name: 'Bench',
           sets: 3,
           reps: '8',
+          tracking: 'reps',
+          targetUnit: 'reps',
+          targetDurationSec: null,
+          targetDistanceKm: null,
           effort: 'heavy',
           rpe: 8,
           note: 'Pause',
@@ -128,6 +136,80 @@ describe('handleGetSharedWorkout', () => {
     });
     expect(leakKeys(result.body)).toEqual([]);
     expect(JSON.stringify(result.body)).not.toMatch(/hh-secret|household|person/i);
+  });
+
+  it('round-trips unit fields and falls back for old payloads', async () => {
+    const from = vi.fn((table: string) => {
+      if (table === 'workouts') {
+        return chain({
+          data: { id: 'w2', name: 'Cardio', duration_min: 60, is_shared: true },
+          error: null,
+        });
+      }
+      if (table === 'workout_exercises') {
+        return chain({
+          data: [
+            {
+              name: 'Treadmill Walk',
+              position: 0,
+              tracking: 'time',
+              target_unit: 'min',
+              target_sets: 1,
+              target_reps: '45 min',
+              target_duration_sec: 2700,
+              target_distance_km: 5,
+              target_effort: null,
+              target_rpe: null,
+              note: '',
+              superset_id: null,
+              exercise_id: null,
+              exercises: null,
+            },
+            {
+              name: 'Plank',
+              position: 1,
+              target_sets: 3,
+              target_reps: '30',
+              target_effort: null,
+              target_rpe: null,
+              note: '',
+              superset_id: null,
+              exercise_id: null,
+              exercises: null,
+            },
+          ],
+          error: null,
+        });
+      }
+      throw new Error(`unexpected table ${table}`);
+    });
+
+    const result = await handleGetSharedWorkout('tok', {
+      isConfigured: () => true,
+      createClient: () => ({ from } as never),
+    });
+    expect(result.status).toBe(200);
+    const body = result.body as {
+      exercises: Array<{
+        name: string;
+        tracking: string;
+        targetUnit: string;
+        targetDurationSec: number | null;
+        targetDistanceKm: number | null;
+      }>;
+    };
+    expect(body.exercises[0]).toMatchObject({
+      name: 'Treadmill Walk',
+      tracking: 'time',
+      targetUnit: 'min',
+      targetDurationSec: 2700,
+      targetDistanceKm: 5,
+    });
+    expect(body.exercises[1]).toMatchObject({
+      name: 'Plank',
+      tracking: 'intervals',
+      targetUnit: 'sec',
+    });
   });
 });
 
@@ -185,8 +267,12 @@ describe('handleGetSharedTrainingPlan', () => {
               workout_id: 'w1',
               name: 'Bench',
               position: 0,
+              tracking: 'reps',
+              target_unit: 'reps',
               target_sets: 3,
               target_reps: '8',
+              target_duration_sec: null,
+              target_distance_km: null,
               target_effort: null,
               target_rpe: 8,
               note: '',
@@ -219,6 +305,10 @@ describe('handleGetSharedTrainingPlan', () => {
               name: 'Bench',
               sets: 3,
               reps: '8',
+              tracking: 'reps',
+              targetUnit: 'reps',
+              targetDurationSec: null,
+              targetDistanceKm: null,
               effort: null,
               rpe: 8,
               note: '',

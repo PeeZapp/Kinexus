@@ -1,3 +1,4 @@
+import { defaultTargetFor, trackingCompatTargets } from '../train/tracking';
 import { toStoredKg, type WeightUnit } from '../train/units';
 import { matchWorkoutExercises, type ExerciseCatalogEntry } from './match-exercise';
 import {
@@ -103,6 +104,68 @@ export function unitFromWeightCell(raw: string): WeightUnit | null {
   return null;
 }
 
+function setHasRepsOrWeight(set: WorkoutImportSet): boolean {
+  const reps = set.reps?.trim() ?? '';
+  const hasReps = Boolean(reps) && reps !== '0' && Number.parseFloat(reps) !== 0;
+  const hasWeight = set.weightKg != null && set.weightKg > 0;
+  return hasReps || hasWeight;
+}
+
+/** When sets are duration/distance-only (no reps/weight), map to tracking targets. */
+export function trackingTargetsFromImportSets(
+  name: string,
+  sets: WorkoutImportSet[],
+  targetSets: number,
+): ReturnType<typeof trackingCompatTargets> | null {
+  const working = sets.filter((set) => {
+    const type = (set.setType ?? '').toLowerCase();
+    return type !== 'warmup' && type !== 'warm-up' && type !== 'rest timer' && type !== 'rest';
+  });
+  const use = working.length > 0 ? working : sets;
+  if (use.length === 0) return null;
+  if (use.some(setHasRepsOrWeight)) return null;
+
+  const lastWithDistance = [...use].reverse().find((set) => set.distanceM != null && set.distanceM > 0);
+  const lastWithDuration = [...use].reverse().find((set) => set.durationSec != null && set.durationSec > 0);
+  const distanceM = lastWithDistance?.distanceM ?? null;
+  const durationSec = lastWithDuration?.durationSec ?? null;
+  if ((distanceM == null || distanceM <= 0) && (durationSec == null || durationSec <= 0)) return null;
+
+  if (distanceM != null && distanceM > 0) {
+    const km = distanceM / 1000;
+    const unit = km > 0 && km < 1 && Math.abs(km * 1000 - Math.round(km * 1000)) < 1e-9 ? 'm' : 'km';
+    return trackingCompatTargets({
+      tracking: 'distance',
+      targetUnit: unit,
+      targetSets,
+      targetReps: unit === 'm' ? `${Math.round(km * 1000)} m` : `${km} km`,
+      targetDurationSec: null,
+      targetDistanceKm: km,
+    });
+  }
+
+  const sec = durationSec!;
+  if (sec < 120) {
+    return trackingCompatTargets({
+      tracking: 'intervals',
+      targetUnit: 'sec',
+      targetSets,
+      targetReps: `${sec} s`,
+      targetDurationSec: sec,
+      targetDistanceKm: null,
+    });
+  }
+  const minutes = Math.max(1, Math.round(sec / 60));
+  return trackingCompatTargets({
+    tracking: 'time',
+    targetUnit: 'min',
+    targetSets,
+    targetReps: `${minutes} min`,
+    targetDurationSec: minutes * 60,
+    targetDistanceKm: null,
+  });
+}
+
 export function buildExerciseFromSets(
   name: string,
   sets: WorkoutImportSet[],
@@ -118,6 +181,46 @@ export function buildExerciseFromSets(
   const modeReps = mostCommon(reps) ?? last?.reps ?? '8';
   const weights = use.map((set) => set.weightKg).filter((value): value is number => value != null);
   const rpes = use.map((set) => set.rpe).filter((value): value is number => value != null);
+  const targetSets = Math.max(1, Math.min(20, use.length || 1));
+  const fromSets = trackingTargetsFromImportSets(name, sets, targetSets);
+  if (fromSets) {
+    return {
+      name: name.trim(),
+      exerciseId: null,
+      matchConfidence: null,
+      candidates: null,
+      status: name.trim() ? 'ready' : 'invalid',
+      note,
+      sets,
+      tracking: fromSets.tracking,
+      targetUnit: fromSets.targetUnit,
+      targetSets: fromSets.targetSets,
+      targetReps: fromSets.targetReps,
+      targetDurationSec: fromSets.targetDurationSec,
+      targetDistanceKm: fromSets.targetDistanceKm,
+      targetWeightKg: null,
+      targetRpe: rpes.length > 0 ? rpes[rpes.length - 1]! : null,
+    };
+  }
+
+  const defaults = defaultTargetFor({
+    name: name.trim() || 'Exercise',
+    targetSets,
+    targetReps: modeReps,
+  });
+  // Strength rows keep explicit reps/weight; only use inferred non-reps when sets had no load.
+  const useDefaults = defaults.targetUnit !== 'reps' && !use.some(setHasRepsOrWeight);
+  const targets = useDefaults
+    ? defaults
+    : trackingCompatTargets({
+        tracking: 'reps',
+        targetUnit: 'reps',
+        targetSets,
+        targetReps: modeReps,
+        targetDurationSec: null,
+        targetDistanceKm: null,
+      });
+
   return {
     name: name.trim(),
     exerciseId: null,
@@ -126,8 +229,12 @@ export function buildExerciseFromSets(
     status: name.trim() ? 'ready' : 'invalid',
     note,
     sets,
-    targetSets: Math.max(1, Math.min(20, use.length || 1)),
-    targetReps: modeReps,
+    tracking: targets.tracking,
+    targetUnit: targets.targetUnit,
+    targetSets: targets.targetSets,
+    targetReps: targets.targetReps,
+    targetDurationSec: targets.targetDurationSec,
+    targetDistanceKm: targets.targetDistanceKm,
     targetWeightKg: weights.length > 0 ? weights[weights.length - 1]! : null,
     targetRpe: rpes.length > 0 ? rpes[rpes.length - 1]! : null,
   };

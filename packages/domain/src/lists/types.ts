@@ -35,6 +35,8 @@ export type ImportField =
   | 'sets'
   | 'reps'
   | 'weight'
+  | 'duration'
+  | 'distance'
   | 'tmdbId'
   | 'mediaType'
   | 'imdbId'
@@ -80,8 +82,12 @@ export type WorkoutImportExercise = {
   status: ImportRowStatus;
   note: string | null;
   sets: WorkoutImportSet[];
+  tracking?: 'reps' | 'time' | 'intervals' | 'distance';
+  targetUnit?: 'reps' | 'sec' | 'min' | 'km' | 'm';
   targetSets: number;
   targetReps: string;
+  targetDurationSec?: number | null;
+  targetDistanceKm?: number | null;
   /** Stored kg. */
   targetWeightKg: number | null;
   targetRpe: number | null;
@@ -126,6 +132,10 @@ export type ImportRow = {
   sets: number | null;
   reps: string | null;
   weight: number | null;
+  /** Duration seconds when mapped from a duration/time column. */
+  durationSec: number | null;
+  /** Distance in km when mapped from a distance column (miles converted). */
+  distanceKm: number | null;
   tmdbId: number | null;
   mediaType: 'movie' | 'tv' | null;
   /** IMDb id (tt…); used for TMDB /find matching. */
@@ -231,6 +241,8 @@ export function emptyImportRow(partial?: Partial<ImportRow>): ImportRow {
     sets: null,
     reps: null,
     weight: null,
+    durationSec: null,
+    distanceKm: null,
     tmdbId: null,
     mediaType: null,
     imdbId: null,

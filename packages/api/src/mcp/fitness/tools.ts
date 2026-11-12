@@ -37,11 +37,20 @@ const goalSchema = z.enum(['strength', 'hypertrophy', 'conditioning', 'mobility'
 const levelSchema = z.enum(['beginner', 'intermediate', 'advanced']);
 const dayStatusSchema = z.enum(['planned', 'done', 'skipped']);
 
+const targetUnitSchema = z.enum(['reps', 'sec', 'min', 'km', 'm']);
+
 const exerciseDraftSchema = z.object({
   exerciseId: z.string().optional(),
   name: z.string(),
   targetSets: z.number().int().positive().optional(),
+  /** @deprecated Prefer unit + amount. Kept for older callers. */
   targetReps: z.string().optional(),
+  /** Target unit. When omitted, inferred via defaultTargetFor from the exercise name. */
+  unit: targetUnitSchema.optional(),
+  /** Amount in `unit` (reps string/number, seconds, minutes, km, or metres). */
+  amount: z.union([z.string(), z.number()]).optional(),
+  /** Optional distance alongside time (min) targets, e.g. a 45 min · 5 km walk. */
+  distance_km: z.number().positive().optional(),
   intensity: intensitySchema.optional(),
   note: z.string().optional(),
   createIfMissing: z.boolean().optional(),
@@ -63,8 +72,13 @@ const workoutExerciseOut = z.object({
   exerciseId: z.string().nullable(),
   name: z.string(),
   position: z.number(),
+  tracking: z.enum(['reps', 'time', 'intervals', 'distance']),
+  targetUnit: targetUnitSchema,
   targetSets: z.number(),
   targetReps: z.string(),
+  targetDurationSec: z.number().nullable(),
+  targetDistanceKm: z.number().nullable(),
+  target: z.string(),
   intensity: z.enum(['light', 'moderate', 'heavy', 'max']).nullable(),
   guide: z.enum(['load', 'effort']),
   note: z.string(),
@@ -213,7 +227,8 @@ const listWorkoutsOutput = z.object({
 export const listWorkoutsTool: McpToolDefinition<typeof listWorkoutsInput, typeof listWorkoutsOutput> = {
   name: 'list_workouts',
   title: 'List workouts',
-  description: 'List library workouts for the household (excludes plan-only unless includePlanOnly).',
+  description:
+    'List library workouts for the household (excludes plan-only unless includePlanOnly). Exercises include target unit and a human target string.',
   inputSchema: listWorkoutsInput,
   outputSchema: listWorkoutsOutput,
   scope: 'fitness:read',
@@ -230,7 +245,8 @@ const getWorkoutOutput = z.object({ householdId: z.string(), workout: workoutOut
 export const getWorkoutTool: McpToolDefinition<typeof getWorkoutInput, typeof getWorkoutOutput> = {
   name: 'get_workout',
   title: 'Get workout',
-  description: 'Get one workout by id with exercises and intensity (Load/Effort).',
+  description:
+    'Get one workout by id with exercises, intensity (Load/Effort), target unit, and a human target string.',
   inputSchema: getWorkoutInput,
   outputSchema: getWorkoutOutput,
   scope: 'fitness:read',
@@ -357,7 +373,7 @@ export const previewCreateWorkoutTool: McpToolDefinition<typeof createWorkoutInp
   name: 'preview_create_workout',
   title: 'Preview create workout',
   description:
-    'Preview creating a private library workout. Dedupes by title + exercise set. Missing exercises propose create_custom_exercise in the same preview (one confirmation).',
+    'Preview creating a private library workout. Dedupes by title + exercise set. Exercises accept optional unit (reps|sec|min|km|m) + amount (+ distance_km for walks). Missing exercises propose create_custom_exercise in the same preview (one confirmation).',
   inputSchema: createWorkoutInput,
   outputSchema: previewResultSchema,
   scope: 'fitness:write',
@@ -371,7 +387,8 @@ const updateWorkoutInput = createWorkoutInput.partial().extend({ workoutId: z.st
 export const previewUpdateWorkoutTool: McpToolDefinition<typeof updateWorkoutInput, typeof previewResultSchema> = {
   name: 'preview_update_workout',
   title: 'Preview update workout',
-  description: 'Preview updating a library workout. Intensity uses Load/Effort (light/medium/heavy), not RPE/kg.',
+  description:
+    'Preview updating a library workout. Intensity uses Load/Effort (light/medium/heavy), not RPE/kg. Exercises accept optional unit (reps|sec|min|km|m) + amount (+ distance_km).',
   inputSchema: updateWorkoutInput,
   outputSchema: previewResultSchema,
   scope: 'fitness:write',
@@ -588,6 +605,9 @@ const logSessionInput = z.object({
         name: z.string(),
         targetSets: z.number().optional(),
         targetReps: z.string().optional(),
+        unit: targetUnitSchema.optional(),
+        amount: z.union([z.string(), z.number()]).optional(),
+        distance_km: z.number().positive().optional(),
         intensity: intensitySchema.optional(),
         sets: z
           .array(

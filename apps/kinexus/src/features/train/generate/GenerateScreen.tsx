@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 
 import {
+  defaultTargetFor,
   fillWorkoutFromSessionType,
   generateTrainPlan,
   mondayWeekStart,
@@ -70,13 +71,25 @@ function applyPostProcess(
       exercises = exercises.map((ex) => ({ ...ex, targetRpe: prefs.intensityRpe! }));
     }
     if (prefs.cardioAddon === 'finisher' && !day.restDay && exercises.length > 0) {
+      const finisher = defaultTargetFor({
+        name: 'Cardio finisher',
+        category: 'Cardio',
+        targetUnit: 'min',
+        targetSets: 1,
+        targetDurationSec: 9 * 60,
+        targetReps: '9 min',
+      });
       exercises = [
         ...exercises,
         {
           exerciseId: `finisher-${day.day}`,
           name: 'Cardio finisher',
-          targetSets: 1,
-          targetReps: '8-10 min',
+          tracking: finisher.tracking,
+          targetUnit: finisher.targetUnit,
+          targetSets: finisher.targetSets,
+          targetReps: finisher.targetReps,
+          targetDurationSec: finisher.targetDurationSec,
+          targetDistanceKm: finisher.targetDistanceKm,
           targetRpe: Math.min(prefs.intensityRpe ?? 7, 7),
           category: 'Cardio',
         },
@@ -119,8 +132,12 @@ function seedFromPreviewDay(row: PreviewDay, workouts: WorkoutDraft[]): {
           exercises: saved.exercises.map((ex) => ({
             exerciseId: ex.exerciseId,
             name: ex.name,
+            tracking: ex.tracking,
+            targetUnit: ex.targetUnit,
             targetSets: ex.targetSets,
             targetReps: ex.targetReps,
+            targetDurationSec: ex.targetDurationSec,
+            targetDistanceKm: ex.targetDistanceKm,
             targetWeight: ex.targetWeight,
             targetEffort: ex.targetEffort,
             targetRpe: ex.targetRpe,
@@ -141,8 +158,12 @@ function seedFromPreviewDay(row: PreviewDay, workouts: WorkoutDraft[]): {
       exercises: row.exercises.map((ex) => ({
         exerciseId: /^[0-9a-f-]{36}$/i.test(ex.exerciseId) ? ex.exerciseId : null,
         name: ex.name,
+        tracking: ex.tracking,
+        targetUnit: ex.targetUnit,
         targetSets: ex.targetSets,
         targetReps: ex.targetReps,
+        targetDurationSec: ex.targetDurationSec,
+        targetDistanceKm: ex.targetDistanceKm,
         targetRpe: ex.targetRpe,
       })),
     },
@@ -406,8 +427,12 @@ export function GenerateScreen() {
       exercises: filled.map((ex) => ({
         exerciseId: ex.exerciseId,
         name: ex.name,
+        tracking: ex.tracking,
+        targetUnit: ex.targetUnit,
         targetSets: ex.targetSets,
         targetReps: ex.targetReps,
+        targetDurationSec: ex.targetDurationSec,
+        targetDistanceKm: ex.targetDistanceKm,
         targetRpe: ex.targetRpe,
         category: ex.category ?? null,
       })),
@@ -424,7 +449,11 @@ export function GenerateScreen() {
             {
               exerciseId: ex.exerciseId,
               name: ex.name,
+              tracking: ex.tracking,
+              targetUnit: ex.targetUnit,
               targetSets: ex.targetSets,
+              targetDurationSec: ex.targetDurationSec,
+              targetDistanceKm: ex.targetDistanceKm,
               targetReps: ex.targetReps,
               targetRpe: ex.targetRpe ?? 7,
               category: null,

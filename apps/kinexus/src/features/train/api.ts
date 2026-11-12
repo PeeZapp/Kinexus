@@ -179,6 +179,9 @@ export type WorkoutDraft = {
   isShared: boolean;
   /** Linked to a plan day; hidden from the Workouts library until saved. */
   planOnly: boolean;
+  /** Personal library membership; group copies start false until opted in. */
+  inLibrary: boolean;
+  groupWorkoutId: string | null;
   level: TrainGlobalLevel | null;
   goal: TrainGlobalGoal | null;
   equipment: TrainGlobalEquipment[];
@@ -347,6 +350,7 @@ export async function loadWorkouts(
     .select('*, workout_exercises(*), workout_people(person_id), workout_buddy_shares(buddy_user_id)')
     .eq('household_id', householdId)
     .order('updated_at', { ascending: false });
+  query = query.eq('in_library', true);
   if (!opts?.includePlanOnly) {
     query = query.eq('plan_only', false);
   }
@@ -372,6 +376,37 @@ export async function loadWorkouts(
   return (data ?? []).map((row) => mapWorkoutDraft(row, ratingsByWorkout, notesByWorkout));
 }
 
+export type OutOfLibraryGroupWorkout = WorkoutDraft & {
+  workoutDate: string | null;
+};
+
+/** Built group copies the user has not added to their personal library yet. */
+export async function loadOutOfLibraryGroupWorkouts(
+  householdId: string,
+  userId: string,
+): Promise<OutOfLibraryGroupWorkout[]> {
+  const { data, error } = await db()
+    .from('workouts')
+    .select(
+      '*, workout_exercises(*), workout_people(person_id), workout_buddy_shares(buddy_user_id), group_workouts(workout_date)',
+    )
+    .eq('household_id', householdId)
+    .eq('created_by', userId)
+    .eq('in_library', false)
+    .not('group_workout_id', 'is', null)
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((row) => {
+    const raw = (row as { group_workouts?: { workout_date?: string } | { workout_date?: string }[] | null })
+      .group_workouts;
+    const group = Array.isArray(raw) ? raw[0] : raw;
+    return {
+      ...mapWorkoutDraft(row),
+      workoutDate: group?.workout_date ?? null,
+    };
+  });
+}
+
 function mapWorkoutDraft(
   row: {
     id: string;
@@ -383,6 +418,8 @@ function mapWorkoutDraft(
     share_token: string | null;
     is_shared: boolean | null;
     plan_only?: boolean | null;
+    in_library?: boolean | null;
+    group_workout_id?: string | null;
     level: string | null;
     goal: string | null;
     equipment: string[] | null;
@@ -421,6 +458,8 @@ function mapWorkoutDraft(
     shareToken: row.share_token,
     isShared: Boolean(row.is_shared),
     planOnly: Boolean(row.plan_only),
+    inLibrary: row.in_library == null ? true : Boolean(row.in_library),
+    groupWorkoutId: row.group_workout_id ?? null,
     level: mapGlobalLevel(row.level),
     goal: mapGlobalGoal(row.goal),
     equipment: normalizeTrainGlobalEquipment(row.equipment),
@@ -475,6 +514,7 @@ export async function loadBuddySharedWorkouts(): Promise<WorkoutDraft[]> {
     .select('*, workout_exercises(*), workout_people(person_id), workout_buddy_shares(buddy_user_id)')
     .in('visibility', ['buddies', 'buddies_selected', 'global'])
     .eq('plan_only', false)
+    .eq('in_library', true)
     .order('updated_at', { ascending: false })
     .limit(100);
   if (error) throw error;
@@ -1357,7 +1397,16 @@ export async function startRemixSession(input: {
   name: string;
   remixSpec: string;
   durationMin: number;
-  exercises: { exerciseId: string; name: string; targetSets: number; targetReps: string }[];
+  exercises: {
+    exerciseId: string;
+    name: string;
+    tracking?: TrackingType;
+    targetUnit?: TargetUnit;
+    targetSets: number;
+    targetReps: string;
+    targetDurationSec?: number | null;
+    targetDistanceKm?: number | null;
+  }[];
 }): Promise<string> {
   const records = await loadRecords(
     input.userId,
@@ -1736,7 +1785,12 @@ export async function importFinishedSession(input: {
   exercises: {
     exerciseId: string | null;
     name: string;
-    sets: { weightKg: number | null; reps: string | null; durationSec: number | null }[];
+    sets: {
+      weightKg: number | null;
+      reps: string | null;
+      durationSec: number | null;
+      distanceKm?: number | null;
+    }[];
   }[];
 }): Promise<string> {
   const finishedAt =
@@ -1770,6 +1824,8 @@ export async function importFinishedSession(input: {
       set_index: setIndex,
       weight: set.weightKg != null ? String(set.weightKg) : '',
       reps: set.reps ?? (set.durationSec != null ? String(set.durationSec) : ''),
+      duration_sec: set.durationSec ?? null,
+      distance_km: set.distanceKm ?? null,
       done: true,
     })),
   );
@@ -1927,6 +1983,10 @@ export async function copySharedTrainingPlan(input: {
       name: string;
       sets: number;
       reps: string;
+      tracking?: TrackingType | null;
+      targetUnit?: TargetUnit | null;
+      targetDurationSec?: number | null;
+      targetDistanceKm?: number | null;
       effort: string | null;
       rpe: number | null;
       note: string;
@@ -2110,8 +2170,12 @@ export async function fillPlanDayFromLibrary(input: {
   const exercises: WorkoutExerciseInput[] = filled.map((ex) => ({
     exerciseId: ex.exerciseId,
     name: ex.name,
+    tracking: ex.tracking,
+    targetUnit: ex.targetUnit,
     targetSets: ex.targetSets,
     targetReps: ex.targetReps,
+    targetDurationSec: ex.targetDurationSec,
+    targetDistanceKm: ex.targetDistanceKm,
     targetRpe: ex.targetRpe,
   }));
 

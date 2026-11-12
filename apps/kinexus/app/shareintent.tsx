@@ -3,15 +3,18 @@ import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-nativ
 import { useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 import { useShareIntentContext } from 'expo-share-intent';
+import * as FileSystem from 'expo-file-system/legacy';
 
-import type { ShareTarget, ShareTargetGuess } from '@kinexus/domain';
+import { isShareStatementFile, type ShareTarget, type ShareTargetGuess } from '@kinexus/domain';
 
 import { CookShell } from '@/src/features/cook/CookShell';
-import { readListFileUri } from '@/src/features/lists/list-file-io';
-import { stashListImport } from '@/src/features/lists/list-import-stash';
 import { useReadlistSync } from '@/src/features/readlist/use-readlist-sync';
 import { ShareTargetPicker, type ShareTargetPickerLists } from '@/src/features/share/ShareTargetPicker';
-import { decideShareIntent } from '@/src/features/share/share-intent-route';
+import {
+  decideShareIntent,
+  type ShareIntentFile,
+  type ShareIntentPayload,
+} from '@/src/features/share/share-intent-route';
 import { stashShareIntentPayload, takeStashedShareIntentPayload } from '@/src/features/share/share-intent-stash';
 import { handoffShareTarget } from '@/src/features/share/share-target-handlers';
 import type { LastUsedShareList } from '@/src/features/share/share-target-last-list';
@@ -21,18 +24,46 @@ import { colors, space } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
 import { rememberAuthReturn } from '@/src/lib/auth-return';
 
+async function withStatementPreviews(files: ShareIntentFile[]): Promise<ShareIntentFile[]> {
+  return Promise.all(
+    files.map(async (file) => {
+      const fileName = file.fileName ?? file.file?.name ?? '';
+      const mimeType = file.mimeType ?? file.file?.type ?? null;
+      if (!isShareStatementFile({ fileName, mimeType })) return file;
+      if (/\.pdf$/i.test(fileName) || mimeType === 'application/pdf') return file;
+      if (file.textPreview) return file;
+      try {
+        if (file.file) {
+          const text = await file.file.text();
+          return { ...file, textPreview: text.slice(0, 4000) };
+        }
+        if (file.path) {
+          const text = await FileSystem.readAsStringAsync(file.path, {
+            encoding: FileSystem.EncodingType.UTF8,
+          });
+          return { ...file, textPreview: text.slice(0, 4000) };
+        }
+      } catch {
+        /* classification falls back to filename */
+      }
+      return file;
+    }),
+  );
+}
+
 /**
  * Native iOS Share Extension / Android ACTION_SEND entry.
- * Files keep list-import branching; links/text open a target picker.
+ * Links/text and multi-candidate files open the target picker; a single file candidate goes straight through.
  */
 export default function ShareIntentRoute() {
   const router = useRouter();
   const { user, isReady: authReady } = useAuth();
   const { hasShareIntent, shareIntent, resetShareIntent, isReady } = useShareIntentContext();
-  const handledFile = useRef(false);
+  const handled = useRef(false);
   const authRedirected = useRef(false);
   const pickerOpened = useRef(false);
   const [guess, setGuess] = useState<ShareTargetGuess | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<ShareIntentFile[] | null>(null);
   const [busy, setBusy] = useState(false);
 
   const watchlist = useWatchlistSync();
@@ -57,7 +88,7 @@ export default function ShareIntentRoute() {
       router.replace('/import' as Href);
       return;
     }
-    if (!authReady || !isReady || handledFile.current || pickerOpened.current) return;
+    if (!authReady || !isReady || handled.current || pickerOpened.current) return;
 
     if (!user) {
       if (authRedirected.current) return;
@@ -78,7 +109,7 @@ export default function ShareIntentRoute() {
     }
 
     void (async () => {
-      const live = hasShareIntent
+      const live: ShareIntentPayload | null = hasShareIntent
         ? {
             files: shareIntent.files,
             webUrl: shareIntent.webUrl,
@@ -90,36 +121,54 @@ export default function ShareIntentRoute() {
       const payload = live ?? stashed;
 
       if (!payload) {
-        handledFile.current = true;
+        handled.current = true;
         router.replace('/import' as Href);
         return;
       }
 
-      const decision = decideShareIntent(payload);
-
-      if (decision.kind === 'file') {
-        handledFile.current = true;
-        try {
-          const file = decision.file;
-          const picked = await readListFileUri(file.path ?? '', file.fileName ?? 'import', file.mimeType);
-          stashListImport(picked);
-          resetShareIntent(true);
-          router.replace('/lists/import' as Href);
-        } catch {
-          resetShareIntent(true);
-          router.replace('/lists/import' as Href);
-        }
-        return;
+      if (payload.files?.length) {
+        payload.files = await withStatementPreviews(payload.files);
       }
 
+      const decision = decideShareIntent(payload);
+
       if (decision.kind === 'empty') {
-        handledFile.current = true;
+        handled.current = true;
         resetShareIntent(true);
         router.replace('/import' as Href);
         return;
       }
 
+      if (decision.kind === 'files') {
+        if (decision.auto) {
+          handled.current = true;
+          try {
+            const target = decision.guess.targets[0] ?? 'list_import';
+            resetShareIntent(true);
+            await handoffShareTarget(
+              {
+                target,
+                url: null,
+                text: null,
+                list: null,
+                files: decision.files,
+              },
+              router,
+            );
+          } catch {
+            resetShareIntent(true);
+            router.replace('/lists/import' as Href);
+          }
+          return;
+        }
+        pickerOpened.current = true;
+        setPendingFiles(decision.files);
+        setGuess(decision.guess);
+        return;
+      }
+
       pickerOpened.current = true;
+      setPendingFiles(null);
       setGuess(decision.guess);
     })();
   }, [
@@ -146,6 +195,7 @@ export default function ShareIntentRoute() {
           url: guess.url,
           text: guess.text,
           list: input.list,
+          files: pendingFiles,
         },
         router,
       );
@@ -156,6 +206,7 @@ export default function ShareIntentRoute() {
 
   function onCancel() {
     resetShareIntent(true);
+    setPendingFiles(null);
     router.replace('/' as Href);
   }
 

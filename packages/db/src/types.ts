@@ -2873,6 +2873,144 @@ export type Database = {
           },
         ];
       };
+      group_workouts: {
+        Row: {
+          id: string;
+          creator_id: string;
+          title: string;
+          workout_date: string;
+          categories: string[];
+          picks_per_person: number;
+          closes_at: string;
+          join_mode: 'buddies' | 'code';
+          join_code: string | null;
+          status: 'picking' | 'closed' | 'built' | 'cancelled';
+          closed_at: string | null;
+          built_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          creator_id: string;
+          title: string;
+          workout_date: string;
+          categories: string[];
+          picks_per_person: number;
+          closes_at: string;
+          join_mode: 'buddies' | 'code';
+          join_code?: string | null;
+          status?: 'picking' | 'closed' | 'built' | 'cancelled';
+          closed_at?: string | null;
+          built_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          title?: string;
+          workout_date?: string;
+          categories?: string[];
+          picks_per_person?: number;
+          closes_at?: string;
+          join_mode?: 'buddies' | 'code';
+          join_code?: string | null;
+          status?: 'picking' | 'closed' | 'built' | 'cancelled';
+          closed_at?: string | null;
+          built_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'group_workouts_creator_id_fkey';
+            columns: ['creator_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      group_workout_members: {
+        Row: {
+          group_workout_id: string;
+          user_id: string;
+          joined_at: string;
+          workout_id: string | null;
+        };
+        Insert: {
+          group_workout_id: string;
+          user_id: string;
+          joined_at?: string;
+          workout_id?: string | null;
+        };
+        Update: {
+          workout_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'group_workout_members_group_workout_id_fkey';
+            columns: ['group_workout_id'];
+            isOneToOne: false;
+            referencedRelation: 'group_workouts';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'group_workout_members_workout_id_fkey';
+            columns: ['workout_id'];
+            isOneToOne: false;
+            referencedRelation: 'workouts';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      group_workout_picks: {
+        Row: {
+          id: string;
+          group_workout_id: string;
+          user_id: string;
+          exercise_id: string;
+          category: string;
+          target_sets: number;
+          target_reps: string;
+          target_unit: 'reps' | 'sec' | 'min' | 'km' | 'm' | null;
+          target_duration_sec: number | null;
+          target_distance_km: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          group_workout_id: string;
+          user_id: string;
+          exercise_id: string;
+          category: string;
+          target_sets?: number;
+          target_reps?: string;
+          target_unit?: 'reps' | 'sec' | 'min' | 'km' | 'm' | null;
+          target_duration_sec?: number | null;
+          target_distance_km?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          category?: string;
+          target_sets?: number;
+          target_reps?: string;
+          target_unit?: 'reps' | 'sec' | 'min' | 'km' | 'm' | null;
+          target_duration_sec?: number | null;
+          target_distance_km?: number | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'group_workout_picks_group_workout_id_fkey';
+            columns: ['group_workout_id'];
+            isOneToOne: false;
+            referencedRelation: 'group_workouts';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'group_workout_picks_exercise_id_fkey';
+            columns: ['exercise_id'];
+            isOneToOne: false;
+            referencedRelation: 'exercises';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       workouts: {
         Row: {
           id: string;
@@ -2885,6 +3023,8 @@ export type Database = {
           share_token: string | null;
           is_shared: boolean;
           plan_only: boolean;
+          in_library: boolean;
+          group_workout_id: string | null;
           level: 'beginner' | 'intermediate' | 'advanced' | null;
           goal: 'strength' | 'hypertrophy' | 'conditioning' | 'mobility' | 'fat_loss' | null;
           equipment: string[];
@@ -2904,6 +3044,8 @@ export type Database = {
           share_token?: string | null;
           is_shared?: boolean;
           plan_only?: boolean;
+          in_library?: boolean;
+          group_workout_id?: string | null;
           level?: 'beginner' | 'intermediate' | 'advanced' | null;
           goal?: 'strength' | 'hypertrophy' | 'conditioning' | 'mobility' | 'fat_loss' | null;
           equipment?: string[];
@@ -2920,13 +3062,23 @@ export type Database = {
           share_token?: string | null;
           is_shared?: boolean;
           plan_only?: boolean;
+          in_library?: boolean;
+          group_workout_id?: string | null;
           level?: 'beginner' | 'intermediate' | 'advanced' | null;
           goal?: 'strength' | 'hypertrophy' | 'conditioning' | 'mobility' | 'fat_loss' | null;
           equipment?: string[];
           source_workout_id?: string | null;
           source_creator_id?: string | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: 'workouts_group_workout_id_fkey';
+            columns: ['group_workout_id'];
+            isOneToOne: false;
+            referencedRelation: 'group_workouts';
+            referencedColumns: ['id'];
+          },
+        ];
       };
       workout_exercises: {
         Row: {
@@ -3803,6 +3955,64 @@ export type Database = {
           p_duration_min?: number | null;
         };
         Returns: string;
+      };
+      create_group_workout: {
+        Args: {
+          p_title: string;
+          p_workout_date: string;
+          p_categories: string[];
+          p_picks_per_person: number;
+          p_closes_at: string;
+          p_join_mode: string;
+        };
+        Returns: { id: string; join_code: string | null }[];
+      };
+      invite_group_workout_buddy: {
+        Args: {
+          p_group_workout_id: string;
+          p_user_id: string;
+        };
+        Returns: undefined;
+      };
+      join_group_workout_by_code: {
+        Args: { p_code: string };
+        Returns: string;
+      };
+      leave_group_workout: {
+        Args: { p_group_workout_id: string };
+        Returns: undefined;
+      };
+      add_group_workout_pick: {
+        Args: {
+          p_group_workout_id: string;
+          p_exercise_id: string;
+          p_target_sets: number;
+          p_target_reps: string;
+          p_target_unit: string;
+          p_target_duration_sec?: number | null;
+          p_target_distance_km?: number | null;
+          p_category?: string | null;
+        };
+        Returns: string;
+      };
+      remove_group_workout_pick: {
+        Args: { p_pick_id: string };
+        Returns: undefined;
+      };
+      close_group_workout_if_due: {
+        Args: { p_group_workout_id: string };
+        Returns: boolean;
+      };
+      build_group_workout: {
+        Args: {
+          p_group_workout_id: string;
+          p_ordered_pick_ids: string[];
+        };
+        Returns: undefined;
+      };
+      is_group_workout_member: {
+        Args: { _group_workout_id: string };
+        Returns: boolean;
       };
       queue_grocery_catalogue_request: {
         Args: {

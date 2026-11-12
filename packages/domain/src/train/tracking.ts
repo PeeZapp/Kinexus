@@ -184,6 +184,118 @@ export function defaultTrackingTargets(unit: TargetUnit): TrackingTargets {
   };
 }
 
+export type DefaultTargetForInput = InferTrackingInput & {
+  /** Explicit unit wins over inferTracking. */
+  targetUnit?: TargetUnit | null;
+  targetSets?: number | null;
+  targetReps?: string | null;
+  targetDurationSec?: number | null;
+  targetDistanceKm?: number | null;
+  /** Used when the resolved unit is reps (category / goal×level defaults). */
+  repsDefaults?: { sets: number; reps: string } | null;
+  /**
+   * Progression steps above the base default (beginner=0, intermediate=1, advanced=2).
+   * Scales time/distance ~10%/step; intervals leave duration alone (sets are the lever);
+   * reps are unchanged here (prescription owns them).
+   */
+  progressionStep?: number | null;
+};
+
+function roundTo(value: number, step: number): number {
+  if (!Number.isFinite(value) || step <= 0) return value;
+  return Math.round(value / step) * step;
+}
+
+/** Bump time/distance targets ~10% per step; sec/reps unchanged. */
+export function progressTrackingTargets(targets: TrackingTargets, steps = 0): TrackingTargets {
+  const n = Math.max(0, Math.floor(steps || 0));
+  if (n === 0) return trackingCompatTargets(targets);
+
+  if (targets.targetUnit === 'min') {
+    const baseMin =
+      targets.targetDurationSec != null && targets.targetDurationSec > 0
+        ? Math.max(1, Math.round(targets.targetDurationSec / 60))
+        : Number.parseInt(targets.targetReps, 10) || 30;
+    const minutes = Math.max(1, Math.round(baseMin * Math.pow(1.1, n)));
+    return trackingCompatTargets({
+      ...targets,
+      targetSets: targets.targetSets,
+      targetReps: `${minutes} min`,
+      targetDurationSec: minutes * 60,
+    });
+  }
+
+  if (targets.targetUnit === 'km') {
+    const baseKm =
+      targets.targetDistanceKm != null && targets.targetDistanceKm > 0
+        ? targets.targetDistanceKm
+        : Number.parseFloat(targets.targetReps) || 2;
+    const km = Math.max(0.5, roundTo(baseKm * Math.pow(1.1, n), 0.5));
+    return trackingCompatTargets({
+      ...targets,
+      targetReps: `${formatKm(km)} km`,
+      targetDistanceKm: km,
+      targetDurationSec: null,
+    });
+  }
+
+  if (targets.targetUnit === 'm') {
+    const baseKm =
+      targets.targetDistanceKm != null && targets.targetDistanceKm > 0
+        ? targets.targetDistanceKm
+        : (Number.parseInt(targets.targetReps, 10) || 200) / 1000;
+    const metres = Math.max(50, roundTo(baseKm * 1000 * Math.pow(1.1, n), 50));
+    return trackingCompatTargets({
+      ...targets,
+      targetReps: `${metres} m`,
+      targetDistanceKm: metres / 1000,
+      targetDurationSec: null,
+    });
+  }
+
+  // intervals: duration stays; callers bump sets. reps: prescription owns scaling.
+  return trackingCompatTargets(targets);
+}
+
+/**
+ * Infer tracking for an exercise and return sensible generation defaults.
+ * Explicit template fields win over inference; then progression may scale time/distance.
+ */
+export function defaultTargetFor(input: DefaultTargetForInput): TrackingTargets {
+  const inferred = isTargetUnit(input.targetUnit) ? input.targetUnit : inferTracking(input);
+  let base = defaultTrackingTargets(inferred);
+
+  if (inferred === 'reps' && input.repsDefaults) {
+    base = {
+      ...base,
+      targetSets: Math.max(1, input.repsDefaults.sets || base.targetSets),
+      targetReps: input.repsDefaults.reps || base.targetReps,
+    };
+  }
+
+  if (input.targetSets != null && Number.isFinite(input.targetSets)) {
+    base = { ...base, targetSets: Math.max(1, Math.min(20, Math.round(input.targetSets))) };
+  }
+  if (input.targetDurationSec != null && input.targetDurationSec > 0) {
+    base = { ...base, targetDurationSec: input.targetDurationSec };
+  }
+  if (input.targetDistanceKm != null && input.targetDistanceKm > 0) {
+    base = { ...base, targetDistanceKm: input.targetDistanceKm };
+  }
+  if (input.targetReps != null && input.targetReps.trim()) {
+    base = { ...base, targetReps: input.targetReps.trim() };
+  }
+
+  return progressTrackingTargets(trackingCompatTargets(base), input.progressionStep ?? 0);
+}
+
+/** beginner → 0, intermediate → 1, advanced → 2. */
+export function progressionStepForLevel(level: string | null | undefined): number {
+  if (level === 'advanced') return 2;
+  if (level === 'intermediate') return 1;
+  return 0;
+}
+
 function formatKm(value: number): string {
   if (Number.isInteger(value)) return String(value);
   return String(Math.round(value * 1000) / 1000);

@@ -12,13 +12,24 @@ import {
   remixCategoryOf,
   type RemixCategory,
 } from './remix';
+import {
+  defaultTargetFor,
+  inferTracking,
+  progressionStepForLevel,
+  type TargetUnit,
+  type TrackingType,
+} from './tracking';
 import type { CatalogExercise } from './types';
 
 export type FilledTemplateExercise = {
   exerciseId: string;
   name: string;
+  tracking: TrackingType;
+  targetUnit: TargetUnit;
   targetSets: number;
   targetReps: string;
+  targetDurationSec: number | null;
+  targetDistanceKm: number | null;
   targetRpe: number;
   category: RemixCategory | null;
 };
@@ -118,17 +129,47 @@ export function fillWorkoutFromSessionType(input: FillWorkoutTemplateInput): Fil
   const pool = input.catalogue.filter((ex) => !avoid.has(ex.id));
   const rpe = rpeFor(input.goal, input.level);
 
+  const step = progressionStepForLevel(input.level);
+
   if (session.durationBased) {
     const keys = preferredExerciseKeysForSessionType(session.id);
     const pick = pickPreferredExercise(keys, pool, avoid, random);
     if (!pick) return [];
-    const target = durationTargetForSessionType(session.id, input.durationMin);
+    const inferred = inferTracking(pick);
+    const duration = durationTargetForSessionType(session.id, input.durationMin);
+    const minutes = Number.parseInt(duration.reps, 10) || input.durationMin;
+    const targets =
+      inferred === 'km' || inferred === 'm'
+        ? defaultTargetFor({
+            name: pick.name,
+            category: pick.category,
+            canonicalKey: pick.canonicalKey,
+            instructions: pick.instructions,
+            targetUnit: inferred,
+            progressionStep: step,
+          })
+        : defaultTargetFor({
+            name: pick.name,
+            category: pick.category ?? 'Cardio',
+            canonicalKey: pick.canonicalKey,
+            instructions: pick.instructions,
+            targetUnit: 'min',
+            targetSets: duration.sets,
+            targetReps: duration.reps,
+            targetDurationSec: minutes * 60,
+            // Session duration is the template; do not also scale by level.
+            progressionStep: 0,
+          });
     return [
       {
         exerciseId: pick.id,
         name: pick.name,
-        targetSets: target.sets,
-        targetReps: target.reps,
+        tracking: targets.tracking,
+        targetUnit: targets.targetUnit,
+        targetSets: targets.targetSets,
+        targetReps: targets.targetReps,
+        targetDurationSec: targets.targetDurationSec,
+        targetDistanceKm: targets.targetDistanceKm,
         targetRpe: Math.min(rpe, 7),
         category: remixCategoryOf(pick),
       },
@@ -141,11 +182,28 @@ export function fillWorkoutFromSessionType(input: FillWorkoutTemplateInput): Fil
   const picks = generateFromCategoryMix(categories, weights, input.durationMin, pool, random);
   return picks.map((pick) => {
     const ex = pool.find((row) => row.id === pick.exerciseId);
+    const targets = defaultTargetFor({
+      name: pick.name,
+      category: ex?.category ?? (ex ? remixCategoryOf(ex) : null),
+      canonicalKey: ex?.canonicalKey,
+      instructions: ex?.instructions,
+      targetUnit: pick.targetUnit,
+      targetSets: pick.targetSets,
+      targetReps: pick.targetReps,
+      targetDurationSec: pick.targetDurationSec,
+      targetDistanceKm: pick.targetDistanceKm,
+      // Remix already set base targets; only scale time/distance by level.
+      progressionStep: pick.targetUnit === 'min' || pick.targetUnit === 'km' || pick.targetUnit === 'm' ? step : 0,
+    });
     return {
       exerciseId: pick.exerciseId,
       name: pick.name,
-      targetSets: pick.targetSets,
-      targetReps: pick.targetReps,
+      tracking: targets.tracking,
+      targetUnit: targets.targetUnit,
+      targetSets: targets.targetSets,
+      targetReps: targets.targetReps,
+      targetDurationSec: targets.targetDurationSec,
+      targetDistanceKm: targets.targetDistanceKm,
       targetRpe: rpe,
       category: ex ? remixCategoryOf(ex) : null,
     };

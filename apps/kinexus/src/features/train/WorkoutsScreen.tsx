@@ -6,6 +6,7 @@ import {
   canCreateShared,
   estimateWorkout,
   exerciseSearchScore,
+  formatTrackingTarget,
   resolveDefaultWorkoutVisibility,
   type RemixCategory,
 } from '@kinexus/domain';
@@ -27,10 +28,12 @@ import {
   loadHistoryDedupeKeys,
   loadLibrary,
   loadOpenWorkoutIds,
+  loadOutOfLibraryGroupWorkouts,
   loadTrainPrefs,
   loadWorkouts,
   saveWorkout,
   saveWorkoutRating,
+  type OutOfLibraryGroupWorkout,
   type WorkoutDraft,
 } from '@/src/features/train/api';
 import { loadTrainBuddies } from '@/src/features/train/buddies-api';
@@ -73,6 +76,7 @@ export function WorkoutsScreen() {
   const { activeHousehold, people, members, role } = useHousehold();
   const { openMenu, toggleMenu, pick } = useFilterMenus();
   const [workouts, setWorkouts] = useState<WorkoutDraft[]>([]);
+  const [groupCopies, setGroupCopies] = useState<OutOfLibraryGroupWorkout[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [builderOpen, setBuilderOpen] = useState(false);
@@ -100,6 +104,11 @@ export function WorkoutsScreen() {
     const rows = await loadWorkouts(activeHousehold.id);
     setWorkouts(rows);
     setExportWorkout((current) => (current ? rows.find((row) => row.id === current.id) ?? current : null));
+    if (userId) {
+      setGroupCopies(await loadOutOfLibraryGroupWorkouts(activeHousehold.id, userId));
+    } else {
+      setGroupCopies([]);
+    }
   }
 
   useFocusEffect(
@@ -109,12 +118,14 @@ export function WorkoutsScreen() {
       const householdId = activeHousehold.id;
       Promise.all([
         loadWorkouts(householdId),
+        userId ? loadOutOfLibraryGroupWorkouts(householdId, userId) : Promise.resolve([]),
         userId ? loadTrainPrefs(userId) : Promise.resolve(null),
         userId ? loadTrainBuddies(userId) : Promise.resolve([]),
       ])
-        .then(([rows, prefs, buddyRows]) => {
+        .then(([rows, copies, prefs, buddyRows]) => {
           if (cancelled) return;
           setWorkouts(rows);
+          setGroupCopies(copies);
           if (prefs) {
             setDefaultVisibility(
               resolveDefaultWorkoutVisibility({
@@ -219,8 +230,12 @@ export function WorkoutsScreen() {
               {
                 exerciseId: exercise.exerciseId,
                 name: exercise.name,
+                tracking: exercise.tracking,
+                targetUnit: exercise.targetUnit,
                 targetSets: exercise.targetSets,
                 targetReps: exercise.targetReps,
+                targetDurationSec: exercise.targetDurationSec,
+                targetDistanceKm: exercise.targetDistanceKm,
                 targetWeight: exercise.targetWeight,
                 targetEffort: exercise.targetEffort,
                 targetRpe: exercise.targetRpe,
@@ -326,14 +341,65 @@ export function WorkoutsScreen() {
           <LoadingState label="Loading workouts" />
         ) : (
           <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-            {ready && visible.length === 0 ? <Text style={styles.empty}>{workouts.length === 0 ? 'No workouts yet' : 'No matches'}</Text> : null}
+            {groupCopies.length > 0 ? (
+              <View style={styles.groupBlock}>
+                <Text style={styles.groupTitle}>Group workouts</Text>
+                {groupCopies.map((workout) => {
+                  const dateLabel = workout.workoutDate
+                    ? new Date(`${workout.workoutDate}T12:00:00`).toLocaleDateString(undefined, {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric',
+                      })
+                    : null;
+                  return (
+                    <View key={workout.id} style={styles.groupRow}>
+                      <Pressable
+                        accessibilityRole="button"
+                        style={styles.groupCopy}
+                        onPress={() => {
+                          if (workout.groupWorkoutId) {
+                            router.push(`/train/group/${workout.groupWorkoutId}` as Href);
+                            return;
+                          }
+                          router.push(`/train/${workout.id}` as Href);
+                        }}>
+                        <Text style={styles.groupName} numberOfLines={1}>
+                          {workout.name}
+                        </Text>
+                        {dateLabel ? <Text style={styles.groupMeta}>{dateLabel}</Text> : null}
+                      </Pressable>
+                      <TrainButton
+                        label="Start"
+                        compact
+                        onPress={() => router.push(`/train/session/${workout.id}` as Href)}
+                      />
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
+            {ready && visible.length === 0 && groupCopies.length === 0 ? (
+              <Text style={styles.empty}>{workouts.length === 0 ? 'No workouts yet' : 'No matches'}</Text>
+            ) : null}
             <View style={styles.grid}>
               {visible.map((workout) => {
                 const plan = plans.get(workout.id);
                 const minutes = plan?.minutes || workout.durationMin || 0;
                 const focuses = plan?.focuses ?? [];
                 const muscles = focuses.slice(0, 4).join(' · ');
-                const names = workout.exercises.map((exercise) => exerciseTitle(exercise.name));
+                const names = workout.exercises.map((exercise) => {
+                  const title = exerciseTitle(exercise.name);
+                  const target = formatTrackingTarget({
+                    tracking: exercise.tracking,
+                    targetUnit: exercise.targetUnit,
+                    targetSets: exercise.targetSets,
+                    targetReps: exercise.targetReps,
+                    targetDurationSec: exercise.targetDurationSec,
+                    targetDistanceKm: exercise.targetDistanceKm,
+                  });
+                  return target ? `${title} · ${target}` : title;
+                });
                 const listed = names.slice(0, SHOWN_EXERCISES);
                 const extra = Math.max(0, names.length - listed.length);
                 const scores = [...workout.ratings].sort((a, b) => (a.userId === userId ? -1 : b.userId === userId ? 1 : 0));
@@ -568,8 +634,12 @@ export function WorkoutsScreen() {
                   ...current.exercises.map((exercise) => ({
                     exerciseId: exercise.exerciseId,
                     name: exercise.name,
+                    tracking: exercise.tracking,
+                    targetUnit: exercise.targetUnit,
                     targetSets: exercise.targetSets,
                     targetReps: exercise.targetReps,
+                    targetDurationSec: exercise.targetDurationSec,
+                    targetDistanceKm: exercise.targetDistanceKm,
                     targetWeight: exercise.targetWeight,
                     targetEffort: exercise.targetEffort,
                     targetRpe: exercise.targetRpe,
@@ -753,4 +823,20 @@ const styles = StyleSheet.create({
   scoreLabelOn: { color: colors.accent },
   actions: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },
   empty: { color: colors.textMuted, fontSize: 15, paddingVertical: 24 },
+  groupBlock: { gap: 8, marginBottom: 12 },
+  groupTitle: { color: colors.textMuted, fontSize: 13, fontWeight: '700', letterSpacing: 0.3 },
+  groupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgElevated,
+  },
+  groupCopy: { flex: 1, minWidth: 0, gap: 2 },
+  groupName: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  groupMeta: { color: colors.textDim, fontSize: 12, fontWeight: '600' },
 });

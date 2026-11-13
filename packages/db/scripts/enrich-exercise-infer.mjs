@@ -17,6 +17,30 @@ export const BODY_PARTS = new Set([
   'other',
 ]);
 
+/** Legacy spellings → canonical catalogue values (Part 1 cleanup). */
+export const EQUIPMENT_SYNONYMS = {
+  'body only': 'bodyweight',
+  'body weight': 'bodyweight',
+  kettlebells: 'kettlebell',
+  bands: 'resistance band',
+  'e-z curl bar': 'EZ bar',
+  'ez barbell': 'EZ bar',
+  'sz-bar': 'EZ bar',
+  'sz bar': 'EZ bar',
+  'olympic barbell': 'barbell',
+  'exercise ball': 'stability ball',
+  roller: 'foam roll',
+};
+
+export function canonicalizeEquipment(value) {
+  const raw = String(value ?? '')
+    .trim()
+    .replace(/\s+/g, ' ');
+  if (!raw) return '';
+  const mapped = EQUIPMENT_SYNONYMS[raw.toLowerCase()];
+  return mapped ?? raw;
+}
+
 export const EQUIPMENT = new Set([
   '',
   'dumbbell',
@@ -25,7 +49,6 @@ export const EQUIPMENT = new Set([
   'cable',
   'other',
   'leverage machine',
-  'body only',
   'resistance band',
   'machine',
   'smith machine',
@@ -33,17 +56,11 @@ export const EQUIPMENT = new Set([
   'weighted',
   'medicine ball',
   'stability ball',
-  'kettlebells',
   'EZ bar',
-  'bands',
   'assisted',
   'sled machine',
   'foam roll',
   'rope',
-  'exercise ball',
-  'roller',
-  'e-z curl bar',
-  'olympic barbell',
   'bosu ball',
   'ab wheel',
   'upper body ergometer',
@@ -203,7 +220,7 @@ export function isCompleteRow(row) {
 
 const EQUIPMENT_RULES = [
   [/\bsmith(\s+machine)?\b/i, 'smith machine'],
-  [/\b(e-?z(\s*|-)?bar|ez(\s+)?bar|e-z curl bar)\b/i, 'EZ bar'],
+  [/\b(sz[\s-]*bars?|e-?z(\s*|-)?bar|ez(\s+)?bar|e-z curl bar)\b/i, 'EZ bar'],
   [/\b(olympic\s+)?barbells?\b/i, 'barbell'],
   [/\btrap\s+bar\b/i, 'trap bar'],
   [/\bdumbbells?\b|\bdumbells?\b/i, 'dumbbell'],
@@ -218,7 +235,10 @@ const EQUIPMENT_RULES = [
   [/\b(stability|swiss|exercise)\s+balls?\b/i, 'stability ball'],
   [/\bbosu\b/i, 'bosu ball'],
   [/\b(ab\s*wheel|abwheel|ab\s*roller)\b/i, 'ab wheel'],
-  [/\bfoam\s+roll/i, 'foam roll'],
+  [/\bblackroll\b|\bfoam\s+roll/i, 'foam roll'],
+  [/\bbattle\s+ropes?\b/i, 'rope'],
+  [/\btrx\b|\bsuspension(\s+trainer)?\b/i, 'other'],
+  [/\b(boxing|punching|heavy\s+bag|speed\s+bag|bag\s+training)\b/i, 'other'],
   [/\b(bodyweight|body\s*weight|body\s+only)\b/i, 'bodyweight'],
   [/\b(pull-?up\s+bar|chin-?up)\b/i, 'bodyweight'],
 ];
@@ -535,9 +555,12 @@ export function inferExerciseEnrichment(row, indexes = {}) {
     }
   }
 
-  // Drop any values outside vocabulary
+  // Canonicalise equipment synonyms, then drop values outside vocabulary
+  if (patch.equipment != null) {
+    patch.equipment = canonicalizeEquipment(patch.equipment);
+    if (!EQUIPMENT.has(patch.equipment)) delete patch.equipment;
+  }
   if (patch.bodyPart != null && !BODY_PARTS.has(patch.bodyPart)) delete patch.bodyPart;
-  if (patch.equipment != null && !EQUIPMENT.has(patch.equipment)) delete patch.equipment;
   if (patch.targetMuscle != null && !TARGET_MUSCLES.has(patch.targetMuscle)) delete patch.targetMuscle;
   if (patch.category != null && !REMIX_CATEGORIES.has(patch.category)) delete patch.category;
 

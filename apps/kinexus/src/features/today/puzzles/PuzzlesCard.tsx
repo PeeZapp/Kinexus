@@ -11,25 +11,15 @@ import { MemoryGame } from './MemoryGame';
 import { PatternGame } from './PatternGame';
 import { SudokuGame } from './SudokuGame';
 
-const EXTRA_GAMES = PUZZLE_GAMES.filter((game) => game.id !== 'sudoku');
-
-export function SudokuCard() {
-  const date = localPuzzleDate();
-  const game = PUZZLE_GAMES.find((item) => item.id === 'sudoku');
-
-  return (
-    <View style={styles.card}>
-      <Text style={styles.title}>Sudoku</Text>
-      <Text style={styles.blurb}>{game?.blurb}</Text>
-      <SudokuGame date={date} />
-    </View>
-  );
-}
+const EXTRA_GAMES = [
+  ...PUZZLE_GAMES.filter((game) => game.id === 'sudoku'),
+  ...PUZZLE_GAMES.filter((game) => game.id !== 'sudoku'),
+];
 
 export function MorePuzzles() {
   const date = localPuzzleDate();
   const [open, setOpen] = useState(false);
-  const [game, setGame] = useState<Exclude<PuzzleGameId, 'sudoku'>>('crossword');
+  const [game, setGame] = useState<PuzzleGameId>('sudoku');
   const current = EXTRA_GAMES.find((item) => item.id === game) ?? EXTRA_GAMES[0];
 
   return (
@@ -53,6 +43,7 @@ export function MorePuzzles() {
             })}
           </View>
           <Text style={styles.blurb}>{current.blurb}</Text>
+          {current.id === 'sudoku' ? <SudokuGame date={date} /> : null}
           {current.id === 'crossword' ? <CrosswordGame date={date} /> : null}
           {current.id === 'groups' ? <GroupsGame date={date} /> : null}
           {current.id === 'memory' ? <MemoryGame date={date} /> : null}
@@ -88,7 +79,6 @@ const styles = StyleSheet.create({
     padding: space.md,
     gap: 12,
   },
-  title: { color: colors.text, fontSize: 18, fontWeight: '700' },
   blurb: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
   tabs: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tab: {

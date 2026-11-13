@@ -11,10 +11,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   buildCompleteIndexes,
+  canonicalizeEquipment,
   inferExerciseEnrichment,
   isBodyPartGap,
   isEmptyField,
 } from './enrich-exercise-infer.mjs';
+import { RESCUE_OVERRIDES_BY_NAME } from './catalogue-cleanup-infer.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, '..');
@@ -80,7 +82,7 @@ function parseCatalogSql(sql) {
       canonicalKey: unquote(m[2]),
       name: unquote(m[3]) ?? '',
       bodyPart: unquote(m[4]) ?? '',
-      equipment: unquote(m[5]) ?? '',
+      equipment: canonicalizeEquipment(unquote(m[5]) ?? ''),
       targetMuscle: unquote(m[6]) ?? '',
       instructions: parseInstructions(tuple),
       source: sourceMatch?.[1] ?? '',
@@ -151,7 +153,9 @@ function countGaps(rows) {
 function applyPatch(row, patch) {
   const next = { ...row };
   if (patch.bodyPart != null && isBodyPartGap(next.bodyPart)) next.bodyPart = patch.bodyPart;
-  if (patch.equipment != null && isEmptyField(next.equipment)) next.equipment = patch.equipment;
+  if (patch.equipment != null && isEmptyField(next.equipment)) {
+    next.equipment = canonicalizeEquipment(patch.equipment);
+  }
   if (patch.targetMuscle != null && isEmptyField(next.targetMuscle)) next.targetMuscle = patch.targetMuscle;
   if (patch.category != null && (next.category == null || next.category === '')) next.category = patch.category;
   if (patch.isCompound != null && next.isCompound == null) next.isCompound = patch.isCompound;
@@ -227,9 +231,31 @@ function main() {
   const enriched = allRows.map((row) => {
     if (!ALLOWED_SOURCES.has(row.source)) return row;
     const { patch, sources, changed } = inferExerciseEnrichment(row, indexes);
-    if (!changed) return row;
+    // Mirror catalogue-cleanup rescues so a rebuild does not leave these gaps empty.
+    const rescue = RESCUE_OVERRIDES_BY_NAME.find(
+      (f) => f.name.toLowerCase() === String(row.name ?? '').toLowerCase(),
+    );
+    if (rescue) {
+      if (rescue.equipment != null && isEmptyField(row.equipment) && patch.equipment == null) {
+        patch.equipment = rescue.equipment;
+        sources.equipment = 'rescue_override';
+      }
+      if (
+        rescue.category != null &&
+        (row.category == null || row.category === '') &&
+        patch.category == null
+      ) {
+        patch.category = rescue.category;
+        sources.category = 'rescue_override';
+      }
+    }
+    const nextChanged = changed || Object.keys(patch).length > 0;
+    if (!nextChanged) return row;
     for (const src of Object.values(sources)) {
       if (ruleHits[src] != null) ruleHits[src] += 1;
+    }
+    if (sources.equipment === 'rescue_override' || sources.category === 'rescue_override') {
+      ruleHits.rescue_override = (ruleHits.rescue_override ?? 0) + 1;
     }
     updates.push({ id: row.id, name: row.name, patch, sources });
     return applyPatch(row, patch);

@@ -3,9 +3,11 @@ import type { TrainGlobalGoal, TrainGlobalLevel } from './library';
 import {
   generateFromCategoryMix,
   getRemixDefaultsForCategory,
+  isCompoundExercise,
   remixCategoryOf,
   type RemixCategory,
 } from './remix';
+export { isCompoundExercise } from './remix';
 import {
   defaultTargetFor,
   progressionStepForLevel,
@@ -13,6 +15,7 @@ import {
   type TrackingType,
 } from './tracking';
 import type { CatalogExercise, RemixPick } from './types';
+import { exerciseEquipmentMatches, normalizeExerciseEquipment } from './equipment';
 import {
   displayFocusLabel,
   fillWorkoutFromSessionType,
@@ -174,9 +177,6 @@ const FOCUS_RECOVERY_GROUPS: Record<string, readonly string[]> = {
   Mobility: ['mobility'],
   Core: ['core'],
 };
-
-const COMPOUND_NAME =
-  /\b(squat|deadlift|bench|press|row|pull-?up|chin-?up|clean|snatch|lunge|hip thrust|rdl|overhead|thruster)\b/i;
 
 const DAY_INDEX: Record<Day, number> = {
   monday: 0,
@@ -397,16 +397,6 @@ export function prescriptionFor(
   return { ...base };
 }
 
-export function isCompoundExercise(exercise: CatalogExercise): boolean {
-  if (exercise.isCompound != null) return exercise.isCompound;
-  if (COMPOUND_NAME.test(exercise.name)) return true;
-  const cat = remixCategoryOf(exercise);
-  if (cat === 'Full Body' || cat === 'Legs' || cat === 'Back' || cat === 'Chest') {
-    return /\b(press|row|squat|deadlift|pull)\b/i.test(exercise.name);
-  }
-  return false;
-}
-
 export function compoundFirstOrder<T extends { name: string; exerciseId: string }>(
   picks: readonly T[],
   byId: ReadonlyMap<string, CatalogExercise>,
@@ -446,16 +436,12 @@ function filterCatalogue(
   avoid: ReadonlySet<string>,
 ): CatalogExercise[] {
   const allowedEq = equipment?.length
-    ? new Set(equipment.map((e) => e.trim().toLowerCase()).filter(Boolean))
+    ? new Set(equipment.map((e) => normalizeExerciseEquipment(e)).filter(Boolean))
     : null;
   return catalogue.filter((ex) => {
     if (avoid.has(ex.id)) return false;
     if (!allowedEq) return true;
-    const eq = (ex.equipment || '').trim().toLowerCase();
-    if (!eq || eq === 'body weight' || eq === 'bodyweight') {
-      return allowedEq.has('bodyweight') || allowedEq.has('body weight') || allowedEq.has(eq);
-    }
-    return allowedEq.has(eq) || [...allowedEq].some((a) => eq.includes(a) || a.includes(eq));
+    return exerciseEquipmentMatches(ex.equipment, allowedEq);
   });
 }
 

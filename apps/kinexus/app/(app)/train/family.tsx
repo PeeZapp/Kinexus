@@ -1,5 +1,5 @@
-import { FamilyTrainScreen } from '@/src/features/train/FamilyTrainScreen';
+import { Redirect } from 'expo-router';
 
 export default function TrainFamilyRoute() {
-  return <FamilyTrainScreen />;
+  return <Redirect href="/train/settings" />;
 }

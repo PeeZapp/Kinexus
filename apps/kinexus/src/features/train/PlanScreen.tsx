@@ -5,6 +5,7 @@ import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import {
   TRAIN_SESSION_TYPES,
   buildIntentWeekDays,
+  filterHiddenWorkouts,
   formatTrackingTarget,
   mondayWeekStart,
   remixCategoryOf,
@@ -27,14 +28,16 @@ import {
   addTrainingPlanToCalendar,
   applyGeneratedTrainingPlan,
   attachWorkoutToPlanDay,
+  copyGlobalWorkoutToMine,
   createWorkout,
   deleteTrainingPlan,
   downloadTrainingPlanIcs,
   duplicateTrainingPlanToNextWeek,
   fillPlanDayFromLibrary,
   listTrainingPlansByWeek,
-  loadCompletedWorkoutIds,
   loadGeneratePrefs,
+  loadGlobalWorkouts,
+  loadHiddenWorkoutIds,
   loadLibrary,
   loadWorkouts,
   prepareToStartWorkout,
@@ -45,13 +48,21 @@ import {
   trainTogetherOnPlanDay,
   updateTrainingPlanDaySchedule,
   updateTrainingPlanVisibility,
+  type GlobalWorkoutCard,
   type LibraryExercise,
   type TrainingPlanWeekRow,
   type WorkoutDraft,
 } from '@/src/features/train/api';
+import type { PickWorkoutItem } from '@/src/features/train/plan/PickWorkoutModal';
 import { chooseResumeOrStartNew, confirmAction } from '@/src/features/train/confirm';
 import { EMPTY_WORKOUT_SEED, WorkoutBuilder, type WorkoutBuilderResult } from '@/src/features/train/WorkoutBuilder';
 import { loadTrainBuddies } from '@/src/features/train/buddies-api';
+import {
+  jointSessionNeedsAlert,
+  loadMyJointSessions,
+  type JointSessionRow,
+} from '@/src/features/train/joint-sessions-api';
+import { DecideJointSessionModal } from '@/src/features/train/DecideJointSessionModal';
 import {
   DEFAULT_TRAIN_GENERATE_PREFS,
   parseGeneratePrefs,
@@ -64,7 +75,7 @@ import { PlanMobile } from '@/src/features/train/plan/PlanMobile';
 import type { PlanAudienceRow, PlanDayCardModel } from '@/src/features/train/plan/types';
 import { useTrainWeek } from '@/src/features/train/TrainWeekContext';
 import { TextAction, TrainPage } from '@/src/features/train/ui';
-import { LoadingState } from '@/src/features/shell/states';
+import { ErrorBanner, LoadingState } from '@/src/features/shell/states';
 import { colors } from '@/src/features/shell/theme';
 import { todayDay } from '@/src/features/meals/week-labels';
 import { useExperienceMode } from '@/src/lib/experience-mode';
@@ -78,8 +89,9 @@ const EXERCISE_NAME_CATEGORY: readonly [RegExp, string][] = [
   [/\b(squat|lunge|hamstring|quad|calf|leg press|deadlift)\b/i, 'Legs'],
   [/\b(tricep|push-?down|pushdown|skull crusher|kickback)\b/i, 'Triceps'],
   [/\b(bicep|curl|chin-?up)\b/i, 'Biceps'],
+  [/\b(reverse\s+flye?s?|rear\s+(delt\s+)?flye?s?|rear\s+fly|back\s+flye?s?|rear\s+delt)\b/i, 'Shoulders'],
+  [/\b(shoulder|lateral raise|overhead press|military press)\b/i, 'Shoulders'],
   [/\b(chest|bench|flye?s?|push-?up)\b/i, 'Chest'],
-  [/\b(shoulder|lateral raise|rear delt|overhead press|military press)\b/i, 'Shoulders'],
   [/\b(pulldowns?|pull-?ups?|rows?|latissimus|lats?)\b/i, 'Back'],
   [/\b(crunch|plank|sit-?up|oblique|abdominal)\b/i, 'Core'],
   [/\b(sprint|bike|cardio|jump rope|treadmill|elliptical|stair|row(ing|er)?|swim)\b/i, 'Cardio'],
@@ -208,7 +220,8 @@ export function PlanScreen() {
   const [shareBusy, setShareBusy] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
   const [workouts, setWorkouts] = useState<WorkoutDraft[]>([]);
-  const [completedWorkoutIds, setCompletedWorkoutIds] = useState<ReadonlySet<string>>(new Set());
+  const [globalWorkouts, setGlobalWorkouts] = useState<GlobalWorkoutCard[]>([]);
+  const [hiddenWorkoutIds, setHiddenWorkoutIds] = useState<ReadonlySet<string>>(new Set());
   const [library, setLibrary] = useState<LibraryExercise[]>([]);
   const [profile, setProfile] = useState<TrainGeneratePrefs>(DEFAULT_TRAIN_GENERATE_PREFS);
   const [typeCard, setTypeCard] = useState<PlanDayCardModel | null>(null);
@@ -216,6 +229,8 @@ export function PlanScreen() {
   const [menuCard, setMenuCard] = useState<PlanDayCardModel | null>(null);
   const [buildChoiceCard, setBuildChoiceCard] = useState<PlanDayCardModel | null>(null);
   const [buildCard, setBuildCard] = useState<PlanDayCardModel | null>(null);
+  const [jointAlerts, setJointAlerts] = useState<{ session: JointSessionRow; message: string }[]>([]);
+  const [decideSession, setDecideSession] = useState<JointSessionRow | null>(null);
 
   useEffect(() => {
     setSelectedDay(weekStart === mondayWeekStart() ? todayDay() : 'monday');
@@ -230,19 +245,23 @@ export function PlanScreen() {
     if (!userId || !activeHousehold) {
       setPlans([]);
       setBuddies([]);
-      setCompletedWorkoutIds(new Set());
+      setGlobalWorkouts([]);
+      setHiddenWorkoutIds(new Set());
       return;
     }
-    const [rows, buddyRows, workoutRows, prefs, completedIds] = await Promise.all([
+    const [rows, buddyRows, workoutRows, globals, hiddenIds, prefs, joint] = await Promise.all([
       listTrainingPlansByWeek(activeHousehold.id, weekStart, userId),
       loadTrainBuddies(userId),
       loadWorkouts(activeHousehold.id, { includePlanOnly: true }),
+      loadGlobalWorkouts(userId),
+      loadHiddenWorkoutIds(userId),
       loadGeneratePrefs(userId),
-      loadCompletedWorkoutIds(userId, activeHousehold.id),
+      loadMyJointSessions(userId),
     ]);
     setPlans(rows);
     setWorkouts(workoutRows);
-    setCompletedWorkoutIds(new Set(completedIds));
+    setGlobalWorkouts(globals);
+    setHiddenWorkoutIds(new Set(hiddenIds));
     setProfile(parseGeneratePrefs(prefs));
     setBuddies(
       buddyRows
@@ -251,6 +270,14 @@ export function PlanScreen() {
           id: row.otherUserId,
           name: row.profile.username || row.profile.globalHandle || 'Buddy',
         })),
+    );
+    setJointAlerts(
+      joint
+        .map((session) => {
+          const message = jointSessionNeedsAlert(session, userId);
+          return message ? { session, message } : null;
+        })
+        .filter((row): row is { session: JointSessionRow; message: string } => Boolean(row)),
     );
   }, [activeHousehold, userId, weekStart]);
 
@@ -290,6 +317,45 @@ export function PlanScreen() {
     for (const workout of workouts) map.set(workout.id, workout);
     return map;
   }, [workouts]);
+
+  const pickLibraryWorkouts = useMemo(() => {
+    const hidden = hiddenWorkoutIds;
+    const seen = new Set<string>();
+    const rows: PickWorkoutItem[] = [];
+    for (const workout of workouts) {
+      if (workout.planOnly || seen.has(workout.id)) continue;
+      seen.add(workout.id);
+      rows.push({
+        id: workout.id,
+        name: workout.name,
+        origin: 'yours',
+        hidden: hidden.has(workout.id),
+        exercises: workout.exercises.map((exercise) => ({
+          name: exercise.name,
+          targetSets: exercise.targetSets,
+          supersetId: exercise.supersetId ?? null,
+        })),
+      });
+    }
+    for (const workout of globalWorkouts) {
+      if (seen.has(workout.id)) continue;
+      // Skip globals already copied into the household library.
+      if (workouts.some((row) => row.sourceWorkoutId === workout.id)) continue;
+      seen.add(workout.id);
+      rows.push({
+        id: workout.id,
+        name: workout.name,
+        origin: 'global',
+        hidden: hidden.has(workout.id),
+        exercises: workout.exercises.map((exercise) => ({
+          name: exercise.name,
+          targetSets: exercise.targetSets,
+          supersetId: exercise.supersetId ?? null,
+        })),
+      });
+    }
+    return rows;
+  }, [globalWorkouts, hiddenWorkoutIds, workouts]);
 
   const libraryById = useMemo(() => {
     const map = new Map<string, LibraryExercise>();
@@ -405,15 +471,16 @@ export function PlanScreen() {
     setBusy(true);
     setError(null);
     try {
-      const [library, workouts] = await Promise.all([
+      const [library, workouts, hiddenIds] = await Promise.all([
         loadLibrary(),
         activeHousehold ? loadWorkouts(activeHousehold.id) : Promise.resolve([]),
+        loadHiddenWorkoutIds(userId),
       ]);
       const preview = await regenerateRemainingTrainingDays({
         userId,
         planId: plan.id,
         catalogue: library,
-        savedWorkouts: workouts.map((workout) => ({
+        savedWorkouts: filterHiddenWorkouts(workouts, hiddenIds).map((workout) => ({
           id: workout.id,
           name: workout.name,
           focus: [],
@@ -445,15 +512,16 @@ export function PlanScreen() {
     setBusy(true);
     setError(null);
     try {
-      const [library, workouts] = await Promise.all([
+      const [library, workouts, hiddenIds] = await Promise.all([
         loadLibrary(),
         activeHousehold ? loadWorkouts(activeHousehold.id) : Promise.resolve([]),
+        loadHiddenWorkoutIds(userId),
       ]);
       await regenerateRemainingTrainingDays({
         userId,
         planId: regenPreview.planId,
         catalogue: library,
-        savedWorkouts: workouts.map((workout) => ({
+        savedWorkouts: filterHiddenWorkouts(workouts, hiddenIds).map((workout) => ({
           id: workout.id,
           name: workout.name,
           focus: [],
@@ -816,23 +884,55 @@ export function PlanScreen() {
     }
   }
 
-  async function onAttachSaved(card: PlanDayCardModel, workoutId: string | null) {
+  async function onAttachSaved(
+    card: PlanDayCardModel,
+    workoutId: string | null,
+    sessionTypeId?: string | null,
+  ) {
     if (!userId || busy) return;
     setBusy(true);
     setError(null);
     try {
-      await attachWorkoutToPlanDay({ userId, dayId: card.id, workoutId });
+      let attachId = workoutId;
+      let attachedDuration: number | null = null;
       if (workoutId) {
-        const workout = workouts.find((row) => row.id === workoutId);
-        if (workout && card.focus.length === 0) {
-          await updateTrainingPlanDaySchedule({
-            userId,
-            dayId: card.id,
-            focus: [workout.name],
-            restDay: false,
-            durationMin: workout.durationMin ?? card.durationMin ?? 40,
-          });
+        const household = workouts.find((row) => row.id === workoutId);
+        if (household) {
+          attachedDuration = household.durationMin;
+        } else {
+          const global = globalWorkouts.find((row) => row.id === workoutId);
+          if (global) {
+            if (!activeHousehold) throw new Error('Sign in to save a workout');
+            const existing = workouts.find((row) => row.sourceWorkoutId === global.id);
+            if (existing) {
+              attachId = existing.id;
+              attachedDuration = existing.durationMin;
+            } else {
+              const copied = await copyGlobalWorkoutToMine({
+                workout: global,
+                householdId: activeHousehold.id,
+                userId,
+              });
+              attachId = copied.workoutId;
+              attachedDuration = global.durationMin;
+            }
+          }
         }
+      }
+
+      await attachWorkoutToPlanDay({ userId, dayId: card.id, workoutId: attachId });
+
+      const focusLabel = sessionTypeId
+        ? trainSessionTypeById(sessionTypeId)?.label ?? null
+        : null;
+      if (attachId && focusLabel) {
+        await updateTrainingPlanDaySchedule({
+          userId,
+          dayId: card.id,
+          focus: [focusLabel],
+          restDay: false,
+          durationMin: attachedDuration ?? card.durationMin ?? 40,
+        });
       }
       setSavedCard(null);
       setMenuCard(null);
@@ -863,17 +963,19 @@ export function PlanScreen() {
     }
   }
 
-  async function onChangeVisibility(plan: TrainingPlanWeekRow, visibility: TrainVisibility) {
+  async function onChangeVisibility(plan: TrainingPlanWeekRow, day: Day, visibility: TrainVisibility) {
     if (!userId || busy) return;
+    const current = plan.days.find((row) => row.day === day);
     setBusy(true);
     setError(null);
     try {
       await updateTrainingPlanVisibility({
         userId,
         planId: plan.id,
+        day,
         visibility,
-        audiencePersonIds: plan.audiencePersonIds,
-        buddyUserIds: visibility === 'buddies_selected' ? plan.buddyUserIds : [],
+        audiencePersonIds: current?.audiencePersonIds ?? [],
+        buddyUserIds: visibility === 'buddies_selected' ? (current?.buddyUserIds ?? []) : [],
       });
       await refresh();
     } catch (err: unknown) {
@@ -883,17 +985,20 @@ export function PlanScreen() {
     }
   }
 
-  async function onToggleBuddy(plan: TrainingPlanWeekRow, buddyId: string) {
+  async function onToggleBuddy(plan: TrainingPlanWeekRow, day: Day, buddyId: string) {
     if (!userId || busy) return;
-    const next = plan.buddyUserIds.includes(buddyId)
-      ? plan.buddyUserIds.filter((id) => id !== buddyId)
-      : [...plan.buddyUserIds, buddyId];
+    const current = plan.days.find((row) => row.day === day);
+    const buddyUserIds = current?.buddyUserIds ?? [];
+    const next = buddyUserIds.includes(buddyId)
+      ? buddyUserIds.filter((id) => id !== buddyId)
+      : [...buddyUserIds, buddyId];
     setBusy(true);
     setError(null);
     try {
       await updateTrainingPlanVisibility({
         userId,
         planId: plan.id,
+        day,
         visibility: 'buddies_selected',
         buddyUserIds: next,
       });
@@ -967,6 +1072,12 @@ export function PlanScreen() {
     }
   }
 
+  const workoutNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const workout of workouts) map[workout.id] = workout.name;
+    return map;
+  }, [workouts]);
+
   if (!ready) {
     return (
       <TrainPage>
@@ -1036,9 +1147,10 @@ export function PlanScreen() {
     onExportPlanIcs: (plan: TrainingPlanWeekRow) => void onExportPlanIcs(plan),
     onExportDayIcs: (plan: TrainingPlanWeekRow, card: PlanDayCardModel) => void onExportDayIcs(plan, card),
     onToggleAutoSync: (plan: TrainingPlanWeekRow) => void onToggleAutoSync(plan),
-    onChangeVisibility: (plan: TrainingPlanWeekRow, visibility: TrainVisibility) =>
-      void onChangeVisibility(plan, visibility),
-    onToggleBuddy: (plan: TrainingPlanWeekRow, buddyId: string) => void onToggleBuddy(plan, buddyId),
+    onChangeVisibility: (plan: TrainingPlanWeekRow, day: Day, visibility: TrainVisibility) =>
+      void onChangeVisibility(plan, day, visibility),
+    onToggleBuddy: (plan: TrainingPlanWeekRow, day: Day, buddyId: string) =>
+      void onToggleBuddy(plan, day, buddyId),
     onShareLink: (plan: TrainingPlanWeekRow) => {
       setShareError(null);
       setSharePlan(plan);
@@ -1048,7 +1160,44 @@ export function PlanScreen() {
 
   return (
     <TrainPage>
+      {jointAlerts.length > 0 ? (
+        <View style={styles.alertStack}>
+          {jointAlerts.map(({ session, message }) => (
+            <View key={session.id} style={styles.alertCard}>
+              <ErrorBanner message={message} />
+              <TextAction label="Choose session" onPress={() => setDecideSession(session)} />
+            </View>
+          ))}
+        </View>
+      ) : null}
       {desktop ? <PlanDesktop {...viewProps} /> : <PlanMobile {...viewProps} />}
+      <DecideJointSessionModal
+        visible={Boolean(decideSession)}
+        session={decideSession}
+        workoutNames={workoutNames}
+        busy={busy}
+        onClose={() => setDecideSession(null)}
+        onDecide={async ({ sessionTypeId, workoutId }) => {
+          if (!decideSession || !userId) return;
+          setBusy(true);
+          setError(null);
+          try {
+            const { decideTrainJointSession } = await import('@/src/features/train/joint-sessions-api');
+            await decideTrainJointSession({
+              sessionId: decideSession.id,
+              sessionTypeId,
+              workoutId,
+              userId,
+            });
+            setDecideSession(null);
+            await refresh();
+          } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Could not lock session');
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
       <Sheet visible={Boolean(menuCard)} title="Day" onClose={() => setMenuCard(null)}>
         <View style={styles.menuList}>
           <TextAction
@@ -1172,22 +1321,15 @@ export function PlanScreen() {
       </Sheet>
       <PickWorkoutModal
         visible={Boolean(savedCard)}
-        workouts={workouts
-          .filter((workout) => !workout.planOnly)
-          .map((workout) => ({
-            id: workout.id,
-            name: workout.name,
-            durationMin: workout.durationMin,
-            completed: completedWorkoutIds.has(workout.id),
-            myScore: userId
-              ? workout.ratings.find((rating) => rating.userId === userId)?.score ?? null
-              : null,
-          }))}
+        workouts={pickLibraryWorkouts}
+        initialSessionTypeId={
+          savedCard?.focus[0] ? sessionTypeIdFromFocus(savedCard.focus[0]) : null
+        }
         canClear={Boolean(savedCard?.workoutId)}
         onClose={() => setSavedCard(null)}
-        onPick={(workoutId) => {
+        onPick={(workoutId, sessionTypeId) => {
           if (!savedCard) return;
-          void onAttachSaved(savedCard, workoutId);
+          void onAttachSaved(savedCard, workoutId, sessionTypeId);
         }}
         onClear={() => {
           if (!savedCard) return;
@@ -1269,4 +1411,6 @@ const styles = StyleSheet.create({
   },
   sheetName: { color: colors.text, fontSize: 15, fontWeight: '600' },
   sheetMeta: { color: colors.textMuted, fontSize: 12, textTransform: 'capitalize' },
+  alertStack: { gap: 8, paddingBottom: 8 },
+  alertCard: { gap: 6 },
 });

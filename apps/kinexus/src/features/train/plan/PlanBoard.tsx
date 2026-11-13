@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { DAYS, mondayWeekStart } from '@kinexus/domain';
+import { DAYS, mondayWeekStart, trainingPlanDayVisibility } from '@kinexus/domain';
 
 import { DayStrip, WeekSwitcher } from '@/src/features/meals/plan/PlanShared';
 import { isoDayNumber, todayDay, weekDayIso } from '@/src/features/meals/week-labels';
@@ -117,6 +117,7 @@ export function PlanBoard(props: TrainPlanViewProps & { compact?: boolean }) {
   const canAdd = !props.busy && (manage || !owned);
   const dayCards = (owned?.cards ?? []).filter((card) => card.day === props.selectedDay);
   const plannedWorkouts = dayCards.filter((card) => !card.restDay && card.workoutId);
+  const dayShare = owned ? trainingPlanDayVisibility(owned.plan, props.selectedDay) : null;
   const fillable = Boolean(
     owned?.cards.some(
       (card) => !card.restDay && card.status === 'planned' && !card.workoutId && card.focus.length > 0,
@@ -167,16 +168,18 @@ export function PlanBoard(props: TrainPlanViewProps & { compact?: boolean }) {
         </View>
       ) : null}
 
-      {owned && manage ? (
+      {owned && manage && dayShare ? (
         <View style={styles.planChrome}>
           <PlanVisibilityBar
-            visibility={owned.plan.visibility}
-            buddyUserIds={owned.plan.buddyUserIds}
+            visibility={dayShare.visibility}
+            buddyUserIds={dayShare.buddyUserIds}
             buddies={props.buddies}
             isApprovedCreator={props.isApprovedCreator}
             editable={!props.busy}
-            onChangeVisibility={(next) => props.onChangeVisibility(owned.plan, next)}
-            onToggleBuddy={(buddyId) => props.onToggleBuddy(owned.plan, buddyId)}
+            onChangeVisibility={(next) =>
+              props.onChangeVisibility(owned.plan, props.selectedDay, next)
+            }
+            onToggleBuddy={(buddyId) => props.onToggleBuddy(owned.plan, props.selectedDay, buddyId)}
             onShare={() => props.onShareLink(owned.plan)}
           />
           <View style={styles.chromeActions}>

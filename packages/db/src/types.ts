@@ -559,6 +559,47 @@ export type Database = {
           },
         ];
       };
+      household_talk_items: {
+        Row: {
+          id: string;
+          household_id: string;
+          body: string;
+          done: boolean;
+          created_by: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          household_id: string;
+          body: string;
+          done?: boolean;
+          created_by: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          body?: string;
+          done?: boolean;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'household_talk_items_household_id_fkey';
+            columns: ['household_id'];
+            isOneToOne: false;
+            referencedRelation: 'households';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'household_talk_items_created_by_fkey';
+            columns: ['created_by'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       household_events: {
         Row: {
           id: string;
@@ -3016,6 +3057,7 @@ export type Database = {
           id: string;
           household_id: string;
           created_by: string | null;
+          added_by: string | null;
           name: string;
           visibility: 'private' | 'household' | 'people' | 'buddies' | 'buddies_selected' | 'global';
           split_id: string | null;
@@ -3037,6 +3079,7 @@ export type Database = {
           id?: string;
           household_id: string;
           created_by?: string | null;
+          added_by?: string | null;
           name: string;
           visibility?: 'private' | 'household' | 'people' | 'buddies' | 'buddies_selected' | 'global';
           split_id?: string | null;
@@ -3064,6 +3107,7 @@ export type Database = {
           plan_only?: boolean;
           in_library?: boolean;
           group_workout_id?: string | null;
+          added_by?: string | null;
           level?: 'beginner' | 'intermediate' | 'advanced' | null;
           goal?: 'strength' | 'hypertrophy' | 'conditioning' | 'mobility' | 'fat_loss' | null;
           equipment?: string[];
@@ -3239,6 +3283,7 @@ export type Database = {
           name: string;
           remix_spec: string | null;
           duration_min: number | null;
+          calories_burned: number | null;
           started_at: string;
           finished_at: string | null;
         };
@@ -3250,6 +3295,7 @@ export type Database = {
           name: string;
           remix_spec?: string | null;
           duration_min?: number | null;
+          calories_burned?: number | null;
           started_at?: string;
           finished_at?: string | null;
         };
@@ -3257,6 +3303,8 @@ export type Database = {
           name?: string;
           workout_id?: string | null;
           finished_at?: string | null;
+          calories_burned?: number | null;
+          duration_min?: number | null;
         };
         Relationships: [];
       };

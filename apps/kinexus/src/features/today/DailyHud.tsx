@@ -36,9 +36,18 @@ import {
   type JournalLock,
 } from '@/src/features/today/journal-lock';
 import { loadDayMenu, type MenuCourse } from '@/src/features/today/menu';
+import {
+  addTalkItem,
+  loadTalkItems,
+  removeTalkItem,
+  setTalkItemDone,
+  TALK_ITEM_LIMIT,
+  type TalkItem,
+} from '@/src/features/today/talk-store';
 import type { AuthUser } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
-import { isSupabaseConfigured } from '@/src/lib/supabase';
+import { retainPostgresChannel } from '@/src/lib/realtime';
+import { isSupabaseConfigured, supabase } from '@/src/lib/supabase';
 
 function taskId(): string {
   return `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -281,6 +290,7 @@ function DayBoard({
           />
         </View>
       </View>
+      <TalkPanel user={user} />
       <View style={styles.stack}>
         <MenuPanel
           ready={isReady}
@@ -349,6 +359,182 @@ function TasksPanel({ tasks, onChange }: { tasks: DayTask[]; onChange: (tasks: D
           <Text style={[styles.addBtnLabel, (!draft.trim() || full) && styles.addBtnOff]}>Add</Text>
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+function firstName(value: string | null | undefined): string {
+  const first = (value ?? '').trim().split(/\s+/)[0];
+  return first || 'Someone';
+}
+
+function TalkPanel({ user }: { user: AuthUser }) {
+  const { activeHousehold, isReady, members } = useHousehold();
+  const householdId = activeHousehold?.id ?? null;
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const nameById = new Map(
+    members.map((member) => [member.profile.id, firstName(member.profile.displayName)] as const),
+  );
+
+  const talk = useQuery({
+    queryKey: ['household-talk', householdId],
+    enabled: Boolean(householdId && isSupabaseConfigured && !user.isDevBypass),
+    queryFn: () => loadTalkItems(householdId!),
+    staleTime: 15 * 1000,
+  });
+
+  useEffect(() => {
+    const client = supabase;
+    if (!client || !householdId || user.isDevBypass) return;
+    return retainPostgresChannel(client, `talk-sync:${householdId}`, (channel) =>
+      channel.on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'household_talk_items',
+          filter: `household_id=eq.${householdId}`,
+        },
+        () => {
+          void queryClient.invalidateQueries({ queryKey: ['household-talk', householdId] });
+        },
+      ),
+    );
+  }, [householdId, queryClient, user.isDevBypass]);
+
+  const items = talk.data ?? [];
+  const full = items.length >= TALK_ITEM_LIMIT;
+  const open = items.filter((item) => !item.done).length;
+  const canWrite = Boolean(householdId && isSupabaseConfigured && !user.isDevBypass);
+
+  const patchCache = (next: TalkItem[]) => {
+    if (!householdId) return;
+    queryClient.setQueryData<TalkItem[]>(['household-talk', householdId], next);
+  };
+
+  const add = () => {
+    const body = draft.replace(/\s+/g, ' ').trim().slice(0, 120);
+    if (!body || !householdId || !canWrite || full || busy) return;
+    setBusy(true);
+    setError(null);
+    void addTalkItem(user, householdId, body)
+      .then((item) => {
+        setDraft('');
+        patchCache([...items, item].slice(0, TALK_ITEM_LIMIT));
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : 'Could not add that.');
+      })
+      .finally(() => setBusy(false));
+  };
+
+  const toggle = (item: TalkItem) => {
+    if (!canWrite || busy) return;
+    const nextDone = !item.done;
+    patchCache(items.map((row) => (row.id === item.id ? { ...row, done: nextDone } : row)));
+    void setTalkItemDone(item.id, nextDone).catch((err: unknown) => {
+      patchCache(items);
+      setError(err instanceof Error ? err.message : 'Could not update that.');
+    });
+  };
+
+  const remove = (item: TalkItem) => {
+    if (!canWrite || busy) return;
+    patchCache(items.filter((row) => row.id !== item.id));
+    void removeTalkItem(item.id).catch((err: unknown) => {
+      patchCache(items);
+      setError(err instanceof Error ? err.message : 'Could not remove that.');
+    });
+  };
+
+  return (
+    <View style={styles.panel}>
+      <View style={styles.panelHead}>
+        <Text style={styles.panelTitle}>Talk</Text>
+        <Text style={styles.panelMeta}>
+          {!isReady
+            ? '…'
+            : !activeHousehold
+              ? 'Household'
+              : items.length === 0
+                ? 'Shared'
+                : open === 0
+                  ? 'Caught up'
+                  : `${open} open`}
+        </Text>
+      </View>
+      {!isReady || talk.isLoading ? <Text style={styles.empty}>Opening the list…</Text> : null}
+      {isReady && !activeHousehold ? (
+        <Text style={styles.empty}>Join a household to share things to talk about.</Text>
+      ) : null}
+      {isReady && activeHousehold && !canWrite ? (
+        <Text style={styles.empty}>Talk syncs when you are signed in to the household.</Text>
+      ) : null}
+      <ErrorText
+        message={
+          error ??
+          (talk.error instanceof Error
+            ? talk.error.message
+            : talk.isError
+              ? 'Could not load talk items.'
+              : null)
+        }
+      />
+      {items.map((item) => {
+        const who = nameById.get(item.createdBy) ?? 'Someone';
+        return (
+          <View key={item.id} style={styles.taskRow}>
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: item.done }}
+              disabled={!canWrite}
+              onPress={() => toggle(item)}
+              style={[styles.check, item.done && styles.checkOn]}>
+              {item.done ? <Text style={styles.checkMark}>✓</Text> : null}
+            </Pressable>
+            <View style={styles.talkBody}>
+              <Text style={[styles.taskLabel, item.done && styles.taskDone]}>{item.body}</Text>
+              <Text style={styles.talkWho}>{who}</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${item.body}`}
+              disabled={!canWrite}
+              hitSlop={8}
+              onPress={() => remove(item)}
+              style={styles.removeHit}>
+              <Text style={styles.remove}>×</Text>
+            </Pressable>
+          </View>
+        );
+      })}
+      {isReady && activeHousehold && canWrite && !talk.isLoading && !talk.isError && items.length === 0 ? (
+        <Text style={styles.empty}>Nothing to talk about yet.</Text>
+      ) : null}
+      {canWrite ? (
+        <View style={styles.addRow}>
+          <TextInput
+            value={draft}
+            onChangeText={setDraft}
+            placeholder={full ? 'The list is full' : 'Add something to talk about'}
+            placeholderTextColor={colors.textDim}
+            editable={!full && !busy}
+            style={styles.addInput}
+            returnKeyType="done"
+            onSubmitEditing={add}
+          />
+          <Pressable
+            accessibilityRole="button"
+            disabled={!draft.trim() || full || busy}
+            onPress={add}
+            style={styles.addBtn}>
+            <Text style={[styles.addBtnLabel, (!draft.trim() || full || busy) && styles.addBtnOff]}>Add</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1139,6 +1325,16 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 15,
     lineHeight: 20,
+  },
+  talkBody: {
+    flex: 1,
+    gap: 1,
+  },
+  talkWho: {
+    color: colors.textDim,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   taskDone: {
     color: colors.textDim,

@@ -28,6 +28,9 @@ export type TrainingPlanDayRow = {
   focus: string[];
   status: TrainingPlanDayStatus;
   sessionId: string | null;
+  visibility: TrainVisibility;
+  audiencePersonIds: string[];
+  buddyUserIds: string[];
 };
 
 export type TrainingPlanWeekRow = {
@@ -100,10 +103,22 @@ function asStatus(value: string): TrainingPlanDayStatus | null {
   return value === 'planned' || value === 'done' || value === 'skipped' ? value : null;
 }
 
+function mapBuddyUserIds(shares: unknown): string[] {
+  if (!Array.isArray(shares)) return [];
+  return shares
+    .map((share) =>
+      share && typeof share === 'object' && 'buddy_user_id' in share
+        ? String((share as { buddy_user_id: unknown }).buddy_user_id)
+        : '',
+    )
+    .filter(Boolean);
+}
+
 function mapDayRow(row: Record<string, unknown>, planId: string): TrainingPlanDayRow | null {
   const day = typeof row.day === 'string' ? asDay(row.day) : null;
   const status = typeof row.status === 'string' ? asStatus(row.status) : null;
   if (!day || !status || typeof row.id !== 'string') return null;
+  const visibilityRaw = typeof row.visibility === 'string' ? row.visibility : 'private';
   return {
     id: row.id,
     planId,
@@ -120,6 +135,11 @@ function mapDayRow(row: Record<string, unknown>, planId: string): TrainingPlanDa
     focus: Array.isArray(row.focus) ? row.focus.map(String) : [],
     status,
     sessionId: typeof row.session_id === 'string' ? row.session_id : null,
+    visibility: (isTrainVisibility(visibilityRaw) ? visibilityRaw : 'private') as TrainVisibility,
+    audiencePersonIds: Array.isArray(row.audience_person_ids)
+      ? row.audience_person_ids.map(String)
+      : [],
+    buddyUserIds: mapBuddyUserIds(row.training_plan_day_buddy_shares),
   };
 }
 
@@ -146,13 +166,7 @@ function mapPlanRow(row: Record<string, unknown>): TrainingPlanWeekRow | null {
         ? (row.prefs as Record<string, unknown>)
         : {},
     calendarAutoSync: Boolean(row.calendar_auto_sync),
-    buddyUserIds: shares
-      .map((share) =>
-        share && typeof share === 'object' && 'buddy_user_id' in share
-          ? String((share as { buddy_user_id: unknown }).buddy_user_id)
-          : '',
-      )
-      .filter(Boolean),
+    buddyUserIds: mapBuddyUserIds(shares),
     shareToken: typeof row.share_token === 'string' ? row.share_token : null,
     isShared: Boolean(row.is_shared),
     days: dayRows
@@ -161,6 +175,29 @@ function mapPlanRow(row: Record<string, unknown>): TrainingPlanWeekRow | null {
       )
       .filter((day): day is TrainingPlanDayRow => Boolean(day))
       .sort((a, b) => a.position - b.position || DAYS.indexOf(a.day) - DAYS.indexOf(b.day)),
+  };
+}
+
+const PLAN_WEEK_SELECT =
+  'id, household_id, owner_id, name, week_start, visibility, audience_person_ids, prefs, calendar_auto_sync, share_token, is_shared, training_plan_days(*, training_plan_day_buddy_shares(buddy_user_id)), training_plan_buddy_shares(buddy_user_id)';
+
+/** Effective visibility for a weekday (all slots on that day share one setting). */
+export function trainingPlanDayVisibility(
+  plan: TrainingPlanWeekRow,
+  day: Day,
+): { visibility: TrainVisibility; audiencePersonIds: string[]; buddyUserIds: string[] } {
+  const match = plan.days.find((row) => row.day === day);
+  if (match) {
+    return {
+      visibility: match.visibility,
+      audiencePersonIds: match.audiencePersonIds,
+      buddyUserIds: match.buddyUserIds,
+    };
+  }
+  return {
+    visibility: 'private',
+    audiencePersonIds: [],
+    buddyUserIds: [],
   };
 }
 
@@ -179,9 +216,7 @@ export async function handleListTrainingPlansByWeek(
   // Week-scoped only — RLS returns owned + household/family + buddy-shared plans.
   const result = await client
     .from('training_plans')
-    .select(
-      'id, household_id, owner_id, name, week_start, visibility, audience_person_ids, prefs, calendar_auto_sync, share_token, is_shared, training_plan_days(*), training_plan_buddy_shares(buddy_user_id)',
-    )
+    .select(PLAN_WEEK_SELECT)
     .eq('week_start', input.weekStart)
     .order('created_at', { ascending: true });
 
@@ -201,21 +236,29 @@ export async function handleListTrainingPlansByWeek(
 }
 
 export type UpdateTrainingPlanVisibilityResult =
-  | { status: 200; body: { id: string; visibility: TrainVisibility; buddyUserIds: string[] } }
+  | {
+      status: 200;
+      body: { id: string; day: Day; visibility: TrainVisibility; buddyUserIds: string[]; dayIds: string[] };
+    }
   | { status: 400 | 403 | 404 | 500; body: { error: string } };
 
+/** Set Visible to for one weekday (all slots that day). Creates a rest placeholder if needed. */
 export async function handleUpdateTrainingPlanVisibility(
   client: PlanWeekDbClient,
   input: {
     authUserId: string;
     planId: string;
+    day: Day;
     visibility: TrainVisibility;
     audiencePersonIds?: string[];
     buddyUserIds?: string[];
   },
 ): Promise<UpdateTrainingPlanVisibilityResult> {
-  if (!input.authUserId || !input.planId) {
-    return { status: 400, body: { error: 'authUserId and planId are required' } };
+  if (!input.authUserId || !input.planId || !input.day) {
+    return { status: 400, body: { error: 'authUserId, planId, and day are required' } };
+  }
+  if (!DAYS.includes(input.day)) {
+    return { status: 400, body: { error: 'Invalid day' } };
   }
   if (!isTrainVisibility(input.visibility)) {
     return { status: 400, body: { error: 'Invalid visibility' } };
@@ -223,7 +266,7 @@ export async function handleUpdateTrainingPlanVisibility(
 
   const loaded = await client
     .from('training_plans')
-    .select('id, household_id, owner_id, visibility')
+    .select('id, household_id, owner_id')
     .eq('id', input.planId)
     .maybeSingle();
 
@@ -249,27 +292,70 @@ export async function handleUpdateTrainingPlanVisibility(
       ? [...new Set((input.buddyUserIds ?? []).filter((id) => id !== input.authUserId))]
       : [];
 
-  const updated = await client
-    .from('training_plans')
-    .update({
-      visibility: input.visibility,
-      audience_person_ids: audiencePersonIds,
-    })
-    .eq('id', input.planId)
-    .select('id, visibility')
-    .maybeSingle();
+  const existing = await client
+    .from('training_plan_days')
+    .select('id')
+    .eq('plan_id', input.planId)
+    .eq('day', input.day);
 
-  if (updated.error) {
-    if (isRlsOrOwnershipError(updated.error)) {
-      return { status: 403, body: { error: 'Not allowed to set this visibility' } };
+  if (existing.error) {
+    return { status: 500, body: { error: existing.error.message } };
+  }
+
+  let dayIds = ((existing.data ?? []) as { id: string }[]).map((row) => row.id);
+
+  if (dayIds.length === 0) {
+    const inserted = await client
+      .from('training_plan_days')
+      .insert({
+        plan_id: input.planId,
+        day: input.day,
+        position: 0,
+        workout_id: null,
+        rest_day: true,
+        focus: [],
+        duration_min: null,
+        status: 'planned',
+        visibility: input.visibility,
+        audience_person_ids: audiencePersonIds,
+      })
+      .select('id')
+      .maybeSingle();
+
+    if (inserted.error || !inserted.data || typeof inserted.data !== 'object' || !('id' in inserted.data)) {
+      if (isRlsOrOwnershipError(inserted.error)) {
+        return { status: 403, body: { error: 'Not allowed to set this visibility' } };
+      }
+      return { status: 500, body: { error: inserted.error?.message ?? 'Could not create plan day' } };
     }
-    return { status: 500, body: { error: updated.error.message } };
-  }
-  if (!updated.data || typeof updated.data !== 'object') {
-    return { status: 404, body: { error: 'Plan not found' } };
+    dayIds = [String((inserted.data as { id: string }).id)];
+  } else {
+    const updated = await client
+      .from('training_plan_days')
+      .update({
+        visibility: input.visibility,
+        audience_person_ids: audiencePersonIds,
+      })
+      .eq('plan_id', input.planId)
+      .eq('day', input.day)
+      .select('id');
+
+    if (updated.error) {
+      if (isRlsOrOwnershipError(updated.error)) {
+        return { status: 403, body: { error: 'Not allowed to set this visibility' } };
+      }
+      return { status: 500, body: { error: updated.error.message } };
+    }
+    dayIds = ((updated.data ?? []) as { id: string }[]).map((row) => row.id);
+    if (dayIds.length === 0) {
+      return { status: 404, body: { error: 'Plan day not found' } };
+    }
   }
 
-  const clearShares = await client.from('training_plan_buddy_shares').delete().eq('plan_id', input.planId);
+  const clearShares = await client
+    .from('training_plan_day_buddy_shares')
+    .delete()
+    .in('day_id', dayIds);
   if (clearShares.error) {
     if (isRlsOrOwnershipError(clearShares.error)) {
       return { status: 403, body: { error: 'Not allowed to update buddy shares' } };
@@ -278,12 +364,14 @@ export async function handleUpdateTrainingPlanVisibility(
   }
 
   if (buddyUserIds.length > 0) {
-    const shareInsert = await client.from('training_plan_buddy_shares').insert(
-      buddyUserIds.map((buddyUserId) => ({
-        plan_id: input.planId,
-        buddy_user_id: buddyUserId,
-        household_id: plan.household_id,
-      })),
+    const shareInsert = await client.from('training_plan_day_buddy_shares').insert(
+      dayIds.flatMap((dayId) =>
+        buddyUserIds.map((buddyUserId) => ({
+          day_id: dayId,
+          buddy_user_id: buddyUserId,
+          household_id: plan.household_id,
+        })),
+      ),
     );
     if (shareInsert.error) {
       if (isRlsOrOwnershipError(shareInsert.error)) {
@@ -297,8 +385,10 @@ export async function handleUpdateTrainingPlanVisibility(
     status: 200,
     body: {
       id: input.planId,
+      day: input.day,
       visibility: input.visibility,
       buddyUserIds,
+      dayIds,
     },
   };
 }
@@ -446,6 +536,8 @@ export async function handleCopySharedTrainingPlan(
         focus: day.focus,
         status: 'planned',
         session_id: null,
+        visibility: 'private',
+        audience_person_ids: [],
       });
       if (dayInsert.error) {
         if (isRlsOrOwnershipError(dayInsert.error)) {
@@ -541,7 +633,7 @@ export async function handleAddTrainingPlanDay(
 
   const loaded = await client
     .from('training_plans')
-    .select('id, owner_id, prefs')
+    .select('id, household_id, owner_id, prefs')
     .eq('id', input.planId)
     .maybeSingle();
 
@@ -555,14 +647,19 @@ export async function handleAddTrainingPlanDay(
     return { status: 404, body: { error: 'Plan not found' } };
   }
 
-  const plan = loaded.data as { id: string; owner_id: string; prefs?: Record<string, unknown> };
+  const plan = loaded.data as {
+    id: string;
+    household_id: string;
+    owner_id: string;
+    prefs?: Record<string, unknown>;
+  };
   if (plan.owner_id !== input.authUserId) {
     return { status: 403, body: { error: 'You can only edit plans you own' } };
   }
 
   const existing = await client
     .from('training_plan_days')
-    .select('id, position, rest_day')
+    .select('id, position, rest_day, visibility, audience_person_ids')
     .eq('plan_id', input.planId)
     .eq('day', input.day);
 
@@ -570,7 +667,13 @@ export async function handleAddTrainingPlanDay(
     return { status: 500, body: { error: existing.error.message } };
   }
 
-  const rows = (existing.data ?? []) as { id: string; position: number; rest_day: boolean }[];
+  const rows = (existing.data ?? []) as {
+    id: string;
+    position: number;
+    rest_day: boolean;
+    visibility?: string;
+    audience_person_ids?: string[];
+  }[];
   const loneRest = rows.length === 1 && rows[0]?.rest_day;
   if (loneRest && rows[0]) {
     const focus = (input.focus?.length ? input.focus : ['Full Body']).map((item) => item.trim()).filter(Boolean);
@@ -623,6 +726,14 @@ export async function handleAddTrainingPlanDay(
       ? plan.prefs.durationMin
       : 40;
   const durationMin = input.durationMin ?? prefsDuration;
+  const sibling = rows[0];
+  const visibility =
+    sibling && typeof sibling.visibility === 'string' && isTrainVisibility(sibling.visibility)
+      ? sibling.visibility
+      : 'private';
+  const audiencePersonIds = Array.isArray(sibling?.audience_person_ids)
+    ? sibling.audience_person_ids.map(String)
+    : [];
 
   const inserted = await client
     .from('training_plan_days')
@@ -635,6 +746,8 @@ export async function handleAddTrainingPlanDay(
       focus,
       duration_min: durationMin,
       status: 'planned',
+      visibility,
+      audience_person_ids: audiencePersonIds,
     })
     .select('id, position, focus, duration_min')
     .maybeSingle();
@@ -652,6 +765,34 @@ export async function handleAddTrainingPlanDay(
     focus: string[];
     duration_min: number | null;
   };
+
+  if (sibling && visibility === 'buddies_selected') {
+    const siblingShares = await client
+      .from('training_plan_day_buddy_shares')
+      .select('buddy_user_id')
+      .eq('day_id', sibling.id);
+    if (!siblingShares.error) {
+      const buddyUserIds = ((siblingShares.data ?? []) as { buddy_user_id: string }[])
+        .map((share) => share.buddy_user_id)
+        .filter(Boolean);
+      if (buddyUserIds.length > 0) {
+        const shareInsert = await client.from('training_plan_day_buddy_shares').insert(
+          buddyUserIds.map((buddyUserId) => ({
+            day_id: row.id,
+            buddy_user_id: buddyUserId,
+            household_id: plan.household_id,
+          })),
+        );
+        if (shareInsert.error && isRlsOrOwnershipError(shareInsert.error)) {
+          return { status: 403, body: { error: 'Not allowed to copy buddy shares' } };
+        }
+        if (shareInsert.error) {
+          return { status: 500, body: { error: shareInsert.error.message } };
+        }
+      }
+    }
+  }
+
   return {
     status: 200,
     body: {
@@ -854,9 +995,7 @@ export async function handleDuplicateTrainingPlanToNextWeek(
 
   const loaded = await client
     .from('training_plans')
-    .select(
-      'id, household_id, owner_id, name, week_start, visibility, audience_person_ids, prefs, calendar_auto_sync, share_token, is_shared, training_plan_days(*), training_plan_buddy_shares(buddy_user_id)',
-    )
+    .select(PLAN_WEEK_SELECT)
     .eq('id', input.planId)
     .maybeSingle();
 
@@ -903,42 +1042,53 @@ export async function handleDuplicateTrainingPlanToNextWeek(
 
   try {
     if (plan.days.length > 0) {
-      const dayInsert = await client.from('training_plan_days').insert(
-        plan.days.map((day) => ({
-          plan_id: newPlanId,
-          day: day.day,
-          position: day.position,
-          workout_id: day.workoutId,
-          generated_spec: day.generatedSpec,
-          rest_day: day.restDay,
-          scheduled_time: day.scheduledTime,
-          duration_min: day.durationMin,
-          focus: day.focus,
-          status: 'planned',
-          session_id: null,
-        })),
-      );
+      const dayInsert = await client
+        .from('training_plan_days')
+        .insert(
+          plan.days.map((day) => ({
+            plan_id: newPlanId,
+            day: day.day,
+            position: day.position,
+            workout_id: day.workoutId,
+            generated_spec: day.generatedSpec,
+            rest_day: day.restDay,
+            scheduled_time: day.scheduledTime,
+            duration_min: day.durationMin,
+            focus: day.focus,
+            status: 'planned',
+            session_id: null,
+            visibility: day.visibility,
+            audience_person_ids: day.audiencePersonIds,
+          })),
+        )
+        .select('id, day, position');
       if (dayInsert.error) {
         if (isRlsOrOwnershipError(dayInsert.error)) {
           throw Object.assign(new Error('Not allowed to write duplicated plan days'), { rls: true });
         }
         throw new Error(dayInsert.error.message);
       }
-    }
 
-    if (plan.buddyUserIds.length > 0) {
-      const shareInsert = await client.from('training_plan_buddy_shares').insert(
-        plan.buddyUserIds.map((buddyUserId) => ({
-          plan_id: newPlanId,
+      const insertedDays = (dayInsert.data ?? []) as { id: string; day: Day; position: number }[];
+      const shareRows = insertedDays.flatMap((inserted) => {
+        const source = plan.days.find(
+          (day) => day.day === inserted.day && day.position === inserted.position,
+        );
+        if (!source || source.buddyUserIds.length === 0) return [];
+        return source.buddyUserIds.map((buddyUserId) => ({
+          day_id: inserted.id,
           buddy_user_id: buddyUserId,
           household_id: plan.householdId,
-        })),
-      );
-      if (shareInsert.error) {
-        if (isRlsOrOwnershipError(shareInsert.error)) {
-          throw Object.assign(new Error('Not allowed to copy buddy shares'), { rls: true });
+        }));
+      });
+      if (shareRows.length > 0) {
+        const shareInsert = await client.from('training_plan_day_buddy_shares').insert(shareRows);
+        if (shareInsert.error) {
+          if (isRlsOrOwnershipError(shareInsert.error)) {
+            throw Object.assign(new Error('Not allowed to copy buddy shares'), { rls: true });
+          }
+          throw new Error(shareInsert.error.message);
         }
-        throw new Error(shareInsert.error.message);
       }
     }
 
@@ -1032,9 +1182,7 @@ export async function handleRegenerateRemainingDays(
 
   const loaded = await client
     .from('training_plans')
-    .select(
-      'id, household_id, owner_id, name, week_start, visibility, audience_person_ids, prefs, calendar_auto_sync, share_token, is_shared, training_plan_days(*), training_plan_buddy_shares(buddy_user_id)',
-    )
+    .select(PLAN_WEEK_SELECT)
     .eq('id', input.planId)
     .maybeSingle();
 

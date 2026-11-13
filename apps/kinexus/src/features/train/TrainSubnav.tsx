@@ -17,23 +17,39 @@ const TABS = [
     label: 'Workouts',
     match: (path: string) =>
       path === '/train/workouts' ||
-      path.startsWith('/train/session') ||
       (/^\/train\/[^/]+$/.test(path) &&
         !path.startsWith('/train/remix') &&
         !path.startsWith('/train/library') &&
+        !path.startsWith('/train/history') &&
         !path.startsWith('/train/buddies') &&
         !path.startsWith('/train/group') &&
         !path.startsWith('/train/plan') &&
         !path.startsWith('/train/family') &&
+        !path.startsWith('/train/settings') &&
+        !path.startsWith('/train/session') &&
         !path.startsWith('/train/workouts')),
   },
-  { href: '/train/family' as Href, label: 'Family', match: (path: string) => path.startsWith('/train/family') },
+  {
+    href: '/train/history' as Href,
+    label: 'History',
+    match: (path: string) => path.startsWith('/train/history') || path.startsWith('/train/session'),
+  },
   { href: '/train/remix' as Href, label: 'Remix', match: (path: string) => path.startsWith('/train/remix') },
-  { href: '/train/library' as Href, label: 'Library', match: (path: string) => path.startsWith('/train/library') },
+  { href: '/train/library' as Href, label: 'Exercises', match: (path: string) => path.startsWith('/train/library') },
   {
     href: '/train/buddies' as Href,
     label: 'Buddies',
-    match: (path: string) => path.startsWith('/train/buddies') || path.startsWith('/train/group'),
+    match: (path: string) => path.startsWith('/train/buddies'),
+  },
+  {
+    href: '/train/group' as Href,
+    label: 'Group session',
+    match: (path: string) => path.startsWith('/train/group'),
+  },
+  {
+    href: '/train/settings' as Href,
+    label: 'Settings',
+    match: (path: string) => path.startsWith('/train/settings'),
   },
 ];
 

@@ -44,15 +44,10 @@ export function GenerateDesktop(props: TrainGenerateViewProps) {
         <View style={styles.controls}>
           <TrainGenerateAudiencePicker
             audience={props.prefs.audience}
-            buddies={props.buddies}
-            buddyUserIds={props.prefs.buddyUserIds}
             onChangeAudience={(audience) => props.onChangePrefs({ audience })}
-            onChangeBuddies={(buddyUserIds) => props.onChangePrefs({ buddyUserIds })}
           />
           <TrainGenerateControls
             prefs={props.prefs}
-            equipmentOptions={props.equipmentOptions}
-            bodyParts={props.bodyParts}
             onChange={props.onChangePrefs}
             onApplyPreset={props.onApplyPreset}
           />

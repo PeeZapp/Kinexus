@@ -5,6 +5,7 @@ import { useRouter, type Href } from 'expo-router';
 import {
   defaultTargetFor,
   fillWorkoutFromSessionType,
+  filterHiddenWorkouts,
   generateTrainPlan,
   mondayWeekStart,
   sessionTypeIdFromFocus,
@@ -30,6 +31,7 @@ import {
   applyGeneratedTrainingPlan,
   loadGeneratePrefs,
   loadLibrary,
+  loadHiddenWorkoutIds,
   loadWorkouts,
   saveGeneratePrefs,
   type LibraryExercise,
@@ -108,6 +110,7 @@ function applyPostProcess(
 
 function visibilityFor(prefs: TrainGeneratePrefs): TrainVisibility {
   if (prefs.audience === 'household') return 'household';
+  if (prefs.audience === 'both') return 'all';
   if (prefs.audience === 'buddies') {
     return prefs.buddyUserIds.length > 0 ? 'buddies_selected' : 'buddies';
   }
@@ -181,6 +184,7 @@ export function GenerateScreen() {
   const [prefs, setPrefs] = useState<TrainGeneratePrefs>(DEFAULT_TRAIN_GENERATE_PREFS);
   const [library, setLibrary] = useState<LibraryExercise[]>([]);
   const [workouts, setWorkouts] = useState<WorkoutDraft[]>([]);
+  const [hiddenWorkoutIds, setHiddenWorkoutIds] = useState<string[]>([]);
   const [buddies, setBuddies] = useState<{ id: string; name: string }[]>([]);
   const [preview, setPreview] = useState<PreviewDay[] | null>(null);
   const [viewDay, setViewDay] = useState<Day | null>(null);
@@ -210,15 +214,17 @@ export function GenerateScreen() {
     Promise.all([
       loadGeneratePrefs(userId),
       loadWorkouts(activeHousehold.id),
+      loadHiddenWorkoutIds(userId),
       loadTrainBuddies(userId),
     ])
-      .then(([saved, workoutRows, buddyRows]) => {
+      .then(([saved, workoutRows, hiddenIds, buddyRows]) => {
         if (cancelled) return;
         if (!prefsLoaded.current) {
           setPrefs(parseGeneratePrefs(saved));
           prefsLoaded.current = true;
         }
         setWorkouts(workoutRows);
+        setHiddenWorkoutIds(hiddenIds);
         setBuddies(
           buddyRows
             .filter((row) => row.status === 'accepted')
@@ -282,14 +288,14 @@ export function GenerateScreen() {
 
   const savedCandidates = useMemo<SavedWorkoutCandidate[]>(
     () =>
-      workouts.map((workout) => ({
+      filterHiddenWorkouts(workouts, hiddenWorkoutIds).map((workout) => ({
         id: workout.id,
         name: workout.name,
         focus: [],
         durationMin: workout.durationMin,
         exerciseIds: workout.exercises.map((ex) => ex.exerciseId).filter((id): id is string => Boolean(id)),
       })),
-    [workouts],
+    [hiddenWorkoutIds, workouts],
   );
 
   const catalogue = useMemo(() => {
@@ -494,7 +500,8 @@ export function GenerateScreen() {
         userId,
         weekStart: mondayWeekStart(),
         visibility: visibilityFor(prefs),
-        buddyUserIds: prefs.audience === 'buddies' ? prefs.buddyUserIds : [],
+        buddyUserIds:
+          prefs.audience === 'buddies' && prefs.buddyUserIds.length > 0 ? prefs.buddyUserIds : [],
         prefs: prefs as unknown as Record<string, unknown>,
         days: preview,
       });

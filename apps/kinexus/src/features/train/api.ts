@@ -30,6 +30,7 @@ import {
   deleteWorkoutSetCall,
   deleteWorkoutSetsAtPositionCall,
   effortLevelFrom,
+  estimateSessionFromSets,
   exerciseSourceBadge as domainExerciseSourceBadge,
   fillWorkoutFromSessionTypeWidened,
   finishWorkoutSessionCall,
@@ -65,6 +66,7 @@ import {
   unitToTracking,
   updateWorkoutSetCall,
   isTrainVisibility,
+  exerciseEquipmentMatches,
   normalizeTrainGlobalEquipment,
   parseWeight,
   sessionTypeIdFromFocus,
@@ -175,6 +177,8 @@ export type WorkoutDraft = {
   splitId: string | null;
   durationMin: number | null;
   createdBy: string | null;
+  /** Who put this workout into the Yours library. */
+  addedBy: string | null;
   shareToken: string | null;
   isShared: boolean;
   /** Linked to a plan day; hidden from the Workouts library until saved. */
@@ -197,6 +201,7 @@ export type WorkoutDraft = {
 export type GlobalWorkoutCard = {
   id: string;
   name: string;
+  description: string | null;
   level: TrainGlobalLevel | null;
   goal: TrainGlobalGoal | null;
   equipment: TrainGlobalEquipment[];
@@ -204,6 +209,7 @@ export type GlobalWorkoutCard = {
   updatedAt: string;
   createdBy: string | null;
   creator: PublicSocialUser | null;
+  isSystem: boolean;
   avgScore: number | null;
   ratingCount: number;
   myScore: number | null;
@@ -415,6 +421,7 @@ function mapWorkoutDraft(
     split_id: string | null;
     duration_min: number | null;
     created_by: string | null;
+    added_by?: string | null;
     share_token: string | null;
     is_shared: boolean | null;
     plan_only?: boolean | null;
@@ -455,6 +462,7 @@ function mapWorkoutDraft(
     splitId: row.split_id,
     durationMin: row.duration_min,
     createdBy: row.created_by,
+    addedBy: row.added_by ?? null,
     shareToken: row.share_token,
     isShared: Boolean(row.is_shared),
     planOnly: Boolean(row.plan_only),
@@ -507,18 +515,32 @@ export async function loadWorkoutById(workoutId: string): Promise<WorkoutDraft |
   return mapWorkoutDraft(data);
 }
 
-/** Workouts shared to the signed-in user by buddies (any household). */
+/** Workouts shared to the signed-in user by buddies (any household). Excludes Everyone/global. */
 export async function loadBuddySharedWorkouts(): Promise<WorkoutDraft[]> {
   const { data, error } = await db()
     .from('workouts')
     .select('*, workout_exercises(*), workout_people(person_id), workout_buddy_shares(buddy_user_id)')
-    .in('visibility', ['buddies', 'buddies_selected', 'global'])
+    .in('visibility', ['buddies', 'buddies_selected', 'all'])
     .eq('plan_only', false)
     .eq('in_library', true)
     .order('updated_at', { ascending: false })
     .limit(100);
   if (error) throw error;
   return (data ?? []).map((row) => mapWorkoutDraft(row));
+}
+
+/** Household library + buddy-shared workouts for the Yours tab (deduped). */
+export async function loadYoursWorkouts(
+  householdId: string,
+  opts?: { includePlanOnly?: boolean },
+): Promise<WorkoutDraft[]> {
+  const [household, buddy] = await Promise.all([
+    loadWorkouts(householdId, opts),
+    loadBuddySharedWorkouts(),
+  ]);
+  const seen = new Set(household.map((workout) => workout.id));
+  const extra = buddy.filter((workout) => !seen.has(workout.id));
+  return [...household, ...extra];
 }
 
 export async function createWorkout(input: {
@@ -533,6 +555,7 @@ export async function createWorkout(input: {
   equipment?: TrainGlobalEquipment[];
   sourceWorkoutId?: string | null;
   sourceCreatorId?: string | null;
+  description?: string | null;
   /** When true, workout stays off the Workouts library (plan-linked). */
   planOnly?: boolean;
   personIds: string[];
@@ -563,7 +586,9 @@ export async function createWorkout(input: {
       .insert({
         household_id: input.householdId,
         created_by: input.userId,
+        added_by: input.planOnly ? null : input.userId,
         name: input.name,
+        description: input.description ?? null,
         visibility: input.visibility,
         split_id: input.splitId,
         duration_min: input.durationMin,
@@ -583,7 +608,7 @@ export async function createWorkout(input: {
   if (input.planOnly && usePrivateRpc) {
     const { error } = await db()
       .from('workouts')
-      .update({ plan_only: true })
+      .update({ plan_only: true, added_by: null })
       .eq('id', workoutId);
     if (error) throw new Error(error.message);
   }
@@ -1010,9 +1035,11 @@ export async function loadGlobalWorkouts(userId: string | null): Promise<GlobalW
     const ratings = ratingByWorkout.get(row.id);
     const sum = ratings?.scores.reduce((acc, score) => acc + score, 0) ?? 0;
     const count = ratings?.scores.length ?? 0;
+    const isSystem = Boolean((row as { is_system?: boolean | null }).is_system);
     return {
       id: row.id,
       name: row.name,
+      description: (row as { description?: string | null }).description ?? null,
       level: mapGlobalLevel(row.level),
       goal: mapGlobalGoal(row.goal),
       equipment: normalizeTrainGlobalEquipment(row.equipment),
@@ -1020,6 +1047,7 @@ export async function loadGlobalWorkouts(userId: string | null): Promise<GlobalW
       updatedAt: row.updated_at,
       createdBy: row.created_by,
       creator: row.created_by ? profiles.get(row.created_by) ?? null : null,
+      isSystem,
       avgScore: count > 0 ? Math.round((sum / count) * 10) / 10 : null,
       ratingCount: count,
       myScore: ratings?.mine ?? null,
@@ -1066,6 +1094,85 @@ export async function loadGlobalWorkouts(userId: string | null): Promise<GlobalW
         }),
     };
   });
+}
+
+export async function loadHiddenWorkoutIds(userId: string): Promise<string[]> {
+  const { data, error } = await db()
+    .from('train_workout_hides')
+    .select('workout_id')
+    .eq('user_id', userId);
+  if (error) throw error;
+  return (data ?? []).map((row) => row.workout_id);
+}
+
+export async function hideWorkout(input: { workoutId: string; userId: string }): Promise<void> {
+  const { error } = await db().from('train_workout_hides').upsert(
+    { workout_id: input.workoutId, user_id: input.userId },
+    { onConflict: 'workout_id,user_id' },
+  );
+  if (error) throw error;
+}
+
+export async function unhideWorkout(input: { workoutId: string; userId: string }): Promise<void> {
+  const { error } = await db()
+    .from('train_workout_hides')
+    .delete()
+    .eq('workout_id', input.workoutId)
+    .eq('user_id', input.userId);
+  if (error) throw error;
+}
+
+export type FinishedSessionRow = {
+  id: string;
+  name: string;
+  workoutId: string | null;
+  startedAt: string;
+  finishedAt: string;
+  durationMin: number | null;
+  caloriesBurned: number | null;
+};
+
+export async function loadFinishedSessions(
+  userId: string,
+  householdId: string,
+  limit = 100,
+): Promise<FinishedSessionRow[]> {
+  const { data, error } = await db()
+    .from('workout_sessions')
+    .select('id, name, workout_id, started_at, finished_at, duration_min, calories_burned')
+    .eq('user_id', userId)
+    .eq('household_id', householdId)
+    .not('finished_at', 'is', null)
+    .order('finished_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    workoutId: row.workout_id,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at as string,
+    durationMin: row.duration_min,
+    caloriesBurned: row.calories_burned,
+  }));
+}
+
+/** Delete finished sessions owned by the user. Sets cascade from the FK. */
+export async function deleteFinishedSessions(input: {
+  userId: string;
+  householdId: string;
+  sessionIds: string[];
+}): Promise<void> {
+  const ids = [...new Set(input.sessionIds.filter(Boolean))];
+  if (ids.length === 0) return;
+  const { error } = await db()
+    .from('workout_sessions')
+    .delete()
+    .eq('user_id', input.userId)
+    .eq('household_id', input.householdId)
+    .not('finished_at', 'is', null)
+    .in('id', ids);
+  if (error) throw new Error(error.message);
 }
 
 export async function rateGlobalWorkout(input: {
@@ -1118,6 +1225,7 @@ export async function copyGlobalWorkoutToMine(input: {
     householdId: input.householdId,
     userId: input.userId,
     name: input.workout.name,
+    description: input.workout.description,
     visibility: 'private',
     splitId: null,
     durationMin: input.workout.durationMin,
@@ -1125,7 +1233,7 @@ export async function copyGlobalWorkoutToMine(input: {
     goal: input.workout.goal,
     equipment: [...input.workout.equipment],
     sourceWorkoutId: input.workout.id,
-    sourceCreatorId: input.workout.createdBy,
+    sourceCreatorId: input.workout.isSystem ? null : input.workout.createdBy,
     personIds: [],
     buddyUserIds: [],
     exercises: resolved.exercises,
@@ -1250,7 +1358,10 @@ function sessionSetRowsFromWorkout(input: {
               ? String(exercise.targetWeight)
               : ''
           : '',
-      reps: exercise.targetReps,
+      reps:
+        unit === 'reps' && exercise.exerciseId
+          ? input.records[exercise.exerciseId]?.lastReps?.trim() || exercise.targetReps
+          : exercise.targetReps,
       done: false,
       duration_sec: unit === 'sec' || unit === 'min' ? exercise.targetDurationSec : null,
       distance_km:
@@ -1419,7 +1530,7 @@ export async function startRemixSession(input: {
       position,
       set_index: setIndex,
       weight: records[exercise.exerciseId]?.lastWeight ?? '',
-      reps: exercise.targetReps,
+      reps: records[exercise.exerciseId]?.lastReps?.trim() || exercise.targetReps,
     })),
   );
   const { data, error } = await db().rpc(rpc.startWorkoutSession, {
@@ -1441,6 +1552,7 @@ export type LiveSession = {
   workoutId: string | null;
   remixSpec: string | null;
   durationMin: number | null;
+  caloriesBurned: number | null;
   finishedAt: string | null;
   sets: SessionSet[];
 };
@@ -1448,7 +1560,7 @@ export type LiveSession = {
 export async function loadLiveSession(sessionId: string): Promise<LiveSession | null> {
   const { data, error } = await db()
     .from('workout_sessions')
-    .select('id, name, workout_id, remix_spec, duration_min, finished_at')
+    .select('id, name, workout_id, remix_spec, duration_min, calories_burned, finished_at')
     .eq('id', sessionId)
     .maybeSingle();
   if (error) throw error;
@@ -1459,6 +1571,7 @@ export async function loadLiveSession(sessionId: string): Promise<LiveSession | 
     workoutId: data.workout_id,
     remixSpec: data.remix_spec,
     durationMin: data.duration_min,
+    caloriesBurned: data.calories_burned,
     finishedAt: data.finished_at,
     sets: await loadSets(sessionId),
   };
@@ -1542,7 +1655,7 @@ export async function rewriteSessionExercises(input: {
       position,
       set_index: setIndex,
       weight: input.records[exercise.exerciseId]?.lastWeight ?? '',
-      reps: exercise.targetReps,
+      reps: input.records[exercise.exerciseId]?.lastReps?.trim() || exercise.targetReps,
       done: false,
     })),
   );
@@ -1757,6 +1870,19 @@ export async function finishSession(input: {
   const call = finishWorkoutSessionCall(input.sessionId);
   const { error } = await db().rpc(rpc.finishWorkoutSession, call.args);
   if (error) throw new Error(error.message);
+
+  const caloriesBurned = estimateSessionFromSets(
+    input.sets.map((set) => ({
+      exerciseName: set.exerciseName,
+      position: set.position,
+      done: set.done,
+    })),
+  ).calories;
+  const { error: caloriesError } = await db()
+    .from('workout_sessions')
+    .update({ calories_burned: caloriesBurned })
+    .eq('id', input.sessionId);
+  if (caloriesError) throw new Error(caloriesError.message);
 }
 
 export async function loadHistoryDedupeKeys(
@@ -1798,6 +1924,15 @@ export async function importFinishedSession(input: {
     (input.durationMin != null
       ? new Date(Date.parse(input.startedAt) + input.durationMin * 60000).toISOString()
       : input.startedAt);
+  const importSets = input.exercises.flatMap((exercise, position) =>
+    exercise.sets.map(() => ({
+      exerciseName: exercise.name,
+      position,
+      done: true as const,
+    })),
+  );
+  const caloriesBurned = estimateSessionFromSets(importSets).calories;
+
   const { data, error } = await db()
     .from('workout_sessions')
     .insert({
@@ -1808,6 +1943,7 @@ export async function importFinishedSession(input: {
       started_at: input.startedAt,
       finished_at: finishedAt,
       duration_min: input.durationMin,
+      calories_burned: caloriesBurned,
     })
     .select('id')
     .single();
@@ -1955,6 +2091,7 @@ export async function listTrainingPlansByWeek(
 export async function updateTrainingPlanVisibility(input: {
   userId: string;
   planId: string;
+  day: import('@kinexus/domain').Day;
   visibility: TrainVisibility;
   audiencePersonIds?: string[];
   buddyUserIds?: string[];
@@ -1962,6 +2099,7 @@ export async function updateTrainingPlanVisibility(input: {
   const result = await handleUpdateTrainingPlanVisibility(db() as never, {
     authUserId: input.userId,
     planId: input.planId,
+    day: input.day,
     visibility: input.visibility,
     audiencePersonIds: input.audiencePersonIds,
     buddyUserIds: input.buddyUserIds,
@@ -2138,19 +2276,7 @@ export async function fillPlanDayFromLibrary(input: {
   });
   const equipmentPool =
     input.equipment && input.equipment.length > 0
-      ? catalogue.filter((ex) => {
-          const eq = (ex.equipment || '').trim().toLowerCase();
-          if (!eq || eq === 'body weight' || eq === 'bodyweight') {
-            return input.equipment!.some((item) => {
-              const value = item.trim().toLowerCase();
-              return value === 'bodyweight' || value === 'body weight' || value === eq;
-            });
-          }
-          return input.equipment!.some((item) => {
-            const value = item.trim().toLowerCase();
-            return eq.includes(value) || value.includes(eq);
-          });
-        })
+      ? catalogue.filter((ex) => exerciseEquipmentMatches(ex.equipment, input.equipment!))
       : catalogue;
   // Prefer equipment filter; fall back to full catalogue when the filtered pool is too thin.
   const pool = canFillSessionType(sessionTypeId, equipmentPool) ? equipmentPool : catalogue;

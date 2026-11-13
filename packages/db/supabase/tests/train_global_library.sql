@@ -1,4 +1,5 @@
--- Manual SQL checks for global creator library (after applying 20261106230000).
+-- Manual SQL checks for global creator library + system workouts
+-- (after applying 20261106230000 and 20261112151806).
 -- Replace the UUIDs below with real profile / household ids, then run (rolls back).
 -- Creator must already be approved (creators.status = 'approved') for the owner id.
 
@@ -15,6 +16,7 @@ declare
   hh uuid := current_setting('test.household')::uuid;
   wid uuid;
   wid_hidden uuid;
+  system_id uuid := '11111111-1111-5111-8111-111111111111';
   blocked boolean := false;
 begin
   perform set_config('search_path', 'public, extensions', true);
@@ -39,6 +41,87 @@ begin
   if not blocked then
     raise exception 'expected non-creator global insert to be rejected';
   end if;
+
+  -- Client cannot insert is_system=true
+  blocked := false;
+  begin
+    insert into public.workouts (
+      household_id, created_by, name, visibility, level, goal, equipment, is_system
+    ) values (
+      hh, stranger, 'Fake system', 'global', 'beginner', 'strength', array['bodyweight']::text[], true
+    );
+    raise exception 'client is_system insert should fail';
+  exception
+    when others then
+      if sqlerrm ilike '%system%' or sqlerrm ilike '%policy%' then
+        blocked := true;
+      else
+        raise;
+      end if;
+  end;
+  if not blocked then
+    raise exception 'expected client is_system insert to be rejected';
+  end if;
+
+  -- Seed-style system row (auth.uid() null) is readable and not editable
+  perform set_config('request.jwt.claim.sub', '', true);
+  insert into public.workouts (
+    id, household_id, created_by, name, description, visibility, level, goal, equipment,
+    duration_min, is_system, in_library, plan_only, is_shared
+  ) values (
+    system_id, null, null, 'Kinexus Official', 'Seeded', 'global', 'beginner', 'strength',
+    array['bodyweight']::text[], 20, true, true, false, false
+  );
+
+  insert into public.workout_exercises (
+    workout_id, household_id, name, position, target_sets, target_reps
+  ) values (
+    system_id, null, 'Bodyweight Squat', 0, 3, '10'
+  );
+
+  perform set_config('request.jwt.claim.sub', stranger::text, true);
+  if not public.can_view_workout(system_id) then
+    raise exception 'signed-in stranger should view system global workout';
+  end if;
+  if public.can_edit_workout(system_id) then
+    raise exception 'system workout must not be editable';
+  end if;
+
+  blocked := false;
+  begin
+    update public.workouts set name = 'Hijacked' where id = system_id;
+    if found then
+      raise exception 'system workout update should fail';
+    end if;
+  exception
+    when others then
+      if sqlerrm ilike '%system%' or sqlerrm ilike '%policy%' then
+        blocked := true;
+      else
+        raise;
+      end if;
+  end;
+
+  blocked := false;
+  begin
+    update public.workouts set is_system = false where id = system_id;
+    raise exception 'flipping is_system should fail';
+  exception
+    when others then
+      if sqlerrm ilike '%is_system%' or sqlerrm ilike '%system%' then
+        blocked := true;
+      else
+        raise;
+      end if;
+  end;
+  if not blocked then
+    raise exception 'expected is_system flip to be rejected';
+  end if;
+
+  -- Ratings still work on system globals
+  insert into public.train_global_workout_ratings (workout_id, user_id, score)
+  values (system_id, stranger, 8)
+  on conflict (workout_id, user_id) do update set score = excluded.score;
 
   -- Creator publishes with tags
   perform set_config('request.jwt.claim.sub', owner::text, true);
@@ -88,25 +171,6 @@ begin
   perform set_config('request.jwt.claim.sub', stranger::text, true);
   if public.can_view_workout(wid_hidden) then
     raise exception 'unpublished workout must not be viewable as global';
-  end if;
-  if exists (
-    select 1 from public.train_global_workout_ratings where workout_id = wid_hidden
-  ) then
-    -- rows may still exist, but select policy hides them when not global
-    null;
-  end if;
-  if exists (
-    select 1
-    from public.train_global_workout_ratings r
-    where r.workout_id = wid_hidden
-  ) then
-    -- under stranger JWT, RLS select should return zero rows
-    if (
-      select count(*) from public.train_global_workout_ratings where workout_id = wid_hidden
-    ) > 0 then
-      -- count also subject to RLS when run as authenticated role; in this DO block we are typically postgres
-      null;
-    end if;
   end if;
 
   -- Creator cannot publish without tags

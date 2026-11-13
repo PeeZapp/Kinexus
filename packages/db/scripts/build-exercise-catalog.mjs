@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
+import { canonicalizeEquipment } from './enrich-exercise-infer.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dest = join(root, 'supabase', 'migrations', '20261027120100_exercise_catalog.sql');
@@ -189,7 +190,7 @@ for (const row of edb) {
     sourceId: row.exerciseId,
     name: row.name,
     body_part: region(body, target),
-    equipment: row.equipments?.[0] ?? '',
+    equipment: canonicalizeEquipment(row.equipments?.[0] ?? ''),
     target_muscle: target,
     secondary_muscles: row.secondaryMuscles ?? [],
     instructions: row.instructions ?? [],
@@ -210,7 +211,7 @@ for (const row of loadPublicDomain()) {
     sourceId: row.id,
     name: row.name,
     body_part: region(target, row.category ?? ''),
-    equipment: row.equipment ?? '',
+    equipment: canonicalizeEquipment(row.equipment ?? ''),
     target_muscle: target,
     secondary_muscles: row.secondaryMuscles ?? [],
     instructions: row.instructions ?? [],

@@ -10,7 +10,7 @@ export const TRAIN_SPLIT_STYLE_OPTIONS: { id: TrainSplitStyle; label: string }[]
   { id: 'bro', label: 'Bro split' },
 ];
 
-export type TrainGenerateAudience = 'me' | 'household' | 'buddies';
+export type TrainGenerateAudience = 'me' | 'household' | 'buddies' | 'both';
 
 export type CardioAddon = 'none' | 'finisher' | 'separate_days';
 

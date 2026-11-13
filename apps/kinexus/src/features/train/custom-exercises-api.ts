@@ -74,7 +74,7 @@ export async function createCustomExercise(input: {
     .insert({
       name,
       body_part: input.draft.bodyPart.trim() || 'other',
-      equipment: input.draft.equipment.trim() || 'body weight',
+      equipment: input.draft.equipment.trim() || 'bodyweight',
       target_muscle: input.draft.targetMuscle.trim() || 'other',
       secondary_muscles: input.draft.secondaryMuscles.map((m) => m.trim()).filter(Boolean),
       instructions: input.draft.instructions.map((s) => s.trim()).filter(Boolean),
@@ -117,7 +117,7 @@ export async function updateCustomExercise(input: {
     .update({
       name,
       body_part: input.draft.bodyPart.trim() || 'other',
-      equipment: input.draft.equipment.trim() || 'body weight',
+      equipment: input.draft.equipment.trim() || 'bodyweight',
       target_muscle: input.draft.targetMuscle.trim() || 'other',
       secondary_muscles: input.draft.secondaryMuscles.map((m) => m.trim()).filter(Boolean),
       instructions: input.draft.instructions.map((s) => s.trim()).filter(Boolean),

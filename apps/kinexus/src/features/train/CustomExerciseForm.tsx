@@ -47,18 +47,19 @@ const BODY_PARTS = [
 ] as const;
 
 const EQUIPMENT = [
-  'body weight',
+  'bodyweight',
   'dumbbell',
   'barbell',
   'cable',
-  'band',
+  'resistance band',
   'kettlebell',
   'machine',
-  'ez barbell',
+  'EZ bar',
   'smith machine',
   'leverage machine',
   'medicine ball',
   'stability ball',
+  'foam roll',
   'assisted',
 ] as const;
 
@@ -100,7 +101,7 @@ function emptyDraft(seedName = ''): DraftState {
     name: seedName,
     category: '',
     bodyPart: 'chest',
-    equipment: 'body weight',
+    equipment: 'bodyweight',
     targetMuscle: 'pectorals',
     secondaryMuscles: [],
     instructionsText: '',
@@ -119,7 +120,7 @@ function draftFromExercise(exercise: LibraryExercise): DraftState {
       ? (exercise.category as RemixCategory)
       : '',
     bodyPart: exercise.bodyPart || 'chest',
-    equipment: exercise.equipment || 'body weight',
+    equipment: exercise.equipment || 'bodyweight',
     targetMuscle: exercise.targetMuscle || 'pectorals',
     secondaryMuscles: exercise.secondaryMuscles ?? [],
     instructionsText: (exercise.instructions ?? []).join('\n'),

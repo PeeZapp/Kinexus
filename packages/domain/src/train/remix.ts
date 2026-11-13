@@ -64,13 +64,59 @@ const MOBILITY_NAME = /\b(stretch|mobility|yoga|breathing|foam|thoracic|90\/90)\
 const PLYO_NAME = /\b(plyometrics?|plyo|jumps?|jumping|burpees?|bounding|bounds?|hops?)\b/i;
 const FULL_BODY_NAME = /\bfull body\b|\bthrusters?\b|\bsnatches?\b|\bclean and\b|\bman makers?\b|\bturkish get-?up\b/i;
 
+/** Unambiguous name → category; wins over a wrong explicit `category` stamp. */
+const NAME_CATEGORY_CORRECTIONS: readonly [RegExp, RemixCategory][] = [
+  [/\b(reverse\s+flye?s?|rear\s+(delt\s+)?flye?s?|rear\s+fly|back\s+flye?s?)\b/i, 'Shoulders'],
+  [/\brear\s+delt\b/i, 'Shoulders'],
+  [/\b(face\s*pulls?|upright\s+rows?|pull[\s-]*aparts?|handstand\s+push)\b/i, 'Shoulders'],
+  [/\b(french\s+press|jm(\s+bench)?\s+press|tate\s+press|skull\s*crushers?)\b/i, 'Triceps'],
+  [/\b(close[\s-]*grip|diamond|narrow)\b.{0,24}\b(bench|press|push)/i, 'Triceps'],
+  [/\bbench\s+dips?\b/i, 'Triceps'],
+  [/\btriceps?\b/i, 'Triceps'],
+  [/\bbutterfly\s+sit\b/i, 'Core'],
+  [/\b(pallof|planche|maltese|rollout|leg\s+(raise|pull|tuck)|knee\/hip\s+raise|crunch|russian\s+twist)\b/i, 'Core'],
+  [/\bneck\b/i, 'Mobility'],
+];
+
+/** Name matches that must not fill any remix category (catalog noise). */
+const NAME_CATEGORY_EXCLUSIONS: readonly RegExp[] = [/\bwrist\s+curls?\b/i];
+
+/**
+ * "Bench" in the name often stamped these Chest; body part is the reliable signal.
+ * Do not include `triceps` — many real chest presses are mis-bodied that way.
+ * `forearms` / `neck` fall through exclusions / name rules instead of staying Chest.
+ */
+const CHEST_STAMP_BODY_OVERRIDE: Record<string, RemixCategory> = {
+  core: 'Core',
+  biceps: 'Biceps',
+  back: 'Back',
+  legs: 'Legs',
+};
+
+const COMPOUND_NAME =
+  /\b(squat|deadlift|bench|press|row|pull-?up|chin-?up|clean|snatch|lunge|hip thrust|rdl|overhead|thruster|dip|push-?ups?)\b/i;
+
+/** Categories that should get a compound + isolation pair when the session has room. */
+const BALANCED_CATEGORIES: ReadonlySet<RemixCategory> = new Set([
+  'Chest',
+  'Back',
+  'Legs',
+  'Glutes',
+  'Shoulders',
+  'Triceps',
+  'Biceps',
+  'Full Body',
+]);
+
 const UNTAGGED_CATEGORY: readonly [RegExp, RemixCategory][] = [
   [/\b(glute|hip thrust)\b/i, 'Glutes'],
   [/\b(squat|lunge|hamstring|quad|calf|leg press)\b/i, 'Legs'],
   [/\b(tricep|push-?down|pushdown|skull crusher|kickback)\b/i, 'Triceps'],
   [/\b(bicep|curl|chin-?up)\b/i, 'Biceps'],
+  // Rear/reverse flies before the generic fly → Chest rule.
+  [/\b(reverse\s+flye?s?|rear\s+(delt\s+)?flye?s?|rear\s+fly|back\s+flye?s?|rear\s+delt)\b/i, 'Shoulders'],
+  [/\b(shoulder|lateral raise|overhead press|military press)\b/i, 'Shoulders'],
   [/\b(chest|bench|flye?s?|push-?up)\b/i, 'Chest'],
-  [/\b(shoulder|lateral raise|rear delt|overhead press|military press)\b/i, 'Shoulders'],
   [/\b(pulldowns?|pull-?ups?|rows?|deadlifts?|latissimus|lats?)\b/i, 'Back'],
   [/\b(crunch|plank|sit-?up|oblique|abdominal)\b/i, 'Core'],
   [/\b(sprint|bike|cardio|jump rope|treadmill|elliptical|stair|row(ing|er)?|swim|assault|fan bike|ski erg)\b/i, 'Cardio'],
@@ -88,6 +134,23 @@ export function isRemixCategory(category: string): category is RemixCategory {
 }
 
 export function remixCategoryOf(exercise: CatalogExercise): RemixCategory | null {
+  for (const pattern of NAME_CATEGORY_EXCLUSIONS) {
+    if (pattern.test(exercise.name)) return null;
+  }
+  for (const [pattern, category] of NAME_CATEGORY_CORRECTIONS) {
+    if (pattern.test(exercise.name)) return category;
+  }
+  if (exercise.category === 'Chest') {
+    const body = exercise.bodyPart.trim().toLowerCase();
+    if (body === 'forearms' || body === 'neck') return null;
+    // Push-up variants often get a secondary body_part (legs/core); keep them Chest.
+    if (body === 'legs' && /\bpush-?ups?\b/i.test(exercise.name)) {
+      // fall through to explicit Chest stamp below
+    } else {
+      const override = CHEST_STAMP_BODY_OVERRIDE[body];
+      if (override) return override;
+    }
+  }
   if (exercise.category && isRemixCategory(exercise.category)) return exercise.category;
   if (exercise.targetMuscle.trim().toLowerCase() === 'glutes') return 'Glutes';
   if (exercise.bodyPart === 'legs') return 'Legs';
@@ -101,6 +164,20 @@ export function remixCategoryOf(exercise: CatalogExercise): RemixCategory | null
     if (pattern.test(exercise.name)) return category;
   }
   return null;
+}
+
+export function isCompoundExercise(exercise: CatalogExercise): boolean {
+  if (exercise.isCompound != null) return exercise.isCompound;
+  if (COMPOUND_NAME.test(exercise.name)) return true;
+  const cat = remixCategoryOf(exercise);
+  if (cat === 'Full Body' || cat === 'Legs' || cat === 'Back' || cat === 'Chest') {
+    return /\b(press|row|squat|deadlift|pull)\b/i.test(exercise.name);
+  }
+  return false;
+}
+
+function categoryWantsBalance(category: string): boolean {
+  return isRemixCategory(category) && BALANCED_CATEGORIES.has(category);
 }
 
 export function exerciseMatchesRemixCategory(exercise: CatalogExercise, category: string): boolean {
@@ -214,6 +291,49 @@ function allocateCountsLargestRemainder(total: number, normalizedWeights: readon
   return counts;
 }
 
+/**
+ * Allocate by slider weight first, then softly enforce compound+isolation floors
+ * by stealing from categories that are above their floor. Applying equal floors
+ * *before* remainder (old behaviour) let a ~30% category beat ~70% on ties
+ * (e.g. Chest=179|Triceps=78 @ 9 slots → 5/4 instead of 6/3).
+ */
+function allocateCategoryCounts(
+  total: number,
+  categories: readonly string[],
+  normalizedWeights: readonly number[],
+): number[] {
+  if (!categories.length) return [];
+  const counts = allocateCountsLargestRemainder(total, normalizedWeights);
+  if (total < categories.length) return counts;
+
+  const floors = categories.map((category) => {
+    if (categoryWantsBalance(category) && total >= categories.length * 2) return 2;
+    return 1;
+  });
+
+  let guard = 0;
+  while (guard < total) {
+    guard += 1;
+    const needy = counts.findIndex((count, index) => count < (floors[index] ?? 0));
+    if (needy < 0) break;
+    let donor = -1;
+    let donorExtra = -Infinity;
+    for (let index = 0; index < counts.length; index += 1) {
+      if (index === needy) continue;
+      const extra = (counts[index] ?? 0) - (floors[index] ?? 0);
+      if (extra <= 0) continue;
+      if (extra > donorExtra) {
+        donorExtra = extra;
+        donor = index;
+      }
+    }
+    if (donor < 0) break;
+    counts[donor] = (counts[donor] ?? 0) - 1;
+    counts[needy] = (counts[needy] ?? 0) + 1;
+  }
+  return counts;
+}
+
 function interleavePicks(buckets: RemixPick[][], weights: readonly number[], total: number, random: () => number): RemixPick[] {
   if (!buckets.length) return [];
   const order = weights
@@ -239,34 +359,83 @@ function interleavePicks(buckets: RemixPick[][], weights: readonly number[], tot
   return result;
 }
 
+function toRemixPick(exercise: CatalogExercise, category: string): RemixPick {
+  const defaults = getRemixDefaultsForCategory(category);
+  const targets = defaultTargetFor({
+    name: exercise.name,
+    category: exercise.category ?? category,
+    canonicalKey: exercise.canonicalKey,
+    instructions: exercise.instructions,
+    repsDefaults: { sets: defaults.sets, reps: defaults.reps },
+  });
+  return {
+    exerciseId: exercise.id,
+    name: exercise.name,
+    tracking: targets.tracking,
+    targetUnit: targets.targetUnit,
+    targetSets: targets.targetSets,
+    targetReps: targets.targetReps,
+    targetDurationSec: targets.targetDurationSec,
+    targetDistanceKm: targets.targetDistanceKm,
+  };
+}
+
+/**
+ * For strength categories with 2+ slots: at least one compound and one isolation when both exist.
+ * Compounds are listed first so interleaving keeps big lifts early.
+ */
 function pickExercisesForCategory(
   category: string,
   count: number,
   pool: readonly CatalogExercise[],
   random: () => number,
 ): RemixPick[] {
-  const defaults = getRemixDefaultsForCategory(category);
   if (count <= 0) return [];
   const filtered = pool.filter((exercise) => exerciseMatchesRemixCategory(exercise, category));
-  return weightedSampleWithoutReplacement(filtered, Math.min(count, filtered.length), random).map((exercise) => {
-    const targets = defaultTargetFor({
-      name: exercise.name,
-      category: exercise.category ?? category,
-      canonicalKey: exercise.canonicalKey,
-      instructions: exercise.instructions,
-      repsDefaults: { sets: defaults.sets, reps: defaults.reps },
-    });
-    return {
-      exerciseId: exercise.id,
-      name: exercise.name,
-      tracking: targets.tracking,
-      targetUnit: targets.targetUnit,
-      targetSets: targets.targetSets,
-      targetReps: targets.targetReps,
-      targetDurationSec: targets.targetDurationSec,
-      targetDistanceKm: targets.targetDistanceKm,
-    };
+  if (filtered.length === 0) return [];
+
+  const wantBalance = categoryWantsBalance(category) && count >= 2;
+  const compounds = filtered.filter((exercise) => isCompoundExercise(exercise));
+  const isolations = filtered.filter((exercise) => !isCompoundExercise(exercise));
+  const picked: CatalogExercise[] = [];
+  const used = new Set<string>();
+
+  const take = (candidates: readonly CatalogExercise[], n: number) => {
+    const available = candidates.filter((exercise) => !used.has(exercise.id));
+    for (const exercise of weightedSampleWithoutReplacement(available, Math.min(n, available.length), random)) {
+      picked.push(exercise);
+      used.add(exercise.id);
+    }
+  };
+
+  if (wantBalance) {
+    if (compounds.length > 0) take(compounds, 1);
+    if (isolations.length > 0 && picked.length < count) take(isolations, 1);
+    const remaining = count - picked.length;
+    if (remaining > 0) {
+      // Prefer another compound when under half, otherwise fill from the rest.
+      const compoundSlots = Math.min(
+        remaining,
+        Math.max(0, Math.ceil(count / 2) - picked.filter((exercise) => isCompoundExercise(exercise)).length),
+      );
+      if (compoundSlots > 0) take(compounds, compoundSlots);
+      take(filtered, count - picked.length);
+    }
+  } else if (categoryWantsBalance(category) && compounds.length > 0) {
+    // Single slot on a strength category → prefer the big lift.
+    take(compounds, 1);
+    take(filtered, count - picked.length);
+  } else {
+    take(filtered, Math.min(count, filtered.length));
+  }
+
+  picked.sort((a, b) => {
+    const ca = isCompoundExercise(a) ? 0 : 1;
+    const cb = isCompoundExercise(b) ? 0 : 1;
+    return ca - cb;
   });
+
+  return picked.map((exercise) => toRemixPick(exercise, category));
 }
 
 export function generateFromCategoryMix(
@@ -279,7 +448,7 @@ export function generateFromCategoryMix(
   if (!categories.length) return [];
   const norm = normalizeRemixSliderWeights(categories.map((_, index) => sliderRaw[index] ?? 0));
   const total = remixExerciseCount(categories, duration);
-  const counts = allocateCountsLargestRemainder(total, norm);
+  const counts = allocateCategoryCounts(total, categories, norm);
   const buckets = categories.map((category, index) => pickExercisesForCategory(category, counts[index] ?? 0, pool, random));
   return interleavePicks(buckets, norm, total, random);
 }

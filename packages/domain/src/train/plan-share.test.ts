@@ -50,7 +50,17 @@ describe('handleUpdateTrainingPlanVisibility', () => {
           },
         );
       }
-      if (table === 'training_plan_buddy_shares') {
+      if (table === 'training_plan_days') {
+        return chain(
+          { data: [{ id: 'day-1' }], error: null },
+          {
+            track: (op, payload) => {
+              inserts.push({ table, op, payload });
+            },
+          },
+        );
+      }
+      if (table === 'training_plan_day_buddy_shares') {
         return chain(
           { data: null, error: null },
           {
@@ -66,6 +76,7 @@ describe('handleUpdateTrainingPlanVisibility', () => {
     const denied = await handleUpdateTrainingPlanVisibility({ from } as PlanWeekDbClient, {
       authUserId: 'buddy',
       planId: 'plan-1',
+      day: 'monday',
       visibility: 'global',
     });
     expect(denied.status).toBe(403);
@@ -73,12 +84,15 @@ describe('handleUpdateTrainingPlanVisibility', () => {
     const ok = await handleUpdateTrainingPlanVisibility({ from } as PlanWeekDbClient, {
       authUserId: 'owner',
       planId: 'plan-1',
+      day: 'monday',
       visibility: 'buddies_selected',
       buddyUserIds: ['buddy-a', 'buddy-a'],
     });
     expect(ok.status).toBe(200);
     if (ok.status === 200) expect(ok.body.buddyUserIds).toEqual(['buddy-a']);
-    expect(inserts.some((row) => (row as { table: string }).table === 'training_plan_buddy_shares')).toBe(true);
+    expect(inserts.some((row) => (row as { table: string }).table === 'training_plan_day_buddy_shares')).toBe(
+      true,
+    );
   });
 });
 

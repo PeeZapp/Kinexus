@@ -7,6 +7,7 @@ export const TRAIN_VISIBILITIES = [
   'people',
   'buddies',
   'buddies_selected',
+  'all',
   'global',
 ] as const;
 
@@ -18,12 +19,12 @@ export type TrainVisibilityOption = {
   icon: string;
 };
 
+/** Primary per-workout / per-plan share choices. */
 export const TRAIN_VISIBILITY_OPTIONS: readonly TrainVisibilityOption[] = [
-  { value: 'private', label: 'Only me', icon: '●' },
+  { value: 'private', label: 'Private', icon: '●' },
   { value: 'household', label: 'Family', icon: '◎' },
   { value: 'buddies', label: 'Buddies', icon: '◇' },
-  { value: 'buddies_selected', label: 'Pick buddies', icon: '◆' },
-  { value: 'global', label: 'Everyone', icon: '○' },
+  { value: 'all', label: 'All', icon: '○' },
 ];
 
 export const FAMILY_PLAN_SHARES = ['off', 'plan', 'plan_activity'] as const;
@@ -37,29 +38,30 @@ export function isFamilyPlanShare(value: string): value is FamilyPlanShare {
   return (FAMILY_PLAN_SHARES as readonly string[]).includes(value);
 }
 
-/** UI picker options; Everyone only when verified creator. Legacy `people` kept if already set. */
+/** UI picker options; legacy values kept if already set. Creator Everyone optional. */
 export function trainVisibilityOptions(opts: {
   isApprovedCreator: boolean;
   includePeople?: boolean;
   current?: TrainVisibility | null;
 }): TrainVisibilityOption[] {
-  const base = TRAIN_VISIBILITY_OPTIONS.filter((option) => {
-    if (option.value === 'global') return opts.isApprovedCreator;
-    return true;
-  });
+  const options: TrainVisibilityOption[] = [...TRAIN_VISIBILITY_OPTIONS];
 
   if (opts.includePeople || opts.current === 'people') {
-    return [
-      ...base.slice(0, 2),
-      { value: 'people', label: 'People', icon: '▣' },
-      ...base.slice(2),
-    ];
+    options.splice(2, 0, { value: 'people', label: 'People', icon: '▣' });
   }
-  return [...base];
+  if (opts.current === 'buddies_selected') {
+    options.push({ value: 'buddies_selected', label: 'Pick buddies', icon: '◆' });
+  }
+  if (opts.isApprovedCreator || opts.current === 'global') {
+    options.push({ value: 'global', label: 'Everyone', icon: '○' });
+  }
+  return options;
 }
 
 export function trainVisibilityLabel(visibility: TrainVisibility): string {
   if (visibility === 'people') return 'People';
+  if (visibility === 'buddies_selected') return 'Pick buddies';
+  if (visibility === 'global') return 'Everyone';
   return TRAIN_VISIBILITY_OPTIONS.find((option) => option.value === visibility)?.label ?? visibility;
 }
 
@@ -111,11 +113,11 @@ export function canViewWorkoutVisibility(opts: WorkoutVisibilityAccess): boolean
 
   if (opts.householdMember) {
     if (opts.householdRole === 'owner' || opts.householdRole === 'admin') return true;
-    if (opts.visibility === 'household') return true;
+    if (opts.visibility === 'household' || opts.visibility === 'all') return true;
     if (opts.visibility === 'people' && opts.sharedWithViewer) return true;
   }
 
-  if (opts.visibility === 'buddies') {
+  if (opts.visibility === 'buddies' || opts.visibility === 'all') {
     return buddyCan(opts.buddyStatus, opts.buddyPermissions, 'can_view_workouts');
   }
 
@@ -139,9 +141,11 @@ export function canEditWorkoutVisibility(opts: WorkoutVisibilityAccess): boolean
   }
 
   if (!opts.householdMember) {
-    if (opts.visibility === 'buddies' || opts.visibility === 'buddies_selected') {
+    if (opts.visibility === 'buddies' || opts.visibility === 'buddies_selected' || opts.visibility === 'all') {
       const listed =
-        opts.visibility === 'buddies' || (opts.visibility === 'buddies_selected' && opts.buddySharedWithViewer);
+        opts.visibility === 'buddies' ||
+        opts.visibility === 'all' ||
+        (opts.visibility === 'buddies_selected' && opts.buddySharedWithViewer);
       return listed && buddyCan(opts.buddyStatus, opts.buddyPermissions, 'can_coedit_shared');
     }
     return false;
@@ -185,12 +189,12 @@ export function canViewTrainingPlanVisibility(opts: TrainingPlanVisibilityAccess
 
   if (opts.householdMember) {
     if (opts.householdRole === 'owner' || opts.householdRole === 'admin') return true;
-    if (opts.visibility === 'household') return true;
+    if (opts.visibility === 'household' || opts.visibility === 'all') return true;
     if (opts.visibility === 'people' && opts.sharedWithViewer) return true;
     if (opts.familyPlanShare === 'plan' || opts.familyPlanShare === 'plan_activity') return true;
   }
 
-  if (opts.visibility === 'buddies') {
+  if (opts.visibility === 'buddies' || opts.visibility === 'all') {
     return buddyCan(opts.buddyStatus, opts.buddyPermissions, 'can_view_plan');
   }
 

@@ -65,3 +65,30 @@ export function estimateWorkout(exercises: readonly EstimateExercise[]): Workout
   }
   return { minutes, calories, focuses };
 }
+
+export type EstimateSessionSet = {
+  exerciseName: string;
+  position: number;
+  done: boolean;
+};
+
+/** Estimate burn from logged sets. Only `done` sets count so partial sessions stay fair. */
+export function estimateSessionFromSets(sets: readonly EstimateSessionSet[]): WorkoutEstimate {
+  const byPosition = new Map<number, { name: string; doneCount: number }>();
+  for (const set of sets) {
+    if (!set.done) continue;
+    const existing = byPosition.get(set.position);
+    if (existing) {
+      existing.doneCount += 1;
+    } else {
+      byPosition.set(set.position, { name: set.exerciseName, doneCount: 1 });
+    }
+  }
+  const exercises: EstimateExercise[] = [...byPosition.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, value]) => ({
+      name: value.name,
+      targetSets: value.doneCount,
+    }));
+  return estimateWorkout(exercises);
+}

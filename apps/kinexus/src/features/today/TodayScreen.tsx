@@ -8,11 +8,15 @@ import type { NewsTopicPriorities } from '@kinexus/domain';
 import { Btn, ErrorText } from '@/src/features/household/ui';
 import { ErrorBanner, LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
+import {
+  jointSessionNeedsAlert,
+  loadMyJointSessions,
+} from '@/src/features/train/joint-sessions-api';
 import { fetchOverviewNews } from '@/src/features/today/api';
 import { DailyHud } from '@/src/features/today/DailyHud';
 import { WeatherReadout, WeatherSheet } from '@/src/features/today/WeatherSheet';
 import { EMPTY_OVERVIEW, loadOverviewPrefs, persistOverviewPrefs, type OverviewPrefs } from '@/src/features/today/prefs';
-import { MorePuzzles, SudokuCard } from '@/src/features/today/puzzles/PuzzlesCard';
+import { MorePuzzles } from '@/src/features/today/puzzles/PuzzlesCard';
 import { WordleCard } from '@/src/features/today/WordleCard';
 import type { AuthUser } from '@/src/lib/auth';
 import { useAuth } from '@/src/lib/auth';
@@ -54,9 +58,21 @@ export function TodayScreen() {
 
 function TodayBody({ user, initial }: { user: AuthUser; initial: OverviewPrefs }) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { mode } = useExperienceMode();
   const desktop = mode === 'desktop';
   const [prefs, setPrefs] = useState(initial);
+  const jointAlerts = useQuery({
+    queryKey: ['train-joint-alerts', user.id],
+    enabled: Boolean(user.id) && !user.isDevBypass,
+    queryFn: async () => {
+      const sessions = await loadMyJointSessions(user.id);
+      return sessions
+        .map((session) => jointSessionNeedsAlert(session, user.id))
+        .filter((message): message is string => Boolean(message));
+    },
+    staleTime: 60_000,
+  });
   const prefsRef = useRef(initial);
   const [weatherOpen, setWeatherOpen] = useState(false);
   const [pickingPlace, setPickingPlace] = useState(false);
@@ -93,6 +109,16 @@ function TodayBody({ user, initial }: { user: AuthUser; initial: OverviewPrefs }
       style={styles.root}
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}>
+      {(jointAlerts.data ?? []).map((message, index) => (
+        <Pressable
+          key={`joint-${index}`}
+          accessibilityRole="button"
+          onPress={() => router.push('/train' as Href)}
+          style={styles.trainAlert}>
+          <ErrorBanner message={message} />
+          <Text style={styles.trainAlertAction}>Open Train plan</Text>
+        </Pressable>
+      ))}
       <DailyHud
         user={user}
         desktop={desktop}
@@ -124,14 +150,7 @@ function TodayBody({ user, initial }: { user: AuthUser; initial: OverviewPrefs }
         }}
       />
 
-      <View style={desktop ? styles.gameRow : styles.gameStack}>
-        <View style={desktop ? styles.gameSlot : styles.gameSlotStack}>
-          <WordleCard />
-        </View>
-        <View style={desktop ? styles.gameSlot : styles.gameSlotStack}>
-          <SudokuCard />
-        </View>
-      </View>
+      <WordleCard />
       <MorePuzzles />
       <NewsCard interests={prefs.newsInterests} topicPriorities={prefs.topicPriorities} />
     </ScrollView>
@@ -222,23 +241,6 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
   },
-  gameRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 16,
-  },
-  gameStack: {
-    gap: 16,
-  },
-  gameSlot: {
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: 0,
-    minWidth: 0,
-  },
-  gameSlotStack: {
-    alignSelf: 'stretch',
-  },
   extrasBtn: {
     height: 40,
     paddingHorizontal: 14,
@@ -260,6 +262,15 @@ const styles = StyleSheet.create({
   },
   extrasBtnLabelOn: {
     color: colors.bg,
+  },
+  trainAlert: {
+    gap: 6,
+    marginBottom: 4,
+  },
+  trainAlertAction: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '700',
   },
   fallback: {
     flex: 1,

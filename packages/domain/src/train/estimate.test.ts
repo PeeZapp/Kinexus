@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { estimateWorkout } from './estimate';
+import { estimateSessionFromSets, estimateWorkout } from './estimate';
 
 describe('estimateWorkout', () => {
   it('returns nothing for an empty workout', () => {
@@ -35,5 +35,54 @@ describe('estimateWorkout', () => {
       { name: 'Fly', category: 'Chest', targetSets: 3 },
     ]);
     expect(estimate.focuses).toEqual(['Chest', 'Back']);
+  });
+});
+
+describe('estimateSessionFromSets', () => {
+  it('returns nothing when there are no sets', () => {
+    expect(estimateSessionFromSets([])).toEqual({ minutes: 0, calories: 0, focuses: [] });
+  });
+
+  it('ignores sets that were not marked done', () => {
+    expect(
+      estimateSessionFromSets([
+        { exerciseName: 'Bench press', position: 0, done: false },
+        { exerciseName: 'Bench press', position: 0, done: false },
+      ]),
+    ).toEqual({ minutes: 0, calories: 0, focuses: [] });
+  });
+
+  it('counts only done sets for a partial session', () => {
+    const partial = estimateSessionFromSets([
+      { exerciseName: 'Bench press', position: 0, done: true },
+      { exerciseName: 'Bench press', position: 0, done: true },
+      { exerciseName: 'Bench press', position: 0, done: false },
+      { exerciseName: 'Bench press', position: 0, done: false },
+    ]);
+    const full = estimateSessionFromSets([
+      { exerciseName: 'Bench press', position: 0, done: true },
+      { exerciseName: 'Bench press', position: 0, done: true },
+      { exerciseName: 'Bench press', position: 0, done: true },
+      { exerciseName: 'Bench press', position: 0, done: true },
+    ]);
+    expect(partial.calories).toBe(estimateWorkout([{ name: 'Bench press', targetSets: 2 }]).calories);
+    expect(full.calories).toBe(estimateWorkout([{ name: 'Bench press', targetSets: 4 }]).calories);
+    expect(partial.calories).toBeLessThan(full.calories);
+  });
+
+  it('groups by position across exercises', () => {
+    const estimate = estimateSessionFromSets([
+      { exerciseName: 'Bench press', position: 0, done: true },
+      { exerciseName: 'Bench press', position: 0, done: true },
+      { exerciseName: 'Row', position: 1, done: true },
+      { exerciseName: 'Row', position: 1, done: true },
+      { exerciseName: 'Row', position: 1, done: true },
+    ]);
+    expect(estimate).toEqual(
+      estimateWorkout([
+        { name: 'Bench press', targetSets: 2 },
+        { name: 'Row', targetSets: 3 },
+      ]),
+    );
   });
 });

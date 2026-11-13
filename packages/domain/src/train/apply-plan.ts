@@ -220,7 +220,7 @@ export async function handleApplyTrainingPlan(
         workoutIds[day.day] = workoutId;
       }
 
-      const dayInsert = await client.from('training_plan_days').insert({
+      const dayPayload = {
         plan_id: planId,
         day: day.day,
         position,
@@ -235,13 +235,50 @@ export async function handleApplyTrainingPlan(
         duration_min: day.restDay ? null : day.durationMin || null,
         focus: day.focus,
         status: 'planned',
-      });
+        visibility,
+        audience_person_ids: audiencePersonIds,
+      };
 
-      if (dayInsert.error) {
-        if (isRlsOrOwnershipError(dayInsert.error)) {
-          throw Object.assign(new Error('Not allowed to write plan days'), { rls: true });
+      if (buddyUserIds.length > 0 && visibility === 'buddies_selected') {
+        const dayInsert = await client
+          .from('training_plan_days')
+          .insert(dayPayload)
+          .select('id')
+          .single();
+
+        if (
+          dayInsert.error ||
+          !dayInsert.data ||
+          typeof dayInsert.data !== 'object' ||
+          !('id' in dayInsert.data)
+        ) {
+          if (isRlsOrOwnershipError(dayInsert.error)) {
+            throw Object.assign(new Error('Not allowed to write plan days'), { rls: true });
+          }
+          throw new Error(dayInsert.error?.message ?? 'Could not write plan day');
         }
-        throw new Error(dayInsert.error.message);
+
+        const dayShareInsert = await client.from('training_plan_day_buddy_shares').insert(
+          buddyUserIds.map((buddyUserId) => ({
+            day_id: String((dayInsert.data as { id: string }).id),
+            buddy_user_id: buddyUserId,
+            household_id: input.householdId,
+          })),
+        );
+        if (dayShareInsert.error) {
+          if (isRlsOrOwnershipError(dayShareInsert.error)) {
+            throw Object.assign(new Error('Not allowed to share this plan with buddies'), { rls: true });
+          }
+          throw new Error(dayShareInsert.error.message);
+        }
+      } else {
+        const dayInsert = await client.from('training_plan_days').insert(dayPayload);
+        if (dayInsert.error) {
+          if (isRlsOrOwnershipError(dayInsert.error)) {
+            throw Object.assign(new Error('Not allowed to write plan days'), { rls: true });
+          }
+          throw new Error(dayInsert.error.message);
+        }
       }
     }
 

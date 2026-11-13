@@ -71,6 +71,7 @@ import {
   type WorkoutDraft,
   type WorkoutExercise,
 } from '@/src/features/train/api';
+import { cascadeSetEdits } from '@/src/features/train/cascade-set-edits';
 import { chooseResumeOrStartNew, confirmAction } from '@/src/features/train/confirm';
 import { clock, exerciseFacts, exerciseTitle } from '@/src/features/train/format';
 import { useCreator } from '@/src/features/creators/use-creator';
@@ -187,9 +188,12 @@ function draftFromLive(live: LiveSession, userId: string, planOnly = false): Wor
     splitId: live.remixSpec,
     durationMin: live.durationMin,
     createdBy: userId,
+    addedBy: planOnly ? null : userId,
     shareToken: null,
     isShared: false,
     planOnly,
+    inLibrary: !planOnly,
+    groupWorkoutId: null,
     level: null,
     goal: null,
     equipment: [],
@@ -470,7 +474,7 @@ export function SessionScreen({
         exerciseId: exercise.id,
         name: exercise.name,
         targetSets: defaults.sets,
-        targetReps: defaults.reps,
+        targetReps: loaded[exercise.id]?.lastReps?.trim() || defaults.reps,
         lastWeight: loaded[exercise.id]?.lastWeight ?? '',
       });
       setSets(nextSets);
@@ -578,7 +582,6 @@ export function SessionScreen({
   async function patch(set: SessionSet, next: Partial<SessionSet>, weightDisplay?: string) {
     let weight = next.weight ?? set.weight;
     if (weightDisplay !== undefined) {
-      setWeightDraft((current) => ({ ...current, [set.id]: weightDisplay }));
       const trimmed = weightDisplay.trim();
       if (!trimmed) weight = '';
       else {
@@ -588,17 +591,60 @@ export function SessionScreen({
       }
     }
     const updated = { ...set, ...next, weight };
-    setSets((current) => current.map((item) => (item.id === set.id ? updated : item)));
-    await updateSet(
-      set.id,
-      {
-        weight: weightDisplay !== undefined ? weightDisplay : updated.weight,
-        reps: updated.reps,
-        done: updated.done,
-        durationSec: updated.durationSec,
-        distanceKm: updated.distanceKm,
-      },
-      weightDisplay !== undefined ? weightUnit : 'kg',
+    const cascadeValues =
+      weightDisplay !== undefined ||
+      next.weight !== undefined ||
+      next.reps !== undefined ||
+      next.durationSec !== undefined ||
+      next.distanceKm !== undefined;
+    const valuePatch: Partial<SessionSet> = {};
+    if (weightDisplay !== undefined || next.weight !== undefined) valuePatch.weight = updated.weight;
+    if (next.reps !== undefined) valuePatch.reps = updated.reps;
+    if (next.durationSec !== undefined) valuePatch.durationSec = updated.durationSec;
+    if (next.distanceKm !== undefined) valuePatch.distanceKm = updated.distanceKm;
+
+    let nextSets: SessionSet[] = [];
+    setSets((current) => {
+      nextSets = cascadeValues
+        ? cascadeSetEdits(current, set.id, valuePatch).map((item) => (item.id === set.id ? updated : item))
+        : current.map((item) => (item.id === set.id ? updated : item));
+      return nextSets;
+    });
+
+    if (weightDisplay !== undefined) {
+      setWeightDraft((current) => {
+        const draft = { ...current, [set.id]: weightDisplay };
+        for (const item of nextSets) {
+          if (item.id === set.id) continue;
+          if (item.done || item.position !== set.position || item.setIndex <= set.setIndex) continue;
+          draft[item.id] = weightDisplay;
+        }
+        return draft;
+      });
+    }
+
+    const persistTargets = cascadeValues
+      ? nextSets.filter(
+          (item) =>
+            item.id === set.id ||
+            (!item.done && item.position === set.position && item.setIndex > set.setIndex),
+        )
+      : [updated];
+
+    await Promise.all(
+      persistTargets.map((item) =>
+        updateSet(
+          item.id,
+          {
+            weight: weightDisplay !== undefined ? weightDisplay : item.weight,
+            reps: item.reps,
+            done: item.done,
+            durationSec: item.durationSec,
+            distanceKm: item.distanceKm,
+          },
+          weightDisplay !== undefined ? weightUnit : 'kg',
+        ),
+      ),
     );
   }
 
@@ -706,6 +752,7 @@ export function SessionScreen({
     const loaded = records[result.exercise.id] ? records : { ...records, ...(await loadRecords(userId, [result.exercise.id])) };
     if (loaded !== records) setRecords(loaded);
     const lastWeight = loaded[result.exercise.id]?.lastWeight ?? '';
+    const lastReps = loaded[result.exercise.id]?.lastReps?.trim() ?? '';
     await replaceSessionExercise({
       sessionId,
       position,
@@ -713,13 +760,23 @@ export function SessionScreen({
       name: result.exercise.name,
       lastWeight,
     });
+    const swapped = group.map((set) => ({
+      ...set,
+      exerciseId: result.exercise.id,
+      exerciseName: result.exercise.name,
+      weight: lastWeight,
+      reps: lastReps || set.reps,
+      done: false,
+    }));
+    if (lastReps) {
+      await Promise.all(swapped.map((set) => updateSet(set.id, { reps: set.reps, done: false })));
+    }
     setOffered((current) => ({ ...current, [position]: result.offeredIds }));
     setSets((existing) =>
-      existing.map((set) =>
-        set.position === position
-          ? { ...set, exerciseId: result.exercise.id, exerciseName: result.exercise.name, weight: lastWeight, done: false }
-          : set,
-      ),
+      existing.map((set) => {
+        const hit = swapped.find((row) => row.id === set.id);
+        return hit ?? set;
+      }),
     );
     setDetailId((current) => (current === currentId ? result.exercise.id : current));
     setError(null);
@@ -1107,7 +1164,12 @@ export function SessionScreen({
               );
             }
             const targetLabel = unit === 'reps' ? weightLabel(plan?.targetWeight, weightUnit) : '';
-            const lastLabel = unit === 'reps' ? weightLabel(record?.lastWeight, weightUnit) : '';
+            const lastWeightBit = unit === 'reps' ? weightLabel(record?.lastWeight, weightUnit) : '';
+            const lastRepsBit = unit === 'reps' ? (record?.lastReps || '').trim() : '';
+            const lastLabel =
+              lastWeightBit && lastRepsBit
+                ? `${lastWeightBit} × ${lastRepsBit}`
+                : lastWeightBit || lastRepsBit;
             const metaBits = [
               part,
               unit === 'reps' ? `${doneCount}/${group.length}` : trackingLabel,

@@ -102,6 +102,16 @@ describe('canViewWorkoutVisibility', () => {
 
   it('allows all-buddies and specific-buddy-only', () => {
     expect(canViewWorkoutVisibility({ ...base, visibility: 'buddies' })).toBe(true);
+    expect(canViewWorkoutVisibility({ ...base, visibility: 'all' })).toBe(true);
+    expect(
+      canViewWorkoutVisibility({
+        ...base,
+        visibility: 'all',
+        householdMember: true,
+        householdRole: 'adult',
+        buddyStatus: null,
+      }),
+    ).toBe(true);
     expect(
       canViewWorkoutVisibility({
         ...base,
@@ -216,7 +226,15 @@ describe('copy + picker', () => {
   it('shows Everyone only to creators and labels Family', () => {
     expect(trainVisibilityOptions({ isApprovedCreator: false }).some((o) => o.value === 'global')).toBe(false);
     expect(trainVisibilityOptions({ isApprovedCreator: true }).some((o) => o.value === 'global')).toBe(true);
+    expect(trainVisibilityOptions({ isApprovedCreator: false }).map((o) => o.value)).toEqual([
+      'private',
+      'household',
+      'buddies',
+      'all',
+    ]);
+    expect(trainVisibilityLabel('private')).toBe('Private');
     expect(trainVisibilityLabel('household')).toBe('Family');
+    expect(trainVisibilityLabel('all')).toBe('All');
     expect(allowedFamilyPlanShares('child')).toEqual(['off', 'plan']);
   });
 });

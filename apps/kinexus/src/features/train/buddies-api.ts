@@ -305,6 +305,7 @@ function mapWorkoutRow(row: {
   split_id: string | null;
   duration_min: number | null;
   created_by: string | null;
+  added_by?: string | null;
   share_token: string | null;
   is_shared: boolean | null;
   level?: WorkoutDraft['level'];
@@ -339,6 +340,7 @@ function mapWorkoutRow(row: {
     splitId: row.split_id,
     durationMin: row.duration_min,
     createdBy: row.created_by,
+    addedBy: row.added_by ?? row.created_by ?? null,
     shareToken: row.share_token,
     isShared: Boolean(row.is_shared),
     planOnly: false,

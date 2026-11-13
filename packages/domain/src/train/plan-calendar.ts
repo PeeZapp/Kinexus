@@ -131,7 +131,7 @@ async function loadPlanWithDay(
   const planResult = await client
     .from('training_plans')
     .select(
-      'id, household_id, owner_id, name, week_start, visibility, audience_person_ids, prefs, calendar_auto_sync, training_plan_days(*), training_plan_buddy_shares(buddy_user_id)',
+      'id, household_id, owner_id, name, week_start, visibility, audience_person_ids, prefs, calendar_auto_sync, training_plan_days(*, training_plan_day_buddy_shares(buddy_user_id)), training_plan_buddy_shares(buddy_user_id)',
     )
     .eq('id', planId)
     .maybeSingle();
@@ -190,6 +190,17 @@ function mapTrainingPlanRow(row: Record<string, unknown>): TrainingPlanWeekRow |
       focus: Array.isArray(d.focus) ? d.focus.map(String) : [],
       status,
       sessionId: typeof d.session_id === 'string' ? d.session_id : null,
+      visibility: (typeof d.visibility === 'string' ? d.visibility : 'private') as TrainingPlanWeekRow['visibility'],
+      audiencePersonIds: Array.isArray(d.audience_person_ids) ? d.audience_person_ids.map(String) : [],
+      buddyUserIds: Array.isArray(d.training_plan_day_buddy_shares)
+        ? d.training_plan_day_buddy_shares
+            .map((share) =>
+              share && typeof share === 'object' && 'buddy_user_id' in share
+                ? String((share as { buddy_user_id: unknown }).buddy_user_id)
+                : '',
+            )
+            .filter(Boolean)
+        : [],
     });
   }
   return {
@@ -522,7 +533,7 @@ export async function handleSyncTrainingPlanToCalendar(
   const planResult = await client
     .from('training_plans')
     .select(
-      'id, household_id, owner_id, name, week_start, visibility, audience_person_ids, prefs, calendar_auto_sync, training_plan_days(*), training_plan_buddy_shares(buddy_user_id)',
+      'id, household_id, owner_id, name, week_start, visibility, audience_person_ids, prefs, calendar_auto_sync, training_plan_days(*, training_plan_day_buddy_shares(buddy_user_id)), training_plan_buddy_shares(buddy_user_id)',
     )
     .eq('id', input.planId)
     .maybeSingle();

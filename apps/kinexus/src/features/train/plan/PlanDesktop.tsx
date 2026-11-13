@@ -50,8 +50,8 @@ export type TrainPlanViewProps = {
   onExportPlanIcs: (plan: TrainingPlanWeekRow) => void;
   onExportDayIcs: (plan: TrainingPlanWeekRow, card: PlanDayCardModel) => void;
   onToggleAutoSync: (plan: TrainingPlanWeekRow) => void;
-  onChangeVisibility: (plan: TrainingPlanWeekRow, visibility: TrainVisibility) => void;
-  onToggleBuddy: (plan: TrainingPlanWeekRow, buddyId: string) => void;
+  onChangeVisibility: (plan: TrainingPlanWeekRow, day: Day, visibility: TrainVisibility) => void;
+  onToggleBuddy: (plan: TrainingPlanWeekRow, day: Day, buddyId: string) => void;
   onShareLink: (plan: TrainingPlanWeekRow) => void;
   canManagePlan: (plan: TrainingPlanWeekRow) => boolean;
 };

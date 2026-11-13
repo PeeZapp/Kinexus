@@ -92,28 +92,40 @@ export type {
 export {
   TRAIN_GLOBAL_EQUIPMENT,
   TRAIN_GLOBAL_GOALS,
+  TRAIN_GLOBAL_LENGTHS,
   TRAIN_GLOBAL_LEVELS,
   TRAIN_GLOBAL_SORTS,
   canPublishTrainGlobal,
+  filterHiddenWorkouts,
   filterTrainGlobalLibrary,
   isTrainGlobalEquipment,
   isTrainGlobalGoal,
+  isTrainGlobalLength,
   isTrainGlobalLevel,
   isTrainGlobalSort,
   normalizeTrainGlobalEquipment,
+  trainGlobalCreatorLabel,
   trainGlobalEquipmentLabel,
   trainGlobalGoalLabel,
+  trainGlobalLengthLabel,
   trainGlobalLevelLabel,
+  sortWorkoutsOpenFirst,
 } from './library';
 export type {
   TrainGlobalEquipment,
   TrainGlobalGoal,
+  TrainGlobalLength,
   TrainGlobalLevel,
   TrainGlobalLibraryFilters,
   TrainGlobalLibraryItem,
   TrainGlobalSort,
   TrainGlobalTags,
 } from './library';
+export {
+  EXERCISE_EQUIPMENT_SYNONYMS,
+  exerciseEquipmentMatches,
+  normalizeExerciseEquipment,
+} from './equipment';
 export {
   REMIX_CATEGORIES,
   REMIX_CATEGORY_COLOR,
@@ -127,6 +139,7 @@ export {
   parseRemixSplit,
   remixCategoryOf,
   remixExerciseCount,
+  isCompoundExercise,
   swapSimilarExercises,
   nextSimilarExercise,
 } from './remix';
@@ -153,7 +166,6 @@ export {
   compoundFirstOrder,
   focusSequenceForSplit,
   generateTrainPlan,
-  isCompoundExercise,
   pickTrainingDays,
   prescriptionFor,
   splitTemplateFor,
@@ -194,6 +206,7 @@ export {
   handleSetTrainingPlanDayStatus,
   handleUpdateTrainingPlanVisibility,
   isRegeneratableDay,
+  trainingPlanDayVisibility,
 } from './plan-week';
 export type {
   AddTrainingPlanDayResult,
@@ -226,6 +239,22 @@ export {
   trainSessionTypesByKind,
 } from './session-types';
 export type { TrainSessionKind, TrainSessionType, TrainSessionTypeId } from './session-types';
+export {
+  JOINT_SESSION_INVITE_STATUSES,
+  JOINT_SESSION_STATUSES,
+  isTrainSessionTypeIdList,
+  jointSessionAlertMessage,
+  jointSessionPlanLabel,
+  resolveJointSessionVotes,
+  bestSessionTypeForFocuses,
+  workoutMatchesSessionTypes,
+} from './joint-session';
+export type {
+  JointSessionInviteStatus,
+  JointSessionResolveResult,
+  JointSessionStatus,
+  JointSessionVote,
+} from './joint-session';
 export {
   canFillSessionType,
   displayFocusLabel,
@@ -313,8 +342,8 @@ export type {
   ShareCopyPlanItem,
   ShareCopyWorkoutExercise,
 } from './custom-exercises';
-export { estimateWorkout } from './estimate';
-export type { EstimateExercise, WorkoutEstimate } from './estimate';
+export { estimateSessionFromSets, estimateWorkout } from './estimate';
+export type { EstimateExercise, EstimateSessionSet, WorkoutEstimate } from './estimate';
 export { clusterExercises, linkSuperset, normalizeSupersets, unlinkSuperset } from './supersets';
 export type { ExerciseCluster, SupersetMember } from './supersets';
 export {

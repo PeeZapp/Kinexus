@@ -126,7 +126,21 @@ describe('handleApplyTrainingPlan', () => {
           },
         );
       }
-      if (table === 'workout_exercises' || table === 'training_plan_days' || table === 'training_plan_buddy_shares') {
+      if (table === 'training_plan_days') {
+        return chain(
+          { data: { id: 'day1' }, error: null },
+          {
+            track: (op, payload) => {
+              if (op === 'insert') inserts.push({ table, payload });
+            },
+          },
+        );
+      }
+      if (
+        table === 'workout_exercises' ||
+        table === 'training_plan_buddy_shares' ||
+        table === 'training_plan_day_buddy_shares'
+      ) {
         return chain(
           { data: null, error: null },
           {
@@ -161,6 +175,7 @@ describe('handleApplyTrainingPlan', () => {
     expect(inserts.some((row) => row.table === 'workout_exercises')).toBe(true);
     expect(inserts.some((row) => row.table === 'training_plan_days')).toBe(true);
     expect(inserts.some((row) => row.table === 'training_plan_buddy_shares')).toBe(true);
+    expect(inserts.some((row) => row.table === 'training_plan_day_buddy_shares')).toBe(true);
     const workout = inserts.find((row) => row.table === 'workouts')?.payload as {
       name?: string;
       plan_only?: boolean;

@@ -174,7 +174,7 @@
     },
     {
       "path": "/api/investments/alerts-check",
-      "schedule": "0 */4 * * *"
+      "schedule": "0 14 * * *"
     }
   ]
 }

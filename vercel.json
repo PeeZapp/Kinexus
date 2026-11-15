@@ -174,7 +174,19 @@
     },
     {
       "path": "/api/investments/alerts-check",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/investments/alerts-check",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/investments/alerts-check",
       "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/investments/alerts-check",
+      "schedule": "0 20 * * *"
     }
   ]
 }

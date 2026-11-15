@@ -8,11 +8,14 @@ import {
   canEditBudgetTxn,
   canEnterBudgetAmounts,
   canManageBudgetPlan,
+  appliedCarryByLine,
+  carryDashboardRows,
   cadenceDueLabel,
   cadenceDueMonths,
   cadenceLabel,
   defaultTxnDateForMonth,
   deferredPeriodicalLines,
+  formatCarryBalance,
   formatMoney,
   isBudgetSet,
   linePathName,
@@ -41,6 +44,7 @@ import { FilterBar, FilterDropdown, useFilterMenus } from '@/src/features/shell/
 import { FinancesChrome, MoneyBar } from '@/src/features/finances/FinancesShared';
 import { BudgetEntrySheet, BudgetLineSheet } from '@/src/features/finances/sheets';
 import { AddTransactionsSheet } from '@/src/features/finances/budget/AddTransactionsSheet';
+import { CarryDashboardSheet } from '@/src/features/finances/budget/CarryDashboardSheet';
 import {
   clearStashedBudgetTxnShare,
   peekStashedBudgetTxnShare,
@@ -90,6 +94,7 @@ export function BudgetScreen() {
   const [lineOpen, setLineOpen] = useState(false);
   const [editing, setEditing] = useState<FinanceBudgetLine | null>(null);
   const [entryOpen, setEntryOpen] = useState(false);
+  const [carryOpen, setCarryOpen] = useState(false);
   const [addTxnsOpen, setAddTxnsOpen] = useState(false);
   const [sharedIntake, setSharedIntake] = useState<StashedBudgetTxnShare | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -117,10 +122,30 @@ export function BudgetScreen() {
   }, [params.addTransactions, router]);
 
   const budgetReady = isBudgetSet(finances.lines, finances.txns, finances.budget?.setupCompletedAt);
-  const monthLines = useMemo(
-    () => linesForMonth(finances.lines, finances.txns, monthStart, monthView),
-    [finances.lines, finances.txns, monthStart, monthView],
+  const appliedCarry = useMemo(
+    () => appliedCarryByLine(finances.carryEvents, monthStart),
+    [finances.carryEvents, monthStart],
   );
+  const monthLines = useMemo(
+    () => linesForMonth(finances.lines, finances.txns, monthStart, monthView, appliedCarry),
+    [appliedCarry, finances.lines, finances.txns, monthStart, monthView],
+  );
+  const carryRows = useMemo(
+    () => carryDashboardRows(finances.lines, finances.carries),
+    [finances.carries, finances.lines],
+  );
+  const carryByLine = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of finances.carries) map.set(row.lineId, row.balance);
+    return map;
+  }, [finances.carries]);
+
+  useEffect(() => {
+    if (!budgetReady || !canEnter || !finances.online) return;
+    void finances.syncCarryAccruals(monthStart).catch(() => undefined);
+    // Accrue when month/data settles; sync function is stable enough per load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [budgetReady, canEnter, finances.online, finances.lines.length, finances.txns.length, monthStart]);
   const monthTxns = useMemo(() => txnsInMonth(finances.txns, monthStart), [finances.txns, monthStart]);
   const totals = useMemo(() => budgetTotals(monthLines), [monthLines]);
   const monthStatus = useMemo(
@@ -223,6 +248,20 @@ export function BudgetScreen() {
               currency={finances.currency}
               surplusSinkName={surplusSink?.name ?? null}
             />
+            {carryRows.length > 0 ? (
+              <Pressable style={styles.carryBanner} onPress={() => setCarryOpen(true)}>
+                <Text style={styles.carryBannerTitle}>
+                  {carryRows.length} categor{carryRows.length === 1 ? 'y' : 'ies'} with over / under
+                </Text>
+                <Text style={styles.carryBannerMeta}>
+                  {carryRows
+                    .slice(0, 3)
+                    .map((row) => `${row.name} ${formatCarryBalance(row.balance, (n) => formatMoney(n, finances.currency))}`)
+                    .join(' · ')}
+                  {carryRows.length > 3 ? '…' : ''}
+                </Text>
+              </Pressable>
+            ) : null}
             <SpreadToggle
               value={spreadPeriodical}
               onChange={(value) => {
@@ -239,6 +278,14 @@ export function BudgetScreen() {
                       setAddingTo(null);
                       setEntryOpen(true);
                     }}
+                    disabled={!finances.online}
+                  />
+                ) : null}
+                {canEnter ? (
+                  <Btn
+                    label="Over / under"
+                    variant="secondary"
+                    onPress={() => setCarryOpen(true)}
                     disabled={!finances.online}
                   />
                 ) : null}
@@ -283,6 +330,7 @@ export function BudgetScreen() {
               monthLines={monthLines}
               txns={monthTxns}
               currency={finances.currency}
+              carryByLine={carryByLine}
               canManage={canManage}
               canEnter={canEnter}
               canRemoveTxn={(id) => {
@@ -315,6 +363,7 @@ export function BudgetScreen() {
               monthLines={monthLines}
               txns={monthTxns}
               currency={finances.currency}
+              carryByLine={carryByLine}
               canManage={canManage}
               canEnter={canEnter}
               canRemoveTxn={(id) => {
@@ -442,6 +491,32 @@ export function BudgetScreen() {
           }
         }}
       />
+      <CarryDashboardSheet
+        visible={carryOpen}
+        lines={finances.lines}
+        carries={finances.carries}
+        monthStart={monthStart}
+        currency={finances.currency}
+        busy={busy}
+        error={actionError}
+        onClose={() => {
+          setCarryOpen(false);
+          setActionError(null);
+        }}
+        onSync={async () => {
+          await run(() => finances.syncCarryAccruals(monthStart));
+        }}
+        onClear={async (lineId) => {
+          await run(() => finances.clearCarryBalance(lineId));
+        }}
+        onApply={async (lineId, targetLineId, amount) => {
+          const ok = await run(() => finances.applyCarryToMonth(lineId, monthStart, amount, targetLineId));
+          if (ok) setCarryOpen(false);
+        }}
+        onTransfer={async (fromLineId, toLineId, amount) => {
+          await run(() => finances.transferCarry(fromLineId, toLineId, amount));
+        }}
+      />
       <AddTransactionsSheet
         visible={addTxnsOpen}
         lines={finances.lines}
@@ -526,8 +601,9 @@ function SpreadToggle({
   onChange: (value: boolean) => void;
 }) {
   const { openMenu, toggleMenu, pick } = useFilterMenus();
+  const open = openMenu === 'spread';
   return (
-    <View style={styles.toggleCard}>
+    <View style={[styles.toggleCard, open && styles.toggleCardOpen]} collapsable={false}>
       <Text style={styles.toggleTitle}>Periodical bills</Text>
       <FilterBar>
         <FilterDropdown<'due' | 'monthly'>
@@ -536,7 +612,7 @@ function SpreadToggle({
           value={value ? 'monthly' : 'due'}
           valueLabel={value ? 'Monthly amounts' : 'As they fall due'}
           active={value}
-          open={openMenu === 'spread'}
+          open={open}
           options={[
             { value: 'due', label: 'As they fall due' },
             { value: 'monthly', label: 'As monthly amounts' },
@@ -625,6 +701,7 @@ function LineGroup({
   monthLines,
   txns,
   currency,
+  carryByLine,
   canManage,
   canEnter,
   canRemoveTxn,
@@ -640,6 +717,7 @@ function LineGroup({
   monthLines: FinanceBudgetLine[];
   txns: FinanceBudgetTxn[];
   currency: string;
+  carryByLine: ReadonlyMap<string, number>;
   canManage: boolean;
   canEnter: boolean;
   canRemoveTxn: (id: string) => boolean;
@@ -662,6 +740,7 @@ function LineGroup({
           monthLines={monthLines}
           txns={txns}
           currency={currency}
+          carryByLine={carryByLine}
           canManage={canManage}
           canEnter={canEnter}
           canRemoveTxn={canRemoveTxn}
@@ -685,6 +764,7 @@ function BudgetCategoryBlock({
   monthLines,
   txns,
   currency,
+  carryByLine,
   canManage,
   canEnter,
   canRemoveTxn,
@@ -702,6 +782,7 @@ function BudgetCategoryBlock({
   monthLines: FinanceBudgetLine[];
   txns: FinanceBudgetTxn[];
   currency: string;
+  carryByLine: ReadonlyMap<string, number>;
   canManage: boolean;
   canEnter: boolean;
   canRemoveTxn: (id: string) => boolean;
@@ -725,6 +806,7 @@ function BudgetCategoryBlock({
         monthLines={monthLines}
         txns={txns}
         currency={currency}
+        carryBalance={carryByLine.get(group.parent.id) ?? 0}
         canManage={canManage}
         canEnter={canEnter}
         canRemoveTxn={canRemoveTxn}
@@ -748,6 +830,7 @@ function BudgetCategoryBlock({
                 monthLines={monthLines}
                 txns={txns}
                 currency={currency}
+                carryBalance={carryByLine.get(child.id) ?? 0}
                 canManage={canManage}
                 canEnter={canEnter}
                 canRemoveTxn={canRemoveTxn}
@@ -772,6 +855,7 @@ function BudgetLineCard({
   monthLines,
   txns,
   currency,
+  carryBalance = 0,
   canManage,
   canEnter,
   canRemoveTxn,
@@ -792,6 +876,7 @@ function BudgetLineCard({
   monthLines: FinanceBudgetLine[];
   txns: FinanceBudgetTxn[];
   currency: string;
+  carryBalance?: number;
   canManage: boolean;
   canEnter: boolean;
   canRemoveTxn: (id: string) => boolean;
@@ -861,6 +946,11 @@ function BudgetLineCard({
                   : `${cadenceLabel(line.cadence)} · due ${cadenceDueLabel(line.cadence, line.anchorMonth)} · `}
               {meta}
             </Text>
+            {carryBalance !== 0 ? (
+              <Text style={[styles.carryNote, carryBalance < 0 ? styles.carryNoteOver : styles.carryNoteUnder]}>
+                Running {formatCarryBalance(carryBalance, (n) => formatMoney(n, currency))}
+              </Text>
+            ) : null}
           </View>
           {grouped ? <Text style={styles.chevron}>{open ? '▾' : '▸'}</Text> : null}
         </View>
@@ -1079,9 +1169,25 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     padding: space.md,
     gap: 10,
+    overflow: 'visible',
+    zIndex: 1,
   },
+  toggleCardOpen: { zIndex: 50, elevation: 50 },
   toggleTitle: { color: colors.text, fontSize: 13, fontWeight: '800', textTransform: 'uppercase' },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  carryBanner: {
+    backgroundColor: colors.bgCard,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: space.md,
+    gap: 4,
+  },
+  carryBannerTitle: { color: colors.text, fontSize: 14, fontWeight: '800' },
+  carryBannerMeta: { color: colors.textMuted, fontSize: 12, lineHeight: 18 },
+  carryNote: { fontSize: 12, fontWeight: '700' },
+  carryNoteOver: { color: colors.danger },
+  carryNoteUnder: { color: colors.accent },
   monthNav: { gap: 10 },
   monthHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   monthTitle: { color: colors.text, fontSize: 18, fontWeight: '800' },

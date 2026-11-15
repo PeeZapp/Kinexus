@@ -1092,6 +1092,22 @@ export async function handleDuplicateTrainingPlanToNextWeek(
       }
     }
 
+    if (plan.buddyUserIds.length > 0) {
+      const shareInsert = await client.from('training_plan_buddy_shares').insert(
+        plan.buddyUserIds.map((buddyUserId) => ({
+          plan_id: newPlanId,
+          buddy_user_id: buddyUserId,
+          household_id: plan.householdId,
+        })),
+      );
+      if (shareInsert.error) {
+        if (isRlsOrOwnershipError(shareInsert.error)) {
+          throw Object.assign(new Error('Not allowed to copy plan buddy shares'), { rls: true });
+        }
+        throw new Error(shareInsert.error.message);
+      }
+    }
+
     if (plan.calendarAutoSync) {
       const { syncPlanCalendarIfEnabled } = await import('./plan-calendar');
       const synced = await syncPlanCalendarIfEnabled(client, {

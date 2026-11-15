@@ -14,6 +14,8 @@ import { createWritePreview, commitWritePreview } from '../preview.js';
 import type { McpCaller } from '../context.js';
 import { lookupWatchlistTitle, searchWatchlistTitles } from '../../watchlist.js';
 import {
+  loadChecklistItemOrThrow,
+  loadChecklistListOrThrow,
   loadWatchlistItemOrThrow,
   loadWatchlistListOrThrow,
   loadWatchlistPeopleMap,
@@ -22,10 +24,12 @@ import {
   loadWishlistProductOrThrow,
 } from './reads.js';
 import {
+  CHECKLIST_ITEM_NOT_FOUND,
   TITLE_NOT_FOUND,
   WATCHLIST_ITEM_NOT_FOUND,
   WISHLIST_ITEM_NOT_FOUND,
   accessOpts,
+  assertCanEditChecklist,
   assertCanEditWishlist,
   assertCanManageWatchlist,
   parseWatchedScope,
@@ -95,7 +99,21 @@ export type ListsWriteAction =
       candidateCurrency: 'AUD';
       currentPrice: number | null;
       currentSourceUrl: string;
-    };
+    }
+  | {
+      action: 'add_checklist_item';
+      listId: string;
+      title: string;
+      notes: string | null;
+      isChecked: boolean;
+    }
+  | {
+      action: 'update_checklist_item';
+      itemId: string;
+      title?: string;
+      isChecked?: boolean;
+    }
+  | { action: 'remove_checklist_item'; itemId: string; title: string };
 
 export type PreviewResult =
   | {
@@ -500,6 +518,117 @@ export async function previewRemoveWishlistItem(
     },
     `Remove "${String(product.title)}"`,
     [`Delete wishlist product ${product.id}`],
+  );
+}
+
+export async function previewAddChecklistItem(
+  caller: McpCaller,
+  input: {
+    listId: string;
+    title: string;
+    notes?: string | null;
+    isChecked?: boolean;
+  },
+): Promise<PreviewResult> {
+  const { householdId, role } = await resolveCallerHousehold(caller.client, caller.userId);
+  const personId = await resolveCallerPersonId(caller.client, householdId, caller.userId);
+  const opts = accessOpts(role, caller.userId, personId);
+  const peopleMap = await loadWishlistPeopleMap(caller.client, householdId);
+  const list = await loadChecklistListOrThrow(caller.client, householdId, input.listId, peopleMap);
+  assertCanEditChecklist(list, opts);
+
+  const title = input.title.trim();
+  if (!title) {
+    return { kind: 'blocked', summary: 'Could not add item', message: 'Give the item a title' };
+  }
+
+  return savePreview(
+    caller,
+    householdId,
+    'preview_add_checklist_item',
+    {
+      action: 'add_checklist_item',
+      listId: list.id,
+      title,
+      notes: input.notes === undefined ? null : input.notes?.trim() || null,
+      isChecked: Boolean(input.isChecked),
+    },
+    `Add "${title}" to ${list.name}`,
+    [`Create checklist item on ${list.name}`],
+  );
+}
+
+export async function previewUpdateChecklistItem(
+  caller: McpCaller,
+  input: {
+    itemId: string;
+    title?: string;
+    isChecked?: boolean;
+  },
+): Promise<PreviewResult> {
+  const { householdId, role } = await resolveCallerHousehold(caller.client, caller.userId);
+  const personId = await resolveCallerPersonId(caller.client, householdId, caller.userId);
+  const opts = accessOpts(role, caller.userId, personId);
+  const item = await loadChecklistItemOrThrow(caller.client, householdId, input.itemId);
+  const peopleMap = await loadWishlistPeopleMap(caller.client, householdId);
+  const list = await loadChecklistListOrThrow(caller.client, householdId, String(item.list_id), peopleMap);
+  assertCanEditChecklist(list, opts);
+
+  if (input.title === undefined && input.isChecked === undefined) {
+    return {
+      kind: 'blocked',
+      summary: 'Nothing to update',
+      message: 'Provide title and/or isChecked',
+    };
+  }
+  if (input.title !== undefined && !input.title.trim()) {
+    return { kind: 'blocked', summary: 'Could not update item', message: 'Give the item a title' };
+  }
+
+  const currentTitle = String(item.title ?? '');
+  const nextTitle = input.title?.trim();
+  const summaryParts: string[] = [];
+  if (nextTitle !== undefined) summaryParts.push(`rename to "${nextTitle}"`);
+  if (input.isChecked !== undefined) summaryParts.push(input.isChecked ? 'mark checked' : 'mark unchecked');
+
+  return savePreview(
+    caller,
+    householdId,
+    'preview_update_checklist_item',
+    {
+      action: 'update_checklist_item',
+      itemId: String(item.id),
+      title: nextTitle,
+      isChecked: input.isChecked,
+    },
+    `Update "${currentTitle}"${summaryParts.length ? `: ${summaryParts.join(', ')}` : ''}`,
+    [`Patch checklist item ${item.id}`],
+  );
+}
+
+export async function previewRemoveChecklistItem(
+  caller: McpCaller,
+  input: { itemId: string },
+): Promise<PreviewResult> {
+  const { householdId, role } = await resolveCallerHousehold(caller.client, caller.userId);
+  const personId = await resolveCallerPersonId(caller.client, householdId, caller.userId);
+  const opts = accessOpts(role, caller.userId, personId);
+  const item = await loadChecklistItemOrThrow(caller.client, householdId, input.itemId);
+  const peopleMap = await loadWishlistPeopleMap(caller.client, householdId);
+  const list = await loadChecklistListOrThrow(caller.client, householdId, String(item.list_id), peopleMap);
+  assertCanEditChecklist(list, opts);
+
+  return savePreview(
+    caller,
+    householdId,
+    'preview_remove_checklist_item',
+    {
+      action: 'remove_checklist_item',
+      itemId: String(item.id),
+      title: String(item.title ?? ''),
+    },
+    `Remove "${String(item.title ?? '')}" from ${list.name}`,
+    [`Delete checklist item ${item.id}`],
   );
 }
 
@@ -951,6 +1080,87 @@ async function executeWrite(
         },
       };
     }
+    case 'add_checklist_item': {
+      const peopleMap = await loadWishlistPeopleMap(client, householdId);
+      const list = await loadChecklistListOrThrow(client, householdId, payload.listId, peopleMap);
+      const { data: existingItems, error: countError } = await client
+        .from('stash_list_items')
+        .select('position')
+        .eq('household_id', householdId)
+        .eq('list_id', payload.listId);
+      if (countError) throw new Error(countError.message);
+      const position =
+        (existingItems ?? []).reduce((max, row) => {
+          const pos = typeof row.position === 'number' ? row.position : Number(row.position ?? -1);
+          return Number.isFinite(pos) ? Math.max(max, pos) : max;
+        }, -1) + 1;
+      const { data, error } = await client
+        .from('stash_list_items')
+        .insert({
+          household_id: householdId,
+          list_id: payload.listId,
+          created_by: userId,
+          title: payload.title,
+          notes: payload.notes,
+          category: null,
+          priority: 0,
+          due_on: null,
+          recurrence: 'none',
+          assigned_person_id: null,
+          is_checked: payload.isChecked,
+          position,
+        })
+        .select('id')
+        .single();
+      if (error) throw new Error(error.message);
+      const itemId = String((data as { id: string }).id);
+      if (list.visibility !== 'private') {
+        try {
+          await client.rpc('notify_household_alert', {
+            p_household_id: householdId,
+            p_segment: 'checklist',
+            p_title: payload.title.slice(0, 160),
+            p_body: null,
+            p_href: '/lists',
+            p_payload: { listId: payload.listId },
+          });
+        } catch {
+          // Non-blocking — same as app client.
+        }
+      }
+      return { affectedIds: [itemId], result: { itemId, listId: payload.listId } };
+    }
+    case 'update_checklist_item': {
+      const existing = await loadChecklistItemOrThrow(client, householdId, payload.itemId);
+      const patch: Record<string, unknown> = {};
+      if (payload.title !== undefined) patch.title = payload.title;
+      if (payload.isChecked !== undefined) patch.is_checked = payload.isChecked;
+      if (Object.keys(patch).length === 0) {
+        return { affectedIds: [payload.itemId], result: { itemId: payload.itemId, noop: true } };
+      }
+      const { error } = await client.from('stash_list_items').update(patch).eq('id', payload.itemId);
+      if (error) throw new Error(error.message);
+      return {
+        affectedIds: [payload.itemId],
+        result: {
+          itemId: payload.itemId,
+          listId: String(existing.list_id),
+          title: payload.title ?? String(existing.title ?? ''),
+          isChecked: payload.isChecked ?? Boolean(existing.is_checked),
+        },
+      };
+    }
+    case 'remove_checklist_item': {
+      const { data, error } = await client
+        .from('stash_list_items')
+        .delete()
+        .eq('id', payload.itemId)
+        .eq('household_id', householdId)
+        .select('id');
+      if (error) throw new Error(error.message);
+      if (!data?.length) throw new Error(CHECKLIST_ITEM_NOT_FOUND);
+      return { affectedIds: [payload.itemId], result: { deleted: payload.itemId } };
+    }
     default: {
       const _exhaustive: never = payload;
       throw new Error(`Unknown lists action ${(_exhaustive as { action: string }).action}`);
@@ -1003,4 +1213,7 @@ export const LISTS_PREVIEW_TOOLS = [
   'preview_update_wishlist_item',
   'preview_remove_wishlist_item',
   'preview_wishlist_price_update',
+  'preview_add_checklist_item',
+  'preview_update_checklist_item',
+  'preview_remove_checklist_item',
 ] as const;

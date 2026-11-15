@@ -1,4 +1,5 @@
-import type { Ingredient, Recipe } from './types';
+import { normalizeRecipeMethodSteps } from './recipe-sections';
+import type { Ingredient, Recipe, RecipeMethodStep } from './types';
 
 function text(value: string | undefined): string {
   return (value ?? '').trim().replace(/\s+/g, ' ');
@@ -14,8 +15,11 @@ function ingredientKey(items: readonly Ingredient[] | undefined): string {
     .join('\n');
 }
 
-function methodKey(steps: readonly string[] | undefined): string {
-  return (steps ?? []).map((step) => text(step)).join('\n');
+function methodKey(steps: readonly RecipeMethodStep[] | undefined): string {
+  const normalized = normalizeRecipeMethodSteps(steps ?? []);
+  return normalized
+    .map((step) => [text(step.section).toLowerCase(), text(step.text).toLowerCase()].join('|'))
+    .join('\n');
 }
 
 /** Cookable content copied when a household recipe is published. Photos and nutrition can drift on their own. */

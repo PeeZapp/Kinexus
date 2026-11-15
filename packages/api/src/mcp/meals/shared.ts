@@ -9,6 +9,7 @@ import {
   type Day,
   type Ingredient,
   type MealSlotKey,
+  type RecipeMethodStep,
 } from '@kinexus/domain';
 
 import type { McpCaller } from '../context.js';
@@ -56,7 +57,7 @@ export type RecipeSummary = {
   servings?: number;
   mealSlots: MealSlotKey[];
   ingredients: Ingredient[];
-  method: string[];
+  method: RecipeMethodStep[];
   sourceUrl?: string;
   nutrition: NutritionPayload;
   visibility: 'household' | 'catalog';
@@ -143,6 +144,7 @@ export function mapIngredients(value: unknown): Ingredient[] {
       {
         name,
         amount: typeof rec.amount === 'string' ? rec.amount : undefined,
+        section: typeof rec.section === 'string' ? rec.section : undefined,
         category: typeof rec.category === 'string' ? rec.category : undefined,
         baseRecipeId: typeof rec.baseRecipeId === 'string' ? rec.baseRecipeId : undefined,
       },
@@ -150,9 +152,20 @@ export function mapIngredients(value: unknown): Ingredient[] {
   });
 }
 
-export function mapMethod(value: unknown): string[] {
+export function mapMethod(value: unknown): RecipeMethodStep[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim()));
+  return value.flatMap((item) => {
+    if (typeof item === 'string') {
+      const text = item.trim();
+      return text ? [text] : [];
+    }
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const rec = item as Record<string, unknown>;
+    const text = typeof rec.text === 'string' ? rec.text.trim() : '';
+    if (!text) return [];
+    const section = typeof rec.section === 'string' ? rec.section.trim() : '';
+    return [{ text, ...(section ? { section } : {}) }];
+  });
 }
 
 export function recipeNutrition(row: {
@@ -218,7 +231,7 @@ export function recipeInsertRow(
   draft: {
     name: string;
     ingredients?: Ingredient[];
-    method?: string[];
+    method?: RecipeMethodStep[];
     cuisine?: string;
     cookTime?: number;
     servings?: number;

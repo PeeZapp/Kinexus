@@ -2,15 +2,18 @@ import { z } from 'zod';
 
 import type { McpToolDefinition } from '../registry.js';
 import type { McpCaller } from '../context.js';
-import { getWatchlist, getWishlist, listWatchlists, listWishlists, searchTitles } from './reads.js';
+import { getChecklist, getWatchlist, getWishlist, listChecklists, listWatchlists, listWishlists, searchTitles } from './reads.js';
 import { resolveCallerHousehold, withListsAudit } from './shared.js';
 import {
+  previewAddChecklistItem,
   previewAddToWatchlist,
   previewAddWishlistItem,
   previewMarkWatched,
+  previewRemoveChecklistItem,
   previewRemoveFromWatchlist,
   previewRemoveWishlistItem,
   previewUnmarkWatched,
+  previewUpdateChecklistItem,
   previewUpdateWishlistItem,
   previewWishlistPriceUpdate,
   type PreviewResult,
@@ -92,6 +95,17 @@ const wishlistListOut = z.object({
   parentListId: z.string().nullable(),
 });
 
+const checklistListOut = z.object({
+  id: z.string(),
+  name: z.string(),
+  visibility: z.string(),
+  emoji: z.string().nullable(),
+  theme: z.string().nullable(),
+  itemCount: z.number(),
+  createdBy: z.string().nullable(),
+  parentListId: z.string().nullable(),
+});
+
 const wishlistItemOut = z.object({
   id: z.string(),
   listIds: z.array(z.string()),
@@ -109,6 +123,22 @@ const wishlistItemOut = z.object({
   previousSourceUrl: z.string().nullable(),
   previousPrice: z.number().nullable(),
   previousStoreName: z.string().nullable(),
+});
+
+const checklistItemOut = z.object({
+  id: z.string(),
+  listId: z.string(),
+  createdBy: z.string().nullable(),
+  title: z.string(),
+  notes: z.string().nullable(),
+  category: z.string().nullable(),
+  priority: z.number(),
+  dueOn: z.string().nullable(),
+  recurrence: z.string(),
+  assignedPersonId: z.string().nullable(),
+  isChecked: z.boolean(),
+  position: z.number(),
+  updatedAt: z.string(),
 });
 
 const searchHitOut = z.object({
@@ -324,6 +354,46 @@ export const getWishlistTool: McpToolDefinition<typeof getWishlistInput, typeof 
     ),
 };
 
+const listChecklistsInput = z.object({});
+const listChecklistsOutput = z.object({
+  householdId: z.string(),
+  checklists: z.array(checklistListOut),
+});
+
+export const listChecklistsTool: McpToolDefinition<typeof listChecklistsInput, typeof listChecklistsOutput> = {
+  name: 'list_checklists',
+  title: 'List checklists',
+  description: 'List checklists visible to the caller in their household.',
+  inputSchema: listChecklistsInput,
+  outputSchema: listChecklistsOutput,
+  scope: 'wishlists:read',
+  annotations: readAnnotations,
+  handler: async (_args, caller) =>
+    withListsAudit(caller, { tool: 'list_checklists', mode: 'read' }, () =>
+      listChecklists(caller.client, caller.userId),
+    ),
+};
+
+const getChecklistInput = z.object({ listId: z.string() });
+const getChecklistOutput = z.object({
+  householdId: z.string(),
+  checklist: checklistListOut.extend({ items: z.array(checklistItemOut) }),
+});
+
+export const getChecklistTool: McpToolDefinition<typeof getChecklistInput, typeof getChecklistOutput> = {
+  name: 'get_checklist',
+  title: 'Get checklist',
+  description: 'Get one checklist with items. Not found if missing or not visible.',
+  inputSchema: getChecklistInput,
+  outputSchema: getChecklistOutput,
+  scope: 'wishlists:read',
+  annotations: readAnnotations,
+  handler: async (args, caller) =>
+    withListsAudit(caller, { tool: 'get_checklist', mode: 'read' }, () =>
+      getChecklist(caller.client, caller.userId, args.listId),
+    ),
+};
+
 const addWishlistItemInput = z.object({
   listId: z.string(),
   title: z.string(),
@@ -410,6 +480,63 @@ export const previewWishlistPriceUpdateTool: McpToolDefinition<typeof priceUpdat
     auditedPreview(caller, 'preview_wishlist_price_update', () => previewWishlistPriceUpdate(caller, args)),
 };
 
+const addChecklistItemInput = z.object({
+  listId: z.string(),
+  title: z.string(),
+  notes: z.string().nullable().optional(),
+  isChecked: z.boolean().optional(),
+});
+
+export const previewAddChecklistItemTool: McpToolDefinition<typeof addChecklistItemInput, typeof previewResultSchema> = {
+  name: 'preview_add_checklist_item',
+  title: 'Preview add checklist item',
+  description: 'Preview adding an item to a checklist (kind=checklist). Requires edit access.',
+  inputSchema: addChecklistItemInput,
+  outputSchema: previewResultSchema,
+  scope: 'wishlists:write',
+  annotations: writeAnnotations,
+  handler: async (args, caller) =>
+    auditedPreview(caller, 'preview_add_checklist_item', () => previewAddChecklistItem(caller, args)),
+};
+
+const updateChecklistItemInput = z.object({
+  itemId: z.string(),
+  title: z.string().optional(),
+  isChecked: z.boolean().optional(),
+});
+
+export const previewUpdateChecklistItemTool: McpToolDefinition<
+  typeof updateChecklistItemInput,
+  typeof previewResultSchema
+> = {
+  name: 'preview_update_checklist_item',
+  title: 'Preview update checklist item',
+  description: 'Preview updating a checklist item title and/or checked state.',
+  inputSchema: updateChecklistItemInput,
+  outputSchema: previewResultSchema,
+  scope: 'wishlists:write',
+  annotations: writeAnnotations,
+  handler: async (args, caller) =>
+    auditedPreview(caller, 'preview_update_checklist_item', () => previewUpdateChecklistItem(caller, args)),
+};
+
+const removeChecklistItemInput = z.object({ itemId: z.string() });
+
+export const previewRemoveChecklistItemTool: McpToolDefinition<
+  typeof removeChecklistItemInput,
+  typeof previewResultSchema
+> = {
+  name: 'preview_remove_checklist_item',
+  title: 'Preview remove checklist item',
+  description: 'Preview deleting a checklist item.',
+  inputSchema: removeChecklistItemInput,
+  outputSchema: previewResultSchema,
+  scope: 'wishlists:write',
+  annotations: destructiveAnnotations,
+  handler: async (args, caller) =>
+    auditedPreview(caller, 'preview_remove_checklist_item', () => previewRemoveChecklistItem(caller, args)),
+};
+
 export const LISTS_MCP_TOOLS = [
   listWatchlistsTool,
   getWatchlistTool,
@@ -420,8 +547,13 @@ export const LISTS_MCP_TOOLS = [
   previewUnmarkWatchedTool,
   listWishlistsTool,
   getWishlistTool,
+  listChecklistsTool,
+  getChecklistTool,
   previewAddWishlistItemTool,
   previewUpdateWishlistItemTool,
   previewRemoveWishlistItemTool,
   previewWishlistPriceUpdateTool,
+  previewAddChecklistItemTool,
+  previewUpdateChecklistItemTool,
+  previewRemoveChecklistItemTool,
 ] as const;

@@ -31,6 +31,8 @@ export function ShoppingMobile(props: {
   onAdd: (name: string, amount?: string) => void;
   onImport?: () => void;
   onExport?: () => void;
+  shopMode?: boolean;
+  onToggleShopMode?: () => void;
   costEstimate: ShoppingCostEstimate | null;
   stores: readonly string[];
   shopPicker?: ReactNode;
@@ -53,6 +55,8 @@ export function ShoppingMobile(props: {
     onAdd: props.onAdd,
     onImport: props.onImport,
     onExport: props.onExport,
+    shopMode: props.shopMode,
+    onToggleShopMode: props.onToggleShopMode,
     costEstimate: props.costEstimate,
     stores: props.stores,
     shopPicker: props.shopPicker,

@@ -55,6 +55,7 @@ export type { NormalizedRecipeUrl } from './recipe-url';
 export { RecipeUrlError, classifyRecipeHost, normalizeRecipeUrl, youtubeVideoId } from './recipe-url';
 export type { SharedRecipePayload } from './share-recipe-url';
 export { extractRecipeUrlFromShare } from './share-recipe-url';
+export { ALLERGEN_OPTIONS, CUISINE_SUGGESTIONS, EQUIPMENT_OPTIONS, normalizeFoodTags } from './food-tags';
 export {
   DAYS,
   DAY_LABELS,
@@ -79,6 +80,8 @@ export {
   visibleMealSlotKeys,
 } from './plan-slots';
 export { addDaysIso, mondayWeekStart } from './week';
+export type { AmountInjectIngredient, NormalizedMethodStep, SectionGroup } from './recipe-sections';
+export { groupBySection, injectAmountsIntoMethod, normalizeRecipeMethodSteps } from './recipe-sections';
 
 export {
   ALL_MEAL_SLOTS,

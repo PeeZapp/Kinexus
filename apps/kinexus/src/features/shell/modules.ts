@@ -94,6 +94,7 @@ export function isModulePathActive(mod: AppModule, pathname: string): boolean {
 
 export function titleFromPath(pathname: string): string {
   if (pathname === SETTINGS_PATH || pathname.startsWith(`${SETTINGS_PATH}/`)) return 'Settings';
+  if (pathname === '/alerts' || pathname.startsWith('/alerts/')) return 'Alerts';
   if (pathname.startsWith('/invite')) return 'Invite';
   if (pathname.startsWith('/import') || pathname.startsWith('/shareintent')) return 'Import';
   if (pathname === '/recipes') return 'My Recipes';
@@ -110,6 +111,8 @@ export function titleFromPath(pathname: string): string {
   if (pathname.startsWith('/finances/metals')) return 'Metals';
   if (pathname.startsWith('/finances/collectibles')) return 'Collectibles';
   if (pathname.startsWith('/finances/dashboard')) return 'Dashboard';
+  if (pathname.startsWith('/finances/invest')) return 'Watchlist';
+  if (pathname.startsWith('/finances/journal')) return 'Journal';
   if (pathname === '/finances' || pathname.startsWith('/finances/budget')) return 'Budget';
   if (pathname.startsWith('/meals/generate')) return 'Generate';
   if (pathname.startsWith('/meals/shopping')) return 'Shopping';

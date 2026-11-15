@@ -24,6 +24,8 @@ export const WATCHLIST_NOT_FOUND = 'Watchlist not found';
 export const WATCHLIST_ITEM_NOT_FOUND = 'Watchlist item not found';
 export const WISHLIST_NOT_FOUND = 'Wishlist not found';
 export const WISHLIST_ITEM_NOT_FOUND = 'Wishlist item not found';
+export const CHECKLIST_NOT_FOUND = 'Checklist not found';
+export const CHECKLIST_ITEM_NOT_FOUND = 'Checklist item not found';
 export const TITLE_NOT_FOUND = 'Title not found';
 export const WRITE_DENIED = 'You cannot change this list';
 
@@ -82,6 +84,21 @@ export function assertCanViewWishlist(list: Pick<StashList, 'createdBy' | 'visib
 
 export function assertCanEditWishlist(list: Pick<StashList, 'createdBy' | 'visibility' | 'personIds'>, opts: AccessOpts): void {
   if (!canViewList(list, opts)) throw new Error(WISHLIST_NOT_FOUND);
+  if (!canEditList(list, opts)) throw new Error(WRITE_DENIED);
+}
+
+export function assertCanViewChecklist(
+  list: Pick<StashList, 'createdBy' | 'visibility' | 'personIds'>,
+  opts: AccessOpts,
+): void {
+  if (!canViewList(list, opts)) throw new Error(CHECKLIST_NOT_FOUND);
+}
+
+export function assertCanEditChecklist(
+  list: Pick<StashList, 'createdBy' | 'visibility' | 'personIds'>,
+  opts: AccessOpts,
+): void {
+  if (!canViewList(list, opts)) throw new Error(CHECKLIST_NOT_FOUND);
   if (!canEditList(list, opts)) throw new Error(WRITE_DENIED);
 }
 

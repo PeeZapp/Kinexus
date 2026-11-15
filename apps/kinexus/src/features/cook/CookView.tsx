@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 
-import { scaledQuantityLabel, type CleanRecipe } from '@kinexus/domain';
+import { injectAmountsIntoMethod, scaledQuantityLabel, type CleanRecipe } from '@kinexus/domain';
 
 import {
   clearPendingCookSave,
@@ -58,6 +58,7 @@ function CookViewBody({
   const { activeHousehold } = useHousehold();
   const canScale = Boolean(recipe.originalServings && recipe.originalServings > 0);
   const [servings, setServings] = useState(Math.max(1, recipe.originalServings ?? 1));
+  const [showAmountsInSteps, setShowAmountsInSteps] = useState(false);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [form, setFormState] = useState<RecipeFormState>(() => formFromCleanRecipe(recipe));
@@ -108,6 +109,36 @@ function CookViewBody({
   }, [alreadySaved, confirmOpen, householdId, importId, signedIn]);
 
   const groups = useMemo(() => groupedIngredients(recipe), [recipe]);
+  const ingredientsForSteps = useMemo(
+    () =>
+      recipe.ingredients
+        .map((item) => ({
+          name: item.name,
+          amount: scaledQuantityLabel(item.quantity, recipe.originalServings, servings),
+        }))
+        .filter((item) => Boolean(item.name.trim()) && Boolean(item.amount?.trim())),
+    [recipe.ingredients, recipe.originalServings, servings],
+  );
+
+  const methodForSteps = useMemo(() => {
+    const steps: { text: string; section?: string }[] = [];
+    let section: string | undefined;
+    for (const block of recipe.method) {
+      const text = block.text.trim();
+      if (!text) continue;
+      if (block.type === 'heading') {
+        section = text;
+        continue;
+      }
+      steps.push({ text, ...(section ? { section } : {}) });
+    }
+    return steps;
+  }, [recipe.method]);
+
+  const injectedSteps = useMemo(
+    () => injectAmountsIntoMethod(methodForSteps, ingredientsForSteps, showAmountsInSteps),
+    [ingredientsForSteps, methodForSteps, showAmountsInSteps],
+  );
 
   function setForm(patch: Partial<RecipeFormState>) {
     setFormState((current) => patchRecipeForm(current, patch));
@@ -276,23 +307,39 @@ function CookViewBody({
           </View>
         ))}
 
-        <Text style={styles.section}>Method</Text>
-        {recipe.method.map((block) => {
-          if (block.type === 'heading') {
+        <View style={styles.sectionHeader}>
+          <Text style={styles.section}>Method</Text>
+          <View style={styles.toggleRow}>
+            <Text style={styles.toggleLabel}>Show amounts in steps</Text>
+            <Switch
+              value={showAmountsInSteps}
+              onValueChange={setShowAmountsInSteps}
+              trackColor={{ false: colors.border, true: colors.accentMuted }}
+              thumbColor={showAmountsInSteps ? colors.accent : colors.textMuted}
+            />
+          </View>
+        </View>
+        {(() => {
+          let injectedIndex = 0;
+          return recipe.method.map((block) => {
+            if (block.type === 'heading') {
+              return (
+                <Text key={block.id} style={styles.methodHeading}>
+                  {block.text}
+                </Text>
+              );
+            }
+            stepNumber += 1;
+            const injected = injectedSteps[injectedIndex]?.text ?? block.text;
+            injectedIndex += 1;
             return (
-              <Text key={block.id} style={styles.methodHeading}>
-                {block.text}
-              </Text>
+              <View key={block.id} style={styles.stepRow}>
+                <Text style={styles.stepNum}>{stepNumber}</Text>
+                <Text style={styles.stepText}>{injected}</Text>
+              </View>
             );
-          }
-          stepNumber += 1;
-          return (
-            <View key={block.id} style={styles.stepRow}>
-              <Text style={styles.stepNum}>{stepNumber}</Text>
-              <Text style={styles.stepText}>{block.text}</Text>
-            </View>
-          );
-        })}
+          });
+        })()}
 
         {recipe.chefTip ? (
           <View style={styles.tip}>
@@ -425,6 +472,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginTop: 8,
   },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  toggleLabel: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
   group: {
     gap: 8,
   },

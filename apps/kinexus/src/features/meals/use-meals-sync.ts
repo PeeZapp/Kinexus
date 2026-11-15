@@ -237,6 +237,26 @@ function throwDbError(error: { message?: string } | null): void {
   throw new Error(error.message?.trim() || 'Database error');
 }
 
+async function maybeNotifyMealPlan(op: SlotOutboxOp, title: string | null) {
+  if (!supabase) return;
+  if (op.kind !== 'assign') return;
+  if ((op.audiencePersonIds ?? []).length > 0) return;
+  const cleaned = (title ?? '').trim();
+  if (!cleaned) return;
+  try {
+    await supabase.rpc(rpc.notifyHouseholdAlert, {
+      p_household_id: op.householdId,
+      p_segment: 'meal_plan',
+      p_title: cleaned,
+      p_body: `${op.day} · ${op.slotKey}`,
+      p_href: '/meals',
+      p_payload: { day: op.day, slotKey: op.slotKey, recipeId: op.recipeId ?? null },
+    });
+  } catch {
+    // Non-blocking.
+  }
+}
+
 async function flushOne(op: SlotOutboxOp): Promise<void> {
   if (!supabase) throw new Error('Supabase is not configured');
   const planId = await ensurePlan(op.householdId, op.weekStart);
@@ -347,6 +367,7 @@ async function flushOne(op: SlotOutboxOp): Promise<void> {
       })
       .eq('id', existing.id);
     throwDbError(error);
+    await maybeNotifyMealPlan(op, denorm.recipe_name ?? null);
     return;
   }
 
@@ -369,6 +390,7 @@ async function flushOne(op: SlotOutboxOp): Promise<void> {
     .from('meal_slots')
     .upsert(row, { onConflict: 'meal_plan_id,day,slot_key,audience_person_ids' });
   throwDbError(error);
+  await maybeNotifyMealPlan(op, denorm.recipe_name ?? null);
 }
 
 export function useMealsSync() {
@@ -1366,6 +1388,18 @@ export function useMealsSync() {
         metadata: { manual: true, recipeSources: [], sharedMealCount: 0, mergedFrom: [] },
       });
       if (error) throw error;
+      try {
+        await supabase.rpc(rpc.notifyHouseholdAlert, {
+          p_household_id: householdId,
+          p_segment: 'shopping',
+          p_title: name.trim().slice(0, 160),
+          p_body: null,
+          p_href: '/meals/shopping',
+          p_payload: {},
+        });
+      } catch {
+        // Non-blocking.
+      }
       await queryClient.invalidateQueries({ queryKey: shoppingKey(householdId, weekStart) });
     },
     [householdId, online, queryClient, weekStart],

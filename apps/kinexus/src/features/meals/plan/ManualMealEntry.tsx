@@ -122,12 +122,10 @@ export function ManualMealEntry({
       <Text style={styles.name}>{title}</Text>
       <IngredientEditor
         ingredients={form.ingredients}
-        hint={false}
         setForm={(patch) => setForm((current) => ({ ...current, ...patch, name: title, slots: [slot] }))}
       />
       <MethodEditor
         method={form.method}
-        hint={false}
         setForm={(patch) => setForm((current) => ({ ...current, ...patch, name: title, slots: [slot] }))}
       />
       <TextInput

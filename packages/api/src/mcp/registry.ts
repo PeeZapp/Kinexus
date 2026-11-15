@@ -9,6 +9,8 @@ import { FITNESS_MCP_TOOLS } from './fitness/tools.js';
 import { LISTS_MCP_TOOLS } from './lists/tools.js';
 import { MEALS_MCP_TOOLS } from './meals/tools.js';
 import { READLIST_MCP_TOOLS } from './readlist/tools.js';
+import { FINANCES_MCP_TOOLS } from './finances/tools.js';
+import { TODAY_MCP_TOOLS } from './today/tools.js';
 
 export type McpToolAnnotations = {
   readOnlyHint: boolean;
@@ -92,6 +94,8 @@ export const MCP_TOOL_REGISTRY: readonly AnyMcpTool[] = [
   ...(FITNESS_MCP_TOOLS as readonly AnyMcpTool[]),
   ...(LISTS_MCP_TOOLS as readonly AnyMcpTool[]),
   ...(READLIST_MCP_TOOLS as readonly AnyMcpTool[]),
+  ...(TODAY_MCP_TOOLS as readonly AnyMcpTool[]),
+  ...(FINANCES_MCP_TOOLS as readonly AnyMcpTool[]),
   commitTool as AnyMcpTool,
 ];
 

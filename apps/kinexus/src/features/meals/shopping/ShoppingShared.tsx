@@ -454,6 +454,8 @@ export function ShoppingChrome({
   onAdd,
   onImport,
   onExport,
+  shopMode,
+  onToggleShopMode,
   checkedCount,
   costEstimate,
   stores,
@@ -475,6 +477,8 @@ export function ShoppingChrome({
   onAdd: (name: string, amount?: string) => void;
   onImport?: () => void;
   onExport?: () => void;
+  shopMode?: boolean;
+  onToggleShopMode?: () => void;
   checkedCount: number;
   costEstimate: ShoppingCostEstimate | null;
   stores: readonly string[];
@@ -495,6 +499,13 @@ export function ShoppingChrome({
           busy={shoppingBusy}
         />
         <AddItemButton onAdd={onAdd} disabled={!online} />
+        {onToggleShopMode ? (
+          <Btn
+            label={shopMode ? 'Shop mode on' : 'Shop mode'}
+            variant={shopMode ? 'secondary' : 'ghost'}
+            onPress={onToggleShopMode}
+          />
+        ) : null}
         {onImport ? <Btn label="Import" variant="ghost" onPress={onImport} disabled={!online} /> : null}
         {onExport ? <Btn label="Export" variant="ghost" onPress={onExport} disabled={!online} /> : null}
         {checkedCount > 0 ? (

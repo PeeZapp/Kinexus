@@ -59,6 +59,8 @@
     { "source": "/watchlist/people", "destination": "/api?__path=/watchlist/people" },
     { "source": "/watchlist/person", "destination": "/api?__path=/watchlist/person" },
     { "source": "/watchlist/cast", "destination": "/api?__path=/watchlist/cast" },
+    { "source": "/watchlist/availability-check", "destination": "/api?__path=/watchlist/availability-check" },
+    { "source": "/investments/alerts-check", "destination": "/api?__path=/investments/alerts-check" },
     { "source": "/watchlist/import/:path*", "destination": "/api?__path=/watchlist/import/:path*" },
     { "source": "/overview/places", "destination": "/api?__path=/overview/places" },
     { "source": "/overview/weather", "destination": "/api?__path=/overview/weather" },
@@ -165,6 +167,14 @@
     {
       "path": "/api/grocery/catalogue/refresh",
       "schedule": "40 18 * * *"
+    },
+    {
+      "path": "/api/watchlist/availability-check",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/investments/alerts-check",
+      "schedule": "0 */4 * * *"
     }
   ]
 }

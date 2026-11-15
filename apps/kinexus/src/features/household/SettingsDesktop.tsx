@@ -9,6 +9,7 @@ import { GrokBotSettings } from '@/src/features/household/GrokBotSettings';
 import { ProfileSection, UsernameSetupPrompt } from '@/src/features/household/profile-settings';
 import { RecipeImageUploadLink } from '@/src/features/household/RecipeImageUploadLink';
 import { RolePreviewCard } from '@/src/features/household/RolePreview';
+import { AlertSettingsPanel } from '@/src/features/alerts/AlertSettingsPanel';
 import {
   CreateJoinPanel,
   HouseholdSwitcher,
@@ -83,6 +84,7 @@ export function SettingsDesktop() {
           <UsernameSetupPrompt onChanged={() => setProfileEpoch((value) => value + 1)} />
           <ProfileSection key={profileEpoch} />
           <UnitsSettings />
+          <AlertSettingsPanel />
           <RolePreviewCard />
           <StaffSettingsLink />
           <NewsTopicsLink />

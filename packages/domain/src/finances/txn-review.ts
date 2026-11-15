@@ -16,10 +16,22 @@ export type ReviewPrefill =
   | { source: 'ai'; assignment: StatementAssignment; confidence: number }
   | { source: 'ignore' };
 
+export type ExistingTxnMatch = {
+  date: string;
+  description: string;
+  amount: number;
+  merchantKey: string;
+  lineId: string | null;
+  reason: 'merchant' | 'amount';
+};
+
 export type ReviewTxnRow = ReviewTxnInput & {
   id: string;
   selected: boolean;
   alreadyAdded: boolean;
+  /** Same amount nearby in time, but merchant differs — soft warning. */
+  possibleDuplicate: boolean;
+  matchedExisting: ExistingTxnMatch | null;
   prefill: ReviewPrefill;
   assignment: StatementAssignment | null;
 };
@@ -34,7 +46,10 @@ export type AiMerchantPrefill = {
 
 export type BuildTxnReviewInput = {
   incoming: readonly ReviewTxnInput[];
-  existing: readonly Pick<FinanceBudgetTxn, 'date' | 'amount' | 'merchantKey' | 'lineId' | 'ignored'>[];
+  existing: readonly Pick<
+    FinanceBudgetTxn,
+    'date' | 'amount' | 'merchantKey' | 'lineId' | 'ignored' | 'description'
+  >[];
   lines: readonly Pick<FinanceBudgetLine, 'id' | 'kind' | 'name'>[];
   aiGuesses?: readonly AiMerchantPrefill[];
 };
@@ -63,6 +78,14 @@ export function collapseBatchDuplicates<T extends ReviewTxnInput>(rows: readonly
   return out;
 }
 
+function withinDays(a: string, b: string, days: number): boolean {
+  if (a === b) return true;
+  for (let offset = 1; offset <= days; offset += 1) {
+    if (a === dayOffset(b, offset) || a === dayOffset(b, -offset)) return true;
+  }
+  return false;
+}
+
 /** Match an incoming row to an existing budget txn: same amount + merchantKey, date within ±1 day. */
 export function matchesExistingTxn(
   incoming: Pick<ReviewTxnInput, 'date' | 'amount' | 'merchantKey'>,
@@ -70,8 +93,43 @@ export function matchesExistingTxn(
 ): boolean {
   if (incoming.amount !== existing.amount) return false;
   if (incoming.merchantKey !== existing.merchantKey) return false;
-  if (incoming.date === existing.date) return true;
-  return incoming.date === dayOffset(existing.date, -1) || incoming.date === dayOffset(existing.date, 1);
+  return withinDays(incoming.date, existing.date, 1);
+}
+
+/** Prefer merchant+amount match; fall back to exact amount within ±3 days. */
+export function findExistingTxnMatch(
+  incoming: Pick<ReviewTxnInput, 'date' | 'amount' | 'merchantKey'>,
+  existing: readonly Pick<
+    FinanceBudgetTxn,
+    'date' | 'amount' | 'merchantKey' | 'lineId' | 'ignored' | 'description'
+  >[],
+): ExistingTxnMatch | null {
+  let amountOnly: ExistingTxnMatch | null = null;
+  for (const txn of existing) {
+    if (txn.ignored) continue;
+    if (txn.amount !== incoming.amount) continue;
+    if (txn.merchantKey === incoming.merchantKey && withinDays(incoming.date, txn.date, 1)) {
+      return {
+        date: txn.date,
+        description: txn.description,
+        amount: txn.amount,
+        merchantKey: txn.merchantKey,
+        lineId: txn.lineId,
+        reason: 'merchant',
+      };
+    }
+    if (!amountOnly && withinDays(incoming.date, txn.date, 3)) {
+      amountOnly = {
+        date: txn.date,
+        description: txn.description,
+        amount: txn.amount,
+        merchantKey: txn.merchantKey,
+        lineId: txn.lineId,
+        reason: 'amount',
+      };
+    }
+  }
+  return amountOnly;
 }
 
 export function findRememberedLineId(
@@ -138,8 +196,10 @@ export function buildTxnReview(input: BuildTxnReviewInput): {
   let index = 0;
 
   for (const txn of unique) {
-    const alreadyAdded = input.existing.some((existing) => matchesExistingTxn(txn, existing));
-    if (alreadyAdded) alreadyAddedCount += 1;
+    const matchedExisting = findExistingTxnMatch(txn, input.existing);
+    const alreadyAdded = matchedExisting?.reason === 'merchant';
+    const possibleDuplicate = matchedExisting?.reason === 'amount';
+    if (alreadyAdded || possibleDuplicate) alreadyAddedCount += 1;
     const { prefill, assignment } = chooseTxnPrefill({
       merchantKey: txn.merchantKey,
       existing: input.existing,
@@ -151,9 +211,11 @@ export function buildTxnReview(input: BuildTxnReviewInput): {
       ...txn,
       id: `review-${index++}`,
       alreadyAdded,
-      selected: !alreadyAdded && !pending,
+      possibleDuplicate,
+      matchedExisting,
+      selected: !alreadyAdded && !possibleDuplicate && !pending,
       prefill,
-      assignment: alreadyAdded ? null : assignment,
+      assignment: alreadyAdded || possibleDuplicate ? null : assignment,
     });
   }
 

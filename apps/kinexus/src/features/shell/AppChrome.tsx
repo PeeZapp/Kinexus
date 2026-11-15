@@ -11,6 +11,9 @@ import { PreviewToggle } from '@/src/features/shell/PreviewToggle';
 import { PwaInstallHint } from '@/src/features/shell/PwaInstallHint';
 import { titleFromPath } from '@/src/features/shell/modules';
 import { colors } from '@/src/features/shell/theme';
+import { RestTimerRibbon } from '@/src/features/train/RestTimerRibbon';
+import { RestTimerProvider } from '@/src/features/train/rest-timer-context';
+import { AlertsBell } from '@/src/features/alerts/AlertsBell';
 import { useAuth } from '@/src/lib/auth';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 
@@ -19,12 +22,22 @@ export function AppChrome({ children }: { children: ReactNode }) {
   const { mode, previewSurface, previewEnabled } = useExperienceMode();
 
   if (pathname === '/shop') {
-    return <View style={styles.shopRoot}>{children}</View>;
+    return (
+      <RestTimerProvider>
+        <View style={styles.shopRoot}>
+          <RestTimerRibbon />
+          {children}
+        </View>
+      </RestTimerProvider>
+    );
   }
 
   if (previewSurface === 'phone' || previewSurface === 'tablet') {
-    const framed =
-      mode === 'desktop' ? <DesktopShell showToolbar={false}>{children}</DesktopShell> : <MobileShell>{children}</MobileShell>;
+    const framed = (
+      <RestTimerProvider>
+        {mode === 'desktop' ? <DesktopShell showToolbar={false}>{children}</DesktopShell> : <MobileShell>{children}</MobileShell>}
+      </RestTimerProvider>
+    );
     return (
       <View style={styles.previewRoot}>
         <View style={styles.previewBanner}>
@@ -42,10 +55,18 @@ export function AppChrome({ children }: { children: ReactNode }) {
   }
 
   if (mode === 'desktop') {
-    return <DesktopShell showToolbar={previewEnabled}>{children}</DesktopShell>;
+    return (
+      <RestTimerProvider>
+        <DesktopShell showToolbar={previewEnabled}>{children}</DesktopShell>
+      </RestTimerProvider>
+    );
   }
 
-  return <MobileShell>{children}</MobileShell>;
+  return (
+    <RestTimerProvider>
+      <MobileShell>{children}</MobileShell>
+    </RestTimerProvider>
+  );
 }
 
 function DesktopShell({ children, showToolbar }: { children: ReactNode; showToolbar: boolean }) {
@@ -59,6 +80,7 @@ function DesktopShell({ children, showToolbar }: { children: ReactNode; showTool
           </View>
         ) : null}
         <RolePreviewBar />
+        <RestTimerRibbon />
         <View style={styles.desktopContent}>{children}</View>
       </View>
     </View>
@@ -78,11 +100,15 @@ function MobileShell({ children }: { children: ReactNode }) {
           <Text style={styles.mobileBrand}>Kinexus</Text>
           <Text style={styles.mobileTitle}>{title}</Text>
         </View>
-        <Pressable onPress={() => void signOut()} hitSlop={8}>
-          <Text style={styles.signOut}>{user?.isDevBypass ? 'Leave dev' : 'Sign out'}</Text>
-        </Pressable>
+        <View style={styles.mobileActions}>
+          <AlertsBell compact />
+          <Pressable onPress={() => void signOut()} hitSlop={8}>
+            <Text style={styles.signOut}>{user?.isDevBypass ? 'Leave dev' : 'Sign out'}</Text>
+          </Pressable>
+        </View>
       </View>
       <RolePreviewBar />
+      <RestTimerRibbon />
       <View style={styles.mobileBody}>{children}</View>
       <PwaInstallHint />
       <MobileTabBar />
@@ -140,6 +166,12 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '700',
     marginTop: 2,
+  },
+  mobileActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingBottom: 2,
   },
   signOut: {
     color: colors.accent,

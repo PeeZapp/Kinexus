@@ -20,10 +20,7 @@ export function GenerateMobile(props: TrainGenerateViewProps) {
       style={styles.root}
       contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 28 }]}
       keyboardShouldPersistTaps="handled">
-      <View style={styles.header}>
-        <BackLink label="Plan" onPress={props.onBack} />
-        <Text style={styles.title}>Generate</Text>
-      </View>
+      <BackLink label="Plan" onPress={props.onBack} />
       <TrainGenerateAudiencePicker
         audience={props.prefs.audience}
         onChangeAudience={(audience) => props.onChangePrefs({ audience })}
@@ -54,8 +51,6 @@ export function GenerateMobile(props: TrainGenerateViewProps) {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { padding: space.md, gap: space.sm },
-  header: { gap: 4 },
-  title: { color: colors.text, fontSize: 24, fontWeight: '700' },
   preview: { gap: space.sm, marginTop: space.md },
   summaryMeta: { color: colors.textMuted, fontSize: 13 },
 });

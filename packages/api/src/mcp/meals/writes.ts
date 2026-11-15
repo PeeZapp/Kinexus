@@ -6,6 +6,7 @@ import {
   type Day,
   type Ingredient,
   type MealSlotKey,
+  type RecipeMethodStep,
 } from '@kinexus/domain';
 
 import { handleCreateRecipeImport, handleGetRecipeImport } from '../../recipes/handlers.js';
@@ -38,12 +39,14 @@ export type MealsWriteAction =
   | { action: 'move_meal'; from: PlanStepPayload; to: PlanStepPayload }
   | { action: 'remove_meal'; step: PlanStepPayload }
   | { action: 'plan_meals'; steps: PlanStepPayload[] }
-  | { action: 'add_to_shopping_list'; weekStart: string; name: string; amount?: string };
+  | { action: 'add_to_shopping_list'; weekStart: string; name: string; amount?: string }
+  | { action: 'check_shopping_item'; itemId: string; checked: boolean; name: string }
+  | { action: 'clear_checked_shopping'; weekStart: string; count: number };
 
 export type RecipeDraftPayload = {
   name: string;
   ingredients: Ingredient[];
-  method: string[];
+  method: RecipeMethodStep[];
   cuisine?: string;
   cookTime?: number;
   servings?: number;
@@ -95,14 +98,14 @@ export type PreviewResult =
   | {
       kind: 'noop';
       summary: string;
-      recipeId: string;
+      recipeId?: string;
       message: string;
     };
 
 function draftFromInput(input: {
   name: string;
   ingredients?: { name: string; amount?: string }[];
-  method?: string[];
+  method?: unknown;
   cuisine?: string;
   cookTime?: number;
   servings?: number;
@@ -119,12 +122,26 @@ function draftFromInput(input: {
 }): RecipeDraftPayload {
   const name = input.name.trim();
   if (!name) throw new Error('Recipe name is required');
+  const method: RecipeMethodStep[] = Array.isArray(input.method)
+    ? input.method.flatMap((item) => {
+        if (typeof item === 'string') {
+          const text = item.trim();
+          return text ? [text] : [];
+        }
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+        const rec = item as Record<string, unknown>;
+        const text = typeof rec.text === 'string' ? rec.text.trim() : '';
+        if (!text) return [];
+        const section = typeof rec.section === 'string' ? rec.section.trim() : '';
+        return [{ text, ...(section ? { section } : {}) }];
+      })
+    : [];
   return {
     name,
     ingredients: (input.ingredients ?? [])
       .map((item) => ({ name: item.name.trim(), amount: item.amount?.trim() || undefined }))
       .filter((item) => item.name),
-    method: (input.method ?? []).map((step) => step.trim()).filter(Boolean),
+    method,
     cuisine: input.cuisine?.trim() || undefined,
     cookTime: input.cookTime,
     servings: input.servings,
@@ -710,6 +727,67 @@ export async function previewAddToShoppingList(
   );
 }
 
+export async function previewCheckShoppingItem(
+  caller: McpCaller,
+  input: { itemId: string; checked?: boolean },
+): Promise<PreviewResult> {
+  const { householdId, role } = await resolveCallerHousehold(caller.client, caller.userId);
+  assertCanWrite(role);
+  const { data, error } = await caller.client
+    .from('shopping_items')
+    .select('id, name, checked, household_id')
+    .eq('id', input.itemId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data || String((data as { household_id: string }).household_id) !== householdId) {
+    return { kind: 'blocked', summary: 'Not found', message: 'Shopping item not found' };
+  }
+  const checked = input.checked ?? true;
+  const name = String((data as { name: string }).name ?? '');
+  if (Boolean((data as { checked: boolean }).checked) === checked) {
+    return {
+      kind: 'noop',
+      summary: checked ? 'Already checked' : 'Already unchecked',
+      message: `"${name}" is already ${checked ? 'checked' : 'unchecked'}`,
+    };
+  }
+  return savePreview(
+    caller,
+    householdId,
+    'preview_check_shopping_item',
+    { action: 'check_shopping_item', itemId: String((data as { id: string }).id), checked, name },
+    `${checked ? 'Check' : 'Uncheck'} "${name}"`,
+    [`Set shopping item checked=${checked}`],
+  );
+}
+
+export async function previewClearCheckedShopping(
+  caller: McpCaller,
+  input: { weekStart?: string } = {},
+): Promise<PreviewResult> {
+  const { householdId, role } = await resolveCallerHousehold(caller.client, caller.userId);
+  assertCanWrite(role);
+  const weekStart = input.weekStart ? parseIsoDate(input.weekStart, 'weekStart') : mondayWeekStart();
+  const { count, error } = await caller.client
+    .from('shopping_items')
+    .select('id', { count: 'exact', head: true })
+    .eq('household_id', householdId)
+    .eq('week_start', weekStart)
+    .eq('checked', true);
+  if (error) throw new Error(error.message);
+  if ((count ?? 0) === 0) {
+    return { kind: 'noop', summary: 'Nothing checked', message: 'No checked shopping items to clear' };
+  }
+  return savePreview(
+    caller,
+    householdId,
+    'preview_clear_checked_shopping',
+    { action: 'clear_checked_shopping', weekStart, count: count ?? 0 },
+    `Clear ${count} checked shopping item(s) for week of ${weekStart}`,
+    [`Delete checked shopping_items for ${weekStart}`],
+  );
+}
+
 export async function commitMealsPreview(
   caller: McpCaller,
   input: { previewId: string },
@@ -851,6 +929,32 @@ async function executeWrite(
         .single();
       if (error) throw new Error(error.message);
       return { affectedIds: [data.id as string], result: { item: data } };
+    }
+    case 'check_shopping_item': {
+      const { data, error } = await client
+        .from('shopping_items')
+        .update({ checked: payload.checked })
+        .eq('id', payload.itemId)
+        .eq('household_id', householdId)
+        .select('id');
+      if (error) throw new Error(error.message);
+      if (!data?.length) throw new Error('Shopping item not found');
+      return {
+        affectedIds: [payload.itemId],
+        result: { itemId: payload.itemId, checked: payload.checked },
+      };
+    }
+    case 'clear_checked_shopping': {
+      const { data, error } = await client
+        .from('shopping_items')
+        .delete()
+        .eq('household_id', householdId)
+        .eq('week_start', payload.weekStart)
+        .eq('checked', true)
+        .select('id');
+      if (error) throw new Error(error.message);
+      const ids = (data ?? []).map((row) => String((row as { id: string }).id));
+      return { affectedIds: ids, result: { deleted: ids.length, weekStart: payload.weekStart } };
     }
     default:
       throw new Error('Unknown write action');

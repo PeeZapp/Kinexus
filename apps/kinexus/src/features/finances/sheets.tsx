@@ -419,20 +419,28 @@ export function BudgetEntrySheet({
   const [query, setQuery] = useState('');
   const [lineId, setLineId] = useState<string | null>(selectedLineId ?? null);
   const [showMatches, setShowMatches] = useState(false);
+  const [entryKind, setEntryKind] = useState<'spend' | 'return' | 'income'>('spend');
   const preset = lines.find((line) => line.id === selectedLineId) ?? null;
   const selected = lines.find((line) => line.id === lineId) ?? preset;
   const amountValue = useMemo(() => evalMoneyExpression(amount), [amount]);
   const amountPreview = moneyExpressionHasOp(amount) && amountValue != null && amountValue > 0 ? amountValue : null;
+  const filteredLines = useMemo(() => {
+    if (entryKind === 'income') return lines.filter((line) => line.kind === 'income');
+    return lines.filter((line) => line.kind === 'expense');
+  }, [entryKind, lines]);
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const sorted = [...lines].sort((a, b) => a.name.localeCompare(b.name) || a.kind.localeCompare(b.kind));
+    const sorted = [...filteredLines].sort((a, b) => a.name.localeCompare(b.name) || a.kind.localeCompare(b.kind));
     if (!needle) return sorted;
     return sorted.filter((line) => line.name.toLowerCase().includes(needle));
-  }, [lines, query]);
+  }, [filteredLines, query]);
 
   useEffect(() => {
     if (!visible) return;
     const preselected = lines.find((line) => line.id === selectedLineId) ?? null;
+    const kind: 'spend' | 'return' | 'income' =
+      preselected?.kind === 'income' ? 'income' : 'spend';
+    setEntryKind(kind);
     setDescription('');
     setAmount('');
     setLineId(preselected?.id ?? null);
@@ -440,16 +448,27 @@ export function BudgetEntrySheet({
     setShowMatches(false);
   }, [lines, selectedLineId, visible]);
 
+  function chooseKind(next: 'spend' | 'return' | 'income') {
+    setEntryKind(next);
+    if (selected && ((next === 'income' && selected.kind !== 'income') || (next !== 'income' && selected.kind !== 'expense'))) {
+      setLineId(null);
+      setQuery('');
+    }
+    setShowMatches(false);
+  }
+
   function chooseLine(line: FinanceBudgetLine) {
     setLineId(line.id);
     setQuery(line.name);
     setShowMatches(false);
+    if (line.kind === 'income') setEntryKind('income');
+    else if (entryKind === 'income') setEntryKind('spend');
   }
 
   function typeCategory(value: string) {
     setQuery(value);
     setShowMatches(true);
-    const exact = lines.find((line) => line.name.trim().toLowerCase() === value.trim().toLowerCase());
+    const exact = filteredLines.find((line) => line.name.trim().toLowerCase() === value.trim().toLowerCase());
     setLineId(exact?.id ?? null);
   }
 
@@ -459,15 +478,51 @@ export function BudgetEntrySheet({
     setAmount(String(amountValue));
   }
 
+  const title =
+    entryKind === 'return'
+      ? selected
+        ? `Return to ${selected.name}`
+        : 'Add return'
+      : entryKind === 'income'
+        ? selected
+          ? `Add to ${selected.name}`
+          : 'Add income'
+        : selected
+          ? `Add to ${selected.name}`
+          : 'Add item';
+
+  const saveLabel =
+    entryKind === 'return' ? 'Add return' : entryKind === 'income' ? 'Add income' : selected ? 'Add expense' : 'Add item';
+
   return (
-    <Sheet visible={visible} title={selected ? `Add to ${selected.name}` : 'Add item'} onClose={onClose}>
+    <Sheet visible={visible} title={title} onClose={onClose}>
       <View style={styles.stack}>
+        <View style={styles.kindRow}>
+          {(
+            [
+              ['spend', 'Spend'],
+              ['return', 'Return'],
+              ['income', 'Income'],
+            ] as const
+          ).map(([value, label]) => (
+            <Pressable
+              key={value}
+              onPress={() => chooseKind(value)}
+              style={[styles.kindChip, entryKind === value && styles.kindChipOn]}>
+              <Text style={[styles.kindLabel, entryKind === value && styles.kindLabelOn]}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
         <Text style={styles.hint}>
-          {preset
-            ? `Adds to ${monthLabel}. Amount accepts 50+30.`
-            : `Adds to ${monthLabel}. Start typing a category, then click the match. Amount accepts 50+30.`}
+          {entryKind === 'return'
+            ? `Credits ${monthLabel} when money comes back to a category (refund, return, rebate).`
+            : entryKind === 'income'
+              ? `Adds sundry or other money in for ${monthLabel}.`
+              : preset
+                ? `Adds to ${monthLabel}. Amount accepts 50+30.`
+                : `Adds to ${monthLabel}. Start typing a category, then click the match.`}
         </Text>
-        {preset ? null : (
+        {preset && entryKind !== 'income' && preset.kind === 'expense' ? null : (
           <>
             <Field
               label="Category"
@@ -476,7 +531,7 @@ export function BudgetEntrySheet({
               onFocus={() => {
                 if (query.trim()) setShowMatches(true);
               }}
-              placeholder="Groceries"
+              placeholder={entryKind === 'income' ? 'Other income' : 'Groceries'}
               autoCapitalize="words"
               autoCorrect={false}
             />
@@ -500,7 +555,9 @@ export function BudgetEntrySheet({
           label="What was it"
           value={description}
           onChangeText={setDescription}
-          placeholder="Woolworths food shop"
+          placeholder={
+            entryKind === 'return' ? 'Amazon return' : entryKind === 'income' ? 'Birthday gift' : 'Woolworths food shop'
+          }
           autoCapitalize="sentences"
           autoFocus={Boolean(preset)}
         />
@@ -519,11 +576,11 @@ export function BudgetEntrySheet({
         ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Btn
-          label={selected?.kind === 'income' ? 'Add income' : selected ? 'Add expense' : 'Add item'}
+          label={saveLabel}
           onPress={() =>
             selected &&
             amountValue != null &&
-            void onSave({ description, amount: String(amountValue) }, selected)
+            void onSave({ description, amount: String(amountValue), entryKind }, selected)
           }
           busy={busy}
           disabled={!selected || !description.trim() || amountValue == null || amountValue <= 0}
@@ -1346,4 +1403,16 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
+  kindRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  kindChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  kindChipOn: { borderColor: colors.text, backgroundColor: colors.bg },
+  kindLabel: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+  kindLabelOn: { color: colors.text },
 });

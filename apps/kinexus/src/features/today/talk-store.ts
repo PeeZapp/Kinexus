@@ -1,5 +1,6 @@
 import type { AuthUser } from '@/src/lib/auth';
 import { supabase } from '@/src/lib/supabase';
+import { rpc } from '@kinexus/db';
 
 export const TALK_ITEM_LIMIT = 40;
 
@@ -77,6 +78,18 @@ export async function addTalkItem(
     .select('id, body, done, created_by, created_at')
     .single();
   if (error) throw explain(error);
+  try {
+    await supabase.rpc(rpc.notifyHouseholdAlert, {
+      p_household_id: householdId,
+      p_segment: 'talk',
+      p_title: cleaned,
+      p_body: null,
+      p_href: '/today',
+      p_payload: { talkItemId: data.id },
+    });
+  } catch {
+    // Non-blocking.
+  }
   return mapRow(data);
 }
 

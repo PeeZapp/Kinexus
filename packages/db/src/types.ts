@@ -85,6 +85,135 @@ export type Database = {
           },
         ];
       };
+      user_alert_prefs: {
+        Row: {
+          user_id: string;
+          household_id: string;
+          segment: string;
+          enabled: boolean;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          household_id: string;
+          segment: string;
+          enabled?: boolean;
+          updated_at?: string;
+        };
+        Update: {
+          enabled?: boolean;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'user_alert_prefs_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'user_alert_prefs_household_id_fkey';
+            columns: ['household_id'];
+            isOneToOne: false;
+            referencedRelation: 'households';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      user_alerts: {
+        Row: {
+          id: string;
+          user_id: string;
+          household_id: string;
+          actor_user_id: string | null;
+          segment: string;
+          title: string;
+          body: string | null;
+          href: string | null;
+          payload: Json;
+          read_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          household_id: string;
+          actor_user_id?: string | null;
+          segment: string;
+          title: string;
+          body?: string | null;
+          href?: string | null;
+          payload?: Json;
+          read_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          actor_user_id?: string | null;
+          title?: string;
+          body?: string | null;
+          href?: string | null;
+          payload?: Json;
+          read_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'user_alerts_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'user_alerts_household_id_fkey';
+            columns: ['household_id'];
+            isOneToOne: false;
+            referencedRelation: 'households';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'user_alerts_actor_user_id_fkey';
+            columns: ['actor_user_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      user_watchlist_availability: {
+        Row: {
+          user_id: string;
+          title_id: string;
+          provider_ids: number[];
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          title_id: string;
+          provider_ids?: number[];
+          updated_at?: string;
+        };
+        Update: {
+          provider_ids?: number[];
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'user_watchlist_availability_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'user_watchlist_availability_title_id_fkey';
+            columns: ['title_id'];
+            isOneToOne: false;
+            referencedRelation: 'watchlist_titles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       user_watchlist_prefs: {
         Row: {
           user_id: string;
@@ -837,6 +966,10 @@ export type Database = {
           name: string;
           emoji: string | null;
           cuisine: string | null;
+          cuisines: string[];
+          allergens: string[];
+          dietary: string[];
+          equipment: string[];
           cook_time: number | null;
           servings: number | null;
           protein: number | null;
@@ -872,6 +1005,10 @@ export type Database = {
           name: string;
           emoji?: string | null;
           cuisine?: string | null;
+          cuisines?: string[];
+          allergens?: string[];
+          dietary?: string[];
+          equipment?: string[];
           cook_time?: number | null;
           servings?: number | null;
           protein?: number | null;
@@ -902,6 +1039,10 @@ export type Database = {
           name?: string;
           emoji?: string | null;
           cuisine?: string | null;
+          cuisines?: string[];
+          allergens?: string[];
+          dietary?: string[];
+          equipment?: string[];
           cook_time?: number | null;
           servings?: number | null;
           protein?: number | null;
@@ -1113,6 +1254,30 @@ export type Database = {
         };
         Update: {
           created_by?: string | null;
+        };
+        Relationships: [];
+      };
+      household_food_prefs: {
+        Row: {
+          household_id: string;
+          cuisines: string[];
+          allergies: string[];
+          equipment: string[];
+          updated_at: string;
+          created_at: string;
+        };
+        Insert: {
+          household_id: string;
+          cuisines?: string[];
+          allergies?: string[];
+          equipment?: string[];
+          updated_at?: string;
+          created_at?: string;
+        };
+        Update: {
+          cuisines?: string[];
+          allergies?: string[];
+          equipment?: string[];
         };
         Relationships: [];
       };
@@ -2532,6 +2697,254 @@ export type Database = {
           source?: 'manual' | 'import' | 'auto';
         };
         Relationships: [];
+      };
+      finance_budget_carry: {
+        Row: {
+          id: string;
+          household_id: string;
+          budget_id: string;
+          line_id: string;
+          balance: number;
+          last_accrued_month: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          household_id: string;
+          budget_id: string;
+          line_id: string;
+          balance?: number;
+          last_accrued_month?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          balance?: number;
+          last_accrued_month?: string | null;
+        };
+        Relationships: [];
+      };
+      finance_budget_carry_events: {
+        Row: {
+          id: string;
+          household_id: string;
+          budget_id: string;
+          line_id: string;
+          kind: 'accrue' | 'apply' | 'transfer' | 'clear';
+          amount: number;
+          source_month: string | null;
+          target_line_id: string | null;
+          target_month: string | null;
+          note: string | null;
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          household_id: string;
+          budget_id: string;
+          line_id: string;
+          kind: 'accrue' | 'apply' | 'transfer' | 'clear';
+          amount: number;
+          source_month?: string | null;
+          target_line_id?: string | null;
+          target_month?: string | null;
+          note?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          note?: string | null;
+        };
+        Relationships: [];
+      };
+      finance_investment_items: {
+        Row: {
+          id: string;
+          household_id: string;
+          created_by: string;
+          visibility: 'household' | 'private';
+          symbol: string | null;
+          title: string;
+          thesis: string;
+          notes: string;
+          tags: string[];
+          status: 'watching' | 'idea' | 'holding' | 'closed';
+          target_price: number | null;
+          stop_price: number | null;
+          alert_above: number | null;
+          alert_below: number | null;
+          alert_pct_move: number | null;
+          last_price: number | null;
+          last_price_at: string | null;
+          currency: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          household_id: string;
+          created_by: string;
+          visibility?: 'household' | 'private';
+          symbol?: string | null;
+          title: string;
+          thesis?: string;
+          notes?: string;
+          tags?: string[];
+          status?: 'watching' | 'idea' | 'holding' | 'closed';
+          target_price?: number | null;
+          stop_price?: number | null;
+          alert_above?: number | null;
+          alert_below?: number | null;
+          alert_pct_move?: number | null;
+          last_price?: number | null;
+          last_price_at?: string | null;
+          currency?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          visibility?: 'household' | 'private';
+          symbol?: string | null;
+          title?: string;
+          thesis?: string;
+          notes?: string;
+          tags?: string[];
+          status?: 'watching' | 'idea' | 'holding' | 'closed';
+          target_price?: number | null;
+          stop_price?: number | null;
+          alert_above?: number | null;
+          alert_below?: number | null;
+          alert_pct_move?: number | null;
+          last_price?: number | null;
+          last_price_at?: string | null;
+          currency?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'finance_investment_items_household_id_fkey';
+            columns: ['household_id'];
+            isOneToOne: false;
+            referencedRelation: 'households';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'finance_investment_items_created_by_fkey';
+            columns: ['created_by'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      finance_investment_alerts: {
+        Row: {
+          id: string;
+          household_id: string;
+          item_id: string;
+          kind: 'above' | 'below' | 'pct_move';
+          threshold: number;
+          active: boolean;
+          last_triggered_at: string | null;
+          created_by: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          household_id: string;
+          item_id: string;
+          kind: 'above' | 'below' | 'pct_move';
+          threshold: number;
+          active?: boolean;
+          last_triggered_at?: string | null;
+          created_by: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          kind?: 'above' | 'below' | 'pct_move';
+          threshold?: number;
+          active?: boolean;
+          last_triggered_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'finance_investment_alerts_item_id_fkey';
+            columns: ['item_id'];
+            isOneToOne: false;
+            referencedRelation: 'finance_investment_items';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      finance_trade_journal: {
+        Row: {
+          id: string;
+          household_id: string;
+          created_by: string;
+          visibility: 'household' | 'private';
+          item_id: string | null;
+          symbol: string | null;
+          side: 'buy' | 'sell';
+          qty: number;
+          price: number;
+          fees: number;
+          traded_on: string;
+          thesis: string;
+          emotions: string;
+          notes: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          household_id: string;
+          created_by: string;
+          visibility?: 'household' | 'private';
+          item_id?: string | null;
+          symbol?: string | null;
+          side: 'buy' | 'sell';
+          qty: number;
+          price: number;
+          fees?: number;
+          traded_on: string;
+          thesis?: string;
+          emotions?: string;
+          notes?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          visibility?: 'household' | 'private';
+          item_id?: string | null;
+          symbol?: string | null;
+          side?: 'buy' | 'sell';
+          qty?: number;
+          price?: number;
+          fees?: number;
+          traded_on?: string;
+          thesis?: string;
+          emotions?: string;
+          notes?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'finance_trade_journal_household_id_fkey';
+            columns: ['household_id'];
+            isOneToOne: false;
+            referencedRelation: 'households';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'finance_trade_journal_item_id_fkey';
+            columns: ['item_id'];
+            isOneToOne: false;
+            referencedRelation: 'finance_investment_items';
+            referencedColumns: ['id'];
+          },
+        ];
       };
       finance_share_portfolios: {
         Row: {
@@ -4161,6 +4574,17 @@ export type Database = {
       finish_workout_session: {
         Args: {
           p_session_id: string;
+        };
+        Returns: undefined;
+      };
+      notify_household_alert: {
+        Args: {
+          p_household_id: string;
+          p_segment: string;
+          p_title: string;
+          p_body?: string | null;
+          p_href?: string | null;
+          p_payload?: Json;
         };
         Returns: undefined;
       };

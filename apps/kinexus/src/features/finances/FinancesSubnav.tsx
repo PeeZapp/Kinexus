@@ -7,6 +7,8 @@ const TABS = [
   { href: '/finances/dashboard' as Href, label: 'Dashboard', match: (p: string) => p.startsWith('/finances/dashboard') },
   { href: '/finances/assets' as Href, label: 'Assets', match: (p: string) => p.startsWith('/finances/assets') },
   { href: '/finances/shares' as Href, label: 'Shares', match: (p: string) => p.startsWith('/finances/shares') },
+  { href: '/finances/invest' as Href, label: 'Watchlist', match: (p: string) => p.startsWith('/finances/invest') },
+  { href: '/finances/journal' as Href, label: 'Journal', match: (p: string) => p.startsWith('/finances/journal') },
   { href: '/finances/crypto' as Href, label: 'Crypto', match: (p: string) => p.startsWith('/finances/crypto') },
   { href: '/finances/metals' as Href, label: 'Metals', match: (p: string) => p.startsWith('/finances/metals') },
   {

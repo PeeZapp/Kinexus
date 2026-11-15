@@ -1,10 +1,10 @@
 import { type ReactNode, useEffect, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View, type TextStyle } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View, type TextStyle } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 
-import { formatCostPerServe, formatCostSource, formatDishCost, formatMoney, findReplacingRecipe, linkedRecipeForIngredient, MEAL_SLOTS, recipeBaseServings, recipeClassLabel, scaleRecipeToServings } from '@kinexus/domain';
+import { formatCostPerServe, formatCostSource, formatDishCost, formatMoney, findReplacingRecipe, groupBySection, injectAmountsIntoMethod, linkedRecipeForIngredient, MEAL_SLOTS, recipeBaseServings, recipeClassLabel, scaleRecipeToServings } from '@kinexus/domain';
 
 import { useCreator } from '@/src/features/creators/use-creator';
 import { useWakeLock } from '@/src/features/cook/use-wake-lock';
@@ -63,6 +63,7 @@ export function RecipeDetailScreen() {
   const [printing, setPrinting] = useState(false);
   const [cookMode, setCookMode] = useState(false);
   const [viewServings, setViewServings] = useState<number | null>(null);
+  const [showAmountsInSteps, setShowAmountsInSteps] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [addingShopping, setAddingShopping] = useState(false);
@@ -149,6 +150,10 @@ export function RecipeDetailScreen() {
   const shown = scaleRecipeToServings(recipe, viewServings);
   const serveCount = viewServings ?? baseServings;
   const canAddToShopping = (shown.ingredients ?? []).length > 0 && !isLinkOnlyRecipe(recipe);
+  const ingredientIndexed = (shown.ingredients ?? []).map((ing, index) => ({ ing, index }));
+  const ingredientGroups = groupBySection(ingredientIndexed, (item) => item.ing.section);
+  const methodSteps = injectAmountsIntoMethod(recipe.method ?? [], shown.ingredients ?? [], showAmountsInSteps);
+  const methodGroups = groupBySection(methodSteps, (step) => step.section);
 
   async function addIngredientsToShopping() {
     if (!recipe || addingShopping || !canAddToShopping) return;
@@ -405,53 +410,80 @@ export function RecipeDetailScreen() {
             {(shown.ingredients ?? []).length === 0 ? (
               <BodyText>No ingredients listed.</BodyText>
             ) : (
-              (shown.ingredients ?? []).map((ing, idx) => {
-                const line = shown.cost?.breakdown.find(
-                  (item) => item.name.trim().toLowerCase() === ing.name.trim().toLowerCase(),
-                );
-                const linked = linkedRecipeForIngredient(ing.name, meals.recipes, {
-                  explicitId: ing.baseRecipeId,
-                  excludeIds: [recipe.id],
-                });
-                return (
-                  <IngredientSwapSlot key={`${ing.name}-${idx}`} recipe={recipe} index={idx}>
-                    {(button) => (
-                      <View style={styles.ingRow}>
-                        <View style={styles.ingLead}>
-                          <Text style={[styles.body, cookMode && styles.cookBody, wrapText, styles.ingName]}>
-                            {ing.amount ? `${ing.amount} ` : ''}
-                            {ing.name}
-                            {linked ? (
-                              <Text style={styles.ingLink} onPress={() => router.push(recipeHref(linked.id))}>
-                                {`  · ${linked.name}`}
+              ingredientGroups.map((group) => (
+                <View key={group.key} style={styles.group}>
+                  {group.section ? <Text style={styles.groupLabel}>{group.section}</Text> : null}
+                  {group.items.map(({ ing, index }, idxInGroup) => {
+                    const line = shown.cost?.breakdown.find(
+                      (item) => item.name.trim().toLowerCase() === ing.name.trim().toLowerCase(),
+                    );
+                    const linked = linkedRecipeForIngredient(ing.name, meals.recipes, {
+                      explicitId: ing.baseRecipeId,
+                      excludeIds: [recipe.id],
+                    });
+                    return (
+                      <IngredientSwapSlot key={`${group.key}-${ing.name}-${idxInGroup}`} recipe={recipe} index={index}>
+                        {(button) => (
+                          <View style={styles.ingRow}>
+                            <View style={styles.ingLead}>
+                              <Text style={[styles.body, cookMode && styles.cookBody, wrapText, styles.ingName]}>
+                                {ing.amount ? `${ing.amount} ` : ''}
+                                {ing.name}
+                                {linked ? (
+                                  <Text style={styles.ingLink} onPress={() => router.push(recipeHref(linked.id))}>
+                                    {`  · ${linked.name}`}
+                                  </Text>
+                                ) : null}
                               </Text>
+                              {button}
+                            </View>
+                            {line ? (
+                              <Text style={styles.ingCost}>{formatMoney(line.lineCost, shown.cost?.currency)}</Text>
                             ) : null}
-                          </Text>
-                          {button}
-                        </View>
-                        {line ? (
-                          <Text style={styles.ingCost}>{formatMoney(line.lineCost, shown.cost?.currency)}</Text>
-                        ) : null}
-                      </View>
-                    )}
-                  </IngredientSwapSlot>
-                );
-              })
+                          </View>
+                        )}
+                      </IngredientSwapSlot>
+                    );
+                  })}
+                </View>
+              ))
             )}
           </Card>
         </View>
         <View style={desktop ? styles.col : styles.stackCol}>
           <Card>
-            <Text style={styles.heading}>Method</Text>
-            {(recipe.method ?? []).length === 0 ? (
+            <View style={styles.methodHeader}>
+              <Text style={styles.heading}>Method</Text>
+              <View style={styles.methodToggle}>
+                <Text style={styles.toggleLabel}>Show amounts</Text>
+                <Switch
+                  value={showAmountsInSteps}
+                  onValueChange={setShowAmountsInSteps}
+                  trackColor={{ false: colors.border, true: colors.accentMuted }}
+                  thumbColor={showAmountsInSteps ? colors.accent : colors.textMuted}
+                />
+              </View>
+            </View>
+            {methodSteps.length === 0 ? (
               <BodyText>No method listed.</BodyText>
             ) : (
-              (recipe.method ?? []).map((step, idx) => (
-                <View key={idx} style={styles.step}>
-                  <Text style={[styles.stepNum, cookMode && styles.cookStepNum]}>{idx + 1}.</Text>
-                  <Text style={[styles.stepText, cookMode && styles.cookStepText, wrapText]}>{step}</Text>
-                </View>
-              ))
+              (() => {
+                let stepNo = 0;
+                return methodGroups.map((group) => (
+                  <View key={group.key} style={styles.group}>
+                    {group.section ? <Text style={styles.groupLabel}>{group.section}</Text> : null}
+                    {group.items.map((step) => {
+                      stepNo += 1;
+                      return (
+                        <View key={`${group.key}-${stepNo}`} style={styles.step}>
+                          <Text style={[styles.stepNum, cookMode && styles.cookStepNum]}>{stepNo}.</Text>
+                          <Text style={[styles.stepText, cookMode && styles.cookStepText, wrapText]}>{step.text}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ));
+              })()
             )}
           </Card>
         </View>
@@ -618,6 +650,11 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 26,
   },
+  group: { gap: 8, marginTop: 8 },
+  groupLabel: { color: colors.text, fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6 },
+  methodHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  methodToggle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  toggleLabel: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
   cols: { flexDirection: 'row', gap: 16, alignItems: 'flex-start', width: '100%', minWidth: 0 },
   col: { flex: 1, minWidth: 0, maxWidth: '100%' },
   stack: { gap: 12, width: '100%' },

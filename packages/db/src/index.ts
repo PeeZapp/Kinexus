@@ -94,4 +94,5 @@ export const rpc = {
   removeGroupWorkoutPick: 'remove_group_workout_pick',
   closeGroupWorkoutIfDue: 'close_group_workout_if_due',
   buildGroupWorkout: 'build_group_workout',
+  notifyHouseholdAlert: 'notify_household_alert',
 } as const;

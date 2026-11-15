@@ -31,12 +31,17 @@ import {
   SURPLUS_ALLOCATE_DESCRIPTION,
   SURPLUS_ALLOCATE_MERCHANT_KEY,
   SURPLUS_CAPTURE_NAME,
+  appliedCarryByLine,
+  carryAccrueActions,
+  clampApplyAmount,
   isBudgetSet,
   type ClassifiedStatementTxn,
   type ProposedBudgetLine,
   type StatementAssignment,
   type FinanceAccount,
   type FinanceAccountKind,
+  type FinanceBudgetCarry,
+  type FinanceBudgetCarryEvent,
   type FinanceBudgetLine,
   type FinanceBudgetLineCadence,
   type FinanceBudgetLineKind,
@@ -48,7 +53,7 @@ import {
   type ShareImportResult,
 } from '@kinexus/domain';
 
-import { accountFromRow, budgetFromRow, collectibleFromRow, cryptoHoldingFromRow, holdingFromRow, lineFromRow, metalHoldingFromRow, portfolioFromRow, txnFromRow } from '@/src/features/finances/mappers';
+import { accountFromRow, budgetFromRow, carryEventFromRow, carryFromRow, collectibleFromRow, cryptoHoldingFromRow, holdingFromRow, lineFromRow, metalHoldingFromRow, portfolioFromRow, txnFromRow } from '@/src/features/finances/mappers';
 import { fetchCryptoQuotes, fetchMetalQuotes, fetchShareQuotes } from '@/src/features/finances/finance-api';
 import { useAuth } from '@/src/lib/auth';
 import { useHousehold } from '@/src/lib/household';
@@ -67,6 +72,16 @@ function linesKey(householdId: string) {
 }
 function txnsKey(householdId: string) {
   return ['finances', 'txns', householdId] as const;
+}
+function carryKey(householdId: string) {
+  return ['finances', 'carry', householdId] as const;
+}
+function carryEventsKey(householdId: string) {
+  return ['finances', 'carry-events', householdId] as const;
+}
+
+function money2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 function portfoliosKey(householdId: string) {
   return ['finances', 'portfolios', householdId] as const;
@@ -180,6 +195,8 @@ export type BudgetEntryDraft = {
   description: string;
   amount: string;
   date?: string;
+  /** Expense spend (default), expense return/refund, or income credit. */
+  entryKind?: 'spend' | 'return' | 'income';
 };
 
 export type PortfolioDraft = {
@@ -351,6 +368,36 @@ export function useFinancesSync() {
     },
   });
 
+  const carryQuery = useQuery({
+    queryKey: householdId ? carryKey(householdId) : ['finances', 'carry', 'none'],
+    enabled: ready && Boolean(budgetQuery.data?.id),
+    queryFn: async () => {
+      if (!supabase || !householdId || !budgetQuery.data) return [] as FinanceBudgetCarry[];
+      const { data, error } = await supabase
+        .from('finance_budget_carry')
+        .select('*')
+        .eq('budget_id', budgetQuery.data.id);
+      if (error) throw error;
+      return (data ?? []).map(carryFromRow);
+    },
+  });
+
+  const carryEventsQuery = useQuery({
+    queryKey: householdId ? carryEventsKey(householdId) : ['finances', 'carry-events', 'none'],
+    enabled: ready && Boolean(budgetQuery.data?.id),
+    queryFn: async () => {
+      if (!supabase || !householdId || !budgetQuery.data) return [] as FinanceBudgetCarryEvent[];
+      const { data, error } = await supabase
+        .from('finance_budget_carry_events')
+        .select('*')
+        .eq('budget_id', budgetQuery.data.id)
+        .order('created_at', { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      return (data ?? []).map(carryEventFromRow);
+    },
+  });
+
   const portfoliosQuery = useQuery({
     queryKey: householdId ? portfoliosKey(householdId) : ['finances', 'portfolios', 'none'],
     enabled: ready,
@@ -389,6 +436,8 @@ export function useFinancesSync() {
       void queryClient.invalidateQueries({ queryKey: ['finances', 'budget', householdId] });
       void queryClient.invalidateQueries({ queryKey: ['finances', 'lines', householdId] });
       void queryClient.invalidateQueries({ queryKey: ['finances', 'txns', householdId] });
+      void queryClient.invalidateQueries({ queryKey: carryKey(householdId) });
+      void queryClient.invalidateQueries({ queryKey: carryEventsKey(householdId) });
       void queryClient.invalidateQueries({ queryKey: portfoliosKey(householdId) });
       void queryClient.invalidateQueries({ queryKey: holdingsKey(householdId) });
       void queryClient.invalidateQueries({ queryKey: cryptoHoldingsKey(householdId) });
@@ -401,6 +450,8 @@ export function useFinancesSync() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_budgets', filter: `household_id=eq.${householdId}` }, invalidate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_budget_lines', filter: `household_id=eq.${householdId}` }, invalidate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_budget_txns', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_budget_carry', filter: `household_id=eq.${householdId}` }, invalidate)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_budget_carry_events', filter: `household_id=eq.${householdId}` }, invalidate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_share_portfolios', filter: `household_id=eq.${householdId}` }, invalidate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_share_holdings', filter: `household_id=eq.${householdId}` }, invalidate)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_crypto_holdings', filter: `household_id=eq.${householdId}` }, invalidate)
@@ -824,7 +875,15 @@ export function useFinancesSync() {
       if (amount == null || amount <= 0) throw new Error('Enter an amount');
       const date = (draft.date?.trim() || monthStart).slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Pick a date');
-      const signed = line.kind === 'income' ? amount : -amount;
+      const entryKind = draft.entryKind ?? (line.kind === 'income' ? 'income' : 'spend');
+      if (entryKind === 'return' && line.kind !== 'expense') {
+        throw new Error('Returns go back into an expense category');
+      }
+      if (entryKind === 'income' && line.kind !== 'income') {
+        throw new Error('Pick an income category for money in');
+      }
+      // Income and returns are positive; spend is negative.
+      const signed = entryKind === 'spend' ? -amount : amount;
       const { error } = await supabase.from('finance_budget_txns').insert({
         id: Crypto.randomUUID(),
         household_id: householdId,
@@ -842,6 +901,217 @@ export function useFinancesSync() {
       await queryClient.invalidateQueries({ queryKey: txnsKey(householdId) });
     },
     [budgetQuery.data, householdId, linesQuery.data, queryClient, userId],
+  );
+
+  const invalidateCarry = useCallback(async () => {
+    if (!householdId) return;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: carryKey(householdId) }),
+      queryClient.invalidateQueries({ queryKey: carryEventsKey(householdId) }),
+    ]);
+  }, [householdId, queryClient]);
+
+  const syncCarryAccruals = useCallback(
+    async (asOfMonth?: string) => {
+      if (!householdId || !supabase || !budgetQuery.data) throw new Error('Not ready');
+      const lines = linesQuery.data ?? [];
+      const txns = txnsQuery.data ?? [];
+      const carries = carryQuery.data ?? [];
+      const actions = carryAccrueActions({
+        lines,
+        txns,
+        carries,
+        asOfMonth: asOfMonth ?? monthStartIso(),
+      });
+      if (actions.length === 0) return 0;
+
+      const byLine = new Map(carries.map((row) => [row.lineId, row]));
+      const latestByLine = new Map<string, { balance: number; lastAccruedMonth: string }>();
+      for (const action of actions) {
+        const prev = latestByLine.get(action.lineId);
+        latestByLine.set(action.lineId, {
+          balance: action.nextBalance,
+          lastAccruedMonth: action.monthStart,
+        });
+        if (!prev) {
+          // keep first previous for upsert seed
+        }
+      }
+
+      for (const action of actions) {
+        const { error: eventError } = await supabase.from('finance_budget_carry_events').insert({
+          id: Crypto.randomUUID(),
+          household_id: householdId,
+          budget_id: budgetQuery.data.id,
+          line_id: action.lineId,
+          kind: 'accrue',
+          amount: action.amount,
+          source_month: action.monthStart,
+          note: null,
+          created_by: userId,
+        });
+        throwIfError(eventError);
+      }
+
+      for (const [lineId, next] of latestByLine) {
+        const existing = byLine.get(lineId);
+        if (existing) {
+          const { error } = await supabase
+            .from('finance_budget_carry')
+            .update({
+              balance: next.balance,
+              last_accrued_month: next.lastAccruedMonth,
+            })
+            .eq('id', existing.id);
+          throwIfError(error);
+        } else {
+          const { error } = await supabase.from('finance_budget_carry').insert({
+            id: Crypto.randomUUID(),
+            household_id: householdId,
+            budget_id: budgetQuery.data.id,
+            line_id: lineId,
+            balance: next.balance,
+            last_accrued_month: next.lastAccruedMonth,
+          });
+          throwIfError(error);
+        }
+      }
+
+      await invalidateCarry();
+      return actions.length;
+    },
+    [budgetQuery.data, carryQuery.data, householdId, invalidateCarry, linesQuery.data, txnsQuery.data, userId],
+  );
+
+  const clearCarryBalance = useCallback(
+    async (lineId: string) => {
+      if (!householdId || !supabase || !budgetQuery.data) throw new Error('Not ready');
+      const existing = (carryQuery.data ?? []).find((row) => row.lineId === lineId);
+      if (!existing || money2(existing.balance) === 0) return;
+      const cleared = money2(existing.balance);
+      const { error: eventError } = await supabase.from('finance_budget_carry_events').insert({
+        id: Crypto.randomUUID(),
+        household_id: householdId,
+        budget_id: budgetQuery.data.id,
+        line_id: lineId,
+        kind: 'clear',
+        amount: -cleared,
+        note: 'Cleared',
+        created_by: userId,
+      });
+      throwIfError(eventError);
+      const { error } = await supabase
+        .from('finance_budget_carry')
+        .update({ balance: 0 })
+        .eq('id', existing.id);
+      throwIfError(error);
+      await invalidateCarry();
+    },
+    [budgetQuery.data, carryQuery.data, householdId, invalidateCarry, userId],
+  );
+
+  const applyCarryToMonth = useCallback(
+    async (lineId: string, monthStart: string, amountAbs?: number, targetLineId?: string) => {
+      if (!householdId || !supabase || !budgetQuery.data) throw new Error('Not ready');
+      const existing = (carryQuery.data ?? []).find((row) => row.lineId === lineId);
+      if (!existing || money2(existing.balance) === 0) throw new Error('Nothing to apply');
+      const applyAmount = clampApplyAmount(existing.balance, amountAbs ?? Math.abs(existing.balance));
+      if (applyAmount === 0) throw new Error('Nothing to apply');
+      const destLineId = targetLineId ?? lineId;
+      const destLine = (linesQuery.data ?? []).find((line) => line.id === destLineId);
+      if (!destLine || destLine.kind !== 'expense') throw new Error('Pick an expense category');
+
+      // Event amount is the planned adjustment for target_month/target_line (+ under, − over).
+      const { error: eventError } = await supabase.from('finance_budget_carry_events').insert({
+        id: Crypto.randomUUID(),
+        household_id: householdId,
+        budget_id: budgetQuery.data.id,
+        line_id: lineId,
+        kind: 'apply',
+        amount: applyAmount,
+        target_line_id: destLineId,
+        target_month: monthStart,
+        note: destLineId === lineId ? `Applied to ${monthStart}` : `Applied to ${destLine.name}`,
+        created_by: userId,
+      });
+      throwIfError(eventError);
+
+      const nextBalance = money2(existing.balance - applyAmount);
+      const { error } = await supabase
+        .from('finance_budget_carry')
+        .update({ balance: nextBalance })
+        .eq('id', existing.id);
+      throwIfError(error);
+      await invalidateCarry();
+    },
+    [budgetQuery.data, carryQuery.data, householdId, invalidateCarry, linesQuery.data, userId],
+  );
+
+  const transferCarry = useCallback(
+    async (fromLineId: string, toLineId: string, amountAbs?: number) => {
+      if (!householdId || !supabase || !budgetQuery.data) throw new Error('Not ready');
+      if (fromLineId === toLineId) throw new Error('Pick a different category');
+      const from = (carryQuery.data ?? []).find((row) => row.lineId === fromLineId);
+      if (!from || money2(from.balance) === 0) throw new Error('Nothing to move');
+      const move = clampApplyAmount(from.balance, amountAbs ?? Math.abs(from.balance));
+      if (move === 0) throw new Error('Nothing to move');
+      const toLine = (linesQuery.data ?? []).find((line) => line.id === toLineId);
+      if (!toLine || toLine.kind !== 'expense') throw new Error('Pick an expense category');
+
+      const { error: outError } = await supabase.from('finance_budget_carry_events').insert({
+        id: Crypto.randomUUID(),
+        household_id: householdId,
+        budget_id: budgetQuery.data.id,
+        line_id: fromLineId,
+        kind: 'transfer',
+        amount: -move,
+        target_line_id: toLineId,
+        note: `Moved to ${toLine.name}`,
+        created_by: userId,
+      });
+      throwIfError(outError);
+
+      const { error: inError } = await supabase.from('finance_budget_carry_events').insert({
+        id: Crypto.randomUUID(),
+        household_id: householdId,
+        budget_id: budgetQuery.data.id,
+        line_id: toLineId,
+        kind: 'transfer',
+        amount: move,
+        target_line_id: fromLineId,
+        note: `Moved from category`,
+        created_by: userId,
+      });
+      throwIfError(inError);
+
+      const fromNext = money2(from.balance - move);
+      const { error: fromUpdateError } = await supabase
+        .from('finance_budget_carry')
+        .update({ balance: fromNext })
+        .eq('id', from.id);
+      throwIfError(fromUpdateError);
+
+      const toExisting = (carryQuery.data ?? []).find((row) => row.lineId === toLineId);
+      if (toExisting) {
+        const { error } = await supabase
+          .from('finance_budget_carry')
+          .update({ balance: money2(toExisting.balance + move) })
+          .eq('id', toExisting.id);
+        throwIfError(error);
+      } else {
+        const { error } = await supabase.from('finance_budget_carry').insert({
+          id: Crypto.randomUUID(),
+          household_id: householdId,
+          budget_id: budgetQuery.data.id,
+          line_id: toLineId,
+          balance: move,
+          last_accrued_month: from.lastAccruedMonth,
+        });
+        throwIfError(error);
+      }
+      await invalidateCarry();
+    },
+    [budgetQuery.data, carryQuery.data, householdId, invalidateCarry, linesQuery.data, userId],
   );
 
   const createImportedTxns = useCallback(
@@ -1653,6 +1923,9 @@ export function useFinancesSync() {
     budget: budgetQuery.data ?? null,
     lines: linesQuery.data ?? [],
     txns: txnsQuery.data ?? [],
+    carries: carryQuery.data ?? [],
+    carryEvents: carryEventsQuery.data ?? [],
+    appliedCarryForMonth: (monthStart: string) => appliedCarryByLine(carryEventsQuery.data ?? [], monthStart),
     portfolios: portfoliosQuery.data ?? [],
     holdings: holdingsQuery.data ?? [],
     cryptoHoldings: cryptoHoldingsQuery.data ?? [],
@@ -1663,6 +1936,7 @@ export function useFinancesSync() {
       budgetQuery.isLoading ||
       (Boolean(budgetQuery.data) && linesQuery.isLoading) ||
       (Boolean(budgetQuery.data) && txnsQuery.isLoading) ||
+      (Boolean(budgetQuery.data) && carryQuery.isLoading) ||
       portfoliosQuery.isLoading ||
       holdingsQuery.isLoading ||
       cryptoHoldingsQuery.isLoading ||
@@ -1673,6 +1947,8 @@ export function useFinancesSync() {
       budgetQuery.error ??
       linesQuery.error ??
       txnsQuery.error ??
+      carryQuery.error ??
+      carryEventsQuery.error ??
       portfoliosQuery.error ??
       holdingsQuery.error ??
       cryptoHoldingsQuery.error ??
@@ -1690,6 +1966,10 @@ export function useFinancesSync() {
     createImportedTxns,
     deleteTxn,
     clearBudget,
+    syncCarryAccruals,
+    clearCarryBalance,
+    applyCarryToMonth,
+    transferCarry,
     applyAutoDebits,
     applyStatementBudget,
     reclassifyTxns,

@@ -4,6 +4,7 @@ import type { Href } from 'expo-router';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { RolePreviewSwitcher } from '@/src/features/household/RolePreview';
+import { AlertsBell } from '@/src/features/alerts/AlertsBell';
 import { AppMark } from '@/src/features/shell/AppMark';
 import { ModuleGlyph, type ModuleGlyphName } from '@/src/features/shell/ModuleGlyph';
 import { isModulePathActive, SETTINGS_HREF, SETTINGS_PATH, visibleModules } from '@/src/features/shell/modules';
@@ -172,11 +173,13 @@ export function DesktopSidebar() {
         {collapsed ? null : (
           <>
             <RolePreviewSwitcher />
+            <AlertsBell />
             <Text style={styles.userLabel}>{user?.displayName ?? 'Signed in'}</Text>
             {activeHousehold ? <Text style={styles.devHint}>{activeHousehold.name}</Text> : null}
             {user?.isDevBypass ? <Text style={styles.devHint}>Dev bypass · Supabase keys pending</Text> : null}
           </>
         )}
+        {collapsed ? <AlertsBell compact /> : null}
         <Pressable
           onPress={() => void signOut()}
           accessibilityLabel="Sign out"

@@ -180,7 +180,7 @@ export function CalendarScreen() {
 
   const monthPane = (
         <View style={[styles.hero, desktop && styles.heroDesktop]}>
-          <Text style={styles.kicker}>Family calendar</Text>
+          {desktop ? <Text style={styles.kicker}>Family calendar</Text> : null}
           <Text style={styles.title}>{formatMonthHeading(monthCursor)}</Text>
           <View style={styles.monthNav}>
             <Pressable

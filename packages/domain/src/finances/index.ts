@@ -103,6 +103,27 @@ export {
 } from './collectible-lookup';
 
 export {
+  appliedCarryByLine,
+  carryAccrueActions,
+  carryBalanceByLine,
+  carryDashboardRows,
+  clampApplyAmount,
+  formatCarryBalance,
+  isAccruableCarryLine,
+  monthCarryVariance,
+  plannedWithCarry,
+  signedMonthLineSpend,
+  BUDGET_CARRY_EVENT_KINDS,
+} from './budget-carry';
+export type {
+  BudgetCarryDashboardRow,
+  BudgetCarryEventKind,
+  CarryAccrueAction,
+  CarryMonthApply,
+  FinanceBudgetCarry,
+  FinanceBudgetCarryEvent,
+} from './budget-carry';
+export {
   DEFAULT_BUDGET_SEED,
   DEFAULT_EXPENSE_LINES,
   DEFAULT_INCOME_LINES,
@@ -241,6 +262,7 @@ export {
   buildTxnReview,
   chooseTxnPrefill,
   collapseBatchDuplicates,
+  findExistingTxnMatch,
   findRememberedLineId,
   groupReviewRowsByDate,
   matchesExistingTxn,
@@ -248,6 +270,7 @@ export {
 export type {
   AiMerchantPrefill,
   BuildTxnReviewInput,
+  ExistingTxnMatch,
   ReviewPrefill,
   ReviewTxnInput,
   ReviewTxnRow,
@@ -277,3 +300,27 @@ export type {
   StatementBudgetDraft,
   StatementMerchantQuestion,
 } from './statement-budget';
+
+export {
+  INVESTMENT_ALERT_KINDS,
+  INVESTMENT_STATUSES,
+  TRADE_SIDES,
+  canEditInvestmentItem,
+  canEditTradeEntry,
+  canViewInvestmentItem,
+  canViewTradeEntry,
+  investmentAlertTriggered,
+  investmentStatusLabel,
+  isInvestmentStatus,
+  isTradeSide,
+  tradeJournalSummary,
+} from './investments';
+export type {
+  FinanceInvestmentAlert,
+  FinanceInvestmentItem,
+  FinanceTradeJournalEntry,
+  InvestmentAlertKind,
+  InvestmentStatus,
+  InvestmentVisibility,
+  TradeSide,
+} from './investments';

@@ -1,5 +1,6 @@
 import { formatMoney } from '../stash/money';
 import { formatCostPerServe, formatCostSource, formatDishCost } from './cost';
+import { groupBySection, normalizeRecipeMethodSteps } from './recipe-sections';
 import { MEAL_SLOTS, type Recipe } from './types';
 
 export function recipePrintHtml(recipe: Recipe): string {
@@ -74,24 +75,44 @@ export function recipePrintHtml(recipe: Recipe): string {
 function ingredientsHtml(recipe: Recipe): string {
   const items = recipe.ingredients ?? [];
   if (items.length === 0) return '<p class="empty">No ingredients listed.</p>';
-  return `<ul class="ingredients">${items
-    .map((ing) => {
-      const amount = ing.amount?.trim() ? `<span class="amount">${escapeHtml(ing.amount.trim())}</span> ` : '';
-      const line = recipe.cost?.breakdown.find(
-        (item) => item.name.trim().toLowerCase() === ing.name.trim().toLowerCase(),
-      );
-      const price = line ? ` <span class="line-cost">${escapeHtml(formatMoney(line.lineCost, recipe.cost?.currency))}</span>` : '';
-      return `<li>${amount}${escapeHtml(ing.name)}${price}</li>`;
-    })
-    .join('')}</ul>`;
+  const groups = groupBySection(items, (ing) => ing.section);
+  const renderLine = (ing: (typeof items)[number]) => {
+    const amount = ing.amount?.trim() ? `<span class="amount">${escapeHtml(ing.amount.trim())}</span> ` : '';
+    const line = recipe.cost?.breakdown.find(
+      (item) => item.name.trim().toLowerCase() === ing.name.trim().toLowerCase(),
+    );
+    const price = line
+      ? ` <span class="line-cost">${escapeHtml(formatMoney(line.lineCost, recipe.cost?.currency))}</span>`
+      : '';
+    return `<li>${amount}${escapeHtml(ing.name)}${price}</li>`;
+  };
+
+  if (groups.some((g) => g.section)) {
+    return groups
+      .map((group) => {
+        const label = group.section ? `<h3 class="subhead">${escapeHtml(group.section)}</h3>` : '';
+        return `<div class="subsection">${label}<ul class="ingredients">${group.items.map(renderLine).join('')}</ul></div>`;
+      })
+      .join('');
+  }
+
+  return `<ul class="ingredients">${items.map(renderLine).join('')}</ul>`;
 }
 
 function methodHtml(recipe: Recipe): string {
-  const steps = recipe.method ?? [];
+  const steps = normalizeRecipeMethodSteps(recipe.method ?? []);
   if (steps.length === 0) return '<p class="empty">No method listed.</p>';
-  return `<ol class="method">${steps
-    .map((step) => `<li>${escapeHtml(step)}</li>`)
-    .join('')}</ol>`;
+  let lastSection: string | undefined;
+  const items: string[] = [];
+  for (const step of steps) {
+    const section = step.section?.trim() || undefined;
+    if (section && section !== lastSection) {
+      items.push(`<li class="section">${escapeHtml(section)}</li>`);
+      lastSection = section;
+    }
+    items.push(`<li>${escapeHtml(step.text)}</li>`);
+  }
+  return `<ol class="method">${items.join('')}</ol>`;
 }
 
 function block(heading: string, value?: string): string {
@@ -234,6 +255,14 @@ const PRINT_CSS = `
     columns: 2;
     column-gap: 28px;
   }
+  .subsection + .subsection { margin-top: 14px; }
+  .subhead {
+    margin: 0 0 8px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
   .method {
     margin: 0;
     padding: 0;
@@ -268,6 +297,14 @@ const PRINT_CSS = `
     line-height: 22px;
     text-align: center;
   }
+  .method li.section {
+    padding: 14px 0 10px;
+    border-bottom: 0;
+    font-weight: 700;
+    color: var(--ink);
+    counter-increment: none;
+  }
+  .method li.section::before { content: ""; border: 0; }
   .amount { font-weight: 700; }
   .line-cost { color: var(--muted); font-size: 12px; }
   .cost-note { color: var(--muted); font-size: 12px; margin: -16px 0 24px; }

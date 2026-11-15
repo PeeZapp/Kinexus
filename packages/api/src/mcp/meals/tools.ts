@@ -2,11 +2,21 @@ import { z } from 'zod';
 
 import type { McpToolDefinition } from '../registry.js';
 import type { McpCaller } from '../context.js';
-import { getMealPlan, getPantry, getPicks, getRecipe, getShoppingList, searchRecipes } from './reads.js';
+import {
+  getFoodPrefs,
+  getMealPlan,
+  getPantry,
+  getPicks,
+  getRecipe,
+  getShoppingList,
+  searchRecipes,
+} from './reads.js';
 import { resolveCallerHousehold, withMcpAudit } from './shared.js';
 import {
   previewAddMeal,
   previewAddToShoppingList,
+  previewCheckShoppingItem,
+  previewClearCheckedShopping,
   previewCreateRecipe,
   previewDeleteRecipe,
   previewImportRecipeFromUrl,
@@ -462,6 +472,65 @@ export const previewAddToShoppingListTool: McpToolDefinition<typeof addShoppingI
     auditedPreview(caller, 'preview_add_to_shopping_list', () => previewAddToShoppingList(caller, args)),
 };
 
+const checkShoppingInput = z.object({
+  itemId: z.string(),
+  checked: z.boolean().optional(),
+});
+
+export const previewCheckShoppingItemTool: McpToolDefinition<
+  typeof checkShoppingInput,
+  typeof previewResultSchema
+> = {
+  name: 'preview_check_shopping_item',
+  title: 'Preview check shopping item',
+  description: 'Preview checking or unchecking a shopping list item (default checked=true).',
+  inputSchema: checkShoppingInput,
+  outputSchema: previewResultSchema,
+  scope: 'meals:write',
+  annotations: writeAnnotations,
+  handler: async (args, caller) =>
+    auditedPreview(caller, 'preview_check_shopping_item', () => previewCheckShoppingItem(caller, args)),
+};
+
+const clearCheckedShoppingInput = z.object({ weekStart: z.string().optional() });
+
+export const previewClearCheckedShoppingTool: McpToolDefinition<
+  typeof clearCheckedShoppingInput,
+  typeof previewResultSchema
+> = {
+  name: 'preview_clear_checked_shopping',
+  title: 'Preview clear checked shopping',
+  description: 'Preview deleting all checked shopping items for a week (default current week).',
+  inputSchema: clearCheckedShoppingInput,
+  outputSchema: previewResultSchema,
+  scope: 'meals:write',
+  annotations: destructiveAnnotations,
+  handler: async (args, caller) =>
+    auditedPreview(caller, 'preview_clear_checked_shopping', () => previewClearCheckedShopping(caller, args)),
+};
+
+const getFoodPrefsInput = z.object({});
+const getFoodPrefsOutput = z.object({
+  householdId: z.string(),
+  cuisines: z.array(z.string()),
+  allergies: z.array(z.string()),
+  equipment: z.array(z.string()),
+});
+
+export const getFoodPrefsTool: McpToolDefinition<typeof getFoodPrefsInput, typeof getFoodPrefsOutput> = {
+  name: 'get_food_prefs',
+  title: 'Get food prefs',
+  description: 'Household cuisines, allergies, and equipment from food preferences (meal planning context).',
+  inputSchema: getFoodPrefsInput,
+  outputSchema: getFoodPrefsOutput,
+  scope: 'meals:read',
+  annotations: readAnnotations,
+  handler: async (_args, caller) =>
+    withMcpAudit(caller, { tool: 'get_food_prefs', mode: 'read' }, () =>
+      getFoodPrefs(caller.client, caller.userId),
+    ),
+};
+
 export const MEALS_MCP_TOOLS = [
   searchRecipesTool,
   getRecipeTool,
@@ -469,6 +538,7 @@ export const MEALS_MCP_TOOLS = [
   getShoppingListTool,
   getPantryTool,
   getPicksTool,
+  getFoodPrefsTool,
   previewCreateRecipeTool,
   previewUpdateRecipeTool,
   previewDeleteRecipeTool,
@@ -478,4 +548,6 @@ export const MEALS_MCP_TOOLS = [
   previewRemoveMealTool,
   previewPlanMealsTool,
   previewAddToShoppingListTool,
+  previewCheckShoppingItemTool,
+  previewClearCheckedShoppingTool,
 ] as const;

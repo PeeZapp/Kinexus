@@ -1,6 +1,6 @@
 import type { Database, Json } from '@kinexus/db';
 import type { Day, Ingredient, MealSlot, MealSlotKey, NutritionGoals, Recipe, StoredGroceryQuote } from '@kinexus/domain';
-import { DAYS, MEAL_SLOTS, isRecipeClass, parsePriceOverrideMap, type IngredientPriceBook } from '@kinexus/domain';
+import { DAYS, MEAL_SLOTS, isRecipeClass, normalizeFoodTags, parsePriceOverrideMap, type IngredientPriceBook } from '@kinexus/domain';
 
 type RecipeRow = Database['public']['Tables']['recipes']['Row'];
 type SlotRow = Database['public']['Tables']['meal_slots']['Row'];
@@ -39,12 +39,17 @@ export function mapIngredients(value: Json): Ingredient[] {
 }
 
 export function recipeFromRow(row: RecipeRow): Recipe {
+  const cuisines = (row.cuisines ?? []).filter(Boolean);
   return {
     id: row.id,
     name: row.name,
     householdId: row.household_id,
     emoji: row.emoji ?? undefined,
-    cuisine: row.cuisine ?? undefined,
+    cuisine: row.cuisine ?? cuisines[0] ?? undefined,
+    cuisines,
+    allergens: (row.allergens ?? []).filter(Boolean),
+    dietary: (row.dietary ?? []).filter(Boolean),
+    equipment: (row.equipment ?? []).filter(Boolean),
     cookTime: asNum(row.cook_time),
     servings: asNum(row.servings),
     protein: asNum(row.protein),
@@ -227,11 +232,16 @@ function groceryQuoteFromJson(value: Json | null): StoredGroceryQuote | null {
 }
 
 export function recipeToInsert(householdId: string, recipe: Omit<Recipe, 'id' | 'householdId'>): Database['public']['Tables']['recipes']['Insert'] {
+  const cuisines = normalizeFoodTags(recipe.cuisines ?? (recipe.cuisine ? [recipe.cuisine] : []));
   return {
     household_id: householdId,
     name: recipe.name,
     emoji: recipe.emoji ?? null,
-    cuisine: recipe.cuisine ?? null,
+    cuisine: (recipe.cuisine ?? cuisines[0]) ?? null,
+    cuisines,
+    allergens: normalizeFoodTags(recipe.allergens ?? []),
+    dietary: normalizeFoodTags(recipe.dietary ?? []),
+    equipment: normalizeFoodTags(recipe.equipment ?? []),
     cook_time: recipe.cookTime ?? null,
     servings: recipe.servings ?? null,
     protein: recipe.protein ?? null,
@@ -256,10 +266,15 @@ export function recipeToInsert(householdId: string, recipe: Omit<Recipe, 'id' | 
 }
 
 export function recipeToUpdate(recipe: Omit<Recipe, 'id' | 'householdId'>): Database['public']['Tables']['recipes']['Update'] {
+  const cuisines = normalizeFoodTags(recipe.cuisines ?? (recipe.cuisine ? [recipe.cuisine] : []));
   return {
     name: recipe.name,
     emoji: recipe.emoji ?? null,
-    cuisine: recipe.cuisine ?? null,
+    cuisine: (recipe.cuisine ?? cuisines[0]) ?? null,
+    cuisines,
+    allergens: normalizeFoodTags(recipe.allergens ?? []),
+    dietary: normalizeFoodTags(recipe.dietary ?? []),
+    equipment: normalizeFoodTags(recipe.equipment ?? []),
     cook_time: recipe.cookTime ?? null,
     servings: recipe.servings ?? null,
     protein: recipe.protein ?? null,

@@ -16,7 +16,7 @@ import { fetchOverviewNews } from '@/src/features/today/api';
 import { DailyHud } from '@/src/features/today/DailyHud';
 import { WeatherReadout, WeatherSheet } from '@/src/features/today/WeatherSheet';
 import { EMPTY_OVERVIEW, loadOverviewPrefs, persistOverviewPrefs, type OverviewPrefs } from '@/src/features/today/prefs';
-import { MorePuzzles } from '@/src/features/today/puzzles/PuzzlesCard';
+import { MorePuzzles, SudokuCard } from '@/src/features/today/puzzles/PuzzlesCard';
 import { WordleCard } from '@/src/features/today/WordleCard';
 import type { AuthUser } from '@/src/lib/auth';
 import { useAuth } from '@/src/lib/auth';
@@ -150,8 +150,19 @@ function TodayBody({ user, initial }: { user: AuthUser; initial: OverviewPrefs }
         }}
       />
 
-      <WordleCard />
-      <MorePuzzles />
+      {desktop ? (
+        <View style={styles.gameRow}>
+          <View style={styles.gameSlot}>
+            <WordleCard />
+          </View>
+          <View style={styles.gameSlot}>
+            <SudokuCard />
+          </View>
+        </View>
+      ) : (
+        <WordleCard />
+      )}
+      <MorePuzzles includeSudoku={!desktop} />
       <NewsCard interests={prefs.newsInterests} topicPriorities={prefs.topicPriorities} />
     </ScrollView>
   );
@@ -278,14 +289,16 @@ const styles = StyleSheet.create({
     padding: space.lg,
     gap: 12,
   },
-  columns: {
+  gameRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'flex-start',
     gap: 16,
   },
-  stack: {
-    gap: 16,
+  gameSlot: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
   },
   card: {
     alignSelf: 'stretch',

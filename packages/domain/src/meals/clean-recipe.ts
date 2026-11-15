@@ -8,6 +8,7 @@
 
 import { parseAmount } from './amounts';
 import { classifyRecipeHost } from './recipe-url';
+import { normalizeRecipeMethodSteps } from './recipe-sections';
 import type { Ingredient, MealSlotKey, Recipe } from './types';
 
 /** How we classified the submitted URL before fetching. */
@@ -229,8 +230,24 @@ export function cleanIngredientsToRecipeIngredients(ingredients: CleanIngredient
     const name = line.name.trim();
     if (!name) return [];
     const amount = line.quantity?.raw.trim();
-    return [{ name, amount: amount || undefined }];
+    const section = line.group?.trim() || undefined;
+    return [{ name, amount: amount || undefined, ...(section ? { section } : {}) }];
   });
+}
+
+export function methodBlocksToRecipeMethodSteps(method: CleanMethodBlock[]): { text: string; section?: string }[] {
+  const steps: { text: string; section?: string }[] = [];
+  let section: string | undefined;
+  for (const block of method) {
+    const text = block.text.trim();
+    if (!text) continue;
+    if (block.type === 'heading') {
+      section = text;
+      continue;
+    }
+    steps.push({ text, ...(section ? { section } : {}) });
+  }
+  return steps;
 }
 
 /** Persist original servings/amounts, not the cook-session scaled values. */
@@ -244,7 +261,7 @@ export function cleanRecipeToHouseholdDraft(
     servings: recipe.originalServings,
     vegetarian: recipe.vegetarian,
     ingredients: cleanIngredientsToRecipeIngredients(recipe.ingredients),
-    method: methodBlocksToStrings(recipe.method),
+    method: methodBlocksToRecipeMethodSteps(recipe.method),
     chefTip: recipe.chefTip,
     mealSlots: recipe.mealSlots?.length ? [...recipe.mealSlots] : [],
     sourceUrl: recipe.attribution.sourceUrl,
@@ -346,6 +363,7 @@ export function householdRecipeToClean(recipe: Recipe): CleanRecipe {
     if (!name) return [];
     const raw = line.amount?.trim();
     const parsed = raw ? parseAmount(raw) : null;
+    const group = line.section?.trim() || undefined;
     return [
       {
         id: `ing-${index + 1}`,
@@ -353,21 +371,24 @@ export function householdRecipeToClean(recipe: Recipe): CleanRecipe {
         quantity: raw
           ? { value: parsed?.value ?? null, unit: parsed?.unit || undefined, raw }
           : undefined,
+        ...(group ? { group } : {}),
       },
     ];
   });
 
   const method: CleanMethodBlock[] = [];
-  for (const [index, text] of (recipe.method ?? []).entries()) {
-    const trimmed = text.trim();
-    if (!trimmed) continue;
-    if (trimmed.startsWith('# ')) {
-      const heading = trimmed.slice(2).trim();
-      if (!heading) continue;
-      method.push({ id: `h-${index + 1}`, type: 'heading', text: heading });
-      continue;
+  const normalized = normalizeRecipeMethodSteps(recipe.method ?? []);
+  let lastSection: string | undefined;
+  let seq = 0;
+  for (const step of normalized) {
+    const section = step.section?.trim() || undefined;
+    if (section && section !== lastSection) {
+      seq += 1;
+      method.push({ id: `h-${seq}`, type: 'heading', text: section });
+      lastSection = section;
     }
-    method.push({ id: `s-${index + 1}`, type: 'step', text: trimmed });
+    seq += 1;
+    method.push({ id: `s-${seq}`, type: 'step', text: step.text });
   }
 
   return {

@@ -1,0 +1,19 @@
+---
+description: Prefer structured selection lists over jumbled wrap chips
+alwaysApply: true
+---
+
+# Selection UI
+
+Do not use randomly sized, wrapping chip/pill jumbles for multi-select option sets.
+
+For catalogs of options (cuisines, equipment, allergies, levels, etc.), use a **2-column grid of evenly sized buttons**:
+
+- `flexDirection: 'row'`, `flexWrap: 'wrap'`, gap 8
+- Each tile: `flexGrow: 1`, `flexBasis: '46%'`, same `minHeight` (~48), centered label
+- Selected: accent border + `accentSoft` background + accent label
+- Group under uppercase section labels when helpful; custom values in a “Yours” section
+
+Reference: train settings tiles (`TrainSettingsPanel`) and food prefs (`apps/kinexus/src/features/meals/food/tag-editors.tsx`).
+
+Full-width list rows (session type picker) are fine for long labeled lists. Compact `Choice` pills are only for a **small** set of already-chosen items (e.g. 1–3 preferences), not for browsing a catalog.

@@ -188,6 +188,30 @@ export async function getPantry(): Promise<{
   };
 }
 
+export async function getFoodPrefs(
+  client: SupabaseClient,
+  userId: string,
+): Promise<{
+  householdId: string;
+  cuisines: string[];
+  allergies: string[];
+  equipment: string[];
+}> {
+  const { householdId } = await resolveCallerHousehold(client, userId);
+  const { data, error } = await client
+    .from('household_food_prefs')
+    .select('cuisines, allergies, equipment')
+    .eq('household_id', householdId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return {
+    householdId,
+    cuisines: Array.isArray(data?.cuisines) ? (data!.cuisines as string[]) : [],
+    allergies: Array.isArray(data?.allergies) ? (data!.allergies as string[]) : [],
+    equipment: Array.isArray(data?.equipment) ? (data!.equipment as string[]) : [],
+  };
+}
+
 export async function getPicks(
   client: SupabaseClient,
   userId: string,

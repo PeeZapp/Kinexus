@@ -93,6 +93,8 @@ import {
 import { oauthAuthorizationServerBody, oauthProtectedResourceBody } from './mcp/oauth-metadata.js';
 import { handleWeeklyCatalogueSelection } from './grocery/catalogue-select.js';
 import { handleDailyCatalogueRefresh } from './grocery/catalogue-refresh.js';
+import { handleWatchlistAvailabilityCheck } from './watchlist/availability-cron.js';
+import { handleInvestmentAlertsCheck } from './finances/investment-alerts-cron.js';
 import {
   handleBooksCollection,
   handleBooksCollections,
@@ -461,6 +463,15 @@ function registerMealsRoutes(router: Hono) {
     const authed = await userFromRequest(c.req.raw);
     if ('error' in authed) return c.json({ error: authed.error }, authed.status);
     const result = await handleRefreshRecipeCosts(c.req.raw, authed.user.id);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+
+  router.get('/watchlist/availability-check', async (c) => {
+    const result = await handleWatchlistAvailabilityCheck(c.req.raw);
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  });
+  router.get('/investments/alerts-check', async (c) => {
+    const result = await handleInvestmentAlertsCheck(c.req.raw);
     return c.json(result.body, result.status as ContentfulStatusCode);
   });
   router.post('/prices/refresh', async (c) => {

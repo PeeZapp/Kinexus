@@ -11,11 +11,14 @@ import {
 
 import { searchWatchlistTitles } from '../../watchlist.js';
 import {
+  CHECKLIST_ITEM_NOT_FOUND,
+  CHECKLIST_NOT_FOUND,
   WATCHLIST_ITEM_NOT_FOUND,
   WATCHLIST_NOT_FOUND,
   WISHLIST_ITEM_NOT_FOUND,
   WISHLIST_NOT_FOUND,
   accessOpts,
+  assertCanViewChecklist,
   assertCanViewWatchlist,
   assertCanViewWishlist,
   resolveCallerCountry,
@@ -80,6 +83,37 @@ export type WishlistItemSummary = {
 
 export type WishlistDetail = WishlistListSummary & {
   items: WishlistItemSummary[];
+};
+
+export type ChecklistListSummary = {
+  id: string;
+  name: string;
+  visibility: string;
+  emoji: string | null;
+  theme: string | null;
+  itemCount: number;
+  createdBy: string | null;
+  parentListId: string | null;
+};
+
+export type ChecklistItemSummary = {
+  id: string;
+  listId: string;
+  createdBy: string | null;
+  title: string;
+  notes: string | null;
+  category: string | null;
+  priority: number;
+  dueOn: string | null;
+  recurrence: string;
+  assignedPersonId: string | null;
+  isChecked: boolean;
+  position: number;
+  updatedAt: string;
+};
+
+export type ChecklistDetail = ChecklistListSummary & {
+  items: ChecklistItemSummary[];
 };
 
 function asNum(value: unknown): number | null {
@@ -362,6 +396,57 @@ export async function listWishlists(
   };
 }
 
+export async function listChecklists(
+  client: SupabaseClient,
+  userId: string,
+): Promise<{ householdId: string; checklists: ChecklistListSummary[] }> {
+  const { householdId, role } = await resolveCallerHousehold(client, userId);
+  const personId = await resolveCallerPersonId(client, householdId, userId);
+  const opts = accessOpts(role, userId, personId);
+  const peopleMap = await loadWishlistPeopleMap(client, householdId);
+
+  const { data, error } = await client.from('stash_lists').select('*').eq('household_id', householdId).order('name');
+  if (error) throw new Error(error.message);
+
+  const lists = (data ?? []).map((row) => {
+    const rec = row as Record<string, unknown>;
+    return toStashList(rec, peopleMap.get(String(rec.id)) ?? []);
+  });
+  const checklistsOnly = listsOfKind(lists, 'checklist').filter((list) => {
+    try {
+      assertCanViewChecklist(list, opts);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  const { data: rows, error: itemsError } = await client
+    .from('stash_list_items')
+    .select('list_id')
+    .eq('household_id', householdId);
+  if (itemsError) throw new Error(itemsError.message);
+  const counts = new Map<string, number>();
+  for (const row of rows ?? []) {
+    const listId = String((row as { list_id: string }).list_id);
+    counts.set(listId, (counts.get(listId) ?? 0) + 1);
+  }
+
+  return {
+    householdId,
+    checklists: checklistsOnly.map((list) => ({
+      id: list.id,
+      name: list.name,
+      visibility: list.visibility,
+      emoji: list.emoji,
+      theme: list.theme,
+      itemCount: counts.get(list.id) ?? 0,
+      createdBy: list.createdBy,
+      parentListId: list.parentListId,
+    })),
+  };
+}
+
 export async function getWishlist(
   client: SupabaseClient,
   userId: string,
@@ -435,6 +520,68 @@ export async function getWishlist(
   };
 }
 
+export async function getChecklist(
+  client: SupabaseClient,
+  userId: string,
+  listId: string,
+): Promise<{ householdId: string; checklist: ChecklistDetail }> {
+  const { householdId, role } = await resolveCallerHousehold(client, userId);
+  const personId = await resolveCallerPersonId(client, householdId, userId);
+  const opts = accessOpts(role, userId, personId);
+  const peopleMap = await loadWishlistPeopleMap(client, householdId);
+
+  const { data, error } = await client.from('stash_lists').select('*').eq('id', listId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error(CHECKLIST_NOT_FOUND);
+  const rec = data as Record<string, unknown>;
+  if (String(rec.household_id) !== householdId) throw new Error(CHECKLIST_NOT_FOUND);
+  const list = toStashList(rec, peopleMap.get(listId) ?? []);
+  if (list.kind !== 'checklist') throw new Error(CHECKLIST_NOT_FOUND);
+  assertCanViewChecklist(list, opts);
+
+  const { data: itemRows, error: itemsError } = await client
+    .from('stash_list_items')
+    .select('*')
+    .eq('household_id', householdId)
+    .eq('list_id', listId)
+    .order('position');
+  if (itemsError) throw new Error(itemsError.message);
+
+  const items: ChecklistItemSummary[] = (itemRows ?? []).map((row) => {
+    const item = row as Record<string, unknown>;
+    return {
+      id: String(item.id),
+      listId: String(item.list_id),
+      createdBy: typeof item.created_by === 'string' ? item.created_by : null,
+      title: String(item.title ?? ''),
+      notes: typeof item.notes === 'string' ? item.notes : null,
+      category: typeof item.category === 'string' ? item.category : null,
+      priority: typeof item.priority === 'number' ? item.priority : Number(item.priority ?? 0),
+      dueOn: typeof item.due_on === 'string' ? item.due_on : null,
+      recurrence: String(item.recurrence ?? 'none'),
+      assignedPersonId: typeof item.assigned_person_id === 'string' ? item.assigned_person_id : null,
+      isChecked: Boolean(item.is_checked),
+      position: typeof item.position === 'number' ? item.position : Number(item.position ?? 0),
+      updatedAt: String(item.updated_at ?? ''),
+    };
+  });
+
+  return {
+    householdId,
+    checklist: {
+      id: list.id,
+      name: list.name,
+      visibility: list.visibility,
+      emoji: list.emoji,
+      theme: list.theme,
+      itemCount: items.length,
+      createdBy: list.createdBy,
+      parentListId: list.parentListId,
+      items,
+    },
+  };
+}
+
 export function mapWishlistItem(product: Record<string, unknown>, listIds: string[]): WishlistItemSummary {
   return {
     id: String(product.id),
@@ -496,6 +643,35 @@ export async function loadWishlistProductOrThrow(
   if (!data) throw new Error(WISHLIST_ITEM_NOT_FOUND);
   const rec = data as Record<string, unknown>;
   if (String(rec.household_id) !== householdId) throw new Error(WISHLIST_ITEM_NOT_FOUND);
+  return rec;
+}
+
+export async function loadChecklistListOrThrow(
+  client: SupabaseClient,
+  householdId: string,
+  listId: string,
+  peopleMap: Map<string, string[]>,
+): Promise<StashList> {
+  const { data, error } = await client.from('stash_lists').select('*').eq('id', listId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error(CHECKLIST_NOT_FOUND);
+  const rec = data as Record<string, unknown>;
+  if (String(rec.household_id) !== householdId) throw new Error(CHECKLIST_NOT_FOUND);
+  const list = toStashList(rec, peopleMap.get(listId) ?? []);
+  if (list.kind !== 'checklist') throw new Error(CHECKLIST_NOT_FOUND);
+  return list;
+}
+
+export async function loadChecklistItemOrThrow(
+  client: SupabaseClient,
+  householdId: string,
+  itemId: string,
+): Promise<Record<string, unknown>> {
+  const { data, error } = await client.from('stash_list_items').select('*').eq('id', itemId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error(CHECKLIST_ITEM_NOT_FOUND);
+  const rec = data as Record<string, unknown>;
+  if (String(rec.household_id) !== householdId) throw new Error(CHECKLIST_ITEM_NOT_FOUND);
   return rec;
 }
 

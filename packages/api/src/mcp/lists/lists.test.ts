@@ -5,10 +5,13 @@ import { commitWritePreview, createWritePreview } from '../preview.js';
 import type { McpCaller } from '../context.js';
 import { commitTool } from '../commit-tool.js';
 import { LISTS_MCP_TOOLS } from './tools.js';
-import { getWatchlist, getWishlist, listWatchlists, listWishlists } from './reads.js';
+import { getChecklist, getWatchlist, getWishlist, listChecklists, listWatchlists, listWishlists } from './reads.js';
 import {
   commitListsPreview,
+  previewAddChecklistItem,
   previewAddToWatchlist,
+  previewRemoveChecklistItem,
+  previewUpdateChecklistItem,
   previewWishlistPriceUpdate,
 } from './writes.js';
 
@@ -104,6 +107,7 @@ function listsClient(opts: {
   wishlists?: Row[];
   wishlistProducts?: Row[];
   wishlistJoins?: Row[];
+  checklistItems?: Row[];
   people?: Row[];
 }) {
   const watchlists = [...(opts.watchlists ?? [])];
@@ -112,6 +116,7 @@ function listsClient(opts: {
   const wishlists = [...(opts.wishlists ?? [])];
   const wishlistProducts = [...(opts.wishlistProducts ?? [])];
   const wishlistJoins = [...(opts.wishlistJoins ?? [])];
+  const checklistItems = [...(opts.checklistItems ?? [])];
   const people = [...(opts.people ?? [])];
   const previews = previewStore();
   const audit: Row[] = [];
@@ -259,6 +264,7 @@ function listsClient(opts: {
     };
   }
 
+  const rpcs: { name: string; args: Row }[] = [];
   const client = {
     from(table: string) {
       if (table === 'mcp_previews') return previews.from(table);
@@ -336,6 +342,7 @@ function listsClient(opts: {
       if (table === 'stash_lists') return tableApi('stash_lists', wishlists);
       if (table === 'stash_products') return tableApi('stash_products', wishlistProducts);
       if (table === 'stash_list_products') return tableApi('stash_list_products', wishlistJoins);
+      if (table === 'stash_list_items') return tableApi('stash_list_items', checklistItems);
       if (table === 'stash_list_people') {
         return {
           select() {
@@ -353,14 +360,20 @@ function listsClient(opts: {
       }
       throw new Error(`unexpected table ${table}`);
     },
+    async rpc(name: string, args: Row) {
+      rpcs.push({ name, args });
+      return { data: null, error: null };
+    },
     _watchlists: watchlists,
     _watchlistItems: watchlistItems,
     _watchlistTitles: watchlistTitles,
     _wishlists: wishlists,
     _wishlistProducts: wishlistProducts,
     _wishlistJoins: wishlistJoins,
+    _checklistItems: checklistItems,
     _audit: audit,
     _previews: previews.store,
+    _rpcs: rpcs,
   };
 
   return client;
@@ -387,7 +400,7 @@ describe('lists MCP', () => {
 
   it('registers title + annotations for every lists tool', () => {
     expect(() => assertRegistryAnnotations(MCP_TOOL_REGISTRY)).not.toThrow();
-    expect(LISTS_MCP_TOOLS.length).toBe(13);
+    expect(LISTS_MCP_TOOLS.length).toBe(18);
     for (const tool of LISTS_MCP_TOOLS) {
       expect(tool.title.trim().length).toBeGreaterThan(0);
       expect(tool.annotations).toEqual(
@@ -716,6 +729,21 @@ describe('lists MCP', () => {
           updated_at: '2026-01-01',
         },
         {
+          id: 'c-ours',
+          household_id: 'hh-a',
+          created_by: 'user-a',
+          name: 'Chores',
+          kind: 'checklist',
+          visibility: 'household',
+          parent_list_id: null,
+          is_shared: false,
+          share_token: null,
+          emoji: null,
+          theme: null,
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+        {
           id: 'w-theirs',
           household_id: 'hh-b',
           created_by: 'user-b',
@@ -730,6 +758,57 @@ describe('lists MCP', () => {
           created_at: '2026-01-01',
           updated_at: '2026-01-01',
         },
+        {
+          id: 'c-theirs',
+          household_id: 'hh-b',
+          created_by: 'user-b',
+          name: 'Theirs chores',
+          kind: 'checklist',
+          visibility: 'household',
+          parent_list_id: null,
+          is_shared: false,
+          share_token: null,
+          emoji: null,
+          theme: null,
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      checklistItems: [
+        {
+          id: 'i-ours',
+          household_id: 'hh-a',
+          list_id: 'c-ours',
+          created_by: 'user-a',
+          title: 'Bins',
+          notes: null,
+          category: null,
+          priority: 0,
+          due_on: null,
+          recurrence: 'none',
+          assigned_person_id: null,
+          is_checked: false,
+          position: 1,
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+        {
+          id: 'i-theirs',
+          household_id: 'hh-b',
+          list_id: 'c-theirs',
+          created_by: 'user-b',
+          title: 'Nope',
+          notes: null,
+          category: null,
+          priority: 0,
+          due_on: null,
+          recurrence: 'none',
+          assigned_person_id: null,
+          is_checked: false,
+          position: 1,
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
       ],
     });
     const listed = await listWatchlists(client as never, 'user-a');
@@ -739,6 +818,10 @@ describe('lists MCP', () => {
     const wish = await listWishlists(client as never, 'user-a');
     expect(wish.wishlists.map((w) => w.id)).toEqual(['w-ours']);
     await expect(getWishlist(client as never, 'user-a', 'w-theirs')).rejects.toThrow(/not found/i);
+
+    const checks = await listChecklists(client as never, 'user-a');
+    expect(checks.checklists.map((w) => w.id)).toEqual(['c-ours']);
+    await expect(getChecklist(client as never, 'user-a', 'c-theirs')).rejects.toThrow(/not found/i);
   });
 
   it('add_to_watchlist with tmdbId creates a preview that commits', async () => {
@@ -792,5 +875,122 @@ describe('lists MCP', () => {
     expect(committed.ok).toBe(true);
     expect(client._watchlistTitles.some((t) => t.tmdb_id === 42)).toBe(true);
     expect(client._watchlistItems).toHaveLength(1);
+  });
+
+  it('checklist add / update checked / remove via preview→commit', async () => {
+    const client = listsClient({
+      userId: 'user-a',
+      householdId: 'hh-a',
+      wishlists: [
+        {
+          id: 'c-1',
+          household_id: 'hh-a',
+          created_by: 'user-a',
+          name: 'Chores',
+          kind: 'checklist',
+          visibility: 'household',
+          parent_list_id: null,
+          is_shared: false,
+          share_token: null,
+          emoji: null,
+          theme: null,
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      checklistItems: [
+        {
+          id: 'ci-1',
+          household_id: 'hh-a',
+          list_id: 'c-1',
+          created_by: 'user-a',
+          title: 'Bins',
+          notes: null,
+          category: null,
+          priority: 0,
+          due_on: null,
+          recurrence: 'none',
+          assigned_person_id: null,
+          is_checked: false,
+          position: 0,
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+    });
+    const caller = callerFor(client);
+
+    const add = await previewAddChecklistItem(caller, { listId: 'c-1', title: 'Dishes' });
+    expect(add.kind).toBe('preview');
+    if (add.kind !== 'preview') return;
+    const added = await commitListsPreview(caller, { previewId: add.previewId });
+    expect(added.ok).toBe(true);
+    expect(client._checklistItems.some((i) => i.title === 'Dishes')).toBe(true);
+    expect(client._rpcs.some((r) => r.name === 'notify_household_alert')).toBe(true);
+
+    const update = await previewUpdateChecklistItem(caller, { itemId: 'ci-1', isChecked: true });
+    expect(update.kind).toBe('preview');
+    if (update.kind !== 'preview') return;
+    const updated = await commitListsPreview(caller, { previewId: update.previewId });
+    expect(updated.ok).toBe(true);
+    expect(client._checklistItems.find((i) => i.id === 'ci-1')?.is_checked).toBe(true);
+
+    const remove = await previewRemoveChecklistItem(caller, { itemId: 'ci-1' });
+    expect(remove.kind).toBe('preview');
+    if (remove.kind !== 'preview') return;
+    const removed = await commitListsPreview(caller, { previewId: remove.previewId });
+    expect(removed.ok).toBe(true);
+    expect(client._checklistItems.find((i) => i.id === 'ci-1')).toBeUndefined();
+  });
+
+  it('checklist writes deny private lists owned by others', async () => {
+    const client = listsClient({
+      userId: 'user-a',
+      householdId: 'hh-a',
+      role: 'adult',
+      wishlists: [
+        {
+          id: 'c-priv',
+          household_id: 'hh-a',
+          created_by: 'user-b',
+          name: 'Secret',
+          kind: 'checklist',
+          visibility: 'private',
+          parent_list_id: null,
+          is_shared: false,
+          share_token: null,
+          emoji: null,
+          theme: null,
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+      checklistItems: [
+        {
+          id: 'ci-priv',
+          household_id: 'hh-a',
+          list_id: 'c-priv',
+          created_by: 'user-b',
+          title: 'Hidden',
+          notes: null,
+          category: null,
+          priority: 0,
+          due_on: null,
+          recurrence: 'none',
+          assigned_person_id: null,
+          is_checked: false,
+          position: 0,
+          created_at: '2026-01-01',
+          updated_at: '2026-01-01',
+        },
+      ],
+    });
+    const caller = callerFor(client);
+    await expect(previewAddChecklistItem(caller, { listId: 'c-priv', title: 'Nope' })).rejects.toThrow(
+      /not found|cannot change/i,
+    );
+    await expect(previewUpdateChecklistItem(caller, { itemId: 'ci-priv', isChecked: true })).rejects.toThrow(
+      /not found|cannot change/i,
+    );
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, Vibration, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, type Href } from 'expo-router';
 
@@ -29,9 +29,9 @@ import {
   type TrackingType,
 } from '@kinexus/domain';
 
-import { useWakeLock } from '@/src/features/cook/use-wake-lock';
 import { Sheet } from '@/src/features/meals/meals-kit';
 import { AppModal } from '@/src/features/shell/AppModal';
+import { useRestTimer } from '@/src/features/train/rest-timer-context';
 import {
   abandonEmptyOpenSessions,
   abandonWorkoutSession,
@@ -261,12 +261,9 @@ export function SessionScreen({
       : BASE_VISIBILITY;
   }, [creator.isApprovedCreator, workout?.equipment, workout?.goal, workout?.level]);
   const [savedSignature, setSavedSignature] = useState<string | null>(null);
-  const [restGame, setRestGame] = useState<RestExtra>('off');
   const [restSeconds, setRestSeconds] = useState<number>(90);
   const [restOpen, setRestOpen] = useState(false);
   const [setPrompt, setSetPrompt] = useState(false);
-  const [restUntil, setRestUntil] = useState<number | null>(null);
-  const [now, setNow] = useState(Date.now());
   const [library, setLibrary] = useState<LibraryExercise[]>([]);
   const [offered, setOffered] = useState<Record<number, string[]>>({});
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -288,20 +285,18 @@ export function SessionScreen({
   const [records, setRecords] = useState<Awaited<ReturnType<typeof loadRecords>>>({});
   const [myScores, setMyScores] = useState<RestGameScore[]>([]);
   const [topScores, setTopScores] = useState<RestGameScore[]>([]);
-  const [shownScore, setShownScore] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [addQuery, setAddQuery] = useState('');
   const [adding, setAdding] = useState(false);
-  const liveScore = useRef(0);
+  const rest = useRestTimer();
+  const restLabelRef = useRef('Rest');
   const remixingRef = useRef(false);
   const finishRestRef = useRef<() => void>(() => undefined);
   const scoresRef = useRef({ mine: myScores, tops: topScores });
   scoresRef.current = { mine: myScores, tops: topScores };
-
-  const remaining = restUntil ? Math.max(0, Math.ceil((restUntil - now) / 1000)) : 0;
-  const resting = restUntil !== null;
-  useWakeLock(resting, 'kinexus-rest');
+  const remaining = rest.remainingSec;
+  const resting = rest.active;
 
   useEffect(() => {
     if (!userId) return;
@@ -392,18 +387,6 @@ export function SessionScreen({
       cancelled = true;
     };
   }, [activeHousehold, userId, workoutId, liveSessionId, planDayId]);
-
-  useEffect(() => {
-    if (!restUntil) return undefined;
-    const timer = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(timer);
-  }, [restUntil]);
-
-  useEffect(() => {
-    if (!restUntil || remaining > 0) return;
-    Vibration.vibrate(200);
-    finishRestRef.current();
-  }, [remaining, restUntil]);
 
   const groups = useMemo(() => {
     const map = new Map<number, SessionSet[]>();
@@ -570,14 +553,25 @@ export function SessionScreen({
   }
 
   finishRestRef.current = () => {
-    const score = liveScore.current;
-    const game = restGame;
-    const seconds = restSeconds;
-    liveScore.current = 0;
-    setShownScore(0);
-    setRestUntil(null);
+    const game = rest.extra;
+    const seconds = rest.totalSec || restSeconds;
+    const score = rest.score;
+    rest.dismiss();
     if (userId && (game === 'quiz' || game === 'memory') && score > 0) void rememberScore(userId, game, seconds, score);
   };
+
+  useEffect(() => {
+    if (!userId) {
+      rest.setOnComplete(null);
+      return;
+    }
+    rest.setOnComplete((info) => {
+      if ((info.extra === 'quiz' || info.extra === 'memory') && info.score > 0) {
+        void rememberScore(userId, info.extra, info.totalSec, info.score);
+      }
+    });
+    return () => rest.setOnComplete(null);
+  }, [rest, userId]);
 
   async function patch(set: SessionSet, next: Partial<SessionSet>, weightDisplay?: string) {
     let weight = next.weight ?? set.weight;
@@ -655,22 +649,21 @@ export function SessionScreen({
   }
 
   function beginRest(game: RestExtra) {
-    liveScore.current = 0;
-    setShownScore(0);
-    setRestGame(game);
     setRestOpen(false);
     setSetPrompt(false);
-    const until = Date.now() + restSeconds * 1000;
+    const sessionHref = liveSessionId
+      ? `/train/session/live/${liveSessionId}${planDayId ? `?dayId=${encodeURIComponent(planDayId)}` : ''}`
+      : workoutId
+        ? `/train/session/${workoutId}`
+        : null;
+    const label = (restLabelRef.current || workout?.name || 'Rest').trim() || 'Rest';
     requestAnimationFrame(() => {
-      setRestUntil(until);
-      setNow(Date.now());
+      rest.start({ seconds: restSeconds, extra: game, label, sessionHref });
     });
   }
 
   function onGameScore(score: number) {
-    const next = Math.max(liveScore.current, score);
-    liveScore.current = next;
-    setShownScore(next);
+    rest.setScore(score);
   }
 
   function confirmRemix() {
@@ -906,6 +899,7 @@ export function SessionScreen({
     if (!sessionId || !userId || finishing) return;
     setFinishing(true);
     setError(null);
+    if (rest.active) rest.dismiss();
     try {
       const sessionExercises = groups.flatMap(([position, group]) => {
         const exerciseId = group[0]?.exerciseId;
@@ -1018,8 +1012,11 @@ export function SessionScreen({
     await complete(null);
   }
 
-  const activeBest = restGame === 'quiz' || restGame === 'memory' ? findScore(myScores, restGame, restSeconds) : undefined;
-  const activeTop = restGame === 'quiz' || restGame === 'memory' ? findScore(topScores, restGame, restSeconds) : undefined;
+  const activeSeconds = rest.totalSec || restSeconds;
+  const activeBest =
+    rest.extra === 'quiz' || rest.extra === 'memory' ? findScore(myScores, rest.extra, activeSeconds) : undefined;
+  const activeTop =
+    rest.extra === 'quiz' || rest.extra === 'memory' ? findScore(topScores, rest.extra, activeSeconds) : undefined;
 
   return (
     <TrainPage>
@@ -1154,7 +1151,10 @@ export function SessionScreen({
                     onPress={() => {
                       const done = !exerciseDone;
                       void markExercise(group, done);
-                      if (done) setSetPrompt(true);
+                      if (done) {
+                        restLabelRef.current = exerciseTitle(name);
+                        setSetPrompt(true);
+                      }
                     }}
                     hitSlop={8}
                     style={[styles.setCheck, exerciseDone && styles.setCheckOn]}>
@@ -1396,7 +1396,10 @@ export function SessionScreen({
                         onPress={() => {
                           const done = !set.done;
                           void patch(set, { done });
-                          if (done) setSetPrompt(true);
+                          if (done) {
+                            restLabelRef.current = exerciseTitle(name);
+                            setSetPrompt(true);
+                          }
                         }}
                         hitSlop={8}
                         style={[styles.setCheck, set.done && styles.setCheckOn]}>
@@ -1509,17 +1512,18 @@ export function SessionScreen({
           />
         </View>
       </Sheet>
-      <AppModal visible={resting} transparent animationType="fade" onRequestClose={() => finishRestRef.current()}>
+      <AppModal visible={resting && !rest.minimized} transparent animationType="fade" onRequestClose={() => finishRestRef.current()}>
         <View style={styles.restBackdrop}>
           <View style={styles.restCard}>
             <Text style={styles.timer}>{clock(remaining)}</Text>
-            {restGame === 'quiz' || restGame === 'memory' ? (
+            {rest.extra === 'quiz' || rest.extra === 'memory' ? (
               <Text style={styles.liveScore}>
-                {['Score ' + shownScore, activeBest ? `Best ${activeBest}` : '', activeTop ? `Top ${activeTop}` : ''].filter(Boolean).join(' · ')}
+                {['Score ' + rest.score, activeBest ? `Best ${activeBest}` : '', activeTop ? `Top ${activeTop}` : ''].filter(Boolean).join(' · ')}
               </Text>
             ) : null}
-            {resting && restGame === 'quiz' ? <RestQuiz key={restUntil ?? 0} onScore={onGameScore} /> : null}
-            {resting && restGame === 'memory' ? <RestMemory key={restUntil ?? 0} onScore={onGameScore} /> : null}
+            {resting && rest.extra === 'quiz' ? <RestQuiz key={rest.endsAt ?? 0} onScore={onGameScore} /> : null}
+            {resting && rest.extra === 'memory' ? <RestMemory key={rest.endsAt ?? 0} onScore={onGameScore} /> : null}
+            <TrainButton label="Minimize" tone="ghost" onPress={rest.minimize} />
             <TrainButton label="Skip" tone="ghost" onPress={() => finishRestRef.current()} />
           </View>
         </View>

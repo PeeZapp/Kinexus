@@ -10,14 +10,15 @@ export function FinancesChrome({
   children,
 }: {
   desktop: boolean;
-  kicker: string;
-  title: string;
+  kicker?: string;
+  title?: string;
   children: ReactNode;
 }) {
+  // Mobile already has AppChrome title + section menu — skip the in-page section header.
   return (
     <ScrollView style={styles.root} contentContainerStyle={[styles.content, desktop && styles.contentDesktop]}>
-      <Text style={styles.kicker}>{kicker}</Text>
-      <Text style={[styles.title, desktop && styles.titleDesktop]}>{title}</Text>
+      {desktop && kicker ? <Text style={styles.kicker}>{kicker}</Text> : null}
+      {desktop && title ? <Text style={[styles.title, styles.titleDesktop]}>{title}</Text> : null}
       {children}
     </ScrollView>
   );

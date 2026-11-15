@@ -109,9 +109,9 @@ export function AddTransactionsSheet({
   const intakeStarted = useRef(false);
 
   const bank = bankById(bankId);
-  const selectedCount = rows.filter((row) => row.selected && !row.alreadyAdded).length;
-  const alreadyAdded = rows.filter((row) => row.alreadyAdded);
-  const freshRows = rows.filter((row) => !row.alreadyAdded);
+  const selectedCount = rows.filter((row) => row.selected).length;
+  const alreadyAdded = rows.filter((row) => row.alreadyAdded || row.possibleDuplicate);
+  const freshRows = rows.filter((row) => !row.alreadyAdded && !row.possibleDuplicate);
   const grouped = useMemo(() => groupReviewRowsByDate(freshRows), [freshRows]);
   const categoryTarget = rows.find((row) => row.id === pickingCategoryFor) ?? null;
 
@@ -391,7 +391,7 @@ export function AddTransactionsSheet({
 
   async function addSelected() {
     setLocalError(null);
-    const selected = rows.filter((row) => row.selected && !row.alreadyAdded);
+    const selected = rows.filter((row) => row.selected);
     if (selected.length === 0) {
       setLocalError('Tick at least one transaction');
       return;
@@ -699,7 +699,7 @@ function ReviewStep({
       {alreadyAdded.length > 0 ? (
         <Pressable onPress={onToggleAlready} style={styles.already}>
           <Text style={styles.alreadyLabel}>
-            {alreadyAdded.length} already added{showAlready ? '' : ' · show'}
+            {alreadyAdded.length} look like duplicates{showAlready ? '' : ' · review'}
           </Text>
         </Pressable>
       ) : null}
@@ -755,9 +755,12 @@ function TxnRow({
   onPickCategory: () => void;
 }) {
   const chip = categoryChipLabel(row, lines);
+  const match = row.matchedExisting;
+  const matchLine = match?.lineId ? lines.find((line) => line.id === match.lineId) : null;
+  const flagged = row.alreadyAdded || row.possibleDuplicate;
   return (
-    <View style={[styles.txn, row.alreadyAdded && styles.txnMuted]}>
-      <Pressable onPress={onToggle} style={styles.checkRow} disabled={row.alreadyAdded}>
+    <View style={[styles.txn, flagged && styles.txnMuted]}>
+      <Pressable onPress={onToggle} style={styles.checkRow}>
         <View style={[styles.check, row.selected && styles.checkOn]}>
           <Text style={styles.checkMark}>{row.selected ? '✓' : ''}</Text>
         </View>
@@ -766,8 +769,17 @@ function TxnRow({
         <Text style={styles.merchant}>{row.merchantKey}</Text>
         <Text style={styles.amount}>{formatMoney(row.amount, currency)}</Text>
         {row.pending ? <Text style={styles.pending}>Pending</Text> : null}
-        <Pressable onPress={onPickCategory} disabled={row.alreadyAdded}>
-          <Text style={styles.chip}>{chip}</Text>
+        {match ? (
+          <Text style={styles.matchAlert}>
+            {match.reason === 'merchant' ? 'Already in budget' : 'Same amount in budget'}: {match.date} ·{' '}
+            {match.description.slice(0, 48)}
+            {match.description.length > 48 ? '…' : ''} · {formatMoney(match.amount, currency)}
+            {matchLine ? ` · ${linePathName(matchLine, lines)}` : ''}
+            {row.selected ? ' · will add anyway' : ' · leave unticked to skip'}
+          </Text>
+        ) : null}
+        <Pressable onPress={onPickCategory} disabled={flagged && !row.selected}>
+          <Text style={styles.chip}>{row.selected || !flagged ? chip : 'Skip'}</Text>
         </Pressable>
       </View>
     </View>
@@ -848,11 +860,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
-  txnMuted: { opacity: 0.55 },
+  txnMuted: { opacity: 0.72 },
   txnBody: { flex: 1, gap: 2 },
   merchant: { color: colors.text, fontSize: 15, fontWeight: '600' },
   amount: { color: colors.text, fontSize: 14 },
   pending: { color: colors.warning, fontSize: 12 },
+  matchAlert: { color: colors.warning, fontSize: 12, lineHeight: 16, marginTop: 2 },
   chip: {
     alignSelf: 'flex-start',
     marginTop: 4,

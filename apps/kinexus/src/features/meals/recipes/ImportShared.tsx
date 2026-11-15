@@ -2,9 +2,10 @@ import { Children, type ReactNode, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
-import { MEAL_SLOTS, RECIPE_CLASSES, type RecipeClass } from '@kinexus/domain';
+import { ALLERGEN_OPTIONS, CUISINE_SUGGESTIONS, DIETARY_OPTIONS, EQUIPMENT_OPTIONS, MEAL_SLOTS, RECIPE_CLASSES, type RecipeClass } from '@kinexus/domain';
 
 import { BackLink, Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
+import { OptionTagEditor, StringTagEditor } from '@/src/features/meals/food/tag-editors';
 import { Chip } from '@/src/features/meals/meals-kit';
 import { RecipePhoto } from '@/src/features/meals/RecipePhoto';
 import { IngredientEditor, MethodEditor } from '@/src/features/meals/recipes/recipe-editors';
@@ -278,7 +279,6 @@ export function ImportFieldsCard({
   showCover?: boolean;
 }) {
   const [width, setWidth] = useState(0);
-  const metaCols = width >= 640 ? 3 : 1;
   const nutritionCols = width >= 640 ? 4 : 2;
   const notesCols = width >= 640 ? 2 : 1;
   const splitWork = width >= 760;
@@ -308,41 +308,42 @@ export function ImportFieldsCard({
             <Field label="Name" value={form.name} onChangeText={(name) => setForm({ name })} placeholder="Weeknight pasta" />
           </View>
         </View>
-        {metaCols === 3 ? (
-          <Split columns={3}>
-            <Field label="Cuisine" value={form.cuisine} onChangeText={(cuisine) => setForm({ cuisine })} placeholder="Italian" />
-            <Field
-              label="Minutes"
-              value={form.cookTime}
-              onChangeText={(cookTime) => setForm({ cookTime })}
-              keyboardType="numeric"
-            />
-            <Field
-              label="Servings"
-              value={form.servings}
-              onChangeText={(servings) => setForm({ servings })}
-              keyboardType="numeric"
-            />
-          </Split>
-        ) : (
-          <>
-            <Field label="Cuisine" value={form.cuisine} onChangeText={(cuisine) => setForm({ cuisine })} placeholder="Italian" />
-            <Split columns={2}>
-              <Field
-                label="Minutes"
-                value={form.cookTime}
-                onChangeText={(cookTime) => setForm({ cookTime })}
-                keyboardType="numeric"
-              />
-              <Field
-                label="Servings"
-                value={form.servings}
-                onChangeText={(servings) => setForm({ servings })}
-                keyboardType="numeric"
-              />
-            </Split>
-          </>
-        )}
+        <Split columns={2}>
+          <Field
+            label="Minutes"
+            value={form.cookTime}
+            onChangeText={(cookTime) => setForm({ cookTime })}
+            keyboardType="numeric"
+          />
+          <Field
+            label="Servings"
+            value={form.servings}
+            onChangeText={(servings) => setForm({ servings })}
+            keyboardType="numeric"
+          />
+        </Split>
+      </Card>
+      <Card>
+        <Text style={styles.section}>Food</Text>
+        <StringTagEditor
+          label="Cuisine"
+          placeholder="Italian"
+          value={form.cuisines}
+          suggestions={CUISINE_SUGGESTIONS}
+          onChange={(cuisines) => setForm({ cuisines })}
+        />
+        <OptionTagEditor label="Allergens" options={ALLERGEN_OPTIONS} value={form.allergens} onChange={(allergens) => setForm({ allergens })} />
+        <OptionTagEditor label="Dietary" options={DIETARY_OPTIONS} value={form.dietary} onChange={(dietary) => setForm({ dietary })} />
+        <OptionTagEditor
+          label="Equipment"
+          options={EQUIPMENT_OPTIONS}
+          value={form.equipment}
+          onChange={(equipment) => setForm({ equipment })}
+          allowCustom
+          customFieldLabel="Add equipment"
+          customPlaceholder="Pizza stone"
+          emptyLabel="No special equipment"
+        />
       </Card>
       <Card>
         <Text style={styles.section}>Nutrition</Text>
@@ -390,12 +391,12 @@ export function ImportFieldsCard({
       <View style={splitWork ? styles.workRow : styles.workStack}>
         <View style={splitWork ? styles.workCol : styles.workFull}>
           <Card>
-            <IngredientEditor ingredients={form.ingredients} setForm={setForm} hint={false} />
+            <IngredientEditor ingredients={form.ingredients} setForm={setForm} />
           </Card>
         </View>
         <View style={splitWork ? styles.workCol : styles.workFull}>
           <Card>
-            <MethodEditor method={form.method} setForm={setForm} hint={false} />
+            <MethodEditor method={form.method} setForm={setForm} />
           </Card>
         </View>
       </View>

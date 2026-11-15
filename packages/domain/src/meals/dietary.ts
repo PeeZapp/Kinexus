@@ -79,6 +79,21 @@ function containsEgg(recipe: Recipe): boolean {
 /** True if a recipe conflicts with (should be excluded for) a restriction. */
 export function hasConflict(recipe: Recipe, restriction: string): boolean {
   const names = ingNames(recipe);
+  const allergens = new Set((recipe.allergens ?? []).map((a) => a.toLowerCase()));
+
+  const taggedConflict =
+    restriction === 'gluten-free'
+      ? allergens.has('gluten')
+      : restriction === 'dairy-free'
+        ? allergens.has('dairy')
+        : restriction === 'egg-free'
+          ? allergens.has('egg')
+          : restriction === 'nut-free'
+            ? allergens.has('nuts')
+            : restriction === 'shellfish-free'
+              ? allergens.has('shellfish')
+              : false;
+  if (taggedConflict) return true;
 
   switch (restriction) {
     case 'vegetarian':

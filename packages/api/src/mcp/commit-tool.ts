@@ -9,6 +9,11 @@ import { resolveCallerHousehold } from './meals/shared.js';
 import { commitFitnessPreview } from './fitness/writes.js';
 import { commitListsPreview, LISTS_PREVIEW_TOOLS } from './lists/writes.js';
 import { commitReadlistPreview, READLIST_PREVIEW_TOOLS } from './readlist/writes.js';
+import { commitInvestPreview, INVEST_PREVIEW_TOOLS } from './finances/invest-writes.js';
+import { commitFinancesPreview, FINANCES_PREVIEW_TOOLS } from './finances/writes.js';
+import { commitAlertsPreview, ALERTS_PREVIEW_TOOLS } from './today/alerts-writes.js';
+import { commitCalendarPreview, CALENDAR_PREVIEW_TOOLS } from './today/calendar-writes.js';
+import { commitTalkPreview, TALK_PREVIEW_TOOLS } from './today/talk-writes.js';
 
 const MEALS_PREVIEW_TOOLS = new Set([
   'preview_create_recipe',
@@ -20,6 +25,8 @@ const MEALS_PREVIEW_TOOLS = new Set([
   'preview_remove_meal',
   'preview_plan_meals',
   'preview_add_to_shopping_list',
+  'preview_check_shopping_item',
+  'preview_clear_checked_shopping',
 ]);
 
 const FITNESS_PREVIEW_TOOLS = new Set([
@@ -42,6 +49,10 @@ const FITNESS_PREVIEW_TOOLS = new Set([
 
 const LISTS_PREVIEW_TOOL_SET = new Set<string>(LISTS_PREVIEW_TOOLS);
 const READLIST_PREVIEW_TOOL_SET = new Set<string>(READLIST_PREVIEW_TOOLS);
+const TALK_PREVIEW_TOOL_SET = new Set<string>(TALK_PREVIEW_TOOLS);
+const CALENDAR_PREVIEW_TOOL_SET = new Set<string>(CALENDAR_PREVIEW_TOOLS);
+const ALERTS_PREVIEW_TOOL_SET = new Set<string>(ALERTS_PREVIEW_TOOLS);
+const FINANCES_PREVIEW_TOOL_SET = new Set<string>([...FINANCES_PREVIEW_TOOLS, ...INVEST_PREVIEW_TOOLS]);
 
 const commitInput = z.object({ previewId: z.string() });
 const commitOutput = z.object({
@@ -79,7 +90,7 @@ export const commitTool: McpToolDefinition<typeof commitInput, typeof commitOutp
   name: 'commit',
   title: 'Commit write preview',
   description:
-    'Commit a write preview after the user confirms. Works for meals, fitness, lists, and readlist previews. Rejects missing, expired, mismatched, or already-committed previews. One confirmation applies all steps in the preview.',
+    'Commit a write preview after the user confirms. Works for meals, fitness, lists, readlist, today, and finances previews. Rejects missing, expired, mismatched, or already-committed previews. One confirmation applies all steps in the preview.',
   inputSchema: commitInput,
   outputSchema: commitOutput,
   scope: null,
@@ -101,13 +112,30 @@ export const commitTool: McpToolDefinition<typeof commitInput, typeof commitOutp
         if (!hasScope(caller.scopes, 'fitness:write')) throw new Error('Missing scope fitness:write');
         result = await commitFitnessPreview(caller, args);
       } else if (LISTS_PREVIEW_TOOL_SET.has(tool)) {
-        const writeScope = tool.includes('wishlist') || tool.includes('price_update') ? 'wishlists:write' : 'watchlists:write';
+        const writeScope =
+          tool.includes('wishlist') || tool.includes('checklist') || tool.includes('price_update')
+            ? 'wishlists:write'
+            : 'watchlists:write';
         if (!hasScope(caller.scopes, writeScope)) throw new Error(`Missing scope ${writeScope}`);
         result = await commitListsPreview(caller, args);
       } else if (READLIST_PREVIEW_TOOL_SET.has(tool)) {
         // Readlist reuses watchlists:write so existing connections keep access without reconnect.
         if (!hasScope(caller.scopes, 'watchlists:write')) throw new Error('Missing scope watchlists:write');
         result = await commitReadlistPreview(caller, args);
+      } else if (TALK_PREVIEW_TOOL_SET.has(tool)) {
+        if (!hasScope(caller.scopes, 'today:write')) throw new Error('Missing scope today:write');
+        result = await commitTalkPreview(caller, args);
+      } else if (CALENDAR_PREVIEW_TOOL_SET.has(tool)) {
+        if (!hasScope(caller.scopes, 'today:write')) throw new Error('Missing scope today:write');
+        result = await commitCalendarPreview(caller, args);
+      } else if (ALERTS_PREVIEW_TOOL_SET.has(tool)) {
+        if (!hasScope(caller.scopes, 'today:write')) throw new Error('Missing scope today:write');
+        result = await commitAlertsPreview(caller, args);
+      } else if (FINANCES_PREVIEW_TOOL_SET.has(tool)) {
+        if (!hasScope(caller.scopes, 'finances:write')) throw new Error('Missing scope finances:write');
+        result = INVEST_PREVIEW_TOOLS.includes(tool as (typeof INVEST_PREVIEW_TOOLS)[number])
+          ? await commitInvestPreview(caller, args)
+          : await commitFinancesPreview(caller, args);
       } else {
         throw new Error(`Unknown preview tool "${tool}"`);
       }

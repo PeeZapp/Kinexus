@@ -11,16 +11,28 @@ import { MemoryGame } from './MemoryGame';
 import { PatternGame } from './PatternGame';
 import { SudokuGame } from './SudokuGame';
 
-const EXTRA_GAMES = [
-  ...PUZZLE_GAMES.filter((game) => game.id === 'sudoku'),
-  ...PUZZLE_GAMES.filter((game) => game.id !== 'sudoku'),
-];
-
-export function MorePuzzles() {
+export function SudokuCard() {
   const date = localPuzzleDate();
+  const game = PUZZLE_GAMES.find((item) => item.id === 'sudoku');
+
+  return (
+    <View style={styles.card}>
+      <Text style={styles.title}>Sudoku</Text>
+      <Text style={styles.blurb}>{game?.blurb}</Text>
+      <SudokuGame date={date} />
+    </View>
+  );
+}
+
+export function MorePuzzles({ includeSudoku = false }: { includeSudoku?: boolean }) {
+  const date = localPuzzleDate();
+  const games = includeSudoku
+    ? [...PUZZLE_GAMES.filter((game) => game.id === 'sudoku'), ...PUZZLE_GAMES.filter((game) => game.id !== 'sudoku')]
+    : PUZZLE_GAMES.filter((game) => game.id !== 'sudoku');
+  const defaultGame = (includeSudoku ? 'sudoku' : 'crossword') as PuzzleGameId;
   const [open, setOpen] = useState(false);
-  const [game, setGame] = useState<PuzzleGameId>('sudoku');
-  const current = EXTRA_GAMES.find((item) => item.id === game) ?? EXTRA_GAMES[0];
+  const [game, setGame] = useState<PuzzleGameId>(defaultGame);
+  const current = games.find((item) => item.id === game) ?? games[0];
 
   return (
     <View style={styles.more}>
@@ -33,7 +45,7 @@ export function MorePuzzles() {
       {open && current ? (
         <View style={styles.card}>
           <View style={styles.tabs}>
-            {EXTRA_GAMES.map((item) => {
+            {games.map((item) => {
               const on = item.id === current.id;
               return (
                 <Pressable key={item.id} onPress={() => setGame(item.id)} style={[styles.tab, on && styles.tabOn]}>
@@ -79,6 +91,7 @@ const styles = StyleSheet.create({
     padding: space.md,
     gap: 12,
   },
+  title: { color: colors.text, fontSize: 18, fontWeight: '700' },
   blurb: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
   tabs: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tab: {

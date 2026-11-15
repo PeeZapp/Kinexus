@@ -11,6 +11,7 @@ import {
   pushHouseholdEventToGoogle,
 } from '@/src/features/calendar/google-sync';
 import { supabase } from '@/src/lib/supabase';
+import { rpc } from '@kinexus/db';
 
 type EventRow = {
   id: string;
@@ -140,6 +141,18 @@ export async function createHouseholdEvent(
   const event = mapEvent(data as EventRow);
   await replaceEventPeople(event.id, householdId, normalized.personIds);
   const saved = { ...event, personIds: normalized.personIds };
+  try {
+    await supabase.rpc(rpc.notifyHouseholdAlert, {
+      p_household_id: householdId,
+      p_segment: 'calendar',
+      p_title: normalized.title,
+      p_body: normalized.startsOn,
+      p_href: '/calendar',
+      p_payload: { eventId: saved.id },
+    });
+  } catch {
+    // Non-blocking.
+  }
   void pushHouseholdEventToGoogle(householdId, saved.id);
   return saved;
 }

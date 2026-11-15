@@ -78,7 +78,26 @@ export function normalizeRecipeDraft(raw: Record<string, unknown>): RecipeDraft 
     ];
   });
 
-  const method = (Array.isArray(raw.method) ? raw.method : []).map((step) => String(step).trim()).filter(Boolean);
+  const method: string[] = [];
+  let currentSection: string | undefined;
+  for (const item of Array.isArray(raw.method) ? raw.method : []) {
+    if (typeof item === 'string') {
+      const text = item.trim();
+      if (!text) continue;
+      method.push(text);
+      continue;
+    }
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const rec = item as Record<string, unknown>;
+    const text = asString(rec.text);
+    if (!text) continue;
+    const section = asString(rec.section);
+    if (section && section !== currentSection) {
+      method.push(`# ${section}`);
+      currentSection = section;
+    }
+    method.push(text);
+  }
 
   const slotsRaw = raw.mealSlots ?? raw.meal_slots;
   const mealSlots = (Array.isArray(slotsRaw) ? slotsRaw : [])

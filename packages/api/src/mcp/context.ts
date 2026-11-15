@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { createUserClient, readBearerToken } from '../auth.js';
-import { DEFAULT_MCP_SCOPES } from './scopes.js';
+import { DEFAULT_MCP_SCOPES, mergeGrantedScopes } from './scopes.js';
 import { inferMcpPlatform, type McpPlatform } from './platform.js';
 import { logMcp } from './log.js';
 
@@ -72,7 +72,7 @@ export async function resolveMcpCaller(request: Request): Promise<
         clientName: connection.clientName,
         platform: connection.platform,
         connectionId: connection.id || null,
-        scopes: connection.scopes.length ? connection.scopes : DEFAULT_MCP_SCOPES,
+        scopes: mergeGrantedScopes(connection.scopes),
       },
     };
   }
@@ -87,7 +87,7 @@ export async function resolveMcpCaller(request: Request): Promise<
       clientName: null,
       platform: 'other',
       connectionId: null,
-      scopes: DEFAULT_MCP_SCOPES,
+      scopes: [...DEFAULT_MCP_SCOPES],
     },
   };
 }
@@ -114,13 +114,17 @@ async function touchConnection(
   }
 
   if (existing) {
-    await client.from('mcp_connections').update({ last_used_at: now }).eq('id', existing.id);
+    const scopes = mergeGrantedScopes(existing.scopes as string[] | null);
+    await client
+      .from('mcp_connections')
+      .update({ last_used_at: now, scopes })
+      .eq('id', existing.id);
     return {
       status: 'ok',
       id: existing.id as string,
       clientName: (existing.client_name as string | null) ?? null,
       platform: (existing.platform as McpPlatform) ?? 'other',
-      scopes: (existing.scopes as string[]) ?? [...DEFAULT_MCP_SCOPES],
+      scopes,
     };
   }
 

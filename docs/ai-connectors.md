@@ -29,7 +29,7 @@ Grocery shopping MCP (token connectors) lives at `/mcp`, not `/ai/mcp`.
 1. MCP client reads protected-resource metadata and discovers the Supabase OAuth 2.1 authorization server.
 2. Client registers dynamically (DCR) or uses a pre-registered public client.
 3. Authorization code + PKCE: user signs in on Kinexus, sees consent (`/oauth/consent`): “\<AI app\> wants to use your Kinexus account” → Allow / Cancel.
-4. App scopes (`meals|fitness|watchlists|wishlists` × `read|write`) are granted in full by default and not shown.
+4. App scopes (`meals|fitness|watchlists|wishlists|today|finances` × `read|write`) are granted in full by default and not shown. Existing connections pick up new default scopes on next use.
 5. Supabase issues short-lived access tokens and rotating refresh tokens.
 6. MCP calls send `Authorization: Bearer <access_token>`. Handlers use a user-scoped Supabase client (RLS). Never service role for user data.
 
@@ -64,12 +64,46 @@ Registry: `packages/api/src/mcp/registry.ts`
 | `preview_add_meal` / `preview_move_meal` / `preview_remove_meal` | write | Plan slot changes; filled slots need explicit `overwrite` |
 | `preview_plan_meals` | write | Multi-slot plan preview (lists every slot) |
 | `preview_add_to_shopping_list` | write | Preview manual shopping item |
+| `preview_check_shopping_item` | write | Preview check/uncheck shopping item |
+| `preview_clear_checked_shopping` | write | Preview delete checked shopping items for a week |
 | `get_readlist` | read (`watchlists:read`) | Your books grouped by Want to read / Reading / Read |
 | `search_books` | read | Catalogue search; returns stable book ids (never invent titles) |
 | `recommend_books` | read | Non-AI similar picks from finished/highly rated; skips books already listed |
 | `preview_add_to_readlist` | write (`watchlists:write`) | Preview add by book ids (multi-add = one confirmation) |
 | `preview_update_readlist_status` | write | Preview status change for an entry |
 | `preview_remove_from_readlist` | write | Preview remove an entry |
+| `list_checklists` | read (`wishlists:read`) | Checklists visible to you |
+| `get_checklist` | read | One checklist with items |
+| `preview_add_checklist_item` | write (`wishlists:write`) | Preview add checklist item (edit access required) |
+| `preview_update_checklist_item` | write | Preview update title / checked |
+| `preview_remove_checklist_item` | write | Preview delete checklist item |
+| `list_talk_items` / `get_talk_items` | read (`today:read`) | Open + recent done household talk items |
+| `preview_add_talk_item` | write (`today:write`) | Preview add talk item (notifies household) |
+| `preview_set_talk_item_done` | write | Preview mark talk item done / reopen |
+| `preview_remove_talk_item` | write | Preview delete talk item |
+| `get_calendar` | read (`today:read`) | Household events for a day or range (recurrence expanded; no Google tokens) |
+| `preview_create_calendar_event` | write (`today:write`) | Preview create household event |
+| `preview_update_calendar_event` | write | Preview update household event |
+| `preview_delete_calendar_event` | write | Preview hard-delete household event |
+| `get_today` / `get_overview` | read (`today:read`) | Day brief: tasks, talk, calendar, meals/shopping (if `meals:read`), alerts, train (if `fitness:read`). Excludes journal/PIN/puzzles/others’ private lists |
+| `list_alerts` | read (`today:read`) | Your alerts inbox |
+| `get_unread_alerts` | read | Unread count + unread alerts |
+| `preview_mark_alert_read` | write (`today:write`) | Preview mark one of your alerts read |
+| `preview_mark_all_alerts_read` | write | Preview mark all your unread alerts read |
+| `get_food_prefs` | read (`meals:read`) | Household cuisines / allergies / equipment |
+| `get_budget_month` | read (`finances:read`) | Planned/spent/leftover, categories, carry balances for a month |
+| `list_budget_transactions` | read | Month transactions (optional category filter) |
+| `get_budget_carry` | read | Carry balances by category |
+| `preview_add_budget_txn` | write (`finances:write`) | Preview spend/return/income (never clearBudget / statement wipe) |
+| `preview_apply_budget_carry` | write | Preview apply carry into a month |
+| `preview_clear_budget_carry` | write | Preview zero one category carry (not wipe budget) |
+| `preview_transfer_budget_carry` | write | Preview move carry between categories |
+| `list_investment_watchlist` | read (`finances:read`) | Investment ideas/watchlist (private stays private) |
+| `get_investment_item` | read | One investment idea |
+| `preview_add_investment_idea` / `preview_update_investment_idea` / `preview_remove_investment_idea` | write (`finances:write`) | Investment idea CRUD preview |
+| `list_trade_journal` | read | Trade journal + simple realized P/L |
+| `preview_add_trade` / `preview_update_trade` / `preview_remove_trade` | write | Trade journal CRUD preview |
+| `list_investment_alerts` | read | Price alert thresholds |
 | `commit` | write | Commit one preview (all steps); rejects missing/expired/mismatched/already-committed |
 
 Writes use preview → commit (`packages/api/src/mcp/preview.ts`, 10-minute TTL). The user confirms once per request.

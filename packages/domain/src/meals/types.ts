@@ -53,10 +53,20 @@ export const MEAL_SLOTS: readonly { key: MealSlotKey; label: string }[] = [
 export type Ingredient = {
   name: string;
   amount?: string;
+  /** Ingredient section heading, e.g. "Marinade". */
+  section?: string | null;
   category?: string;
   /** Links to a base recipe (`isComponent: true`) in the library. */
   baseRecipeId?: string;
 };
+
+export type RecipeMethodStep =
+  | string
+  | {
+      text: string;
+      /** Method section heading, e.g. "Sauce". */
+      section?: string | null;
+    };
 
 export type RecipeCostLine = {
   name: string;
@@ -87,6 +97,14 @@ export type Recipe = {
   householdId: string | null;
   emoji?: string;
   cuisine?: string;
+  /** Multi-cuisine tags (preferred over `cuisine` when present). */
+  cuisines?: string[];
+  /** Recipe contains these allergens (not "free from"). */
+  allergens?: string[];
+  /** Dietary suitability tags (e.g. vegan, gluten-free). */
+  dietary?: string[];
+  /** Equipment needed; empty/undefined means no special equipment. */
+  equipment?: string[];
   cookTime?: number;
   servings?: number;
   protein?: number;
@@ -95,7 +113,7 @@ export type Recipe = {
   fat?: number;
   vegetarian?: boolean;
   ingredients?: Ingredient[];
-  method?: string[];
+  method?: RecipeMethodStep[];
   chefTip?: string;
   notes?: string;
   mealSlots?: MealSlotKey[];

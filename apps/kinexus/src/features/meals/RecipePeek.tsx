@@ -1,7 +1,7 @@
 import { type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { MEAL_SLOTS, recipeBaseServings, scaleRecipeToServings, type Recipe } from '@kinexus/domain';
+import { MEAL_SLOTS, groupBySection, normalizeRecipeMethodSteps, recipeBaseServings, scaleRecipeToServings, type Recipe } from '@kinexus/domain';
 
 import { IngredientSwapSlot } from '@/src/features/meals/IngredientSwapSlot';
 import { RecipeImageDisclaimer } from '@/src/features/meals/RecipeImageDisclaimer';
@@ -68,7 +68,10 @@ export function RecipePeek({
     .join(' · ');
   const hasActions = Boolean(onUse || onSwap || onRandom || onBack || onNotForFamily || note || belowActions);
   const ingredients = shown.ingredients ?? [];
-  const method = recipe.method ?? [];
+  const ingredientIndexed = ingredients.map((ing, index) => ({ ing, index }));
+  const ingredientGroups = groupBySection(ingredientIndexed, (item) => item.ing.section);
+  const methodSteps = normalizeRecipeMethodSteps(recipe.method ?? []);
+  const methodGroups = groupBySection(methodSteps, (step) => step.section);
 
   return (
     <View style={styles.wrap}>
@@ -102,32 +105,50 @@ export function RecipePeek({
       {ingredients.length > 0 ? (
         <View style={styles.section}>
           <Text style={styles.heading}>Ingredients</Text>
-          {ingredients.map((item, index) => (
-            <View key={`${item.name}-${index}`} style={styles.ingredient}>
-              {item.amount ? <Text style={styles.amount}>{item.amount}</Text> : null}
-              <View style={styles.ingredientSlot}>
-                <IngredientSwapSlot recipe={recipe} index={index}>
-                  {(button) => (
-                    <View style={styles.ingredientLine}>
-                      <Text style={styles.ingredientName}>{item.name}</Text>
-                      {button}
+          {ingredientGroups.map((group) => (
+            <View key={group.key} style={styles.group}>
+              {group.section ? <Text style={styles.groupLabel}>{group.section}</Text> : null}
+              {group.items.map(({ ing: item, index }, indexInGroup) => {
+                return (
+                  <View key={`${group.key}-${item.name}-${indexInGroup}`} style={styles.ingredient}>
+                    {item.amount ? <Text style={styles.amount}>{item.amount}</Text> : null}
+                    <View style={styles.ingredientSlot}>
+                      <IngredientSwapSlot recipe={recipe} index={index}>
+                        {(button) => (
+                          <View style={styles.ingredientLine}>
+                            <Text style={styles.ingredientName}>{item.name}</Text>
+                            {button}
+                          </View>
+                        )}
+                      </IngredientSwapSlot>
                     </View>
-                  )}
-                </IngredientSwapSlot>
-              </View>
+                  </View>
+                );
+              })}
             </View>
           ))}
         </View>
       ) : null}
-      {method.length > 0 ? (
+      {methodSteps.length > 0 ? (
         <View style={styles.section}>
           <Text style={styles.heading}>Method</Text>
-          {method.map((step, index) => (
-            <View key={index} style={styles.step}>
-              <Text style={styles.stepNum}>{index + 1}</Text>
-              <Text style={styles.stepText}>{step}</Text>
-            </View>
-          ))}
+          {(() => {
+            let no = 0;
+            return methodGroups.map((group) => (
+              <View key={group.key} style={styles.group}>
+                {group.section ? <Text style={styles.groupLabel}>{group.section}</Text> : null}
+                {group.items.map((step) => {
+                  no += 1;
+                  return (
+                    <View key={`${group.key}-${no}`} style={styles.step}>
+                      <Text style={styles.stepNum}>{no}</Text>
+                      <Text style={styles.stepText}>{step.text}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            ));
+          })()}
         </View>
       ) : null}
       {hasActions ? (
@@ -208,6 +229,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     textTransform: 'uppercase',
   },
+  group: { gap: 8, marginTop: 8 },
+  groupLabel: { color: colors.text, fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6 },
   ingredient: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   amount: { width: 88, color: colors.textMuted, fontSize: 14, lineHeight: 20, fontWeight: '600' },
   ingredientSlot: { flex: 1, minWidth: 0 },

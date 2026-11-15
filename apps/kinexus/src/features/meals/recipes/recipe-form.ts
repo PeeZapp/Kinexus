@@ -11,18 +11,23 @@ export type RecipeIngredientRow = {
   id: string;
   amount: string;
   name: string;
+  section: string;
 };
 
 export type RecipeMethodRow = {
   id: string;
   text: string;
+  section: string;
 };
 
 export type RecipeFormState = {
   url: string;
   name: string;
   emoji: string;
-  cuisine: string;
+  cuisines: string[];
+  allergens: string[];
+  dietary: string[];
+  equipment: string[];
   cookTime: string;
   servings: string;
   calories: string;
@@ -51,7 +56,10 @@ export const EMPTY_RECIPE_FORM: RecipeFormState = {
   url: '',
   name: '',
   emoji: '🍽️',
-  cuisine: '',
+  cuisines: [],
+  allergens: [],
+  dietary: [],
+  equipment: [],
   cookTime: '30',
   servings: '4',
   calories: '',
@@ -73,11 +81,33 @@ export function ingredientRowsFrom(list: { amount?: string; name: string }[]): R
     id: newRowId('ing'),
     amount: ing.amount ?? '',
     name: ing.name,
+    section: 'section' in ing && typeof (ing as { section?: unknown }).section === 'string' ? ((ing as { section?: string }).section ?? '') : '',
   }));
 }
 
-export function methodRowsFrom(list: string[]): RecipeMethodRow[] {
-  return list.map((text) => ({ id: newRowId('step'), text }));
+export function methodRowsFrom(list: Recipe['method'] | undefined): RecipeMethodRow[] {
+  const rows: RecipeMethodRow[] = [];
+  let currentSection = '';
+  for (const item of Array.isArray(list) ? list : []) {
+    if (typeof item === 'string') {
+      const trimmed = item.trim();
+      if (!trimmed) continue;
+      if (trimmed.startsWith('# ')) {
+        currentSection = trimmed.slice(2).trim();
+        continue;
+      }
+      rows.push({ id: newRowId('step'), text: trimmed, section: currentSection });
+      continue;
+    }
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const rec = item as Record<string, unknown>;
+    const text = typeof rec.text === 'string' ? rec.text.trim() : '';
+    if (!text) continue;
+    const section = typeof rec.section === 'string' ? rec.section.trim() : '';
+    if (section) currentSection = section;
+    rows.push({ id: newRowId('step'), text, section: section || currentSection });
+  }
+  return rows;
 }
 
 export function moveRow<T>(list: T[], from: number, to: number): T[] {
@@ -100,7 +130,10 @@ export function formFromRecipe(recipe: Recipe): RecipeFormState {
     url: recipe.sourceUrl ?? '',
     name: recipe.name,
     emoji: recipe.emoji || '🍽️',
-    cuisine: recipe.cuisine ?? '',
+    cuisines: (recipe.cuisines?.length ? recipe.cuisines : recipe.cuisine ? [recipe.cuisine] : []) ?? [],
+    allergens: recipe.allergens ?? [],
+    dietary: recipe.dietary ?? [],
+    equipment: recipe.equipment ?? [],
     cookTime: recipe.cookTime != null ? String(recipe.cookTime) : '',
     servings: recipe.servings != null ? String(recipe.servings) : '',
     calories: recipe.calories != null ? String(recipe.calories) : '',
@@ -108,7 +141,7 @@ export function formFromRecipe(recipe: Recipe): RecipeFormState {
     carbs: recipe.carbs != null ? String(recipe.carbs) : '',
     fat: recipe.fat != null ? String(recipe.fat) : '',
     ingredients: ingredientRowsFrom(recipe.ingredients ?? []),
-    method: methodRowsFrom(recipe.method ?? []),
+    method: methodRowsFrom(recipe.method),
     chefTip: recipe.chefTip ?? '',
     notes: recipe.notes ?? '',
     recipeClass: recipe.recipeClass ?? null,
@@ -125,7 +158,11 @@ export function draftFromForm(
   return {
     name: form.name.trim(),
     emoji: form.emoji.trim() || '🍽️',
-    cuisine: form.cuisine.trim() || undefined,
+    cuisine: form.cuisines[0]?.trim() || undefined,
+    cuisines: form.cuisines,
+    allergens: form.allergens,
+    dietary: form.dietary,
+    equipment: form.equipment,
     cookTime: num(form.cookTime),
     servings: num(form.servings),
     calories: num(form.calories),
@@ -136,9 +173,17 @@ export function draftFromForm(
       const name = row.name.trim();
       if (!name) return [];
       const amount = row.amount.trim();
-      return [{ name, amount: amount || undefined }];
+      const section = row.section.trim();
+      return [{ name, amount: amount || undefined, ...(section ? { section } : {}) }];
     }),
-    method: form.method.map((row) => row.text.trim()).filter(Boolean),
+    method: form.method
+      .map((row) => {
+        const text = row.text.trim();
+        if (!text) return null;
+        const section = row.section.trim();
+        return { text, ...(section ? { section } : {}) };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item)),
     chefTip: form.chefTip.trim() || undefined,
     notes: form.notes.trim() || undefined,
     recipeClass: form.recipeClass ?? undefined,

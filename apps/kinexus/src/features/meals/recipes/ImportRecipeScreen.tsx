@@ -87,7 +87,7 @@ export function ImportRecipeScreen() {
       url: sourceUrl ?? current.url,
       name: recipe.name,
       emoji: recipe.emoji || '🍽️',
-      cuisine: recipe.cuisine ?? '',
+      cuisines: recipe.cuisine ? [recipe.cuisine] : [],
       cookTime: recipe.cookTime != null ? String(recipe.cookTime) : '',
       servings: recipe.servings != null ? String(recipe.servings) : '',
       calories: recipe.calories != null ? String(recipe.calories) : '',

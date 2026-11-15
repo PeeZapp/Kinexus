@@ -14,6 +14,8 @@ import {
   normalizeCryptoSymbol,
   type FinanceAccount,
   type FinanceBudget,
+  type FinanceBudgetCarry,
+  type FinanceBudgetCarryEvent,
   type FinanceBudgetLine,
   type FinanceBudgetTxn,
   type FinanceCollectible,
@@ -27,6 +29,8 @@ type AccountRow = Database['public']['Tables']['finance_accounts']['Row'];
 type BudgetRow = Database['public']['Tables']['finance_budgets']['Row'];
 type LineRow = Database['public']['Tables']['finance_budget_lines']['Row'];
 type TxnRow = Database['public']['Tables']['finance_budget_txns']['Row'];
+type CarryRow = Database['public']['Tables']['finance_budget_carry']['Row'];
+type CarryEventRow = Database['public']['Tables']['finance_budget_carry_events']['Row'];
 type PortfolioRow = Database['public']['Tables']['finance_share_portfolios']['Row'];
 type HoldingRow = Database['public']['Tables']['finance_share_holdings']['Row'];
 type CryptoHoldingRow = Database['public']['Tables']['finance_crypto_holdings']['Row'];
@@ -97,6 +101,39 @@ export function txnFromRow(row: TxnRow): FinanceBudgetTxn {
     ignored: row.ignored,
     source: row.source === 'import' || row.source === 'auto' ? row.source : 'manual',
     createdBy: row.created_by,
+  };
+}
+
+export function carryFromRow(row: CarryRow): FinanceBudgetCarry {
+  return {
+    id: row.id,
+    householdId: row.household_id,
+    budgetId: row.budget_id,
+    lineId: row.line_id,
+    balance: asNum(row.balance),
+    lastAccruedMonth: row.last_accrued_month ? row.last_accrued_month.slice(0, 10) : null,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function carryEventFromRow(row: CarryEventRow): FinanceBudgetCarryEvent {
+  const kind =
+    row.kind === 'accrue' || row.kind === 'apply' || row.kind === 'transfer' || row.kind === 'clear'
+      ? row.kind
+      : 'accrue';
+  return {
+    id: row.id,
+    householdId: row.household_id,
+    budgetId: row.budget_id,
+    lineId: row.line_id,
+    kind,
+    amount: asNum(row.amount),
+    sourceMonth: row.source_month ? row.source_month.slice(0, 10) : null,
+    targetLineId: row.target_line_id,
+    targetMonth: row.target_month ? row.target_month.slice(0, 10) : null,
+    note: row.note,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
   };
 }
 

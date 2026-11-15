@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 
 import { estimateShoppingListCost, lookupChainsForCountry } from '@kinexus/domain';
 
+import { useWakeLock } from '@/src/features/cook/use-wake-lock';
 import { ListExportSheet } from '@/src/features/lists/ListExportSheet';
 import { ListImportWizard } from '@/src/features/lists/ListImportWizard';
 import {
@@ -26,6 +27,8 @@ export function ShoppingScreen() {
   const router = useRouter();
   const meals = useMealsSync();
   const { activeHousehold, updatePreferredGroceryChain } = useHousehold();
+  const [shopMode, setShopMode] = useState(false);
+  useWakeLock(shopMode, 'kinexus-shop');
   const active = meals.shoppingItems.filter((item) => !item.checked);
   const checked = meals.shoppingItems.filter((item) => item.checked);
   const costEstimate = useMemo(
@@ -102,6 +105,8 @@ export function ShoppingScreen() {
     onAdd: (name: string, amount?: string) => void meals.addShoppingItem(name, amount),
     onImport: () => setImportOpen(true),
     onExport: () => setExportOpen(true),
+    shopMode,
+    onToggleShopMode: () => setShopMode((value) => !value),
     costEstimate: grocery.comparison?.cheapestShop ? null : costEstimate,
     stores: meals.market.stores,
     shopPicker,

@@ -652,11 +652,24 @@ export function budgetMonthStarts(txns: readonly { date: string }[], now: Date =
   return out;
 }
 
-export function monthLineSpend(txns: readonly FinanceBudgetTxn[], monthStart: string): Map<string, number> {
+/**
+ * Net activity per line for a month.
+ * Income: positive inflows increase the total.
+ * Expense: outflows increase spend; refunds/returns (positive amounts) reduce it.
+ */
+export function monthLineSpend(
+  txns: readonly FinanceBudgetTxn[],
+  monthStart: string,
+  lines: readonly Pick<FinanceBudgetLine, 'id' | 'kind'>[] = [],
+): Map<string, number> {
+  const kindById = new Map(lines.map((line) => [line.id, line.kind]));
   const sums = new Map<string, number>();
   for (const txn of txnsInMonth(txns, monthStart)) {
     if (txn.ignored || !txn.lineId) continue;
-    sums.set(txn.lineId, roundMoney((sums.get(txn.lineId) ?? 0) + Math.abs(txn.amount)));
+    const kind = kindById.get(txn.lineId);
+    const delta =
+      kind === 'income' ? txn.amount : kind === 'expense' ? -txn.amount : Math.abs(txn.amount);
+    sums.set(txn.lineId, roundMoney((sums.get(txn.lineId) ?? 0) + delta));
   }
   return sums;
 }
@@ -666,11 +679,12 @@ export function linesForMonth(
   txns: readonly FinanceBudgetTxn[],
   monthStart: string,
   view?: BudgetMonthView,
+  appliedCarry?: ReadonlyMap<string, number>,
 ): FinanceBudgetLine[] {
-  const spent = monthLineSpend(txns, monthStart);
+  const spent = monthLineSpend(txns, monthStart, lines);
   return lines.map((line) => ({
     ...line,
-    planned: plannedForMonth(line, monthStart, view),
+    planned: roundMoney(plannedForMonth(line, monthStart, view) + (appliedCarry?.get(line.id) ?? 0)),
     spent: spent.get(line.id) ?? 0,
   }));
 }

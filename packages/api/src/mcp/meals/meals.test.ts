@@ -6,6 +6,8 @@ import type { McpCaller } from '../context.js';
 import { recipeNutrition, recipesShareKeyIngredients, titleMatches } from './shared.js';
 import {
   commitMealsPreview,
+  previewCheckShoppingItem,
+  previewClearCheckedShopping,
   previewCreateRecipe,
   previewAddMeal,
 } from './writes.js';
@@ -91,6 +93,7 @@ function mealsClient(opts: {
   recipes?: Row[];
   slots?: Row[];
   plans?: Row[];
+  shopping?: Row[];
   otherHouseholdId?: string;
 }) {
   const recipes = [...(opts.recipes ?? [])];
@@ -98,7 +101,7 @@ function mealsClient(opts: {
   const plans = [...(opts.plans ?? [])];
   const previews = previewStore();
   const audit: Row[] = [];
-  const shopping: Row[] = [];
+  const shopping: Row[] = [...(opts.shopping ?? [])];
 
   const client = {
     from(table: string) {
@@ -343,25 +346,39 @@ function mealsClient(opts: {
         };
       }
       if (table === 'shopping_items') {
-        return {
-          select() {
+        const matches = (row: Row, filters: [string, unknown][]) =>
+          filters.every(([field, value]) => row[field] === value);
+
+        const filteredQuery = (filters: [string, unknown][] = []) => ({
+          eq(field: string, value: unknown) {
+            return filteredQuery([...filters, [field, value]]);
+          },
+          order() {
             return {
-              eq() {
-                return {
-                  eq() {
-                    return {
-                      order() {
-                        return {
-                          then(resolve: (v: { data: Row[]; error: null }) => void) {
-                            resolve({ data: shopping, error: null });
-                          },
-                        };
-                      },
-                    };
-                  },
-                };
+              then(resolve: (v: { data: Row[]; error: null }) => void) {
+                resolve({ data: shopping.filter((row) => matches(row, filters)), error: null });
               },
             };
+          },
+          then(
+            resolve: (v: {
+              data: Row[] | null;
+              error: null;
+              count: number | null;
+            }) => void,
+          ) {
+            const rows = shopping.filter((row) => matches(row, filters));
+            resolve({ data: rows, error: null, count: rows.length });
+          },
+          async maybeSingle() {
+            const rows = shopping.filter((row) => matches(row, filters));
+            return { data: rows[0] ?? null, error: null };
+          },
+        });
+
+        return {
+          select(_cols?: string, _opts?: { count?: string; head?: boolean }) {
+            return filteredQuery();
           },
           insert(row: Row) {
             const saved = { ...row, id: `shop-${shopping.length + 1}` };
@@ -375,6 +392,48 @@ function mealsClient(opts: {
                 };
               },
             };
+          },
+          update(patch: Row) {
+            const run = (filters: [string, unknown][] = []) => ({
+              eq(field: string, value: unknown) {
+                return run([...filters, [field, value]]);
+              },
+              select() {
+                return {
+                  then(resolve: (v: { data: Row[]; error: null }) => void) {
+                    const updated: Row[] = [];
+                    for (let i = 0; i < shopping.length; i += 1) {
+                      if (!matches(shopping[i], filters)) continue;
+                      shopping[i] = { ...shopping[i], ...patch };
+                      updated.push(shopping[i]);
+                    }
+                    resolve({ data: updated, error: null });
+                  },
+                };
+              },
+            });
+            return run();
+          },
+          delete() {
+            const run = (filters: [string, unknown][] = []) => ({
+              eq(field: string, value: unknown) {
+                return run([...filters, [field, value]]);
+              },
+              select() {
+                return {
+                  then(resolve: (v: { data: Row[]; error: null }) => void) {
+                    const deleted: Row[] = [];
+                    for (let i = shopping.length - 1; i >= 0; i -= 1) {
+                      if (!matches(shopping[i], filters)) continue;
+                      deleted.push(shopping[i]);
+                      shopping.splice(i, 1);
+                    }
+                    resolve({ data: deleted, error: null });
+                  },
+                };
+              },
+            });
+            return run();
           },
         };
       }
@@ -407,6 +466,7 @@ function mealsClient(opts: {
     },
     _recipes: recipes,
     _slots: slots,
+    _shopping: shopping,
     _audit: audit,
     _previews: previews.store,
   };
@@ -714,5 +774,65 @@ describe('meals MCP tools', () => {
 
   it('get_pantry reports device-local unavailability', async () => {
     await expect(getPantry()).resolves.toMatchObject({ available: false });
+  });
+
+  it('preview→commit check shopping item', async () => {
+    const client = mealsClient({
+      userId: 'user-a',
+      householdId: 'hh-a',
+      shopping: [
+        {
+          id: 'shop-1',
+          household_id: 'hh-a',
+          week_start: '2026-11-10',
+          name: 'Milk',
+          checked: false,
+        },
+      ],
+    });
+    const caller = callerFor(client);
+    const preview = await previewCheckShoppingItem(caller, { itemId: 'shop-1', checked: true });
+    expect(preview.kind).toBe('preview');
+    if (preview.kind !== 'preview') return;
+    const committed = await commitMealsPreview(caller, { previewId: preview.previewId });
+    expect(committed.result).toMatchObject({ itemId: 'shop-1', checked: true });
+    expect(client._shopping[0]?.checked).toBe(true);
+  });
+
+  it('preview→commit clear checked shopping', async () => {
+    const client = mealsClient({
+      userId: 'user-a',
+      householdId: 'hh-a',
+      shopping: [
+        {
+          id: 'shop-1',
+          household_id: 'hh-a',
+          week_start: '2026-11-10',
+          name: 'Milk',
+          checked: true,
+        },
+        {
+          id: 'shop-2',
+          household_id: 'hh-a',
+          week_start: '2026-11-10',
+          name: 'Eggs',
+          checked: false,
+        },
+      ],
+    });
+    const caller = callerFor(client);
+    const preview = await previewClearCheckedShopping(caller, { weekStart: '2026-11-10' });
+    expect(preview.kind).toBe('preview');
+    if (preview.kind !== 'preview') return;
+    const committed = await commitMealsPreview(caller, { previewId: preview.previewId });
+    expect(committed.result).toMatchObject({ deleted: 1, weekStart: '2026-11-10' });
+    expect(client._shopping.map((row) => row.id)).toEqual(['shop-2']);
+  });
+
+  it('noop when clearing shopping with nothing checked', async () => {
+    const client = mealsClient({ userId: 'user-a', householdId: 'hh-a', shopping: [] });
+    const caller = callerFor(client);
+    const preview = await previewClearCheckedShopping(caller, { weekStart: '2026-11-10' });
+    expect(preview).toMatchObject({ kind: 'noop', summary: 'Nothing checked' });
   });
 });

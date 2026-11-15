@@ -2,7 +2,7 @@
 import * as Crypto from 'expo-crypto';
 import { useCallback, useEffect } from 'react';
 
-import type { Database } from '@kinexus/db';
+import { rpc, type Database } from '@kinexus/db';
 import {
   canSeeShared,
   canViewList,
@@ -502,9 +502,24 @@ export function useStashSync() {
         position,
       });
       throwIfError(error);
+      const list = lists.find((item) => item.id === listId);
+      if (list && list.visibility !== 'private') {
+        try {
+          await supabase.rpc(rpc.notifyHouseholdAlert, {
+            p_household_id: householdId,
+            p_segment: list.kind === 'wishlist' ? 'wishlist' : 'checklist',
+            p_title: title.slice(0, 160),
+            p_body: null,
+            p_href: list.kind === 'wishlist' ? '/lists/wishlists' : '/lists',
+            p_payload: { listId },
+          });
+        } catch {
+          // Non-blocking.
+        }
+      }
       await queryClient.invalidateQueries({ queryKey: itemsKey(householdId) });
     },
-    [householdId, items, queryClient, userId],
+    [householdId, items, lists, queryClient, userId],
   );
 
   const updateItem = useCallback(
@@ -565,6 +580,20 @@ export function useStashSync() {
         added_by: userId,
       });
       if (error) throw error;
+      if (list.visibility !== 'private') {
+        try {
+          await supabase.rpc(rpc.notifyHouseholdAlert, {
+            p_household_id: householdId,
+            p_segment: 'wishlist',
+            p_title: product.title.slice(0, 160),
+            p_body: null,
+            p_href: '/lists/wishlists',
+            p_payload: { listId, productId },
+          });
+        } catch {
+          // Non-blocking.
+        }
+      }
       await queryClient.invalidateQueries({ queryKey: membershipsKey(householdId) });
     },
     [householdId, lists, products, queryClient, userId],
@@ -610,6 +639,7 @@ export function useStashSync() {
       const { data, error } = await supabase.from('stash_products').insert(row).select('*').single();
       if (error) throw error;
       if (draft.listId && data) {
+        const list = lists.find((item) => item.id === draft.listId);
         const join = await supabase.from('stash_list_products').insert({
           household_id: householdId,
           list_id: draft.listId,
@@ -617,11 +647,25 @@ export function useStashSync() {
           added_by: userId,
         });
         if (join.error) throw join.error;
+        if (list && list.visibility !== 'private') {
+          try {
+            await supabase.rpc(rpc.notifyHouseholdAlert, {
+              p_household_id: householdId,
+              p_segment: 'wishlist',
+              p_title: title.slice(0, 160),
+              p_body: null,
+              p_href: '/lists/wishlists',
+              p_payload: { listId: draft.listId, productId: data.id },
+            });
+          } catch {
+            // Non-blocking.
+          }
+        }
       }
       await refreshAll();
       return productFromRow(data);
     },
-    [householdId, refreshAll, userId],
+    [householdId, lists, refreshAll, userId],
   );
 
   const updateProduct = useCallback(

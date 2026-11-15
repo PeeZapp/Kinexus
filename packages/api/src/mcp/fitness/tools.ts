@@ -126,6 +126,7 @@ const planOut = z.object({
   name: z.string(),
   householdId: z.string(),
   ownerId: z.string(),
+  isMine: z.boolean(),
   weekStart: z.string(),
   visibility: z.string(),
   days: z.array(planDayOut),
@@ -292,7 +293,8 @@ const listPlansOutput = z.object({
 export const listTrainingPlansTool: McpToolDefinition<typeof listPlansInput, typeof listPlansOutput> = {
   name: 'list_training_plans',
   title: 'List training plans',
-  description: 'List training plans for the household, optionally filtered by weekStart (YYYY-MM-DD Monday).',
+  description:
+    'List household training plans (optionally by weekStart Monday). Includes family/buddy-shared plans — use isMine to tell yours apart. Creating a plan adds the caller\'s private plan; never delete or replace plans where isMine is false.',
   inputSchema: listPlansInput,
   outputSchema: listPlansOutput,
   scope: 'fitness:read',
@@ -475,7 +477,7 @@ export const previewCreateTrainingPlanTool: McpToolDefinition<typeof createPlanI
   name: 'preview_create_training_plan',
   title: 'Preview create training plan',
   description:
-    'Preview creating an intent-first training plan (session types on days). fillWorkouts is always off — no workouts are generated.',
+    'Preview creating the caller\'s intent-first training plan (session types on days). Adds a new private plan for the caller — does not replace family/buddy shared plans. Only ask to delete/replace when list_training_plans shows an isMine plan for that week. fillWorkouts is always off — no workouts are generated.',
   inputSchema: createPlanInput,
   outputSchema: previewResultSchema,
   scope: 'fitness:write',

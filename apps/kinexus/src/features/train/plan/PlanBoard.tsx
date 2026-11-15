@@ -18,9 +18,9 @@ function PlannedWorkoutCard({
   canManage,
   sharedWithMe,
   onStart,
-  onViewWorkout,
+  onOpen,
   onMarkDone,
-  onRemoveWorkout,
+  onRemove,
   onTrainTogether,
   onUndo,
 }: {
@@ -28,13 +28,14 @@ function PlannedWorkoutCard({
   canManage: boolean;
   sharedWithMe: boolean;
   onStart: () => void;
-  onViewWorkout: () => void;
+  onOpen: () => void;
   onMarkDone: () => void;
-  onRemoveWorkout: () => void;
+  onRemove: () => void;
   onTrainTogether: () => void;
   onUndo: () => void;
 }) {
-  const title = card.workoutName || card.focus.join(' · ') || 'Workout';
+  const intentOnly = !card.workoutId;
+  const title = card.workoutName || card.focus.join(' · ') || 'Session';
   const meta = [
     card.durationMin != null ? `${card.durationMin} min` : null,
     card.scheduledTime?.slice(0, 5) ?? null,
@@ -50,15 +51,15 @@ function PlannedWorkoutCard({
       {canManage && card.status === 'planned' ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Remove workout"
-          onPress={onRemoveWorkout}
+          accessibilityLabel={intentOnly ? 'Remove session' : 'Remove workout'}
+          onPress={onRemove}
           hitSlop={10}
           style={styles.removeBtn}>
           <Text style={styles.removeIcon}>×</Text>
         </Pressable>
       ) : null}
 
-      <Pressable accessibilityRole="button" onPress={onViewWorkout} style={styles.slotBody}>
+      <Pressable accessibilityRole="button" onPress={onOpen} style={styles.slotBody}>
         <BodyMap muscleGroups={card.muscleGroups} />
         <View style={styles.slotCopy}>
           <Text style={styles.slotTitle} numberOfLines={1}>
@@ -116,7 +117,9 @@ export function PlanBoard(props: TrainPlanViewProps & { compact?: boolean }) {
   const manage = owned ? props.canManagePlan(owned.plan) : false;
   const canAdd = !props.busy && (manage || !owned);
   const dayCards = (owned?.cards ?? []).filter((card) => card.day === props.selectedDay);
-  const plannedWorkouts = dayCards.filter((card) => !card.restDay && card.workoutId);
+  const plannedSessions = dayCards.filter(
+    (card) => !card.restDay && (card.workoutId || card.focus.length > 0),
+  );
   const dayShare = owned ? trainingPlanDayVisibility(owned.plan, props.selectedDay) : null;
   const fillable = Boolean(
     owned?.cards.some(
@@ -126,7 +129,8 @@ export function PlanBoard(props: TrainPlanViewProps & { compact?: boolean }) {
 
   function chooseAdd(choice: AddWorkoutChoice) {
     setAddOpen(false);
-    if (choice === 'start') props.onStartBlankDay(props.selectedDay);
+    if (choice === 'type') props.onTypeForDay(props.selectedDay);
+    else if (choice === 'start') props.onStartBlankDay(props.selectedDay);
     else if (choice === 'pick') props.onPickForDay(props.selectedDay);
     else props.onBuildForDay(props.selectedDay);
   }
@@ -196,18 +200,20 @@ export function PlanBoard(props: TrainPlanViewProps & { compact?: boolean }) {
       ) : null}
 
       <View style={styles.dayBoard}>
-        <Text style={styles.dayHeading}>Planned workouts</Text>
+        <Text style={styles.dayHeading}>Planned</Text>
         <View style={[styles.slotGrid, props.compact && styles.slotStack]}>
-          {plannedWorkouts.map((card) => (
+          {plannedSessions.map((card) => (
             <PlannedWorkoutCard
               key={card.id}
               card={card}
               canManage={manage}
               sharedWithMe={Boolean(owned?.sharedWithMe)}
-              onStart={() => props.onStart(card)}
-              onViewWorkout={() => props.onViewWorkout(card)}
+              onStart={() => (card.workoutId ? props.onStart(card) : props.onStartBlank(card))}
+              onOpen={() =>
+                card.workoutId ? props.onViewWorkout(card) : props.onOpenWorkoutMenu(card)
+              }
               onMarkDone={() => props.onMarkDone(card)}
-              onRemoveWorkout={() => props.onRemoveWorkout(card)}
+              onRemove={() => props.onRemoveWorkout(card)}
               onTrainTogether={() => owned && props.onTrainTogether(owned.plan, card)}
               onUndo={() => props.onUndo(card)}
             />
@@ -215,7 +221,7 @@ export function PlanBoard(props: TrainPlanViewProps & { compact?: boolean }) {
           {canAdd ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Add workout"
+              accessibilityLabel="Add to day"
               onPress={() => setAddOpen(true)}
               style={({ pressed }) => [styles.addTile, pressed && styles.addTilePressed]}
               disabled={props.busy}>
@@ -229,7 +235,10 @@ export function PlanBoard(props: TrainPlanViewProps & { compact?: boolean }) {
 
       {props.sharedRows.map((row: PlanAudienceRow) => {
         const sharedCards = row.cards.filter(
-          (card) => card.day === props.selectedDay && !card.restDay && card.workoutId,
+          (card) =>
+            card.day === props.selectedDay &&
+            !card.restDay &&
+            (card.workoutId || card.focus.length > 0),
         );
         if (sharedCards.length === 0) return null;
         return (
@@ -243,9 +252,11 @@ export function PlanBoard(props: TrainPlanViewProps & { compact?: boolean }) {
                   canManage={false}
                   sharedWithMe
                   onStart={() => undefined}
-                  onViewWorkout={() => props.onViewWorkout(card)}
+                  onOpen={() => {
+                    if (card.workoutId) props.onViewWorkout(card);
+                  }}
                   onMarkDone={() => undefined}
-                  onRemoveWorkout={() => undefined}
+                  onRemove={() => undefined}
                   onTrainTogether={() => props.onTrainTogether(row.plan, card)}
                   onUndo={() => undefined}
                 />

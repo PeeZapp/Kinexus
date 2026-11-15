@@ -241,7 +241,7 @@ export async function listTrainingPlans(
   if (error) throw new Error(error.message);
 
   const plans = await Promise.all(
-    (data ?? []).map(async (row) => mapPlan(client, row as Record<string, unknown>)),
+    (data ?? []).map(async (row) => mapPlan(client, row as Record<string, unknown>, userId)),
   );
   return { householdId, plans };
 }
@@ -263,10 +263,14 @@ export async function getTrainingPlan(
   if (!data) throw new Error(PLAN_NOT_FOUND);
   const rec = data as Record<string, unknown>;
   if (String(rec.household_id) !== householdId) throw new Error(PLAN_NOT_FOUND);
-  return { householdId, plan: await mapPlan(client, rec) };
+  return { householdId, plan: await mapPlan(client, rec, userId) };
 }
 
-async function mapPlan(client: SupabaseClient, row: Record<string, unknown>): Promise<TrainingPlanSummary> {
+async function mapPlan(
+  client: SupabaseClient,
+  row: Record<string, unknown>,
+  userId: string,
+): Promise<TrainingPlanSummary> {
   const dayRows = Array.isArray(row.training_plan_days)
     ? (row.training_plan_days as Record<string, unknown>[])
     : [];
@@ -306,11 +310,13 @@ async function mapPlan(client: SupabaseClient, row: Record<string, unknown>): Pr
       };
     });
 
+  const ownerId = String(row.owner_id ?? '');
   return {
     id: String(row.id),
     name: String(row.name ?? ''),
     householdId: String(row.household_id ?? ''),
-    ownerId: String(row.owner_id ?? ''),
+    ownerId,
+    isMine: ownerId === userId,
     weekStart: String(row.week_start ?? ''),
     visibility: String(row.visibility ?? 'private'),
     days,

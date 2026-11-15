@@ -123,6 +123,8 @@ export type TrainingPlanSummary = {
   name: string;
   householdId: string;
   ownerId: string;
+  /** True when this plan belongs to the MCP caller — not a family/buddy shared plan. */
+  isMine: boolean;
   weekStart: string;
   visibility: string;
   days: PlanDaySummary[];

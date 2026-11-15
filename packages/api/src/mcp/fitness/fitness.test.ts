@@ -12,7 +12,7 @@ import {
   previewCreateWorkout,
   previewFillPlanDay,
 } from './writes.js';
-import { getWorkout, listWorkouts } from './reads.js';
+import { getWorkout, listTrainingPlans, listWorkouts } from './reads.js';
 
 type Row = Record<string, unknown>;
 
@@ -810,6 +810,45 @@ describe('fitness MCP tools', () => {
     expect(activeDays.length).toBe(3);
     expect(activeDays.every((d) => d.workout_id == null)).toBe(true);
     expect(activeDays.every((d) => Array.isArray(d.focus) && d.focus.length > 0)).toBe(true);
+  });
+
+  it('create_training_plan leaves family/buddy shared plans and marks ownership on list', async () => {
+    const client = fitnessClient({
+      userId: 'user-a',
+      householdId: 'hh-a',
+      plans: [
+        {
+          id: 'plan-shared',
+          household_id: 'hh-a',
+          owner_id: 'user-b',
+          name: 'Buddy week',
+          week_start: '2026-11-09',
+          visibility: 'household',
+        },
+      ],
+    });
+    const caller = callerFor(client);
+    const listed = await listTrainingPlans(client as never, 'user-a', { weekStart: '2026-11-09' });
+    expect(listed.plans).toHaveLength(1);
+    expect(listed.plans[0]).toMatchObject({ id: 'plan-shared', isMine: false });
+
+    const preview = await previewCreateTrainingPlan(caller, {
+      name: 'My week',
+      weekStart: '2026-11-09',
+      days: ['monday', 'wednesday'],
+      durationMin: 40,
+      goal: 'hypertrophy',
+    });
+    expect(preview.kind).toBe('preview');
+    if (preview.kind !== 'preview') return;
+    expect(preview.steps.some((s) => /family\/buddy shared/i.test(s))).toBe(true);
+    expect(preview.steps.some((s) => /already have/i.test(s))).toBe(false);
+
+    const committed = await commitFitnessPreview(caller, { previewId: preview.previewId });
+    expect(committed.ok).toBe(true);
+    expect(client._plans).toHaveLength(2);
+    expect(client._plans.some((p) => p.id === 'plan-shared' && p.owner_id === 'user-b')).toBe(true);
+    expect(client._plans.some((p) => p.owner_id === 'user-a')).toBe(true);
   });
 
   it('fill_plan_day creates a plan_only workout for that day only', async () => {

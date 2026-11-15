@@ -173,10 +173,12 @@ export async function getTodayOverview(
       weekStart,
       limit: 5,
     });
-    // Prefer a plan that has a non-empty day for this weekday; else first plan.
+    // Prefer the caller's own plan; family/buddy shared plans are fallback only.
+    const mine = plans.filter((p) => p.isMine);
+    const pool = mine.length > 0 ? mine : plans;
     const plan =
-      plans.find((p) => p.days.some((d) => d.day === weekday && (!d.restDay || d.workoutName))) ??
-      plans[0] ??
+      pool.find((p) => p.days.some((d) => d.day === weekday && (!d.restDay || d.workoutName))) ??
+      pool[0] ??
       null;
     const day = plan?.days.find((d) => d.day === weekday) ?? null;
     train = {

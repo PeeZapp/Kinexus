@@ -225,6 +225,7 @@ export function PlanScreen() {
   const [library, setLibrary] = useState<LibraryExercise[]>([]);
   const [profile, setProfile] = useState<TrainGeneratePrefs>(DEFAULT_TRAIN_GENERATE_PREFS);
   const [typeCard, setTypeCard] = useState<PlanDayCardModel | null>(null);
+  const [typeDay, setTypeDay] = useState<Day | null>(null);
   const [savedCard, setSavedCard] = useState<PlanDayCardModel | null>(null);
   const [menuCard, setMenuCard] = useState<PlanDayCardModel | null>(null);
   const [buildChoiceCard, setBuildChoiceCard] = useState<PlanDayCardModel | null>(null);
@@ -692,6 +693,61 @@ export function PlanScreen() {
     )!;
   }
 
+  function onTypeForDay(day: Day) {
+    if (busy) return;
+    setTypeCard(null);
+    setTypeDay(day);
+  }
+
+  async function onCreateSessionType(day: Day, label: string) {
+    if (!userId || !activeHousehold || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const ownedPlan = plans.find((plan) => plan.ownerId === userId) ?? null;
+      if (ownedPlan) {
+        await addTrainingPlanDay({
+          userId,
+          planId: ownedPlan.id,
+          day,
+          focus: [label],
+          durationMin: profile.durationMin,
+        });
+        await refresh();
+      } else {
+        await applyGeneratedTrainingPlan({
+          householdId: activeHousehold.id,
+          userId,
+          name: 'Training plan',
+          weekStart,
+          visibility: 'private',
+          prefs: {
+            source: 'blank',
+            goal: profile.goal,
+            level: profile.level,
+            durationMin: profile.durationMin,
+            splitStyle: profile.splitStyle,
+            days: [day],
+          },
+          days: buildIntentWeekDays({
+            trainingDays: [day],
+            durationMin: profile.durationMin,
+            goal: profile.goal,
+            splitStyle: profile.splitStyle,
+            customFocusByDay: { [day]: label },
+          }),
+          replaceExisting: true,
+        });
+        await refresh();
+      }
+      setTypeDay(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not add session type');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onStartBlankDay(day: Day) {
     if (busy) return;
     setBusy(true);
@@ -875,6 +931,7 @@ export function PlanScreen() {
         durationMin: card.durationMin ?? 40,
       });
       setTypeCard(null);
+      setTypeDay(null);
       setMenuCard(null);
       await refresh();
     } catch (err: unknown) {
@@ -1093,6 +1150,7 @@ export function PlanScreen() {
     onPrevWeek: () => shiftWeek(-1),
     onNextWeek: () => shiftWeek(1),
     onThisWeek: () => setWeek(mondayWeekStart()),
+    onTypeForDay: (day: Day) => void onTypeForDay(day),
     onStartBlankDay: (day: Day) => void onStartBlankDay(day),
     onPickForDay: (day: Day) => void onPickForDay(day),
     onBuildForDay: (day: Day) => void onBuildForDay(day),
@@ -1133,12 +1191,34 @@ export function PlanScreen() {
     onMarkSkipped: (card: PlanDayCardModel) => void mutateStatus(card, 'skipped'),
     onRemoveWorkout: (card: PlanDayCardModel) => {
       void (async () => {
-        const confirmed = await confirmAction(
-          'Remove workout?',
-          'Removes the workout from this day. The workout itself is kept.',
-        );
+        if (card.workoutId) {
+          const confirmed = await confirmAction(
+            'Remove workout?',
+            'Removes the workout from this day. The workout itself is kept.',
+          );
+          if (!confirmed) return;
+          await onAttachSaved(card, null);
+          return;
+        }
+        const confirmed = await confirmAction('Remove session?', 'Removes this session type from the day.');
         if (!confirmed) return;
-        await onAttachSaved(card, null);
+        if (!userId || busy) return;
+        setBusy(true);
+        setError(null);
+        try {
+          await updateTrainingPlanDaySchedule({
+            userId,
+            dayId: card.id,
+            focus: [],
+            restDay: true,
+            durationMin: card.durationMin,
+          });
+          await refresh();
+        } catch (err: unknown) {
+          setError(err instanceof Error ? err.message : 'Could not remove session');
+        } finally {
+          setBusy(false);
+        }
       })();
     },
     onUndo: (card: PlanDayCardModel) => void mutateStatus(card, 'planned'),
@@ -1209,16 +1289,33 @@ export function PlanScreen() {
             }}
           />
           {!menuCard?.workoutId ? (
-            <TextAction
-              label="Suggest one"
-              onPress={() => {
-                if (!menuCard) return;
-                setMenuCard(null);
-                void onSuggestWorkout(menuCard);
-              }}
-            />
-          ) : null}
-          {menuCard?.workoutId ? (
+            <>
+              <TextAction
+                label="Suggest one"
+                onPress={() => {
+                  if (!menuCard) return;
+                  setMenuCard(null);
+                  void onSuggestWorkout(menuCard);
+                }}
+              />
+              <TextAction
+                label="Pick workout"
+                onPress={() => {
+                  if (!menuCard) return;
+                  setMenuCard(null);
+                  setSavedCard(menuCard);
+                }}
+              />
+              <TextAction
+                label="Build workout"
+                onPress={() => {
+                  if (!menuCard) return;
+                  setMenuCard(null);
+                  onBuildWorkout(menuCard);
+                }}
+              />
+            </>
+          ) : (
             <>
               <TextAction
                 label="Edit workout"
@@ -1252,25 +1349,25 @@ export function PlanScreen() {
                   })();
                 }}
               />
-              <TextAction
-                label="Done"
-                tone="accent"
-                onPress={() => {
-                  if (!menuCard) return;
-                  setMenuCard(null);
-                  void mutateStatus(menuCard, 'done');
-                }}
-              />
-              <TextAction
-                label="Skip"
-                onPress={() => {
-                  if (!menuCard) return;
-                  setMenuCard(null);
-                  void mutateStatus(menuCard, 'skipped');
-                }}
-              />
             </>
-          ) : null}
+          )}
+          <TextAction
+            label="Done"
+            tone="accent"
+            onPress={() => {
+              if (!menuCard) return;
+              setMenuCard(null);
+              void mutateStatus(menuCard, 'done');
+            }}
+          />
+          <TextAction
+            label="Skip"
+            onPress={() => {
+              if (!menuCard) return;
+              setMenuCard(null);
+              void mutateStatus(menuCard, 'skipped');
+            }}
+          />
         </View>
       </Sheet>
       <BuildWorkoutModal
@@ -1304,14 +1401,23 @@ export function PlanScreen() {
           onSubmit={submitBuild}
         />
       ) : null}
-      <Sheet visible={Boolean(typeCard)} title="Session type" onClose={() => setTypeCard(null)}>
+      <Sheet
+        visible={Boolean(typeCard || typeDay)}
+        title="Session type"
+        onClose={() => {
+          setTypeCard(null);
+          setTypeDay(null);
+        }}>
         <ScrollView style={styles.sheetList} keyboardShouldPersistTaps="handled">
           {PLAN_SESSION_TYPES.map((row) => (
             <Pressable
               key={row.id}
               accessibilityRole="button"
               disabled={busy}
-              onPress={() => typeCard && void onSetSessionType(typeCard, row.label)}
+              onPress={() => {
+                if (typeCard) void onSetSessionType(typeCard, row.label);
+                else if (typeDay) void onCreateSessionType(typeDay, row.label);
+              }}
               style={styles.sheetRow}>
               <Text style={styles.sheetName}>{row.label}</Text>
               <Text style={styles.sheetMeta}>{row.kind}</Text>

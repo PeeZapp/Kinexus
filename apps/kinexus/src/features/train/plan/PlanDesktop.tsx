@@ -35,6 +35,7 @@ export type TrainPlanViewProps = {
   onPickWorkout: (card: PlanDayCardModel) => void;
   onBuildWorkout: (card: PlanDayCardModel) => void;
   onSuggestWorkout: (card: PlanDayCardModel) => void;
+  onTypeForDay: (day: Day) => void;
   onStartBlankDay: (day: Day) => void;
   onPickForDay: (day: Day) => void;
   onBuildForDay: (day: Day) => void;

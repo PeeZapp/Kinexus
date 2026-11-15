@@ -2,6 +2,11 @@ import { PlanChoiceModal, type PlanChoiceOption } from '@/src/features/train/pla
 
 const OPTIONS = [
   {
+    key: 'type',
+    label: 'Type',
+    detail: 'No workout yet',
+  },
+  {
     key: 'start',
     label: 'Start',
     detail: 'Blank session now',
@@ -16,7 +21,7 @@ const OPTIONS = [
     label: 'Build',
     detail: 'Remix or builder',
   },
-] as const satisfies readonly PlanChoiceOption<'start' | 'pick' | 'build'>[];
+] as const satisfies readonly PlanChoiceOption<'type' | 'start' | 'pick' | 'build'>[];
 
 export type AddWorkoutChoice = (typeof OPTIONS)[number]['key'];
 
@@ -32,7 +37,7 @@ export function AddWorkoutModal({
   return (
     <PlanChoiceModal
       visible={visible}
-      title="Add workout"
+      title="Add to day"
       options={OPTIONS}
       onClose={onClose}
       onChoose={onChoose}

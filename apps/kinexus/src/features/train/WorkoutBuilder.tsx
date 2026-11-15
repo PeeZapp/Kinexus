@@ -343,6 +343,7 @@ export function WorkoutBuilder({
   const [preview, setPreview] = useState<LibraryExercise | null>(null);
   const [returnToWorkout, setReturnToWorkout] = useState(false);
   const [pairFrom, setPairFrom] = useState<string | null>(null);
+  const [swapFrom, setSwapFrom] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
@@ -468,8 +469,7 @@ export function WorkoutBuilder({
     });
   }
 
-  function addExercise(exercise: LibraryExercise) {
-    if (!editable) return;
+  function builtFromLibrary(exercise: LibraryExercise): Omit<BuiltExercise, 'key' | 'note' | 'personalNote' | 'supersetId'> {
     const nextCategory = remixCategoryOf(exercise);
     const targetUnit = inferTracking({
       name: exercise.name,
@@ -479,38 +479,46 @@ export function WorkoutBuilder({
     });
     const trackingDefaults = defaultTrackingTargets(targetUnit);
     const repsDefaults = getRemixDefaultsForCategory(nextCategory ?? '');
+    return {
+      exerciseId: exercise.id,
+      name: exercise.name,
+      category: nextCategory,
+      targetUnit,
+      targetSets:
+        targetUnit === 'reps' ? String(repsDefaults.sets) : String(trackingDefaults.targetSets),
+      targetReps:
+        targetUnit === 'reps'
+          ? repsDefaults.reps
+          : amountRawFromSeed(
+              {
+                exerciseId: exercise.id,
+                name: exercise.name,
+                tracking: trackingDefaults.tracking,
+                targetUnit,
+                targetSets: trackingDefaults.targetSets,
+                targetReps: trackingDefaults.targetReps,
+                targetDurationSec: trackingDefaults.targetDurationSec,
+                targetDistanceKm: trackingDefaults.targetDistanceKm,
+              },
+              targetUnit,
+            ),
+      distanceRaw: '',
+      targetWeight: null,
+      targetEffort: null,
+      targetRpe: null,
+    };
+  }
+
+  function addExercise(exercise: LibraryExercise) {
+    if (!editable) return;
+    const built = builtFromLibrary(exercise);
     setSelected((rows) => {
       if (rows.some((row) => row.exerciseId === exercise.id)) return rows;
       return [
         ...rows,
         {
           key: exercise.id,
-          exerciseId: exercise.id,
-          name: exercise.name,
-          category: nextCategory,
-          targetUnit,
-          targetSets:
-            targetUnit === 'reps' ? String(repsDefaults.sets) : String(trackingDefaults.targetSets),
-          targetReps:
-            targetUnit === 'reps'
-              ? repsDefaults.reps
-              : amountRawFromSeed(
-                  {
-                    exerciseId: exercise.id,
-                    name: exercise.name,
-                    tracking: trackingDefaults.tracking,
-                    targetUnit,
-                    targetSets: trackingDefaults.targetSets,
-                    targetReps: trackingDefaults.targetReps,
-                    targetDurationSec: trackingDefaults.targetDurationSec,
-                    targetDistanceKm: trackingDefaults.targetDistanceKm,
-                  },
-                  targetUnit,
-                ),
-          distanceRaw: '',
-          targetWeight: null,
-          targetEffort: null,
-          targetRpe: null,
+          ...built,
           note: '',
           personalNote: '',
           supersetId: null,
@@ -520,8 +528,57 @@ export function WorkoutBuilder({
     setPreview(null);
   }
 
+  function swapExercise(key: string, exercise: LibraryExercise) {
+    if (!editable) return;
+    const built = builtFromLibrary(exercise);
+    setSelected((rows) => {
+      if (rows.some((row) => row.exerciseId === exercise.id && row.key !== key)) return rows;
+      const next = rows.map((row) => {
+        if (row.key !== key) return row;
+        const sameUnit = row.targetUnit === built.targetUnit;
+        return {
+          ...row,
+          key: exercise.id,
+          exerciseId: built.exerciseId,
+          name: built.name,
+          category: built.category,
+          targetUnit: built.targetUnit,
+          targetSets: sameUnit ? row.targetSets : built.targetSets,
+          targetReps: sameUnit ? row.targetReps : built.targetReps,
+          distanceRaw: sameUnit && built.targetUnit === 'min' ? row.distanceRaw : '',
+          targetWeight: sameUnit ? row.targetWeight : null,
+          targetEffort: sameUnit ? row.targetEffort : null,
+          targetRpe: sameUnit ? row.targetRpe : null,
+        };
+      });
+      void persistPersonal(next, workoutNote);
+      return normalizeSupersets(next);
+    });
+    setPairFrom((current) => (current === key ? exercise.id : current));
+    setSwapFrom(null);
+    setPreview(null);
+    if (!split) setMobilePane('workout');
+  }
+
+  function pickLibraryExercise(exercise: LibraryExercise) {
+    if (swapFrom) {
+      swapExercise(swapFrom, exercise);
+      return;
+    }
+    addExercise(exercise);
+  }
+
+  function beginSwap(key: string) {
+    if (!editable) return;
+    setPairFrom(null);
+    setSwapFrom(key);
+    setPreview(null);
+    if (!split) setMobilePane('library');
+  }
+
   function removeExercise(key: string) {
     setPairFrom((current) => (current === key ? null : current));
+    setSwapFrom((current) => (current === key ? null : current));
     setSelected((rows) => {
       const next = normalizeSupersets(rows.filter((row) => row.key !== key));
       void persistPersonal(next, workoutNote);
@@ -961,7 +1018,8 @@ export function WorkoutBuilder({
               exercise={exercise}
               part={cluster.type === 'superset' ? part + 1 : null}
               pairing={pairFrom !== null}
-              isSource={pairFrom === exercise.key}
+              swapping={swapFrom !== null}
+              isSource={pairFrom === exercise.key || swapFrom === exercise.key}
               highlighted={highlightKey === exercise.key}
               editable={editable}
               canPair={selected.length > 1}
@@ -984,7 +1042,12 @@ export function WorkoutBuilder({
               onRemove={() => removeExercise(exercise.key)}
               onMoveUp={() => moveExercise(exercise.key, -1)}
               onMoveDown={() => moveExercise(exercise.key, 1)}
-              onSuperset={() => setPairFrom(exercise.key)}
+              onSwap={() => beginSwap(exercise.key)}
+              onCancelSwap={() => setSwapFrom(null)}
+              onSuperset={() => {
+                setSwapFrom(null);
+                setPairFrom(exercise.key);
+              }}
               onCancelPair={() => setPairFrom(null)}
               onPair={() => pairWith(exercise.key)}
               onUnlink={() => unlink(exercise.key)}
@@ -1053,8 +1116,12 @@ export function WorkoutBuilder({
   const libraryPane = (
     <View style={styles.pane}>
       <View style={styles.sectionRow}>
-        <Text style={styles.section}>Add exercises</Text>
-        {libraryReady ? <Text style={styles.count}>{matches.length.toLocaleString()}</Text> : null}
+        <Text style={styles.section}>{swapFrom ? 'Swap exercise' : 'Add exercises'}</Text>
+        {swapFrom ? (
+          <TextAction label="Cancel" onPress={() => setSwapFrom(null)} />
+        ) : libraryReady ? (
+          <Text style={styles.count}>{matches.length.toLocaleString()}</Text>
+        ) : null}
       </View>
       <SearchField value={query} onChangeText={setQuery} placeholder="Search exercises" />
       <View style={styles.filters}>
@@ -1070,7 +1137,7 @@ export function WorkoutBuilder({
             onToggle={toggleMenu}
             onSelect={pick(setCategory)}
           />
-          {editable && userId ? (
+          {editable && userId && !swapFrom ? (
             <TrainButton label="Add custom exercise" tone="ghost" compact onPress={() => setCustomOpen(true)} />
           ) : null}
         </FilterBar>
@@ -1081,8 +1148,9 @@ export function WorkoutBuilder({
             <ExercisePreview
               exercise={preview}
               editable={editable && !selectedIds.has(preview.id)}
+              actionLabel={swapFrom ? 'Swap' : 'Add to workout'}
               onClose={() => setPreview(null)}
-              onAdd={() => addExercise(preview)}
+              onAdd={() => pickLibraryExercise(preview)}
             />
           </View>
         ) : null}
@@ -1090,6 +1158,7 @@ export function WorkoutBuilder({
           <ExercisePreview
             exercise={preview}
             editable={editable && !selectedIds.has(preview.id)}
+            actionLabel={swapFrom ? 'Swap' : 'Add to workout'}
             onClose={() => {
               setPreview(null);
               if (returnToWorkout) {
@@ -1097,7 +1166,7 @@ export function WorkoutBuilder({
                 setMobilePane('workout');
               }
             }}
-            onAdd={() => addExercise(preview)}
+            onAdd={() => pickLibraryExercise(preview)}
           />
         ) : !libraryReady && !error ? (
           <LoadingState label="Loading exercises" />
@@ -1122,11 +1191,13 @@ export function WorkoutBuilder({
                       taken
                         ? `${exerciseTitle(item.exercise.name)} selected`
                         : editable
-                          ? `Add ${exerciseTitle(item.exercise.name)}`
+                          ? swapFrom
+                            ? `Swap for ${exerciseTitle(item.exercise.name)}`
+                            : `Add ${exerciseTitle(item.exercise.name)}`
                           : exerciseTitle(item.exercise.name)
                     }
                     disabled={!editable || taken}
-                    onPress={() => addExercise(item.exercise)}
+                    onPress={() => pickLibraryExercise(item.exercise)}
                     style={({ pressed }) => [
                       styles.libraryCopy,
                       taken && styles.libraryTaken,
@@ -1402,11 +1473,13 @@ function IconButton({
 function ExercisePreview({
   exercise,
   editable,
+  actionLabel = 'Add to workout',
   onClose,
   onAdd,
 }: {
   exercise: LibraryExercise;
   editable: boolean;
+  actionLabel?: string;
   onClose: () => void;
   onAdd: () => void;
 }) {
@@ -1433,7 +1506,7 @@ function ExercisePreview({
       ) : null}
       <ExerciseSteps instructions={exercise.instructions} />
       {credit ? <Text style={styles.credit}>{credit}</Text> : null}
-      {editable ? <TrainButton label="Add to workout" fill onPress={onAdd} /> : null}
+      {editable ? <TrainButton label={actionLabel} fill onPress={onAdd} /> : null}
     </ScrollView>
   );
 }
@@ -1488,6 +1561,7 @@ function SelectedExercise({
   exercise,
   part,
   pairing,
+  swapping,
   isSource,
   highlighted,
   editable,
@@ -1498,6 +1572,8 @@ function SelectedExercise({
   onRemove,
   onMoveUp,
   onMoveDown,
+  onSwap,
+  onCancelSwap,
   onSuperset,
   onCancelPair,
   onPair,
@@ -1513,6 +1589,7 @@ function SelectedExercise({
   exercise: BuiltExercise;
   part: number | null;
   pairing: boolean;
+  swapping: boolean;
   isSource: boolean;
   highlighted: boolean;
   editable: boolean;
@@ -1523,6 +1600,8 @@ function SelectedExercise({
   onRemove: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
+  onSwap: () => void;
+  onCancelSwap: () => void;
   onSuperset: () => void;
   onCancelPair: () => void;
   onPair: () => void;
@@ -1632,9 +1711,17 @@ function SelectedExercise({
     [translateY],
   );
 
+  const swapAction = editable ? (
+    swapping && isSource ? (
+      <TextAction label="Cancel" onPress={onCancelSwap} />
+    ) : (
+      <TextAction label="Swap" tone="accent" onPress={onSwap} />
+    )
+  ) : null;
+
   const linkAction =
-    editable && canPair ? (
-      isSource ? (
+    editable && canPair && !swapping ? (
+      isSource && pairing ? (
         <TextAction label="Cancel" onPress={onCancelPair} />
       ) : pairing ? (
         <TextAction label="Pair" tone="accent" onPress={onPair} />
@@ -1803,10 +1890,13 @@ function SelectedExercise({
             ))}
           </View>
         </View>
-        {linkAction || (editable && canPair && exercise.supersetId && !pairing) ? (
+        {swapAction || linkAction || (editable && canPair && exercise.supersetId && !pairing && !swapping) ? (
           <View style={styles.linkRow}>
+            {swapAction}
             {linkAction}
-            {editable && canPair && exercise.supersetId && !pairing ? <TextAction label="Unlink" onPress={onUnlink} /> : null}
+            {editable && canPair && exercise.supersetId && !pairing && !swapping ? (
+              <TextAction label="Unlink" onPress={onUnlink} />
+            ) : null}
           </View>
         ) : null}
       </View>

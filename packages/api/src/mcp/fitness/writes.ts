@@ -27,6 +27,7 @@ import {
   findExerciseDedupeCandidates,
   findWorkoutDedupeCandidates,
   getWorkout,
+  listTrainingPlans,
   loadCatalogueForFill,
   loadExerciseOrThrow,
   defaultWeekStart,
@@ -631,6 +632,28 @@ export async function previewCreateTrainingPlan(
   });
   const active = intentDays.filter((d) => !d.restDay);
   const name = (input.name ?? 'Training plan').trim() || 'Training plan';
+
+  const { plans: weekPlans } = await listTrainingPlans(caller.client, caller.userId, {
+    weekStart,
+    limit: 20,
+  });
+  const myPlans = weekPlans.filter((p) => p.isMine);
+  const sharedPlans = weekPlans.filter((p) => !p.isMine);
+  const steps = [
+    `Create private training plan "${name}"`,
+    ...active.map((d) => `${d.day}: ${d.focus[0] ?? 'Train'} (${d.durationMin} min, intent only)`),
+  ];
+  if (sharedPlans.length > 0) {
+    steps.push(
+      `Leave ${sharedPlans.length} family/buddy shared plan(s) untouched (not yours)`,
+    );
+  }
+  if (myPlans.length > 0) {
+    steps.push(
+      `You already have ${myPlans.length} plan(s) this week — creating adds another; delete yours first only if you want a replace`,
+    );
+  }
+
   return savePreview(
     caller,
     householdId,
@@ -646,10 +669,7 @@ export async function previewCreateTrainingPlan(
       focusByDay,
     },
     `Create intent plan "${name}" for week of ${weekStart} (${active.length} session day(s), no workouts filled)`,
-    [
-      `Create private training plan "${name}"`,
-      ...active.map((d) => `${d.day}: ${d.focus[0] ?? 'Train'} (${d.durationMin} min, intent only)`),
-    ],
+    steps,
   );
 }
 

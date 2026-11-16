@@ -41,6 +41,8 @@ ${categoryList}
 Rules:
 - Prefer an existing category name exactly.
 - If the merchant is an internal transfer, savings sweep, or not a real income/expense, set ignore to true.
+- Merchant refunds, returns, rebates, and cashback are expense-category credits (they reduce spend). Use kind "expense" and the same category as the original purchase when possible — never file them as income.
+- Genuine income only: salary, wages, interest, dividends, benefits. Deposits that are not those stay ignore or the best income category.
 - Do not invent account numbers or personal details.
 - confidence is 0 to 1. Only use 0.8+ when the merchant is obvious.
 

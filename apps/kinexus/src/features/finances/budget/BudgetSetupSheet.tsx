@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   DEFAULT_BUDGET_SEED,
   budgetCategoryOptions,
+  budgetTxnDisplayAmount,
   cadenceAmountLabel,
   calendarMonthNumber,
   formatMoney,
@@ -493,7 +494,7 @@ function SetupLineTxns({
 }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const merchants = useMemo(() => merchantsForBudgetLine(txns, line.id), [line.id, txns]);
+  const merchants = useMemo(() => merchantsForBudgetLine(txns, line.id, line.kind), [line.id, line.kind, txns]);
   const count = txnsForBudgetLine(txns, line.id).length;
   if (count === 0) return null;
   const visible = merchants.flatMap((merchant) => merchant.transactions);
@@ -549,7 +550,9 @@ function SetupLineTxns({
                     <Text style={styles.txnDesc} numberOfLines={2}>
                       {txn.description}
                     </Text>
-                    <Text style={styles.txnAmount}>{formatMoney(Math.abs(txn.amount), currency)}</Text>
+                    <Text style={styles.txnAmount}>
+                      {formatMoney(budgetTxnDisplayAmount(txn.amount, line.kind), currency)}
+                    </Text>
                   </Pressable>
                 );
               })}

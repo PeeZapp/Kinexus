@@ -81,6 +81,20 @@ describe('chooseTxnPrefill', () => {
     expect(result.prefill).toEqual({ source: 'none' });
     expect(result.assignment).toBeNull();
   });
+
+  it('does not file a refund against a remembered income category', () => {
+    const income = { id: 'other-income', kind: 'income' as const, name: 'Other income' };
+    const result = chooseTxnPrefill({
+      merchantKey: 'COLES',
+      amount: 20,
+      description: 'COLES REFUND',
+      existing: [{ date: '2026-10-01', merchantKey: 'COLES', lineId: 'other-income', ignored: false }],
+      lines: [line, income],
+      aiGuess: { merchantKey: 'COLES', kind: 'income', name: 'Other income', confidence: 0.99 },
+    });
+    expect(result.assignment).toBeNull();
+    expect(result.prefill).toEqual({ source: 'none' });
+  });
 });
 
 describe('buildTxnReview', () => {

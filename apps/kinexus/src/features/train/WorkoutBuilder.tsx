@@ -974,7 +974,7 @@ export function WorkoutBuilder({
           const info =
             (exercise.exerciseId ? library.find((item) => item.id === exercise.exerciseId) : undefined) ??
             library.find((item) => item.name.toLowerCase() === exercise.name.toLowerCase());
-          if (!editable) {
+          if (!editable && !onPersonalNotes) {
             const unit = exercise.targetUnit;
             const amount = Number.parseFloat(exercise.targetReps);
             const kmRaw = exercise.distanceRaw.trim();
@@ -1009,6 +1009,9 @@ export function WorkoutBuilder({
                             : null,
                   })}
                 </Text>
+                {exercise.personalNote ? (
+                  <NoteLine label="Mine" value={exercise.personalNote} editable={false} onSave={() => undefined} />
+                ) : null}
               </View>
             );
           }
@@ -1099,6 +1102,19 @@ export function WorkoutBuilder({
               onEffort={(targetEffort) => {
                 setSelected((current) => current.map((row) => (row.key === exercise.key ? { ...row, targetEffort } : row)));
               }}
+              onPersonalNote={
+                onPersonalNotes
+                  ? (bodyText) => {
+                      setSelected((current) => {
+                        const next = current.map((row) =>
+                          row.key === exercise.key ? { ...row, personalNote: bodyText } : row,
+                        );
+                        void persistPersonal(next, workoutNote);
+                        return next;
+                      });
+                    }
+                  : undefined
+              }
             />
           );
         });
@@ -1585,6 +1601,7 @@ function SelectedExercise({
   onReps,
   onDistance,
   onEffort,
+  onPersonalNote,
 }: {
   exercise: BuiltExercise;
   part: number | null;
@@ -1613,6 +1630,7 @@ function SelectedExercise({
   onReps: (value: string) => void;
   onDistance: (value: string) => void;
   onEffort: (value: EffortLevel | null) => void;
+  onPersonalNote?: (value: string) => void;
 }) {
   const guideKind = exerciseGuideKind(exercise.category);
   const guideOptions = guideOptionsFor(guideKind);
@@ -1890,6 +1908,15 @@ function SelectedExercise({
             ))}
           </View>
         </View>
+        {onPersonalNote || exercise.personalNote ? (
+          <NoteLine
+            label="Mine"
+            value={exercise.personalNote}
+            editable={Boolean(onPersonalNote)}
+            maxLength={280}
+            onSave={(bodyText) => onPersonalNote?.(bodyText)}
+          />
+        ) : null}
         {swapAction || linkAction || (editable && canPair && exercise.supersetId && !pairing && !swapping) ? (
           <View style={styles.linkRow}>
             {swapAction}

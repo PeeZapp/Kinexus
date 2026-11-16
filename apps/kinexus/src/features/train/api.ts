@@ -369,16 +369,10 @@ export async function loadWorkouts(
     list.push({ userId: rating.user_id, score: rating.score });
     ratingsByWorkout.set(rating.workout_id, list);
   }
-  const { data: noteRows } = await db()
-    .from('workout_user_notes')
-    .select('workout_id, exercise_position, body')
-    .eq('household_id', householdId);
-  const notesByWorkout = new Map<string, WorkoutUserNote[]>();
-  for (const note of noteRows ?? []) {
-    const list = notesByWorkout.get(note.workout_id) ?? [];
-    list.push({ position: note.exercise_position, body: note.body });
-    notesByWorkout.set(note.workout_id, list);
-  }
+  const notesByWorkout = await loadUserNotesByWorkoutIds(
+    (data ?? []).map((row) => row.id),
+    householdId,
+  );
   return (data ?? []).map((row) => mapWorkoutDraft(row, ratingsByWorkout, notesByWorkout));
 }
 
@@ -402,12 +396,16 @@ export async function loadOutOfLibraryGroupWorkouts(
     .not('group_workout_id', 'is', null)
     .order('updated_at', { ascending: false });
   if (error) throw error;
+  const notesByWorkout = await loadUserNotesByWorkoutIds(
+    (data ?? []).map((row) => row.id),
+    householdId,
+  );
   return (data ?? []).map((row) => {
     const raw = (row as { group_workouts?: { workout_date?: string } | { workout_date?: string }[] | null })
       .group_workouts;
     const group = Array.isArray(raw) ? raw[0] : raw;
     return {
-      ...mapWorkoutDraft(row),
+      ...mapWorkoutDraft(row, undefined, notesByWorkout),
       workoutDate: group?.workout_date ?? null,
     };
   });
@@ -504,6 +502,28 @@ function mapWorkoutDraft(
   };
 }
 
+async function loadUserNotesByWorkoutIds(
+  workoutIds: string[],
+  householdId?: string,
+): Promise<Map<string, WorkoutUserNote[]>> {
+  const ids = [...new Set(workoutIds.filter(Boolean))];
+  const notesByWorkout = new Map<string, WorkoutUserNote[]>();
+  if (ids.length === 0) return notesByWorkout;
+  let query = db()
+    .from('workout_user_notes')
+    .select('workout_id, exercise_position, body')
+    .in('workout_id', ids);
+  if (householdId) query = query.eq('household_id', householdId);
+  const { data: noteRows, error } = await query;
+  if (error) throw error;
+  for (const note of noteRows ?? []) {
+    const list = notesByWorkout.get(note.workout_id) ?? [];
+    list.push({ position: note.exercise_position, body: note.body });
+    notesByWorkout.set(note.workout_id, list);
+  }
+  return notesByWorkout;
+}
+
 export async function loadWorkoutById(workoutId: string): Promise<WorkoutDraft | null> {
   const { data, error } = await db()
     .from('workouts')
@@ -512,7 +532,8 @@ export async function loadWorkoutById(workoutId: string): Promise<WorkoutDraft |
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) return null;
-  return mapWorkoutDraft(data);
+  const notesByWorkout = await loadUserNotesByWorkoutIds([workoutId], data.household_id);
+  return mapWorkoutDraft(data, undefined, notesByWorkout);
 }
 
 /** Workouts shared to the signed-in user by buddies (any household). Excludes Everyone/global. */
@@ -1288,16 +1309,30 @@ export async function saveRestBest(userId: string, score: RestGameScore): Promis
   if (error) throw error;
 }
 
-export async function loadOpenWorkoutIds(userId: string, householdId: string): Promise<string[]> {
+/** Open unfinished sessions keyed by workout id → live session id (most recent wins). */
+export async function loadOpenWorkoutSessionMap(
+  userId: string,
+  householdId: string,
+): Promise<Map<string, string>> {
   const { data, error } = await db()
     .from('workout_sessions')
-    .select('workout_id')
+    .select('id, workout_id')
     .eq('user_id', userId)
     .eq('household_id', householdId)
     .is('finished_at', null)
-    .not('workout_id', 'is', null);
+    .not('workout_id', 'is', null)
+    .order('started_at', { ascending: false });
   if (error) throw error;
-  return [...new Set((data ?? []).flatMap((row) => (row.workout_id ? [row.workout_id] : [])))];
+  const map = new Map<string, string>();
+  for (const row of data ?? []) {
+    if (!row.workout_id || map.has(row.workout_id)) continue;
+    map.set(row.workout_id, row.id);
+  }
+  return map;
+}
+
+export async function loadOpenWorkoutIds(userId: string, householdId: string): Promise<string[]> {
+  return [...(await loadOpenWorkoutSessionMap(userId, householdId)).keys()];
 }
 
 /** Workout ids the user has finished at least once in this household. */
@@ -1460,7 +1495,7 @@ export async function abandonWorkoutSession(sessionId: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
-/** Abandon stale empty sessions; if another has logged sets, return it for Resume / Start new. */
+/** Abandon stale empty sessions; return the most recent unfinished session if any. */
 export async function prepareToStartWorkout(userId: string): Promise<{
   resume: OpenLiveSessionSummary | null;
 }> {
@@ -1472,8 +1507,7 @@ export async function prepareToStartWorkout(userId: string): Promise<{
     await abandonWorkoutSession(row.id);
   }
   const remaining = open.filter((row) => !staleEmpty.some((stale) => stale.id === row.id));
-  const withLogs = remaining.find((row) => row.hasLoggedSets) ?? null;
-  return { resume: withLogs };
+  return { resume: remaining[0] ?? null };
 }
 
 /** Quietly abandon empty open sessions (e.g. superseded when starting another). */

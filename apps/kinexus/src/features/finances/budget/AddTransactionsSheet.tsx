@@ -9,6 +9,7 @@ import {
   formatMoney,
   groupReviewRowsByDate,
   linePathName,
+  looksLikeExpenseReturn,
   parseBankStatement,
   type BankId,
   type FinanceBudgetLine,
@@ -309,11 +310,18 @@ export function AddTransactionsSheet({
     }> = [];
     const uniqueMerchants = new Map<string, { sample: string; count: number; total: number; kind: 'income' | 'expense' }>();
     for (const txn of incoming) {
-      const kind = txn.amount >= 0 ? 'income' : 'expense';
+      // Refunds are money-in but belong on expense categories (they reduce spend).
+      const kind = looksLikeExpenseReturn(`${txn.merchantKey} ${txn.description}`, txn.amount)
+        ? 'expense'
+        : txn.amount >= 0
+          ? 'income'
+          : 'expense';
       const current = uniqueMerchants.get(txn.merchantKey);
       if (current) {
         current.count += 1;
         current.total += txn.amount;
+        // Prefer expense when the batch mixes spends/refunds with income-looking credits.
+        if (kind === 'expense') current.kind = 'expense';
       } else {
         uniqueMerchants.set(txn.merchantKey, {
           sample: txn.description,

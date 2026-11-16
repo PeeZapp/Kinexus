@@ -3,8 +3,11 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   budgetCategoryOptions,
+  budgetTxnDisplayAmount,
   formatMoney,
+  looksLikeExpenseReturn,
   type BudgetCategoryOption,
+  type FinanceBudgetLineKind,
   type FinanceBudgetTxn,
   type StatementAssignment,
 } from '@kinexus/domain';
@@ -38,10 +41,18 @@ export function BudgetReclassifySheet({
   const [scope, setScope] = useState<'selected' | 'merchant'>('selected');
   const sample = txns[0] ?? null;
   const mixed = txns.some((txn) => txn.amount >= 0) && txns.some((txn) => txn.amount < 0);
-  const kind = txns.every((txn) => txn.amount >= 0) ? 'income' : 'expense';
-  const options = budgetCategoryOptions(mixed ? categories : categories.filter((item) => item.kind === kind));
+  const allPositive = txns.every((txn) => txn.amount >= 0);
+  const looksLikeReturn = allPositive && txns.some((txn) => looksLikeExpenseReturn(`${txn.merchantKey} ${txn.description}`, txn.amount));
+  // Positive amounts may be income or an expense refund — offer both when unclear.
+  const kind: FinanceBudgetLineKind = allPositive && !looksLikeReturn ? 'income' : 'expense';
+  const options = budgetCategoryOptions(
+    mixed || (allPositive && !looksLikeReturn) ? categories : categories.filter((item) => item.kind === kind),
+  );
   const fallback = kind === 'income' ? 'Other income' : 'Other';
-  const total = useMemo(() => txns.reduce((sum, txn) => sum + Math.abs(txn.amount), 0), [txns]);
+  const total = useMemo(
+    () => txns.reduce((sum, txn) => sum + budgetTxnDisplayAmount(txn.amount, kind), 0),
+    [kind, txns],
+  );
   const sameMerchant = Boolean(sample && txns.every((txn) => txn.merchantKey === sample.merchantKey));
   const extraMerchant = (merchantIds?.length ?? 0) > txns.length && sameMerchant && txns.length === 1;
 
@@ -67,7 +78,7 @@ export function BudgetReclassifySheet({
               <Text style={styles.merchant}>{sample.merchantKey}</Text>
               <Text style={styles.sample}>{sample.description}</Text>
               <Text style={styles.meta}>
-                {formatTxnDate(sample.date)} · {formatMoney(Math.abs(sample.amount), currency)}
+                {formatTxnDate(sample.date)} · {formatMoney(budgetTxnDisplayAmount(sample.amount, kind), currency)}
               </Text>
             </>
           ) : (
@@ -96,7 +107,15 @@ export function BudgetReclassifySheet({
             />
           </View>
         ) : null}
-        <Text style={styles.label}>{mixed ? 'Move to' : kind === 'income' ? 'Which income is this?' : 'Which expense is this?'}</Text>
+        <Text style={styles.label}>
+          {mixed || (allPositive && !looksLikeReturn)
+            ? 'Move to'
+            : kind === 'income'
+              ? 'Which income is this?'
+              : looksLikeReturn
+                ? 'Which expense does this refund?'
+                : 'Which expense is this?'}
+        </Text>
         <View style={styles.wrap}>
           {options.map((item) => (
             <Pill key={`${item.kind}:${item.name}`} label={item.name} onPress={() => apply({ kind: item.kind, name: item.name })} />

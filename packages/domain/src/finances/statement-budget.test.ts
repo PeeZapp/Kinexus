@@ -110,4 +110,21 @@ describe('statement budget draft', () => {
     expect(next.lines.find((line) => line.name === 'Entertainment')?.spent).toBe(48);
     expect(next.questions.some((question) => question.merchantKey.includes('ODD'))).toBe(true);
   });
+
+  it('nets merchant refunds against the expense category instead of filing as income', () => {
+    const csv = `Date,Narration,Debit,Credit,Balance
+01/08/2026,WOOLWORTHS 3123,120.00,,
+02/08/2026,WOOLWORTHS REFUND,,20.00,
+06/08/2026,ACME PAYROLL,,5000.00,
+`;
+    const draft = draftBudgetFromStatement(parseBankStatement(csv));
+    const groceries = draft.lines.find((line) => line.name === 'Groceries');
+    expect(groceries?.total).toBe(100);
+    expect(groceries?.spent).toBe(100);
+    expect(draft.lines.find((line) => line.name === 'Other income')).toBeUndefined();
+    expect(draft.lines.find((line) => line.name === 'Salary')?.spent).toBe(5000);
+    const refund = draft.transactions.find((txn) => /refund/i.test(txn.description));
+    expect(refund?.assignment).toEqual({ kind: 'expense', name: 'Groceries' });
+    expect(refund?.amount).toBe(20);
+  });
 });

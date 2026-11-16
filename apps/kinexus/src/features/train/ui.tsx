@@ -409,6 +409,9 @@ export function NoteLine({
 
   if (!value && !editable) return null;
 
+  const long = value.includes('\n') || value.length > 72;
+  const canCollapse = long || lines > 2;
+
   if (editing) {
     return (
       <View style={styles.noteEdit}>
@@ -418,6 +421,8 @@ export function NoteLine({
           placeholder={label}
           placeholderTextColor={colors.textDim}
           style={styles.noteInput}
+          multiline
+          textAlignVertical="top"
           autoFocus
         />
         <Pressable
@@ -464,12 +469,14 @@ export function NoteLine({
           }}>
           {value}
         </Text>
-        <Text style={styles.noteText} numberOfLines={expanded ? undefined : 1}>
+        <Text style={styles.noteText} numberOfLines={expanded || !canCollapse ? undefined : 2}>
           {value}
         </Text>
+        {canCollapse && !expanded ? (
+          <TextAction label="More" tone="accent" onPress={() => setExpanded(true)} />
+        ) : null}
+        {canCollapse && expanded ? <TextAction label="Less" onPress={() => setExpanded(false)} /> : null}
       </View>
-      {lines > 1 && !expanded ? <TextAction label="More" tone="accent" onPress={() => setExpanded(true)} /> : null}
-      {expanded && lines > 1 ? <TextAction label="Less" onPress={() => setExpanded(false)} /> : null}
       {editable ? (
         <Pressable
           accessibilityRole="button"
@@ -713,30 +720,32 @@ const styles = StyleSheet.create({
   effortBadgeLabel: { fontSize: 11, fontWeight: '800' },
   noteEdit: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 6,
   },
   noteInput: {
     flex: 1,
     minWidth: 0,
-    height: 32,
+    minHeight: 72,
+    maxHeight: 160,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.bg,
     color: colors.text,
     fontSize: 14,
+    lineHeight: 18,
     paddingHorizontal: 8,
-    paddingVertical: 0,
+    paddingVertical: 8,
   },
   noteSaved: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
   noteKind: { color: colors.textDim, fontSize: 11, fontWeight: '700', paddingTop: 2, width: 36 },
-  noteCopy: { flex: 1, minWidth: 0, position: 'relative' },
+  noteCopy: { flex: 1, minWidth: 0, position: 'relative', gap: 4 },
   noteText: { color: colors.text, fontSize: 14, lineHeight: 18 },
   noteMeasure: { position: 'absolute', opacity: 0, left: 0, right: 0 },
   noteAdd: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   noteAddLabel: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
-  noteIcon: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  noteIcon: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
   notePencil: { color: colors.accent, fontSize: 16, fontWeight: '700' },
   noteSave: { color: colors.accent, fontSize: 16, fontWeight: '800' },
   visibilityRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

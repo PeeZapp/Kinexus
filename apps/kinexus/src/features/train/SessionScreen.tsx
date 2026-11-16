@@ -24,6 +24,7 @@ import {
   trackingToUnit,
   trackingTypeFrom,
   unitToTracking,
+  type ExerciseCluster,
   type RestExtra,
   type TargetUnit,
   type TrackingType,
@@ -74,6 +75,11 @@ import {
 import { cascadeSetEdits } from '@/src/features/train/cascade-set-edits';
 import { chooseResumeOrStartNew, confirmAction } from '@/src/features/train/confirm';
 import { clock, exerciseFacts, exerciseTitle } from '@/src/features/train/format';
+import {
+  clearSessionFocusSetId,
+  loadSessionFocusSetId,
+  saveSessionFocusSetId,
+} from '@/src/features/train/session-focus';
 import { useCreator } from '@/src/features/creators/use-creator';
 import { Badge, Choice, EffortBadge, ExerciseSteps, Field, MediaGallery, NoteLine, Pill, Segmented, TrainButton, TrainPage } from '@/src/features/train/ui';
 import { ErrorBanner } from '@/src/features/shell/states';
@@ -295,8 +301,28 @@ export function SessionScreen({
   const finishRestRef = useRef<() => void>(() => undefined);
   const scoresRef = useRef({ mine: myScores, tops: topScores });
   scoresRef.current = { mine: myScores, tops: topScores };
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollYRef = useRef(0);
+  const setRowRefs = useRef<Record<string, View | null>>({});
+  const focusRestoreAttempted = useRef(false);
   const remaining = rest.remainingSec;
   const resting = rest.active;
+
+  function rememberFocus(setId: string) {
+    if (sessionId) void saveSessionFocusSetId(sessionId, setId);
+  }
+
+  function scrollToSet(setId: string) {
+    const row = setRowRefs.current[setId];
+    const scroll = scrollRef.current;
+    if (!row || !scroll) return;
+    row.measureInWindow((_x, y) => {
+      scroll.measureInWindow((_sx, sy) => {
+        const nextY = Math.max(0, scrollYRef.current + (y - sy) - 16);
+        scroll.scrollTo({ y: nextY, animated: false });
+      });
+    });
+  }
 
   useEffect(() => {
     if (!userId) return;
@@ -353,7 +379,15 @@ export function SessionScreen({
         if (cancelled) return;
         const { resume } = await prepareToStartWorkout(userId);
         if (cancelled) return;
-        if (resume && resume.workoutId !== found.id) {
+        if (resume?.workoutId === found.id) {
+          router.replace(
+            `/train/session/live/${resume.id}${
+              planDayId ? `?dayId=${encodeURIComponent(planDayId)}` : ''
+            }` as Href,
+          );
+          return;
+        }
+        if (resume) {
           const choice = await chooseResumeOrStartNew();
           if (cancelled) return;
           if (choice === 'resume') {
@@ -387,6 +421,32 @@ export function SessionScreen({
       cancelled = true;
     };
   }, [activeHousehold, userId, workoutId, liveSessionId, planDayId]);
+
+  useEffect(() => {
+    focusRestoreAttempted.current = false;
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || sets.length === 0 || focusRestoreAttempted.current) return;
+    focusRestoreAttempted.current = true;
+    let cancelled = false;
+    void (async () => {
+      const saved = await loadSessionFocusSetId(sessionId);
+      if (cancelled) return;
+      const fallback = sets.find((set) => !set.done)?.id ?? sets[0]?.id ?? null;
+      const target =
+        saved && sets.some((set) => set.id === saved) ? saved : fallback;
+      if (!target) return;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!cancelled) scrollToSet(target);
+        });
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, sets]);
 
   const groups = useMemo(() => {
     const map = new Map<number, SessionSet[]>();
@@ -574,6 +634,7 @@ export function SessionScreen({
   }, [rest, userId]);
 
   async function patch(set: SessionSet, next: Partial<SessionSet>, weightDisplay?: string) {
+    rememberFocus(set.id);
     let weight = next.weight ?? set.weight;
     if (weightDisplay !== undefined) {
       const trimmed = weightDisplay.trim();
@@ -642,10 +703,65 @@ export function SessionScreen({
     );
   }
 
-  async function markExercise(group: SessionSet[], done: boolean) {
-    const ids = new Set(group.map((set) => set.id));
-    setSets((current) => current.map((item) => (ids.has(item.id) ? { ...item, done } : item)));
-    await Promise.all(group.filter((set) => set.done !== done).map((set) => updateSet(set.id, { done })));
+  async function markSetsDone(targets: SessionSet[], done: boolean) {
+    if (targets.length === 0) return;
+    const ids = new Set(targets.map((set) => set.id));
+    let nextSets: SessionSet[] = [];
+    setSets((current) => {
+      nextSets = current.map((item) => (ids.has(item.id) ? { ...item, done } : item));
+      return nextSets;
+    });
+    if (done) {
+      const anchor = targets[targets.length - 1];
+      const nextOpen =
+        (anchor
+          ? nextSets.find(
+              (item) =>
+                !item.done &&
+                (item.position > anchor.position ||
+                  (item.position === anchor.position && item.setIndex > anchor.setIndex)),
+            )
+          : null) ?? nextSets.find((item) => !item.done);
+      if (nextOpen) rememberFocus(nextOpen.id);
+      else if (anchor) rememberFocus(anchor.id);
+    } else if (targets[0]) {
+      rememberFocus(targets[0].id);
+    }
+    await Promise.all(targets.filter((set) => set.done !== done).map((set) => updateSet(set.id, { done })));
+  }
+
+  function setsInClusterRound(cluster: ExerciseCluster, setIndex: number): SessionSet[] {
+    const found: SessionSet[] = [];
+    for (const slot of cluster.indices) {
+      const group = groups[slot]?.[1];
+      if (!group) continue;
+      const match = group.find((item) => item.setIndex === setIndex);
+      if (match) found.push(match);
+    }
+    return found;
+  }
+
+  function setsInCluster(cluster: ExerciseCluster): SessionSet[] {
+    return cluster.indices.flatMap((slot) => groups[slot]?.[1] ?? []);
+  }
+
+  async function toggleClusterSet(cluster: ExerciseCluster, set: SessionSet, label: string) {
+    const done = !set.done;
+    const targets = cluster.type === 'superset' ? setsInClusterRound(cluster, set.setIndex) : [set];
+    await markSetsDone(targets, done);
+    if (done) {
+      restLabelRef.current = label;
+      setSetPrompt(true);
+    }
+  }
+
+  async function toggleClusterExercise(cluster: ExerciseCluster, group: SessionSet[], done: boolean, label: string) {
+    const targets = cluster.type === 'superset' ? setsInCluster(cluster) : group;
+    await markSetsDone(targets, done);
+    if (done) {
+      restLabelRef.current = label;
+      setSetPrompt(true);
+    }
   }
 
   function beginRest(game: RestExtra) {
@@ -974,6 +1090,7 @@ export function SessionScreen({
         records,
         workoutId: linkedWorkoutId,
       });
+      await clearSessionFocusSetId(sessionId);
       if (score !== null && activeHousehold && linkedWorkoutId) {
         await saveWorkoutRating({
           workoutId: linkedWorkoutId,
@@ -1035,7 +1152,15 @@ export function SessionScreen({
           </Pressable>
         </View>
       </View>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        ref={scrollRef}
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        onScroll={(event) => {
+          scrollYRef.current = event.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={16}>
         <ErrorBanner message={error} />
         <Segmented
           value={mode}
@@ -1051,7 +1176,7 @@ export function SessionScreen({
             <TrainButton label="Add exercise" fill onPress={() => void openAddExercise()} disabled={!sessionId} />
           </View>
         ) : null}
-        {mode === 'full' && userId && workout?.id ? (
+        {userId && workout?.id ? (
           <NoteLine
             label="Mine"
             value={workout.notes.find((note) => note.position === -1)?.body ?? ''}
@@ -1096,7 +1221,12 @@ export function SessionScreen({
             if (mode === 'compact') {
               const exerciseDone = group.length > 0 && doneCount === group.length;
               return (
-                <View key={position} style={[styles.compactRow, exerciseDone && styles.compactRowDone]}>
+                <View
+                  key={position}
+                  ref={(node) => {
+                    for (const set of group) setRowRefs.current[set.id] = node;
+                  }}
+                  style={[styles.compactRow, exerciseDone && styles.compactRowDone]}>
                   <View style={styles.compactBody}>
                     <Pressable
                       accessibilityRole="button"
@@ -1109,6 +1239,15 @@ export function SessionScreen({
                       </Text>
                       <Text style={styles.compactMeta}>{trackingLabel}</Text>
                     </Pressable>
+                    {userId && workout?.id ? (
+                      <NoteLine
+                        label="Mine"
+                        value={workout.notes.find((item) => item.position === position)?.body ?? ''}
+                        editable
+                        maxLength={280}
+                        onSave={(body) => void savePersonalNote(position, body)}
+                      />
+                    ) : null}
                     <View style={styles.compactActions}>
                       <Pressable
                         accessibilityRole="button"
@@ -1149,12 +1288,7 @@ export function SessionScreen({
                     accessibilityState={{ checked: exerciseDone }}
                     accessibilityLabel={exerciseDone ? `${exerciseTitle(name)} done` : `Check off ${exerciseTitle(name)}`}
                     onPress={() => {
-                      const done = !exerciseDone;
-                      void markExercise(group, done);
-                      if (done) {
-                        restLabelRef.current = exerciseTitle(name);
-                        setSetPrompt(true);
-                      }
+                      void toggleClusterExercise(cluster, group, !exerciseDone, exerciseTitle(name));
                     }}
                     hitSlop={8}
                     style={[styles.setCheck, exerciseDone && styles.setCheckOn]}>
@@ -1227,10 +1361,10 @@ export function SessionScreen({
                   </Pressable>
                 </View>
                 {plan?.note ? <NoteLine label="Note" value={plan.note} editable={false} onSave={() => undefined} /> : null}
-                {userId && plan ? (
+                {userId && workout?.id ? (
                   <NoteLine
                     label="Mine"
-                    value={workout?.notes.find((item) => item.position === position)?.body ?? ''}
+                    value={workout.notes.find((item) => item.position === position)?.body ?? ''}
                     editable
                     maxLength={280}
                     onSave={(body) => void savePersonalNote(position, body)}
@@ -1238,7 +1372,12 @@ export function SessionScreen({
                 ) : null}
                 <View style={styles.sets}>
                   {group.map((set, index) => (
-                    <View key={set.id} style={[styles.setRow, set.done && styles.setRowDone]}>
+                    <View
+                      key={set.id}
+                      ref={(node) => {
+                        setRowRefs.current[set.id] = node;
+                      }}
+                      style={[styles.setRow, set.done && styles.setRowDone]}>
                       {unit === 'reps' || unit === 'sec' || group.length > 1 ? (
                         <Text style={styles.setIndex}>{index + 1}</Text>
                       ) : null}
@@ -1394,12 +1533,7 @@ export function SessionScreen({
                                 : `Check off set ${index + 1}`
                         }
                         onPress={() => {
-                          const done = !set.done;
-                          void patch(set, { done });
-                          if (done) {
-                            restLabelRef.current = exerciseTitle(name);
-                            setSetPrompt(true);
-                          }
+                          void toggleClusterSet(cluster, set, exerciseTitle(name));
                         }}
                         hitSlop={8}
                         style={[styles.setCheck, set.done && styles.setCheckOn]}>

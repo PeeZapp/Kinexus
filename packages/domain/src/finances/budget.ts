@@ -587,12 +587,16 @@ export function ignoredBudgetTxns(txns: readonly FinanceBudgetTxn[]): FinanceBud
     .sort((a, b) => b.date.localeCompare(a.date) || a.description.localeCompare(b.description));
 }
 
-export function merchantsForBudgetLine(txns: readonly FinanceBudgetTxn[], lineId: string): BudgetLineMerchant[] {
-  return groupBudgetTxns(txnsForBudgetLine(txns, lineId));
+export function merchantsForBudgetLine(
+  txns: readonly FinanceBudgetTxn[],
+  lineId: string,
+  kind: FinanceBudgetLineKind = 'expense',
+): BudgetLineMerchant[] {
+  return groupBudgetTxns(txnsForBudgetLine(txns, lineId), kind);
 }
 
 export function merchantsForIgnoredTxns(txns: readonly FinanceBudgetTxn[]): BudgetLineMerchant[] {
-  return groupBudgetTxns(ignoredBudgetTxns(txns));
+  return groupBudgetTxns(ignoredBudgetTxns(txns), 'expense');
 }
 
 export function txnsForMerchant(
@@ -606,14 +610,17 @@ export function txnsForMerchant(
 }
 
 export function lineSpendTotals(
-  lines: readonly Pick<FinanceBudgetLine, 'id'>[],
+  lines: readonly Pick<FinanceBudgetLine, 'id' | 'kind'>[],
   txns: readonly FinanceBudgetTxn[],
 ): Map<string, number> {
   const months = budgetMonthCount(txns);
+  const kindById = new Map(lines.map((line) => [line.id, line.kind]));
   const sums = new Map<string, number>();
   for (const txn of txns) {
     if (txn.ignored || !txn.lineId) continue;
-    sums.set(txn.lineId, roundMoney((sums.get(txn.lineId) ?? 0) + Math.abs(txn.amount)));
+    const kind = kindById.get(txn.lineId) ?? 'expense';
+    const delta = kind === 'income' ? txn.amount : -txn.amount;
+    sums.set(txn.lineId, roundMoney((sums.get(txn.lineId) ?? 0) + delta));
   }
   const out = new Map<string, number>();
   for (const line of lines) {
@@ -736,7 +743,7 @@ export function defaultTxnDateForMonth(monthStart: string, now: Date = new Date(
   return monthStart;
 }
 
-function groupBudgetTxns(txns: readonly FinanceBudgetTxn[]): BudgetLineMerchant[] {
+function groupBudgetTxns(txns: readonly FinanceBudgetTxn[], kind: FinanceBudgetLineKind): BudgetLineMerchant[] {
   const groups = new Map<string, BudgetLineMerchant>();
   for (const txn of txns) {
     const current = groups.get(txn.merchantKey) ?? {
@@ -747,9 +754,15 @@ function groupBudgetTxns(txns: readonly FinanceBudgetTxn[]): BudgetLineMerchant[
       transactions: [],
     };
     current.count += 1;
-    current.total = roundMoney(current.total + Math.abs(txn.amount));
+    // Expense refunds (positive amounts) reduce the merchant total instead of inflating it.
+    current.total = roundMoney(current.total + (kind === 'income' ? txn.amount : -txn.amount));
     current.transactions.push(txn);
     groups.set(txn.merchantKey, current);
   }
   return [...groups.values()].sort((a, b) => b.total - a.total || a.merchantKey.localeCompare(b.merchantKey));
+}
+
+/** Display amount under a budget line: spends and income show positive; expense refunds show negative. */
+export function budgetTxnDisplayAmount(amount: number, kind: FinanceBudgetLineKind): number {
+  return kind === 'income' ? amount : -amount;
 }

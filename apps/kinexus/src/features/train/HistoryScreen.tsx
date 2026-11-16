@@ -24,7 +24,7 @@ import { confirmAction } from '@/src/features/train/confirm';
 import { createCustomExercise } from '@/src/features/train/custom-exercises-api';
 import { exerciseTitle } from '@/src/features/train/format';
 import { buildHistoryCsv } from '@/src/features/train/history-export';
-import { SearchField, TrainButton, TrainPage } from '@/src/features/train/ui';
+import { NoteLine, SearchField, TrainButton, TrainPage } from '@/src/features/train/ui';
 import { ErrorBanner, LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
@@ -349,6 +349,12 @@ export function HistoryScreen() {
                     const open = expandedId === row.id;
                     const detail = detailById[row.id];
                     const checked = selectedIds.has(row.id);
+                    const mineNote =
+                      row.workoutId == null
+                        ? ''
+                        : workouts.find((workout) => workout.id === row.workoutId)?.notes.find(
+                            (note) => note.position === -1,
+                          )?.body ?? '';
                     return (
                       <View key={row.id} style={styles.row}>
                         <View style={styles.rowMain}>
@@ -370,6 +376,9 @@ export function HistoryScreen() {
                               {when}
                               {minutes ? ` · ${minutes} min` : ''}
                             </Text>
+                            {mineNote ? (
+                              <NoteLine label="Mine" value={mineNote} editable={false} onSave={() => undefined} />
+                            ) : null}
                           </Pressable>
                           <Pressable accessibilityRole="button" onPress={() => void toggleExpand(row)} hitSlop={8}>
                             <Text style={styles.chevron}>{open ? '▾' : '▸'}</Text>

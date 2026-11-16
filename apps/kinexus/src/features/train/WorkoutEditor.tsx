@@ -218,7 +218,7 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
         editable={editable}
         onClose={() => router.replace('/train/workouts' as Href)}
         onPersonalNotes={
-          editable && userId && activeHousehold
+          userId && activeHousehold
             ? async (notes) => {
                 await saveWorkoutUserNotes({
                   workoutId: workout.id,
@@ -226,6 +226,7 @@ export function WorkoutEditor({ workoutId }: { workoutId: string }) {
                   householdId: activeHousehold.id,
                   notes,
                 });
+                setWorkout((current) => (current ? { ...current, notes } : current));
               }
             : undefined
         }

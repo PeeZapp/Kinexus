@@ -31,7 +31,7 @@ import {
   loadGlobalWorkouts,
   loadHiddenWorkoutIds,
   loadLibrary,
-  loadOpenWorkoutIds,
+  loadOpenWorkoutSessionMap,
   loadOutOfLibraryGroupWorkouts,
   loadTrainPrefs,
   loadYoursWorkouts,
@@ -52,6 +52,7 @@ import { publicPrimaryName, PublicName } from '@/src/features/shell/PublicName';
 import {
   ExerciseSteps,
   MediaGallery,
+  NoteLine,
   Pill,
   SearchField,
   Segmented,
@@ -131,13 +132,13 @@ export function WorkoutsScreen() {
   const [visibility, setVisibility] = useState<VisibilityFilter>('visible');
   const [addedBy, setAddedBy] = useState<AddedByFilter>('any');
   const [ratingId, setRatingId] = useState<string | null>(null);
-  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
+  const [openByWorkoutId, setOpenByWorkoutId] = useState<Map<string, string>>(new Map());
   const [clearingId, setClearingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selected, setSelected] = useState<SelectedWorkout | null>(null);
-  const [selectedExercise, setSelectedExercise] = useState<LibraryExercise | { name: string; note?: string } | null>(
-    null,
-  );
+  const [selectedExercise, setSelectedExercise] = useState<
+    LibraryExercise | { name: string; note?: string; personalNote?: string } | null
+  >(null);
   const [libraryById, setLibraryById] = useState<Map<string, LibraryExercise>>(new Map());
   const [exportWorkout, setExportWorkout] = useState<WorkoutDraft | null>(null);
   const [linkShareBusy, setLinkShareBusy] = useState(false);
@@ -216,15 +217,15 @@ export function WorkoutsScreen() {
           if (!cancelled) setReady(true);
         });
       if (userId) {
-        loadOpenWorkoutIds(userId, householdId)
-          .then((ids) => {
-            if (!cancelled) setOpenIds(new Set(ids));
+        loadOpenWorkoutSessionMap(userId, householdId)
+          .then((map) => {
+            if (!cancelled) setOpenByWorkoutId(map);
           })
           .catch((err: unknown) => {
             if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load workouts');
           });
       } else if (!cancelled) {
-        setOpenIds(new Set());
+        setOpenByWorkoutId(new Map());
       }
       return () => {
         cancelled = true;
@@ -331,9 +332,9 @@ export function WorkoutsScreen() {
     ranked.sort((a, b) => a.score - b.score);
     return sortWorkoutsOpenFirst(
       ranked.map((item) => item.workout),
-      openIds,
+      new Set(openByWorkoutId.keys()),
     );
-  }, [addedBy, focus, hiddenIds, length, openIds, plans, query, visibility, workouts]);
+  }, [addedBy, focus, hiddenIds, length, openByWorkoutId, plans, query, visibility, workouts]);
 
   const visibleGlobal = useMemo(() => {
     const scoped = globalRows.filter((row) => (pane === 'official' ? row.isSystem : !row.isSystem));
@@ -414,11 +415,16 @@ export function WorkoutsScreen() {
     if (result.start) router.push(`/train/session/${id}` as Href);
   }
 
+  function openSessionHref(workoutId: string): Href {
+    const sessionId = openByWorkoutId.get(workoutId);
+    return (sessionId ? `/train/session/live/${sessionId}` : `/train/session/${workoutId}`) as Href;
+  }
+
   async function clearWorkout(workoutId: string) {
     if (!userId || clearingId) return;
-    const previous = openIds;
-    setOpenIds((current) => {
-      const next = new Set(current);
+    const previous = openByWorkoutId;
+    setOpenByWorkoutId((current) => {
+      const next = new Map(current);
       next.delete(workoutId);
       return next;
     });
@@ -426,7 +432,7 @@ export function WorkoutsScreen() {
     try {
       await clearOpenSession(userId, workoutId);
     } catch (err: unknown) {
-      setOpenIds(previous);
+      setOpenByWorkoutId(previous);
       setError(err instanceof Error ? err.message : 'Could not clear the workout');
     } finally {
       setClearingId(null);
@@ -710,7 +716,7 @@ export function WorkoutsScreen() {
                 const extra = Math.max(0, names.length - listed.length);
                 const scores = [...workout.ratings].sort((a, b) => (a.userId === userId ? -1 : b.userId === userId ? 1 : 0));
                 const mine = userId ? workout.ratings.find((rating) => rating.userId === userId)?.score : undefined;
-                const open = openIds.has(workout.id);
+                const open = openByWorkoutId.has(workout.id);
                 const ratingLabel =
                   scores.length > 0
                     ? scores.map((rating) => `${rating.userId === userId ? 'You' : nameFor(rating.userId)} ${rating.score}/10`).join(' · ')
@@ -746,6 +752,14 @@ export function WorkoutsScreen() {
                             <Text style={styles.focus} numberOfLines={1}>
                               {muscles}
                             </Text>
+                          ) : null}
+                          {workout.notes.find((note) => note.position === -1)?.body ? (
+                            <NoteLine
+                              label="Mine"
+                              value={workout.notes.find((note) => note.position === -1)?.body ?? ''}
+                              editable={false}
+                              onSave={() => undefined}
+                            />
                           ) : null}
                           {listed.length > 0 ? (
                             <View style={styles.exerciseList}>
@@ -793,7 +807,9 @@ export function WorkoutsScreen() {
                     <View style={styles.actions}>
                       <TrainButton
                         label={open ? 'Resume' : 'Start'}
-                        onPress={() => router.push(`/train/session/${workout.id}` as Href)}
+                        onPress={() =>
+                          router.push(open ? openSessionHref(workout.id) : (`/train/session/${workout.id}` as Href))
+                        }
                         fill
                         compact
                       />
@@ -1017,25 +1033,47 @@ export function WorkoutsScreen() {
                 <Pill label={selectedYoursOrigin} />
               ) : null
             }
-            exercises={selected.workout.exercises}
+            workoutNote={
+              selected.kind === 'yours'
+                ? selected.workout.notes.find((note) => note.position === -1)?.body ?? ''
+                : ''
+            }
+            exercises={selected.workout.exercises.map((exercise) => ({
+              ...exercise,
+              personalNote:
+                selected.kind === 'yours'
+                  ? selected.workout.notes.find((note) => note.position === exercise.position)?.body
+                  : undefined,
+            }))}
             onExercisePress={(exercise) => {
               const catalog = exercise.exerciseId ? libraryById.get(exercise.exerciseId) : null;
-              setSelectedExercise(catalog ?? { name: exercise.name, note: exercise.note });
+              if (catalog) {
+                setSelectedExercise({ ...catalog, personalNote: exercise.personalNote });
+                return;
+              }
+              setSelectedExercise({
+                name: exercise.name,
+                note: exercise.note,
+                personalNote: exercise.personalNote,
+              });
             }}
             actions={
               <View style={styles.detailActions}>
                 {selected.kind === 'yours' ? (
                   <>
                     <TrainButton
-                      label={openIds.has(selected.workout.id) ? 'Resume' : 'Start'}
+                      label={openByWorkoutId.has(selected.workout.id) ? 'Resume' : 'Start'}
                       fill
                       onPress={() => {
                         const id = selected.workout.id;
+                        const href = openByWorkoutId.has(id)
+                          ? openSessionHref(id)
+                          : (`/train/session/${id}` as Href);
                         setSelected(null);
-                        router.push(`/train/session/${id}` as Href);
+                        router.push(href);
                       }}
                     />
-                    {openIds.has(selected.workout.id) ? (
+                    {openByWorkoutId.has(selected.workout.id) ? (
                       <TrainButton
                         label="Clear"
                         tone="ghost"
@@ -1175,6 +1213,7 @@ function WorkoutDetailBody({
   focuses,
   creator,
   description,
+  workoutNote,
   exercises,
   onExercisePress,
   actions,
@@ -1184,6 +1223,7 @@ function WorkoutDetailBody({
   focuses: readonly string[];
   creator: ReactNode;
   description: string | null;
+  workoutNote?: string;
   exercises: readonly {
     id?: string;
     exerciseId?: string | null;
@@ -1195,12 +1235,14 @@ function WorkoutDetailBody({
     targetDurationSec?: number | null;
     targetDistanceKm?: number | null;
     note?: string;
+    personalNote?: string;
     supersetId?: string | null;
   }[];
   onExercisePress: (exercise: {
     exerciseId?: string | null;
     name: string;
     note?: string;
+    personalNote?: string;
   }) => void;
   actions: ReactNode;
 }) {
@@ -1229,6 +1271,7 @@ function WorkoutDetailBody({
             exerciseId: exercise.exerciseId,
             name: exercise.name,
             note: exercise.note,
+            personalNote: exercise.personalNote,
           })
         }
         style={({ pressed }) => [
@@ -1239,6 +1282,9 @@ function WorkoutDetailBody({
         <Text style={styles.detailIndex}>{index + 1}</Text>
         <View style={styles.detailRowCopy}>
           <Text style={styles.detailExercise}>{exerciseTitle(exercise.name)}</Text>
+          {exercise.personalNote ? (
+            <NoteLine label="Mine" value={exercise.personalNote} editable={false} onSave={() => undefined} />
+          ) : null}
           {exercise.note ? <Text style={styles.detailNote}>{exercise.note}</Text> : null}
         </View>
         {target ? <Text style={styles.detailTarget}>{target}</Text> : null}
@@ -1254,6 +1300,7 @@ function WorkoutDetailBody({
           {meta ? <Text style={styles.detailMeta}>{meta}</Text> : null}
           {creator}
           {description ? <Text style={styles.detailDescription}>{description}</Text> : null}
+          {workoutNote ? <NoteLine label="Mine" value={workoutNote} editable={false} onSave={() => undefined} /> : null}
         </View>
       </View>
 
@@ -1282,12 +1329,15 @@ function WorkoutDetailBody({
 function ExerciseDetailBody({
   exercise,
 }: {
-  exercise: LibraryExercise | { name: string; note?: string };
+  exercise: (LibraryExercise & { personalNote?: string }) | { name: string; note?: string; personalNote?: string };
 }) {
   if (!('sourceBadge' in exercise)) {
     return (
       <View style={styles.exerciseDetail}>
         <Text style={styles.detailExercise}>{exerciseTitle(exercise.name)}</Text>
+        {exercise.personalNote ? (
+          <NoteLine label="Mine" value={exercise.personalNote} editable={false} onSave={() => undefined} />
+        ) : null}
         {exercise.note ? <Text style={styles.detailNote}>{exercise.note}</Text> : null}
       </View>
     );
@@ -1303,6 +1353,9 @@ function ExerciseDetailBody({
           <Pill key={fact} label={fact} />
         ))}
       </View>
+      {exercise.personalNote ? (
+        <NoteLine label="Mine" value={exercise.personalNote} editable={false} onSave={() => undefined} />
+      ) : null}
       {exercise.sourceBadge === 'creator' && exercise.owner ? (
         <PublicName user={exercise.owner} link />
       ) : null}

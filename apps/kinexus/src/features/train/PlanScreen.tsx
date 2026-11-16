@@ -50,6 +50,7 @@ import {
   updateTrainingPlanVisibility,
   type GlobalWorkoutCard,
   type LibraryExercise,
+  type OpenLiveSessionSummary,
   type TrainingPlanWeekRow,
   type WorkoutDraft,
 } from '@/src/features/train/api';
@@ -76,7 +77,7 @@ import type { PlanAudienceRow, PlanDayCardModel } from '@/src/features/train/pla
 import { useTrainWeek } from '@/src/features/train/TrainWeekContext';
 import { TextAction, TrainPage } from '@/src/features/train/ui';
 import { ErrorBanner, LoadingState } from '@/src/features/shell/states';
-import { colors } from '@/src/features/shell/theme';
+import { colors, radius, space } from '@/src/features/shell/theme';
 import { todayDay } from '@/src/features/meals/week-labels';
 import { useExperienceMode } from '@/src/lib/experience-mode';
 import { useAuth } from '@/src/lib/auth';
@@ -232,6 +233,7 @@ export function PlanScreen() {
   const [buildCard, setBuildCard] = useState<PlanDayCardModel | null>(null);
   const [jointAlerts, setJointAlerts] = useState<{ session: JointSessionRow; message: string }[]>([]);
   const [decideSession, setDecideSession] = useState<JointSessionRow | null>(null);
+  const [activeLive, setActiveLive] = useState<OpenLiveSessionSummary | null>(null);
 
   useEffect(() => {
     setSelectedDay(weekStart === mondayWeekStart() ? todayDay() : 'monday');
@@ -248,6 +250,7 @@ export function PlanScreen() {
       setBuddies([]);
       setGlobalWorkouts([]);
       setHiddenWorkoutIds(new Set());
+      setActiveLive(null);
       return;
     }
     const [rows, buddyRows, workoutRows, globals, hiddenIds, prefs, joint] = await Promise.all([
@@ -280,6 +283,8 @@ export function PlanScreen() {
         })
         .filter((row): row is { session: JointSessionRow; message: string } => Boolean(row)),
     );
+    const { resume } = await prepareToStartWorkout(userId);
+    setActiveLive(resume);
   }, [activeHousehold, userId, weekStart]);
 
   useFocusEffect(
@@ -555,6 +560,7 @@ export function PlanScreen() {
     }
     await abandonWorkoutSession(resume.id);
     await abandonEmptyOpenSessions(userId);
+    setActiveLive(null);
     return 'proceed';
   }
 
@@ -1240,6 +1246,21 @@ export function PlanScreen() {
 
   return (
     <TrainPage>
+      {activeLive ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Continue ${activeLive.name}`}
+          onPress={() => router.push(`/train/session/live/${activeLive.id}` as Href)}
+          style={({ pressed }) => [styles.continueCard, pressed && styles.continuePressed]}>
+          <View style={styles.continueCopy}>
+            <Text style={styles.continueEyebrow}>In progress</Text>
+            <Text style={styles.continueName} numberOfLines={1}>
+              {activeLive.name}
+            </Text>
+          </View>
+          <Text style={styles.continueAction}>Continue</Text>
+        </Pressable>
+      ) : null}
       {jointAlerts.length > 0 ? (
         <View style={styles.alertStack}>
           {jointAlerts.map(({ session, message }) => (
@@ -1517,6 +1538,25 @@ const styles = StyleSheet.create({
   },
   sheetName: { color: colors.text, fontSize: 15, fontWeight: '600' },
   sheetMeta: { color: colors.textMuted, fontSize: 12, textTransform: 'capitalize' },
+  continueCard: {
+    minHeight: 52,
+    marginBottom: space.sm,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.accentMuted,
+    backgroundColor: colors.accentSoft,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.sm,
+  },
+  continuePressed: { opacity: 0.9 },
+  continueCopy: { flex: 1, minWidth: 0, gap: 2 },
+  continueEyebrow: { color: colors.textMuted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
+  continueName: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  continueAction: { color: colors.accent, fontSize: 14, fontWeight: '800', flexShrink: 0 },
   alertStack: { gap: 8, paddingBottom: 8 },
   alertCard: { gap: 6 },
 });

@@ -1,4 +1,4 @@
-import { AUTO_CATEGORY_CONFIDENCE } from './statement-budget';
+import { AUTO_CATEGORY_CONFIDENCE, looksLikeExpenseReturn } from './statement-budget';
 import type { StatementAssignment } from './statement-budget';
 import type { FinanceBudgetLine, FinanceBudgetTxn } from './types';
 
@@ -147,14 +147,21 @@ export function findRememberedLineId(
 
 export function chooseTxnPrefill(input: {
   merchantKey: string;
+  amount?: number;
+  description?: string;
   existing: readonly Pick<FinanceBudgetTxn, 'date' | 'merchantKey' | 'lineId' | 'ignored'>[];
   lines: readonly Pick<FinanceBudgetLine, 'id' | 'kind' | 'name'>[];
   aiGuess?: AiMerchantPrefill | null;
 }): { prefill: ReviewPrefill; assignment: StatementAssignment | null } {
+  const amount = input.amount ?? 0;
+  const description = `${input.merchantKey} ${input.description ?? ''}`;
+  const expenseReturn = looksLikeExpenseReturn(description, amount);
+
   const rememberedId = findRememberedLineId(input.merchantKey, input.existing);
   if (rememberedId) {
     const line = input.lines.find((item) => item.id === rememberedId);
-    if (line) {
+    // Don't reuse an income memory for a merchant refund — that would inflate income.
+    if (line && !(expenseReturn && line.kind === 'income')) {
       return {
         prefill: { source: 'remembered', lineId: line.id },
         assignment: { kind: line.kind, name: line.name },
@@ -169,6 +176,10 @@ export function chooseTxnPrefill(input: {
       return { prefill: { source: 'ignore' }, assignment: { ignore: true } };
     }
     if (guess.kind && guess.name?.trim()) {
+      // Refunds must stay on expense categories — ignore income suggestions.
+      if (expenseReturn && guess.kind === 'income') {
+        return { prefill: { source: 'none' }, assignment: null };
+      }
       const assignment = { kind: guess.kind, name: guess.name.trim() } as const;
       return {
         prefill: { source: 'ai', assignment, confidence },
@@ -202,6 +213,8 @@ export function buildTxnReview(input: BuildTxnReviewInput): {
     if (alreadyAdded || possibleDuplicate) alreadyAddedCount += 1;
     const { prefill, assignment } = chooseTxnPrefill({
       merchantKey: txn.merchantKey,
+      amount: txn.amount,
+      description: txn.description,
       existing: input.existing,
       lines: input.lines,
       aiGuess: guessByMerchant.get(txn.merchantKey) ?? null,

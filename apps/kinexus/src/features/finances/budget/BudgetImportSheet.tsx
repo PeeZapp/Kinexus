@@ -5,6 +5,7 @@ import {
   applyAiMerchantGuesses,
   applyMerchantAnswers,
   budgetCategoryOptions,
+  budgetTxnDisplayAmount,
   draftBudgetFromStatement,
   emptyStatementDraft,
   formatMoney,
@@ -293,6 +294,14 @@ function QuestionStep({
   onAnswer: (assignment: StatementAssignment) => void;
 }) {
   const fallback = question.kind === 'income' ? 'Other income' : 'Other';
+  const moneyIn = question.id.startsWith('in:');
+  const directionLabel = moneyIn ? (question.kind === 'expense' ? 'refund' : 'in') : 'out';
+  const promptLabel =
+    question.kind === 'income'
+      ? 'Which income is this?'
+      : moneyIn
+        ? 'Which expense does this refund?'
+        : 'Which expense is this?';
   return (
     <>
       <Text style={styles.hint}>
@@ -304,10 +313,10 @@ function QuestionStep({
         <Text style={styles.sample}>{question.sample}</Text>
         <Text style={styles.meta}>
           {question.count} transaction{question.count === 1 ? '' : 's'} · {formatMoney(question.total, currency)}{' '}
-          {question.kind === 'income' ? 'in' : 'out'}
+          {directionLabel}
         </Text>
       </View>
-      <Text style={styles.label}>{question.kind === 'income' ? 'Which income is this?' : 'Which expense is this?'}</Text>
+      <Text style={styles.label}>{promptLabel}</Text>
       <View style={styles.wrap}>
         {categories.map((item) => (
           <Pill
@@ -466,7 +475,9 @@ function PreviewLine({
                   <Text style={styles.txnDesc} numberOfLines={2}>
                     {txn.description}
                   </Text>
-                  <Text style={styles.txnAmount}>{formatMoney(Math.abs(txn.amount), currency)}</Text>
+                  <Text style={styles.txnAmount}>
+                    {formatMoney(budgetTxnDisplayAmount(txn.amount, line.kind), currency)}
+                  </Text>
                 </View>
               ))}
             </View>

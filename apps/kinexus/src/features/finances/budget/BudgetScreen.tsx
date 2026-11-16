@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   budgetLineGroups,
   budgetTotals,
+  budgetTxnDisplayAmount,
   canEditBudgetTxn,
   canEnterBudgetAmounts,
   canManageBudgetPlan,
@@ -1027,7 +1028,13 @@ function BudgetLineCard({
                 <Text style={styles.txnDesc} numberOfLines={2}>
                   {txn.description}
                 </Text>
-                <Text style={styles.txnAmount}>{formatMoney(Math.abs(txn.amount), currency)}</Text>
+                <Text
+                  style={[
+                    styles.txnAmount,
+                    line.kind === 'expense' && txn.amount > 0 ? styles.txnReturn : null,
+                  ]}>
+                  {formatMoney(budgetTxnDisplayAmount(txn.amount, line.kind), currency)}
+                </Text>
                 {canRemoveTxn(txn.id) ? (
                   <Pressable onPress={() => onDeleteTxn(txn.id)} hitSlop={8}>
                     <Text style={styles.remove}>Remove</Text>
@@ -1046,7 +1053,13 @@ function BudgetLineCard({
               <Text style={styles.txnDesc} numberOfLines={2}>
                 {txn.description}
               </Text>
-              <Text style={styles.txnAmount}>{formatMoney(Math.abs(txn.amount), currency)}</Text>
+              <Text
+                style={[
+                  styles.txnAmount,
+                  line.kind === 'expense' && txn.amount > 0 ? styles.txnReturn : null,
+                ]}>
+                {formatMoney(budgetTxnDisplayAmount(txn.amount, line.kind), currency)}
+              </Text>
               {canRemoveTxn(txn.id) ? (
                 <Pressable onPress={() => onDeleteTxn(txn.id)} hitSlop={8}>
                   <Text style={styles.remove}>Remove</Text>
@@ -1243,6 +1256,7 @@ const styles = StyleSheet.create({
   txnDate: { color: colors.textDim, fontSize: 12, width: 64 },
   txnDesc: { color: colors.text, fontSize: 13, flex: 1, minWidth: 0, lineHeight: 18 },
   txnAmount: { color: colors.text, fontSize: 12, fontWeight: '700' },
+  txnReturn: { color: colors.accent },
   periodicalHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   chevron: { color: colors.textMuted, fontSize: 18, fontWeight: '700' },
   periodicalRow: { gap: 6, paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.border },

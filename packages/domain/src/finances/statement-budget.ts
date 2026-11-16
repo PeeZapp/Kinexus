@@ -90,9 +90,23 @@ type Rule = {
   reason: string;
 };
 
+/** Merchant credits that should reduce an expense category, not inflate income. */
+const EXPENSE_RETURN_PATTERN =
+  /\b(refund|rebate|cashback|cash back|reimbursement|reimburse|return|chargeback|reversal|credit note)\b/i;
+
+export function looksLikeExpenseReturn(description: string, amount: number): boolean {
+  if (!(amount > 0)) return false;
+  return EXPENSE_RETURN_PATTERN.test(description);
+}
+
+/** Signed activity for a category: income inflows add; expense outflows add and refunds subtract. */
+export function statementTxnActivity(amount: number, kind: FinanceBudgetLineKind): number {
+  return kind === 'income' ? amount : -amount;
+}
+
 const RULES: Rule[] = [
   { kind: 'income', name: 'Salary', pattern: /\b(salary|wages|payroll|payg|employer)\b/, confidence: 0.92, reason: 'Looks like pay' },
-  { kind: 'income', name: 'Other income', pattern: /\b(interest|dividend|refund|rebate|cashback|centrelink|family tax)\b/, confidence: 0.82, reason: 'Looks like other income' },
+  { kind: 'income', name: 'Other income', pattern: /\b(interest|dividend|centrelink|family tax)\b/, confidence: 0.82, reason: 'Looks like other income' },
   { kind: 'expense', name: 'Housing', pattern: /\b(rent|landlord|mortgage|home loan|realestate|domain\.com|body corp|strata|council rates)\b/, confidence: 0.93, reason: 'Housing payment' },
   {
     kind: 'expense',
@@ -204,6 +218,15 @@ export function applyAiMerchantGuesses(
       return { ...txn, assignment: { ignore: true } as const, confidence, reason: 'Marked as a transfer' };
     }
     const name = guess.name?.trim();
+    const expenseReturn = looksLikeExpenseReturn(`${txn.merchantKey} ${txn.description}`, txn.amount);
+    // Don't let AI park refunds in income.
+    if (expenseReturn && guess.kind === 'income') {
+      return {
+        ...txn,
+        confidence: Math.max(txn.confidence, confidence),
+        reason: name ? `Maybe ${name}` : txn.reason,
+      };
+    }
     if (!name || !guess.kind || confidence < threshold) {
       return {
         ...txn,
@@ -272,8 +295,9 @@ function classifyTxn(txn: BankStatementTxn, existing: readonly BudgetCategoryOpt
   if (TRANSFER_PATTERNS.some((pattern) => pattern.test(haystack))) {
     return { ...txn, confidence: 0.7, reason: 'Looks like a transfer', assignment: null };
   }
-  const kind: FinanceBudgetLineKind = txn.amount >= 0 ? 'income' : 'expense';
-  const fallback = kind === 'income' ? 'Other income' : 'Other';
+  const expenseReturn = looksLikeExpenseReturn(`${txn.merchantKey} ${txn.description}`, txn.amount);
+  // Refunds/returns are money in, but they belong on the expense category they reverse.
+  const kind: FinanceBudgetLineKind = expenseReturn ? 'expense' : txn.amount >= 0 ? 'income' : 'expense';
   for (const rule of RULES) {
     if (rule.kind !== kind) continue;
     if (!rule.pattern.test(haystack)) continue;
@@ -281,8 +305,16 @@ function classifyTxn(txn: BankStatementTxn, existing: readonly BudgetCategoryOpt
     return {
       ...txn,
       confidence: rule.confidence,
-      reason: rule.reason,
+      reason: expenseReturn ? `Refund → ${name}` : rule.reason,
       assignment: rule.confidence >= AUTO_CATEGORY_CONFIDENCE ? { kind, name } : null,
+    };
+  }
+  if (expenseReturn) {
+    return {
+      ...txn,
+      confidence: 0.55,
+      reason: 'Looks like a refund',
+      assignment: null,
     };
   }
   return {
@@ -299,30 +331,56 @@ function questionsFrom(
 ): StatementMerchantQuestion[] {
   const groups = new Map<
     string,
-    { sample: string; count: number; total: number; kind: FinanceBudgetLineKind; suggestedName: string | null }
+    {
+      merchantKey: string;
+      sample: string;
+      count: number;
+      total: number;
+      kind: FinanceBudgetLineKind;
+      suggestedName: string | null;
+      amountSign: number;
+    }
   >();
   for (const txn of classified) {
     if (txn.assignment) continue;
-    const kind: FinanceBudgetLineKind = txn.amount >= 0 ? 'income' : 'expense';
-    const current = groups.get(txn.merchantKey) ?? {
+    const kind: FinanceBudgetLineKind = looksLikeExpenseReturn(`${txn.merchantKey} ${txn.description}`, txn.amount)
+      ? 'expense'
+      : txn.amount >= 0
+        ? 'income'
+        : 'expense';
+    // Keep money-in and money-out for the same merchant as separate questions.
+    const amountSign = txn.amount >= 0 ? 1 : -1;
+    const groupKey = questionIdFor({ merchantKey: txn.merchantKey, amount: amountSign });
+    const current = groups.get(groupKey) ?? {
+      merchantKey: txn.merchantKey,
       sample: txn.description,
       count: 0,
       total: 0,
       kind,
       suggestedName: suggestedNameFor(txn, kind, existing),
+      amountSign,
     };
     current.count += 1;
     current.total = roundMoney(current.total + Math.abs(txn.amount));
-    groups.set(txn.merchantKey, current);
+    groups.set(groupKey, current);
   }
   return [...groups.entries()]
-    .map(([key, group]) => ({
-      id: questionIdFor({ merchantKey: key, amount: group.kind === 'income' ? 1 : -1 }),
-      merchantKey: key,
-      ...group,
+    .map(([id, group]) => ({
+      id,
+      merchantKey: group.merchantKey,
+      sample: group.sample,
+      count: group.count,
+      total: group.total,
+      kind: group.kind,
+      suggestedName: group.suggestedName,
     }))
     .sort((a, b) => b.total - a.total || b.count - a.count)
     .slice(0, MAX_STATEMENT_QUESTIONS);
+}
+
+function classifyKindForTxn(txn: Pick<BankStatementTxn, 'amount' | 'description' | 'merchantKey'>): FinanceBudgetLineKind {
+  if (looksLikeExpenseReturn(`${txn.merchantKey} ${txn.description}`, txn.amount)) return 'expense';
+  return txn.amount >= 0 ? 'income' : 'expense';
 }
 
 function assignLeftovers(
@@ -330,14 +388,14 @@ function assignLeftovers(
   questions: readonly StatementMerchantQuestion[],
 ): ClassifiedStatementTxn {
   if (txn.assignment) return txn;
-  const asked = new Set(questions.map((question) => question.merchantKey));
-  if (asked.has(txn.merchantKey)) return txn;
-  const kind: FinanceBudgetLineKind = txn.amount >= 0 ? 'income' : 'expense';
+  const asked = new Set(questions.map((question) => question.id));
+  if (asked.has(questionIdFor(txn))) return txn;
+  const kind = classifyKindForTxn(txn);
   return {
     ...txn,
     assignment: { kind, name: kind === 'income' ? 'Other income' : 'Other' },
     confidence: 0.4,
-    reason: 'Small leftover filed as Other',
+    reason: kind === 'expense' && txn.amount > 0 ? 'Small leftover filed as expense return' : 'Small leftover filed as Other',
   };
 }
 
@@ -382,7 +440,7 @@ export function merchantsForProposedLine(
       transactions: [],
     };
     current.count += 1;
-    current.total = roundMoney(current.total + Math.abs(txn.amount));
+    current.total = roundMoney(current.total + statementTxnActivity(txn.amount, line.kind));
     current.transactions.push(txn);
     groups.set(txn.merchantKey, current);
   }
@@ -402,7 +460,7 @@ function linesFrom(classified: readonly ClassifiedStatementTxn[], monthCount: nu
       total: 0,
       count: 0,
     };
-    current.total = roundMoney(current.total + Math.abs(txn.amount));
+    current.total = roundMoney(current.total + statementTxnActivity(txn.amount, txn.assignment.kind));
     current.count += 1;
     map.set(key, current);
   }

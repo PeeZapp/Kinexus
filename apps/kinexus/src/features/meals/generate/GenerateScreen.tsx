@@ -8,6 +8,7 @@ import {
   DAYS,
   MEAL_SLOTS,
   defaultMealPrepDaysToCover,
+  filterRecipesForFoodPrefs,
   filterRecipesForPeople,
   formatMoney,
   generateMealPlan,
@@ -45,6 +46,7 @@ import { GenerateDesktop } from '@/src/features/meals/generate/GenerateDesktop';
 import { GenerateMobile } from '@/src/features/meals/generate/GenerateMobile';
 import { Sheet } from '@/src/features/meals/meals-kit';
 import { AttachedSideDishes, SideDishPicker, SideDishRemove } from '@/src/features/meals/plan/SideDishPicker';
+import { useHouseholdFoodPrefs } from '@/src/features/meals/food/food-prefs';
 import { canManageMealPlan } from '@/src/features/meals/picker-access';
 import { recipeEditHref } from '@/src/features/meals/recipe-href';
 import { RecipePeek } from '@/src/features/meals/RecipePeek';
@@ -71,6 +73,8 @@ export function GenerateScreen() {
   const router = useRouter();
   const meals = useMealsSync();
   const { people, role, activeHousehold } = useHousehold();
+  const foodPrefsQuery = useHouseholdFoodPrefs(activeHousehold?.id);
+  const foodPrefs = foodPrefsQuery.data;
   const [generateMode, setGenerateMode] = useState<GenerateMode>('weekly');
   const [audienceIds, setAudienceIds] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<MealSlotKey>>(() => new Set(CORE_SLOTS));
@@ -104,10 +108,13 @@ export function GenerateScreen() {
     slotsInited.current = true;
   }, [meals.activeSlots]);
 
-  const filtered = useMemo(
-    () => filterRecipesForPeople(meals.recipes.filter((r) => !r.removed && !r.excludedFromAuto), people),
-    [meals.recipes, people],
-  );
+  const filtered = useMemo(() => {
+    const byPeople = filterRecipesForPeople(
+      meals.recipes.filter((r) => !r.removed && !r.excludedFromAuto),
+      people,
+    );
+    return filterRecipesForFoodPrefs(byPeople, foodPrefs);
+  }, [foodPrefs, meals.recipes, people]);
   const libraryForGenerate = useMemo(
     () =>
       targetServings == null ? filtered : filtered.map((recipe) => scaleRecipeToServings(recipe, targetServings)),
@@ -326,6 +333,7 @@ export function GenerateScreen() {
         daysToCover,
         goals,
         weeklyBudget: weeklyBudget ?? undefined,
+        preferredCuisines: foodPrefs?.cuisines,
       });
       if (result.slots.length === 0) {
         setError('No matching prep recipes. Relax dietary filters or add recipes.');
@@ -355,6 +363,7 @@ export function GenerateScreen() {
     const results = generateMealPlan(selectedArray, reserved, libraryForGenerate, goals, {
       days: fillDays,
       weeklyBudget: weeklyBudget ?? undefined,
+      preferredCuisines: foodPrefs?.cuisines,
     });
     if (results.length === 0) {
       setError('No matching recipes. Relax dietary filters or add recipes.');

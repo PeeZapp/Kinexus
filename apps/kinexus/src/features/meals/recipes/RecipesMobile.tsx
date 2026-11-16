@@ -30,6 +30,7 @@ export function RecipesMobile(props: {
   showFlag?: boolean;
   showImport?: boolean;
   emptyBody?: string;
+  allergenAlertFor?: (recipe: Recipe) => string | null;
   onOpen: (id: string) => void;
 }) {
   return (
@@ -71,6 +72,7 @@ export function RecipesMobile(props: {
               recipe={recipe}
               favourite={props.favouriteIds.has(recipe.id)}
               showFlag={props.showFlag}
+              allergenAlert={props.allergenAlertFor?.(recipe)}
               onPress={() => props.onOpen(recipe.id)}
             />
           ))}

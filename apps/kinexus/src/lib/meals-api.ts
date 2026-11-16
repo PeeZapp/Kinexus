@@ -8,6 +8,9 @@ export type ImportedRecipe = {
   name: string;
   emoji?: string;
   cuisine?: string;
+  cuisines?: string[];
+  allergens?: string[];
+  equipment?: string[];
   cookTime?: number;
   servings?: number;
   calories?: number;

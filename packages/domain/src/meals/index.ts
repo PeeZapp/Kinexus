@@ -57,6 +57,19 @@ export type { SharedRecipePayload } from './share-recipe-url';
 export { extractRecipeUrlFromShare } from './share-recipe-url';
 export { ALLERGEN_OPTIONS, CUISINE_SUGGESTIONS, EQUIPMENT_OPTIONS, normalizeFoodTags } from './food-tags';
 export {
+  filterRecipesForFoodPrefs,
+  householdAllergenAlertLabel,
+  knownAllergenId,
+  knownEquipmentId,
+  overlappingHouseholdAllergens,
+  overlappingOptionalIngredientAllergens,
+  preferredCuisineBoost,
+  recipeConflictsHouseholdAllergies,
+  recipeCuisineKeys,
+  recipeFitsHouseholdEquipment,
+} from './food-prefs';
+export type { HouseholdFoodPrefsInput } from './food-prefs';
+export {
   DAYS,
   DAY_LABELS,
   MEAL_SLOTS,

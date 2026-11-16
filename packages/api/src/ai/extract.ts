@@ -6,10 +6,15 @@ export const RECIPE_JSON_SCHEMA = `Return ONLY a valid JSON object with these fi
 - name (string — the dish. If there is no title, name it from the ingredients, e.g. "Spicy peanut noodles". Never "Unknown", "Unknown Recipe", or "Imported recipe")
 - emoji (1 relevant food emoji)
 - cuisine (string, e.g. "Italian", "Thai" — omit if the source does not say)
+- cuisines (array of cuisine strings — prefer this when multiple apply; omit if unknown)
 - cookTime (number, total minutes — omit if not stated. Never 0)
 - servings (number — omit if not stated. Never 0)
 - calories, protein, carbs, fat (numbers per serving — omit unless the source states them. Never 0 as a placeholder)
 - vegetarian (boolean)
+- allergens (array of ids the dish CONTAINS: "gluten","dairy","egg","nuts","soy","sesame","fish","shellfish")
+  Only include allergens clearly present from ingredients. Omit or [] when unsure.
+- equipment (array of ids needed: "oven","air-fryer","slow-cooker","pressure-cooker","rice-cooker","blender","food-processor","stand-mixer","grill")
+  Only include equipment clearly required by the method. Omit or [] when unsure or only stovetop/basic pans.
 - ingredients (array of { name: string, amount: string, category: string })
   categories: "meat","seafood","dairy","vegetables","fruit","grains","condiments","herbs","other"
   Include amount only when the source states one.

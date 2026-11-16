@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
 
-import { approvedRecipeIdsForLibraryFilter, recipeForHouseholdView } from '@kinexus/domain';
+import {
+  approvedRecipeIdsForLibraryFilter,
+  householdAllergenAlertLabel,
+  recipeForHouseholdView,
+  type Recipe,
+} from '@kinexus/domain';
 
+import { useHouseholdFoodPrefs } from '@/src/features/meals/food/food-prefs';
 import { RecipesDesktop } from '@/src/features/meals/recipes/RecipesDesktop';
 import { RecipesMobile } from '@/src/features/meals/recipes/RecipesMobile';
 import {
@@ -39,7 +45,9 @@ export function RecipesScreen() {
   const router = useRouter();
   const meals = useMealsSync();
   const { user } = useAuth();
-  const { people, role } = useHousehold();
+  const { people, role, activeHousehold } = useHousehold();
+  const foodPrefsQuery = useHouseholdFoodPrefs(activeHousehold?.id);
+  const householdAllergies = foodPrefsQuery.data?.allergies ?? [];
   const saved = getRecipesListUiState();
   const [query, setQuery] = useState(saved.query);
   const [meal, setMeal] = useState<RecipeMealFilter>(saved.meal);
@@ -121,6 +129,7 @@ export function RecipesScreen() {
     emptyBody: restricted
       ? 'Only recipes approved for you are listed. Lunch and dinner are separate lists — ask an owner to add more in Picks.'
       : undefined,
+    allergenAlertFor: (recipe: Recipe) => householdAllergenAlertLabel(recipe, householdAllergies),
     onOpen: (id: string) => router.push(recipeHref(id)),
   };
 

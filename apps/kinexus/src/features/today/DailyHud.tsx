@@ -259,36 +259,33 @@ function DayBoard({
     day.date,
   );
   const dayMarkers = markersForDay(markers.data ?? [], day.date);
+  const hasCalendar = dayEvents.length > 0 || dayMarkers.length > 0;
 
   return (
     <View style={styles.stage}>
       {saving ? <Text style={styles.status}>Saving</Text> : null}
       <ErrorText message={error} />
-      <View style={desktop ? styles.pair : styles.stack}>
-        <View style={desktop ? styles.share : styles.fill}>
+      <View style={desktop && hasCalendar ? styles.pair : styles.stack}>
+        <View style={desktop && hasCalendar ? styles.share : styles.fill}>
           <TasksPanel tasks={day.tasks} onChange={(tasks) => commit({ ...dayRef.current, tasks }, true)} />
         </View>
-        <View style={desktop ? styles.share : styles.fill}>
-          <CalendarPanel
-            ready={isReady}
-            hasHousehold={Boolean(activeHousehold)}
-            loading={
-              (Boolean(activeHousehold) && (calendar.isLoading || markers.isLoading)) ||
-              personalGoogle.isLoading
-            }
-            error={
-              calendar.error instanceof Error
-                ? calendar.error.message
-                : calendar.isError
-                  ? 'Could not load the calendar.'
-                  : null
-            }
-            events={dayEvents}
-            markers={dayMarkers}
-            day={day.date}
-            peopleNames={new Map((people ?? []).map((person) => [person.id, person.name]))}
-          />
-        </View>
+        {hasCalendar ? (
+          <View style={desktop ? styles.share : styles.fill}>
+            <CalendarPanel
+              error={
+                calendar.error instanceof Error
+                  ? calendar.error.message
+                  : calendar.isError
+                    ? 'Could not load the calendar.'
+                    : null
+              }
+              events={dayEvents}
+              markers={dayMarkers}
+              day={day.date}
+              peopleNames={new Map((people ?? []).map((person) => [person.id, person.name]))}
+            />
+          </View>
+        ) : null}
       </View>
       <TalkPanel user={user} />
       <View style={styles.stack}>
@@ -453,7 +450,7 @@ function TalkPanel({ user }: { user: AuthUser }) {
   return (
     <View style={styles.panel}>
       <View style={styles.panelHead}>
-        <Text style={styles.panelTitle}>Talk</Text>
+        <Text style={styles.panelTitle}>Discuss</Text>
         <Text style={styles.panelMeta}>
           {!isReady
             ? '…'
@@ -540,18 +537,12 @@ function TalkPanel({ user }: { user: AuthUser }) {
 }
 
 function CalendarPanel({
-  ready,
-  hasHousehold,
-  loading,
   error,
   events,
   markers,
   day,
   peopleNames,
 }: {
-  ready: boolean;
-  hasHousehold: boolean;
-  loading: boolean;
   error: string | null;
   events: CalendarEvent[];
   markers: CalendarMarker[];
@@ -569,8 +560,6 @@ function CalendarPanel({
           <Text style={styles.link}>Family calendar</Text>
         </Pressable>
       </View>
-      {!ready || loading ? <Text style={styles.empty}>Checking the day…</Text> : null}
-      {ready && !hasHousehold ? <Text style={styles.empty}>Join a household to see family events.</Text> : null}
       <ErrorText message={error} />
       {markers.map((marker) => (
         <Pressable
@@ -627,10 +616,7 @@ function CalendarPanel({
           </Pressable>
         );
       })}
-      {ready && hasHousehold && !loading && !error && events.length === 0 && markers.length === 0 ? (
-        <Text style={styles.empty}>No family events for this day.</Text>
-      ) : null}
-      {ready && hasHousehold && !loading && events.length > 0 ? (
+      {events.length > 0 ? (
         <Text style={styles.panelFoot}>{open === 0 ? 'All done for now' : open === 1 ? '1 still ahead' : `${open} still ahead`}</Text>
       ) : null}
     </View>

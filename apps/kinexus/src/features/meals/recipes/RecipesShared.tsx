@@ -214,12 +214,14 @@ export function RecipeCard({
   onPress,
   wide,
   showFlag,
+  allergenAlert,
 }: {
   recipe: Recipe;
   favourite: boolean;
   onPress: () => void;
   wide?: boolean;
   showFlag?: boolean;
+  allergenAlert?: string | null;
 }) {
   return (
     <Pressable onPress={onPress} style={[styles.card, wide && styles.cardWide]}>
@@ -238,6 +240,7 @@ export function RecipeCard({
           {favourite ? ' · ♥' : ''}
         </Text>
         <Text style={styles.tag}>{recipeLibraryTag(recipe)}</Text>
+        {allergenAlert ? <Text style={styles.allergyAlert}>{allergenAlert}</Text> : null}
         {recipe.excludedFromAuto ? <Text style={styles.tag}>Not for family</Text> : null}
         {showFlag && recipe.removed ? <Text style={styles.tag}>Removed</Text> : null}
       </View>
@@ -250,11 +253,13 @@ export function RecipeRow({
   favourite,
   onPress,
   showFlag,
+  allergenAlert,
 }: {
   recipe: Recipe;
   favourite: boolean;
   onPress: () => void;
   showFlag?: boolean;
+  allergenAlert?: string | null;
 }) {
   return (
     <Pressable onPress={onPress} style={styles.row}>
@@ -273,6 +278,7 @@ export function RecipeRow({
           {recipe.excludedFromAuto ? ' · Not for family' : ''}
           {showFlag && recipe.removed ? ' · Removed' : ''}
         </Text>
+        {allergenAlert ? <Text style={styles.allergyAlert}>{allergenAlert}</Text> : null}
       </View>
     </Pressable>
   );
@@ -311,4 +317,5 @@ const styles = StyleSheet.create({
   name: { color: colors.text, fontWeight: '700', fontSize: 15 },
   meta: { color: colors.textMuted, fontSize: 12 },
   tag: { color: colors.textDim, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
+  allergyAlert: { color: colors.warning, fontSize: 12, fontWeight: '700' },
 });

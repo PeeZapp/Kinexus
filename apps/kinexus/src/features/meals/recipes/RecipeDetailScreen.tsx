@@ -4,11 +4,12 @@ import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 
-import { formatCostPerServe, formatCostSource, formatDishCost, formatMoney, findReplacingRecipe, groupBySection, injectAmountsIntoMethod, linkedRecipeForIngredient, MEAL_SLOTS, recipeBaseServings, recipeClassLabel, scaleRecipeToServings } from '@kinexus/domain';
+import { formatCostPerServe, formatCostSource, formatDishCost, formatMoney, findReplacingRecipe, groupBySection, householdAllergenAlertLabel, injectAmountsIntoMethod, linkedRecipeForIngredient, MEAL_SLOTS, recipeBaseServings, recipeClassLabel, scaleRecipeToServings } from '@kinexus/domain';
 
 import { useCreator } from '@/src/features/creators/use-creator';
 import { useWakeLock } from '@/src/features/cook/use-wake-lock';
 import { BackLink, Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
+import { useHouseholdFoodPrefs } from '@/src/features/meals/food/food-prefs';
 import { IngredientSwapSlot } from '@/src/features/meals/IngredientSwapSlot';
 import { creatorProfileHref } from '@/src/features/creators/creators-api';
 import { recipeEditHref, recipeHref, recipeParam } from '@/src/features/meals/recipe-href';
@@ -22,6 +23,7 @@ import { colors, radius, space } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
 import { confirmAction } from '@/src/lib/confirm';
 import { useExperienceMode } from '@/src/lib/experience-mode';
+import { useHousehold } from '@/src/lib/household';
 import { isLinkOnlyRecipe, openRecipeLink, sourceHostLabel } from '@/src/features/meals/recipes/link-recipe';
 
 const CATALOG_REMOVE_EMAIL = 'pzappft@gmail.com';
@@ -41,6 +43,8 @@ export function RecipeDetailScreen() {
   const meals = useMealsSync();
   const creator = useCreator();
   const { user } = useAuth();
+  const { activeHousehold } = useHousehold();
+  const foodPrefsQuery = useHouseholdFoodPrefs(activeHousehold?.id);
   const listed = recipeId ? meals.recipes.find((r) => r.id === recipeId) : undefined;
   const detailQuery = useQuery({
     queryKey: ['meals', 'recipe', recipeId, meals.market.country, meals.market.currency],
@@ -154,6 +158,9 @@ export function RecipeDetailScreen() {
   const ingredientGroups = groupBySection(ingredientIndexed, (item) => item.ing.section);
   const methodSteps = injectAmountsIntoMethod(recipe.method ?? [], shown.ingredients ?? [], showAmountsInSteps);
   const methodGroups = groupBySection(methodSteps, (step) => step.section);
+  const allergenAlert = recipe
+    ? householdAllergenAlertLabel(recipe, foodPrefsQuery.data?.allergies)
+    : null;
 
   async function addIngredientsToShopping() {
     if (!recipe || addingShopping || !canAddToShopping) return;
@@ -196,6 +203,7 @@ export function RecipeDetailScreen() {
       <Text style={[styles.title, desktop && styles.titleDesktop]}>
         {recipe.name}
       </Text>
+      {allergenAlert ? <Text style={styles.allergyAlert}>{allergenAlert}</Text> : null}
       {!recipe.householdId && recipe.createdBy ? (
         <Pressable
           onPress={() => router.push(creatorProfileHref(recipe.createdBy!) as Href)}
@@ -573,6 +581,7 @@ const styles = StyleSheet.create({
   removeCatalogMark: { color: colors.danger, fontSize: 22, fontWeight: '700', lineHeight: 24, marginTop: -1 },
   imageNote: { marginTop: -4 },
   title: { color: colors.text, fontSize: 28, fontWeight: '700' },
+  allergyAlert: { color: colors.warning, fontSize: 14, fontWeight: '700' },
   titleDesktop: { fontSize: 40 },
   meta: { color: colors.textMuted },
   creatorLink: { color: colors.accent, fontWeight: '700' },

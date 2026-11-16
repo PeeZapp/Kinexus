@@ -1,4 +1,5 @@
 import { roundMoney } from '../stash/money';
+import { preferredCuisineBoost, recipeCuisineKeys } from './food-prefs';
 import { hideReplacedCatalogRecipes } from './recipe-versions';
 import {
   DAYS,
@@ -302,6 +303,8 @@ export type GenerateMealPlanOptions = {
    * so a dinner-only plan cannot spend the full amount.
    */
   weeklyBudget?: number;
+  /** Soft bias toward these cuisines; empty/omitted = no bias. */
+  preferredCuisines?: readonly string[];
 };
 
 export function generateMealPlan(
@@ -315,6 +318,7 @@ export function generateMealPlan(
 
   const random = options?.random ?? Math.random;
   const weeklyBudget = options?.weeklyBudget;
+  const preferredCuisines = options?.preferredCuisines;
   const results: GeneratedSlot[] = [];
 
   const timesUsed = new Map<string, number>();
@@ -341,7 +345,7 @@ export function generateMealPlan(
 
       const eligibleByHardCaps = candidates.filter((r) => {
         const proteinKey = dominantProtein(r);
-        const cuisineKey = (r.cuisine || 'unknown').toLowerCase();
+        const cuisineKey = recipeCuisineKeys(r)[0] ?? 'unknown';
         return (
           (proteinUsage.get(proteinKey) ?? 0) < PROTEIN_HARD_CAP &&
           (cuisineUsage.get(cuisineKey) ?? 0) < CUISINE_HARD_CAP
@@ -363,9 +367,13 @@ export function generateMealPlan(
         const overlapBoost = Math.min(overlapHits, 4) * 35;
         const proteinKey = dominantProtein(r);
         const proteinPenalty = (proteinUsage.get(proteinKey) ?? 0) * 55;
-        const cuisineKey = (r.cuisine || 'unknown').toLowerCase();
+        const cuisineKey = recipeCuisineKeys(r)[0] ?? 'unknown';
         const cuisinePenalty = (cuisineUsage.get(cuisineKey) ?? 0) * 30;
-        return { recipe: r, score: nutritionScore + proteinPenalty + cuisinePenalty - overlapBoost };
+        const cuisinePrefBoost = preferredCuisineBoost(r, preferredCuisines);
+        return {
+          recipe: r,
+          score: nutritionScore + proteinPenalty + cuisinePenalty - overlapBoost - cuisinePrefBoost,
+        };
       });
       scored.sort((a, b) => a.score - b.score);
 
@@ -380,7 +388,7 @@ export function generateMealPlan(
       });
       const proteinKey = dominantProtein(picked);
       proteinUsage.set(proteinKey, (proteinUsage.get(proteinKey) ?? 0) + 1);
-      const cuisineKey = (picked.cuisine || 'unknown').toLowerCase();
+      const cuisineKey = recipeCuisineKeys(picked)[0] ?? 'unknown';
       cuisineUsage.set(cuisineKey, (cuisineUsage.get(cuisineKey) ?? 0) + 1);
 
       results.push({

@@ -1,3 +1,5 @@
+import { knownAllergenId, knownEquipmentId, normalizeFoodTags } from '@kinexus/domain';
+
 const SLOT_KEYS = new Set([
   'breakfast',
   'morning_snack',
@@ -18,6 +20,9 @@ export type RecipeDraft = {
   name: string;
   emoji?: string;
   cuisine?: string;
+  cuisines?: string[];
+  allergens?: string[];
+  equipment?: string[];
   cookTime?: number;
   servings?: number;
   calories?: number;
@@ -104,10 +109,21 @@ export function normalizeRecipeDraft(raw: Record<string, unknown>): RecipeDraft 
     .map((slot) => String(slot))
     .filter((slot) => SLOT_KEYS.has(slot));
 
+  const cuisine = presentLabel(asString(raw.cuisine), /^unknown$/i);
+  const cuisines = normalizeFoodTags([
+    ...(Array.isArray(raw.cuisines) ? raw.cuisines.map((item) => String(item)) : []),
+    ...(cuisine ? [cuisine] : []),
+  ]);
+  const allergens = normalizeIdList(raw.allergens, knownAllergenId);
+  const equipment = normalizeIdList(raw.equipment, knownEquipmentId);
+
   return {
     name: presentLabel(asString(raw.name), /^(unknown(\s+recipe)?|n\/a|none)$/i) ?? 'Imported recipe',
     emoji: asString(raw.emoji) ?? '🍽️',
-    cuisine: presentLabel(asString(raw.cuisine), /^unknown$/i),
+    cuisine: cuisines[0] ?? cuisine,
+    cuisines: cuisines.length ? cuisines : undefined,
+    allergens: allergens.length ? allergens : undefined,
+    equipment: equipment.length ? equipment : undefined,
     cookTime: positiveNumber(asNumber(raw.cookTime ?? raw.cook_time)),
     servings: positiveNumber(asNumber(raw.servings)),
     calories: positiveNumber(asNumber(raw.calories)),
@@ -122,6 +138,22 @@ export function normalizeRecipeDraft(raw: Record<string, unknown>): RecipeDraft 
     imageUrl: asString(raw.imageUrl ?? raw.image_url),
     imageCandidates: asUrlList(raw.imageCandidates ?? raw.image_candidates),
   };
+}
+
+function normalizeIdList(
+  value: unknown,
+  resolve: (raw: string) => string | null,
+): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    const id = resolve(String(item ?? ''));
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
 }
 
 function asUrlList(value: unknown): string[] | undefined {

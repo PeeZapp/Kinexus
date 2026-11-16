@@ -56,6 +56,10 @@ export type Ingredient = {
   /** Ingredient section heading, e.g. "Marinade". */
   section?: string | null;
   category?: string;
+  /** Serving suggestions / garnish — not required to make the dish. */
+  optional?: boolean;
+  /** Allergens this ingredient introduces (used when optional so the recipe itself stays untagged). */
+  allergens?: string[];
   /** Links to a base recipe (`isComponent: true`) in the library. */
   baseRecipeId?: string;
 };

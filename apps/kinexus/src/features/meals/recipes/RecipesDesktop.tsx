@@ -47,6 +47,7 @@ export function RecipesDesktop(props: {
   showFlag?: boolean;
   showImport?: boolean;
   emptyBody?: string;
+  allergenAlertFor?: (recipe: Recipe) => string | null;
   onOpen: (id: string) => void;
 }) {
   return (
@@ -89,6 +90,7 @@ export function RecipesDesktop(props: {
               favourite={props.favouriteIds.has(recipe.id)}
               wide
               showFlag={props.showFlag}
+              allergenAlert={props.allergenAlertFor?.(recipe)}
               onPress={() => props.onOpen(recipe.id)}
             />
           ))}

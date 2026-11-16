@@ -27,11 +27,16 @@ export function mapIngredients(value: Json): Ingredient[] {
     const rec = item as Record<string, unknown>;
     const name = typeof rec.name === 'string' ? rec.name : '';
     if (!name) return [];
+    const allergens = Array.isArray(rec.allergens)
+      ? normalizeFoodTags(rec.allergens.map((tag) => String(tag ?? '')))
+      : undefined;
     return [
       {
         name,
         amount: typeof rec.amount === 'string' ? rec.amount : undefined,
         category: typeof rec.category === 'string' ? rec.category : undefined,
+        optional: rec.optional === true ? true : undefined,
+        allergens: allergens?.length ? allergens : undefined,
         baseRecipeId: typeof rec.baseRecipeId === 'string' ? rec.baseRecipeId : undefined,
       },
     ];

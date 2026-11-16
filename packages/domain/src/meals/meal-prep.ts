@@ -1,3 +1,4 @@
+import { preferredCuisineBoost } from './food-prefs';
 import {
   DAYS,
   DAY_LABELS,
@@ -34,6 +35,8 @@ export type MealPrepParams = {
   daysToCover: number;
   goals: NutritionGoals;
   weeklyBudget?: number;
+  /** Soft bias toward these cuisines; empty/omitted = no bias. */
+  preferredCuisines?: readonly string[];
   /** Injected for tests. Defaults to `Math.random`. */
   random?: () => number;
 };
@@ -183,10 +186,11 @@ function pickDishes(args: {
   target: { calories: number; protein: number };
   style: MealPrepStyle;
   weeklyBudget: number | undefined;
+  preferredCuisines: readonly string[] | undefined;
   slot: MealSlotKey;
   random: () => number;
 }): Recipe[] {
-  const { pool, count, target, style, weeklyBudget, slot, random } = args;
+  const { pool, count, target, style, weeklyBudget, preferredCuisines, slot, random } = args;
   if (pool.length === 0) return [];
 
   let candidates = [...pool];
@@ -199,7 +203,10 @@ function pickDishes(args: {
   const ranked = candidates
     .map((recipe) => ({
       recipe,
-      score: nutritionFitScore(recipe, target) - mealPrepScore(recipe, style) * 2,
+      score:
+        nutritionFitScore(recipe, target) -
+        mealPrepScore(recipe, style) * 2 -
+        preferredCuisineBoost(recipe, preferredCuisines),
     }))
     .sort((a, b) => a.score - b.score);
 
@@ -261,6 +268,7 @@ export function generateMealPrepPlan(
     target,
     style: params.style,
     weeklyBudget: params.weeklyBudget,
+    preferredCuisines: params.preferredCuisines,
     slot: primarySlot,
     random,
   });

@@ -31,11 +31,7 @@ export function RecipeImageUploadLink() {
 
   return (
     <Card>
-      <Text style={styles.heading}>Catalog recipe images</Text>
-      <Text style={styles.body}>
-        Backfill photos for catalog and household recipes that still use emoji. Drop a zip of
-        dish-named images, or one file per row.
-      </Text>
+      <Text style={styles.heading}>Catalog images</Text>
       <Btn
         label="Open image checklist"
         onPress={() => router.push('/settings/recipe-images' as Href)}
@@ -49,12 +45,5 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 17,
     fontWeight: '700',
-    marginBottom: 6,
-  },
-  body: {
-    color: colors.textMuted,
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 12,
   },
 });

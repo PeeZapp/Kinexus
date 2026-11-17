@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { roleLabel, type HouseholdRole } from '@kinexus/domain';
 
+import { OptionTiles } from '@/src/features/household/option-tiles';
 import { Card, Pill } from '@/src/features/household/ui';
 import { colors, space } from '@/src/features/shell/theme';
 import { useHousehold } from '@/src/lib/household';
@@ -15,10 +16,15 @@ export function RolePreviewCard() {
   return (
     <Card>
       <Text style={styles.heading}>Role preview</Text>
-      <Text style={styles.body}>
-        See the app as each household role. Your account stays {roleLabel(actualRole)}. Saves still use that role.
-      </Text>
-      <RolePills role={role} onSelect={setPreviewRole} />
+      <Text style={styles.meta}>Account stays {roleLabel(actualRole)}</Text>
+      <OptionTiles
+        rows={PREVIEW_ROLES.map((choice) => ({
+          key: choice,
+          label: roleLabel(choice),
+          active: role === choice,
+          onPress: () => setPreviewRole(choice),
+        }))}
+      />
     </Card>
   );
 }
@@ -49,6 +55,7 @@ export function RolePreviewSwitcher() {
     </View>
   );
 }
+
 function RolePills({
   role,
   onSelect,
@@ -76,10 +83,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  body: {
-    color: colors.textMuted,
-    fontSize: 14,
-    lineHeight: 20,
+  meta: {
+    color: colors.textDim,
+    fontSize: 12,
   },
   switcher: {
     gap: 8,

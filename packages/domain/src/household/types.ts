@@ -4,6 +4,7 @@ export type PersonType = 'adult' | 'child' | 'other';
 export type Household = {
   id: string;
   name: string;
+  emoji: string | null;
   country: string | null;
   currency: string | null;
   timezone: string | null;

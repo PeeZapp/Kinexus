@@ -48,6 +48,9 @@ type PersonInput = {
   name: string;
   personType: PersonType;
   dietary: string[];
+  birthday?: string | null;
+  /** When set, creates the person already linked to this household member login. */
+  userId?: string | null;
 };
 
 type HouseholdContextValue = {
@@ -71,6 +74,7 @@ type HouseholdContextValue = {
   refresh: () => Promise<void>;
   createHousehold: (input: CreateHouseholdInput) => Promise<string>;
   renameHousehold: (name: string) => Promise<void>;
+  updateHouseholdEmoji: (emoji: string) => Promise<void>;
   updateHouseholdLocation: (input: { country: string; currency: string }) => Promise<void>;
   updatePreferredGroceryChain: (chainId: string | null) => Promise<void>;
   createInvite: (role: Exclude<HouseholdRole, 'owner'>) => Promise<CreatedInvite>;
@@ -90,10 +94,20 @@ type HouseholdContextValue = {
 
 const HouseholdContext = createContext<HouseholdContextValue | null>(null);
 
+function normalizeBirthday(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() || '';
+  if (!trimmed) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    throw new Error('Birthday must be YYYY-MM-DD');
+  }
+  return trimmed;
+}
+
 function mapHousehold(
   row: {
     id: string;
     name: string;
+    emoji?: string | null;
     country: string | null;
     currency: string | null;
     timezone: string | null;
@@ -107,6 +121,7 @@ function mapHousehold(
   return {
     id: row.id,
     name: row.name,
+    emoji: row.emoji ?? null,
     country: row.country,
     currency: row.currency,
     timezone: row.timezone,
@@ -433,6 +448,15 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
         if (updateError) throw updateError;
         if (user) await load(user.id, activeHousehold.id);
       },
+      updateHouseholdEmoji: async (emoji: string) => {
+        if (!supabase || !activeHousehold) throw new Error('No household selected');
+        const { error: updateError } = await supabase
+          .from('households')
+          .update({ emoji: emoji.trim() || null } as never)
+          .eq('id', activeHousehold.id);
+        if (updateError) throw updateError;
+        if (user) await load(user.id, activeHousehold.id);
+      },
       updateHouseholdLocation: async (input) => {
         if (!supabase || !activeHousehold) throw new Error('No household selected');
         const { error: updateError } = await supabase
@@ -519,23 +543,28 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
       },
       addPerson: async (input) => {
         if (!supabase || !activeHousehold) throw new Error('No household selected');
+        const birthday = normalizeBirthday(input.birthday);
         const { error: insertError } = await supabase.from('household_people').insert({
           household_id: activeHousehold.id,
           name: input.name.trim(),
           person_type: input.personType,
           dietary: input.dietary,
+          birthday,
+          user_id: input.userId ?? null,
         });
         if (insertError) throw insertError;
         if (user) await load(user.id, activeHousehold.id);
       },
       updatePerson: async (id, input) => {
         if (!supabase || !user) throw new Error('Not signed in');
+        const birthday = normalizeBirthday(input.birthday);
         const { error: updateError } = await supabase
           .from('household_people')
           .update({
             name: input.name.trim(),
             person_type: input.personType,
             dietary: input.dietary,
+            birthday,
           })
           .eq('id', id);
         if (updateError) throw updateError;

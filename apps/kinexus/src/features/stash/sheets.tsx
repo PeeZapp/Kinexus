@@ -221,6 +221,7 @@ export function ListSettingsSheet({
   onDelete,
   busy,
   error,
+  showIdentity = true,
 }: {
   visible: boolean;
   name: string;
@@ -235,12 +236,13 @@ export function ListSettingsSheet({
   onDelete?: () => Promise<void>;
   busy?: boolean;
   error?: string | null;
+  showIdentity?: boolean;
 }) {
   return (
     <Sheet visible={visible} title="List settings" onClose={onClose}>
       <View style={styles.stack}>
         <Field label="Name" value={name} onChangeText={onNameChange} />
-        <ListIdentityPicker identity={identity} onChange={onIdentityChange} />
+        {showIdentity ? <ListIdentityPicker identity={identity} onChange={onIdentityChange} /> : null}
         <SharePicker share={share} onChange={onShareChange} people={people} />
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Btn

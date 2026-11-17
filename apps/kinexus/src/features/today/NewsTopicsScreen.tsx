@@ -15,7 +15,8 @@ import {
   type NewsTopicPriorityConfig,
 } from '@kinexus/domain';
 
-import { BackLink, Btn, Card, ErrorText, Field, Pill } from '@/src/features/household/ui';
+import { OptionTiles } from '@/src/features/household/option-tiles';
+import { BackLink, Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
 import { ErrorBanner, LoadingState } from '@/src/features/shell/states';
 import { colors, space } from '@/src/features/shell/theme';
 import { loadOverviewPrefs, persistOverviewPrefs, type OverviewPrefs } from '@/src/features/today/prefs';
@@ -26,9 +27,6 @@ export function NewsTopicsLink() {
   return (
     <Card>
       <Text style={styles.linkHeading}>News topics</Text>
-      <Text style={styles.linkBody}>
-        Interests on your overview, including narrower picks such as gaming. Set them once, then change them here.
-      </Text>
       <Btn label="Choose topics" onPress={() => router.push('/settings/news' as Href)} />
     </Card>
   );
@@ -90,12 +88,7 @@ export function NewsTopicsScreen() {
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <BackLink label="Settings" onPress={() => router.replace('/settings' as Href)} />
-      <Text style={styles.kicker}>Overview</Text>
-      <Text style={styles.title}>News topics</Text>
-      <Text style={styles.lede}>
-        Choose what shows in Headlines. Topics with extra choices, such as gaming, are set here and stay off the overview until you change them.
-      </Text>
+      <BackLink label="Preferences" onPress={() => router.replace('/settings/preferences' as Href)} />
       <ErrorText message={saveError} />
       <NewsTopicForm
         interests={prefs.newsInterests}
@@ -148,13 +141,43 @@ function NewsTopicForm({
     onChangeTopicPriorities(next);
   };
 
+  const customInterests = interests.filter(
+    (interest) => !NEWS_INTEREST_SUGGESTIONS.some((item) => item.toLowerCase() === interest.toLowerCase()),
+  );
+
   return (
     <View style={styles.form}>
+      <OptionTiles
+        label="Interests"
+        rows={NEWS_INTEREST_SUGGESTIONS.map((interest) => ({
+          key: interest,
+          label: interest,
+          active: chosen.has(interest.toLowerCase()),
+          onPress: () => {
+            if (chosen.has(interest.toLowerCase())) {
+              onChangeInterests(interests.filter((item) => item.toLowerCase() !== interest.toLowerCase()));
+            } else {
+              add(interest);
+            }
+          },
+        }))}
+      />
+      {customInterests.length > 0 ? (
+        <OptionTiles
+          label="Yours"
+          rows={customInterests.map((interest) => ({
+            key: `custom-${interest}`,
+            label: interest,
+            active: true,
+            onPress: () => onChangeInterests(interests.filter((item) => item !== interest)),
+          }))}
+        />
+      ) : null}
       <Field
-        label="Interest"
+        label="Custom interest"
         value={draft}
         onChangeText={setDraft}
-        placeholder="Gaming, fashion, local politics…"
+        placeholder="Local politics…"
         autoCapitalize="words"
         autoCorrect={false}
         returnKeyType="done"
@@ -163,31 +186,12 @@ function NewsTopicForm({
       />
       <View style={styles.inlineActions}>
         <Btn
-          label="Add interest"
+          label="Add"
           onPress={() => add(draft)}
           disabled={!draft.trim() || interests.length >= NEWS_INTEREST_LIMIT}
         />
       </View>
-      {note ? <Text style={styles.body}>{note}</Text> : null}
-      {interests.length > 0 ? (
-        <View style={styles.pills}>
-          {interests.map((interest) => (
-            <Pill
-              key={interest}
-              label={`${interest} ×`}
-              active
-              onPress={() => onChangeInterests(interests.filter((item) => item !== interest))}
-            />
-          ))}
-        </View>
-      ) : (
-        <Text style={styles.body}>No interests yet.</Text>
-      )}
-      <View style={styles.pills}>
-        {NEWS_INTEREST_SUGGESTIONS.filter((interest) => !chosen.has(interest.toLowerCase())).map((interest) => (
-          <Pill key={interest} label={interest} onPress={() => add(interest)} />
-        ))}
-      </View>
+      {note ? <Text style={styles.meta}>{note}</Text> : null}
       {topicConfigs.map((config) => (
         <TopicPriorityEditor
           key={config.key}
@@ -224,12 +228,40 @@ function TopicPriorityEditor({
     onChange(next);
   };
 
+  const customValues = values.filter(
+    (value) => !config.suggestions.some((suggestion) => suggestion.toLowerCase() === value.toLowerCase()),
+  );
+
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionLabel}>{config.label}</Text>
-      <Text style={styles.body}>{config.blurb}</Text>
+      <OptionTiles
+        label={config.label}
+        rows={config.suggestions.map((suggestion) => ({
+          key: suggestion,
+          label: suggestion,
+          active: chosen.has(suggestion.toLowerCase()),
+          onPress: () => {
+            if (chosen.has(suggestion.toLowerCase())) {
+              onChange(values.filter((item) => item.toLowerCase() !== suggestion.toLowerCase()));
+            } else {
+              add(suggestion);
+            }
+          },
+        }))}
+      />
+      {customValues.length > 0 ? (
+        <OptionTiles
+          label="Yours"
+          rows={customValues.map((value) => ({
+            key: `custom-${value}`,
+            label: value,
+            active: true,
+            onPress: () => onChange(values.filter((item) => item !== value)),
+          }))}
+        />
+      ) : null}
       <Field
-        label={config.noun.charAt(0).toUpperCase() + config.noun.slice(1)}
+        label={`Custom ${config.noun}`}
         value={draft}
         onChangeText={setDraft}
         placeholder={config.placeholder}
@@ -241,33 +273,12 @@ function TopicPriorityEditor({
       />
       <View style={styles.inlineActions}>
         <Btn
-          label={`Add ${config.noun}`}
+          label="Add"
           onPress={() => add(draft)}
           disabled={!draft.trim() || values.length >= NEWS_TOPIC_PRIORITY_LIMIT}
         />
       </View>
-      {note ? <Text style={styles.body}>{note}</Text> : null}
-      {values.length > 0 ? (
-        <View style={styles.pills}>
-          {values.map((value, index) => (
-            <Pill
-              key={value}
-              label={`${index + 1}. ${value} ×`}
-              active
-              onPress={() => onChange(values.filter((item) => item !== value))}
-            />
-          ))}
-        </View>
-      ) : (
-        <Text style={styles.body}>{config.emptyHint}</Text>
-      )}
-      <View style={styles.pills}>
-        {config.suggestions
-          .filter((suggestion) => !chosen.has(suggestion.toLowerCase()))
-          .map((suggestion) => (
-            <Pill key={suggestion} label={suggestion} onPress={() => add(suggestion)} />
-          ))}
-      </View>
+      {note ? <Text style={styles.meta}>{note}</Text> : null}
     </View>
   );
 }
@@ -290,39 +301,14 @@ const styles = StyleSheet.create({
     width: '100%',
     gap: 12,
   },
-  kicker: {
-    color: colors.accent,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1.4,
-    textTransform: 'uppercase',
-    marginTop: space.sm,
-  },
-  title: {
-    color: colors.text,
-    fontSize: 32,
-    fontWeight: '700',
-  },
-  lede: {
-    color: colors.textMuted,
-    fontSize: 15,
-    lineHeight: 22,
-    marginBottom: space.sm,
-  },
   form: {
     gap: 12,
   },
-  body: {
-    color: colors.textMuted,
-    fontSize: 14,
-    lineHeight: 20,
+  meta: {
+    color: colors.textDim,
+    fontSize: 13,
   },
   inlineActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  pills: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
@@ -331,23 +317,9 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingTop: 8,
   },
-  sectionLabel: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-  },
   linkHeading: {
     color: colors.text,
     fontSize: 17,
     fontWeight: '700',
-    marginBottom: 6,
-  },
-  linkBody: {
-    color: colors.textMuted,
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 12,
   },
 });

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { AiBlockedBanner } from '@/src/features/ai/AiBlockedBanner';
+import { OptionTiles } from '@/src/features/household/option-tiles';
 import { Btn, Card, ErrorText } from '@/src/features/household/ui';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import {
@@ -139,17 +140,16 @@ export function AiKeySettings() {
   const showForm = !meta?.hasKey || replacing;
 
   return (
-    <View style={styles.stack}>
+    <View style={[styles.stack, styles.fill]}>
       <AiBlockedBanner dismissible={false} />
-    <Card>
-      <Text style={styles.heading}>AI</Text>
-      <Text style={styles.title}>Use your own AI key (optional)</Text>
+    <Card style={styles.cardFill}>
+      <Text style={styles.heading}>AI key</Text>
       <ErrorText message={error} />
 
       {meta?.hasKey && !replacing ? (
         <View style={styles.saved}>
           <Text style={styles.line}>
-            {meta.providerLabel ?? 'AI'} key ••••{meta.last4} ✓
+            {meta.providerLabel ?? 'AI'} ····{meta.last4}
           </Text>
           <View style={styles.row}>
             <Btn label="Replace" variant="secondary" disabled={busy} onPress={() => setReplacing(true)} />
@@ -171,20 +171,16 @@ export function AiKeySettings() {
             autoCorrect={false}
             textContentType="password"
           />
-          <Text style={styles.note}>
-            Results may differ slightly. Price estimates and some lookups work best with Claude or Perplexity keys.
-          </Text>
           {showProviderPicker ? (
-            <View style={styles.providers}>
-              {AI_PROVIDER_OPTIONS.map((opt) => (
-                <Pressable
-                  key={opt.id}
-                  onPress={() => setProvider(opt.id)}
-                  style={[styles.providerChip, provider === opt.id && styles.providerChipOn]}>
-                  <Text style={[styles.providerLabel, provider === opt.id && styles.providerLabelOn]}>{opt.label}</Text>
-                </Pressable>
-              ))}
-            </View>
+            <OptionTiles
+              label="Provider"
+              rows={AI_PROVIDER_OPTIONS.map((opt) => ({
+                key: opt.id,
+                label: opt.label,
+                active: provider === opt.id,
+                onPress: () => setProvider(opt.id),
+              }))}
+            />
           ) : null}
           <View style={styles.row}>
             <Btn label="Save" busy={busy} disabled={busy || !keyDraft.trim()} onPress={() => void save()} />
@@ -228,10 +224,10 @@ export function AiKeySettings() {
 
 const styles = StyleSheet.create({
   stack: { gap: space.sm },
+  fill: { flex: 1 },
+  cardFill: { flex: 1 },
   heading: { color: colors.text, fontSize: 17, fontWeight: '700' },
-  title: { color: colors.text, fontSize: 15, fontWeight: '600' },
   line: { color: colors.text, fontSize: 14 },
-  note: { color: colors.textMuted, fontSize: 12, lineHeight: 18 },
   saved: { gap: 10 },
   form: { gap: 10 },
   input: {
@@ -245,17 +241,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
-  providers: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  providerChip: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  providerChipOn: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
-  providerLabel: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
-  providerLabelOn: { color: colors.text },
   access: { gap: 8, marginTop: space.sm },
   accessHeading: { color: colors.text, fontSize: 15, fontWeight: '700' },
   memberRow: {

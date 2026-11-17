@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AppState,
@@ -11,6 +12,11 @@ import {
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 
+import {
+  AiChatConnectInfoModal,
+  AiChatTipsRestoreRow,
+} from '@/src/features/connectors/AiChatConnectNudge';
+import { MCP_CONNECTIONS_QUERY_KEY } from '@/src/features/connectors/ai-chat-nudge';
 import { connectionForPlatform } from '@/src/features/connectors/claude';
 import {
   listMcpConnections,
@@ -84,6 +90,7 @@ async function openPlatform(platform: AiChatPlatform): Promise<void> {
 }
 
 export function ConnectedAiChats() {
+  const queryClient = useQueryClient();
   const [connections, setConnections] = useState<McpConnection[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -92,6 +99,7 @@ export function ConnectedAiChats() {
   const [showHint, setShowHint] = useState(false);
   const [troubleOpen, setTroubleOpen] = useState(false);
   const [copiedToast, setCopiedToast] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const baselineRef = useRef<Set<string>>(new Set());
   const closedRef = useRef(false);
 
@@ -100,8 +108,9 @@ export function ConnectedAiChats() {
   const reload = useCallback(async () => {
     const rows = await listMcpConnections();
     setConnections(rows);
+    await queryClient.invalidateQueries({ queryKey: MCP_CONNECTIONS_QUERY_KEY });
     return rows;
-  }, []);
+  }, [queryClient]);
 
   useEffect(() => {
     let cancel = false;
@@ -227,29 +236,34 @@ export function ConnectedAiChats() {
   }
 
   return (
-    <Card>
-      <Text style={styles.heading}>Connected AI chats</Text>
-      <ErrorText message={error} />
+    <Card style={styles.cardFill}>
+      <View style={styles.headingRow}>
+        <Text style={styles.heading}>Connected AI chats</Text>
+        <Pressable onPress={() => setInfoOpen(true)} accessibilityRole="button" hitSlop={8}>
+          <Text style={styles.infoLink}>More info</Text>
+        </Pressable>
+      </View>
 
       {connections.map((row) => {
         const label = connectionLabel(row);
         const relative = formatRelative(row.lastUsedAt);
+        const detail = [
+          `Connected ${formatConnectedDate(row.createdAt)}`,
+          relative ? `Last used ${relative}` : 'Last used —',
+        ].join(' · ');
         return (
           <View key={row.id} style={styles.row}>
             <View style={styles.icon}>
               <Text style={styles.iconLabel}>{label.icon}</Text>
             </View>
             <View style={styles.meta}>
-              <Text style={styles.name}>{label.name}</Text>
-              <Text style={styles.detail}>Connected {formatConnectedDate(row.createdAt)}</Text>
-              {relative ? (
-                <Text style={styles.detail}>
-                  Last used {relative}
-                  <Text style={styles.verified}> ✓</Text>
-                </Text>
-              ) : (
-                <Text style={styles.detail}>Last used —</Text>
-              )}
+              <Text style={styles.name} numberOfLines={1}>
+                {label.name}
+              </Text>
+              <Text style={styles.detail} numberOfLines={1}>
+                {detail}
+                {relative ? <Text style={styles.verified}> ✓</Text> : null}
+              </Text>
             </View>
             <Pressable onPress={() => void onDisconnect(row)} accessibilityRole="button">
               <Text style={styles.disconnect}>Disconnect</Text>
@@ -258,7 +272,11 @@ export function ConnectedAiChats() {
         );
       })}
 
+      <ErrorText message={error} />
+      <AiChatTipsRestoreRow />
+      <View style={styles.footerSpacer} />
       {platforms.length > 0 ? <Btn label="Connect" onPress={() => setPickerOpen(true)} /> : null}
+      <AiChatConnectInfoModal visible={infoOpen} onClose={() => setInfoOpen(false)} />
 
       <AppModal
         visible={pickerOpen && !waiting}
@@ -382,11 +400,33 @@ function ConnectWizard({
 }
 
 const styles = StyleSheet.create({
-  heading: { color: colors.text, fontSize: 17, fontWeight: '700' },
+  cardFill: { flex: 1 },
+  footerSpacer: { flexGrow: 1, minHeight: 0 },
+  headingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    minHeight: 28,
+  },
+  heading: {
+    flex: 1,
+    minWidth: 0,
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '700',
+    lineHeight: 22,
+  },
+  infoLink: { color: colors.accent, fontSize: 13, fontWeight: '700' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: 12,
+    marginBottom: 4,
+    minHeight: 60,
   },
   icon: {
     width: 36,

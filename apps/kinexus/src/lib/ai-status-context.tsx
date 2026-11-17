@@ -60,7 +60,7 @@ export function AiStatusProvider({ children }: { children: ReactNode }) {
         return false;
       },
       blockedMessage,
-      goFixKey: () => router.push('/settings' as Href),
+      goFixKey: () => router.push('/settings/connections' as Href),
     }),
     [status, blocked, bannerDismissed, refresh, blockedMessage, router],
   );

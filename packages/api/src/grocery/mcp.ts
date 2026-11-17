@@ -39,7 +39,7 @@ async function dispatch(
     return {
       protocolVersion: '2025-03-26',
       capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: 'kinexus-shopping', version: '1.0.0' },
+      serverInfo: { name: 'kinexus-bot', version: '1.1.0' },
     };
   }
   if (method === 'tools/list') return { tools };
@@ -56,26 +56,103 @@ async function dispatch(
   throw new Error(`Unsupported method ${method}`);
 }
 
-export const SHOPPING_MCP_TOOLS: readonly McpTool[] = [
+const weekStartProp = {
+  weekStart: { type: 'string', description: 'Monday of the week, YYYY-MM-DD. Defaults to this week.' },
+};
+
+/** Grok Bot household-ops MCP (token connector). Broader than shopping-only. */
+export const BOT_MCP_TOOLS: readonly McpTool[] = [
   {
-    name: 'get_shopping_order',
-    description: 'Read the household shopping list for the preferred Coles or Woolworths shop. Includes matched catalogue products and items still unmatched.',
+    name: 'get_food_prefs',
+    description: 'Household cuisines, allergies, and equipment for meal planning.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_meal_plan',
+    description:
+      'Read meal plan slots for a date range (YYYY-MM-DD). Defaults to next Monday–Sunday when omitted.',
     inputSchema: {
       type: 'object',
       properties: {
-        weekStart: { type: 'string', description: 'Monday of the list, YYYY-MM-DD. Defaults to this week.' },
+        fromDate: { type: 'string', description: 'Start date YYYY-MM-DD (default next Monday)' },
+        toDate: { type: 'string', description: 'End date YYYY-MM-DD (default next Sunday)' },
       },
     },
+  },
+  {
+    name: 'search_recipes',
+    description: 'Search household and catalog recipes by name.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Name fragment to search' },
+        limit: { type: 'number', description: 'Max results (1–50, default 20)' },
+      },
+    },
+  },
+  {
+    name: 'get_picks',
+    description: 'Approved person/slot recipe picks for the household.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        personId: { type: 'string' },
+        slotKey: { type: 'string', description: 'e.g. dinner, lunch, breakfast' },
+      },
+    },
+  },
+  {
+    name: 'plan_meals',
+    description:
+      'Write recipes into meal plan slots. Does not overwrite filled slots unless overwrite is true on that meal.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        meals: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              date: { type: 'string', description: 'YYYY-MM-DD' },
+              slotKey: { type: 'string' },
+              recipeId: { type: 'string' },
+              overwrite: { type: 'boolean' },
+            },
+            required: ['date', 'slotKey', 'recipeId'],
+          },
+        },
+      },
+      required: ['meals'],
+    },
+  },
+  {
+    name: 'get_shopping_list',
+    description: 'Read the household shopping list for a week.',
+    inputSchema: { type: 'object', properties: weekStartProp },
+  },
+  {
+    name: 'rebuild_shopping_list',
+    description: 'Rebuild the shopping list from the meal plan for a week. Keeps manual items.',
+    inputSchema: { type: 'object', properties: weekStartProp },
+  },
+  {
+    name: 'match_shopping_prices',
+    description: 'Match shopping list items to Coles/Woolworths catalogue products and save quotes for trolley.',
+    inputSchema: { type: 'object', properties: weekStartProp },
+  },
+  {
+    name: 'get_shopping_order',
+    description:
+      'Read the household shopping list for the preferred Coles or Woolworths shop. Includes matched catalogue products and items still unmatched.',
+    inputSchema: { type: 'object', properties: weekStartProp },
   },
   {
     name: 'prepare_trolley',
     description:
-      'Build a one-time link that adds the matched shopping list to the household Coles or Woolworths trolley in the user browser. Does not pay or choose a delivery slot. Give the user reviewUrl.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        weekStart: { type: 'string', description: 'Monday of the list, YYYY-MM-DD. Defaults to this week.' },
-      },
-    },
+      'Build shopUrl and reviewUrl for the matched shopping list. Open shopUrl in your browser, sign in to the household Coles/Woolworths account if needed, add products to the trolley, and complete checkout/delivery. If login, CAPTCHA, or payment blocks you, send reviewUrl to the household instead. Do not invent product IDs.',
+    inputSchema: { type: 'object', properties: weekStartProp },
   },
 ];
+
+/** @deprecated Prefer BOT_MCP_TOOLS */
+export const SHOPPING_MCP_TOOLS = BOT_MCP_TOOLS;

@@ -867,20 +867,33 @@ export function useStashSync() {
       if (next.personIds.length > 0) await replaceCollectionPeople(id, next.personIds);
       await queryClient.invalidateQueries({ queryKey: collectionsKey(householdId) });
       await queryClient.invalidateQueries({ queryKey: ['stash', 'collection-people', householdId] });
+      return id;
     },
     [collections.length, householdId, queryClient, replaceCollectionPeople, userId],
   );
 
   const renameCollection = useCallback(
-    async (id: string, name: string) => {
+    async (id: string, name: string, share?: ListShareDraft) => {
       if (!householdId || !supabase) throw new Error('Not ready');
       const trimmed = name.trim();
       if (!trimmed) throw new Error('Give the collection a name');
-      const { error } = await supabase.from('stash_link_collections').update({ name: trimmed }).eq('id', id);
+      const patch: { name: string; visibility?: Database['public']['Tables']['stash_link_collections']['Update']['visibility'] } = {
+        name: trimmed,
+      };
+      if (share) {
+        const next = normalizeListShare(share.visibility === 'global' ? 'household' : share.visibility, share.personIds);
+        if (next.visibility === 'people' && next.personIds.length === 0) {
+          throw new Error('Pick at least one person to share with');
+        }
+        patch.visibility = next.visibility;
+        await replaceCollectionPeople(id, next.personIds);
+      }
+      const { error } = await supabase.from('stash_link_collections').update(patch).eq('id', id);
       if (error) throw error;
       await queryClient.invalidateQueries({ queryKey: collectionsKey(householdId) });
+      await queryClient.invalidateQueries({ queryKey: ['stash', 'collection-people', householdId] });
     },
-    [householdId, queryClient],
+    [householdId, queryClient, replaceCollectionPeople],
   );
 
   const deleteCollection = useCallback(

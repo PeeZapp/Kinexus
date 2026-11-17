@@ -31,6 +31,13 @@ export function inviteRoles(role: HouseholdRole | null | undefined): AssignableR
   return [];
 }
 
+/**
+ * Owner/admin only:
+ * - age up child → teen/adult, teen → adult
+ * - promote adult → admin
+ * - owner can demote admin → adult
+ * Child/teen/adult cannot change roles.
+ */
 export function canChangeMemberRole(
   actor: HouseholdRole | null | undefined,
   target: HouseholdRole,
@@ -38,14 +45,12 @@ export function canChangeMemberRole(
   isSelf: boolean,
 ): boolean {
   if (isSelf || target === 'owner' || next === 'owner') return false;
-  if (actor === 'owner' || actor === 'admin') {
-    return next === 'admin' || next === 'adult' || next === 'teen' || next === 'child';
-  }
-  if (actor === 'adult') {
-    const targetLower = target === 'adult' || target === 'teen' || target === 'child';
-    const nextLower = next === 'adult' || next === 'teen' || next === 'child';
-    return targetLower && nextLower;
-  }
+  if (actor !== 'owner' && actor !== 'admin') return false;
+
+  if (target === 'child') return next === 'teen' || next === 'adult';
+  if (target === 'teen') return next === 'adult';
+  if (target === 'adult') return next === 'admin';
+  if (target === 'admin') return actor === 'owner' && next === 'adult';
   return false;
 }
 
@@ -55,6 +60,19 @@ export function assignableRoles(
   isSelf: boolean,
 ): AssignableRole[] {
   return BELOW_OWNER.filter((next) => canChangeMemberRole(actor, target, next, isSelf));
+}
+
+/** Adults, admins, and non-sole owners can leave. Child/teen cannot. */
+export function canLeaveHousehold(
+  role: HouseholdRole | null | undefined,
+  soleOwner: boolean,
+): boolean {
+  if (!role || soleOwner) return false;
+  return role === 'owner' || role === 'admin' || role === 'adult';
+}
+
+export function canDeleteHousehold(role: HouseholdRole | null | undefined): boolean {
+  return role === 'owner' || role === 'admin';
 }
 
 export function canRemoveMember(

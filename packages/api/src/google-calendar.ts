@@ -7,14 +7,12 @@ import { createServiceClient, isServiceRoleConfigured } from './supabase-admin.j
 const GOOGLE_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token';
 const GOOGLE_CAL = 'https://www.googleapis.com/calendar/v3';
-const SCOPES = [
-  'openid',
-  'email',
-  'profile',
-  'https://www.googleapis.com/auth/calendar',
-].join(' ');
+const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar';
+const SCOPES = ['openid', 'email', 'profile', CALENDAR_SCOPE].join(' ');
 const FAMILY_CAL_NAME = 'Kinexus Family';
 const STATE_TTL_MS = 15 * 60 * 1000;
+const MISSING_CALENDAR_SCOPE_MESSAGE =
+  'Google did not grant Calendar access. On the Google permission screen, leave Calendar checked (Google lets you uncheck it), then connect again.';
 
 type HandlerResult = { status: number; body: Record<string, unknown> };
 type RedirectResult = { status: number; location: string };
@@ -279,6 +277,7 @@ async function googleTokenRequest(params: Record<string, string>): Promise<{
   access_token?: string;
   refresh_token?: string;
   expires_in?: number;
+  scope?: string;
   error?: string;
   error_description?: string;
 }> {
@@ -291,9 +290,37 @@ async function googleTokenRequest(params: Record<string, string>): Promise<{
     access_token?: string;
     refresh_token?: string;
     expires_in?: number;
+    scope?: string;
     error?: string;
     error_description?: string;
   };
+}
+
+function grantedScopes(scope: string | null | undefined): Set<string> {
+  if (!scope?.trim()) return new Set();
+  return new Set(scope.split(/[\s+]+/).map((part) => part.trim()).filter(Boolean));
+}
+
+function hasCalendarScope(scope: string | null | undefined): boolean {
+  const scopes = grantedScopes(scope);
+  return (
+    scopes.has(CALENDAR_SCOPE) ||
+    scopes.has('https://www.googleapis.com/auth/calendar.events') ||
+    scopes.has('https://www.googleapis.com/auth/calendar.readonly')
+  );
+}
+
+async function tokenHasCalendarAccess(accessToken: string, scopeFromToken?: string): Promise<boolean> {
+  if (hasCalendarScope(scopeFromToken)) return true;
+  try {
+    const res = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(accessToken)}`,
+    );
+    const info = (await res.json().catch(() => ({}))) as { scope?: string };
+    return hasCalendarScope(info.scope);
+  } catch {
+    return false;
+  }
 }
 
 async function loadConnections(admin: SupabaseClient, userId: string): Promise<ConnectionRow[]> {
@@ -449,10 +476,14 @@ async function listGoogleCalendars(
       );
     }
     if (res.status === 401 || res.status === 403) {
-      const message =
-        detail ||
-        'Google denied calendar access. Remove the account and connect again, then approve calendar permission.';
-      if (/auth|token|expired|revoked|insufficient/i.test(message) || res.status === 401) {
+      const insufficient =
+        reason === 'insufficientPermissions' ||
+        /insufficient.*(auth|permission|scope)/i.test(`${detail ?? ''} ${reason ?? ''}`);
+      const message = insufficient
+        ? MISSING_CALENDAR_SCOPE_MESSAGE
+        : detail ||
+          'Google denied calendar access. Remove the account and connect again, then approve calendar permission.';
+      if (insufficient || /auth|token|expired|revoked|insufficient/i.test(message) || res.status === 401) {
         await markNeedsReauth(admin, row, message);
         throw new GoogleReauthRequiredError(message);
       }
@@ -705,17 +736,28 @@ function mapPersonalEvent(
   };
 }
 
-async function ensureDefaultPullCalendars(admin: SupabaseClient, row: ConnectionRow): Promise<ConnectionRow> {
-  if ((row.pull_calendar_ids ?? []).length > 0) return row;
+/** Connect once → pull every Google calendar, push family events to Kinexus Family. */
+async function ensureSimpleSyncDefaults(
+  admin: SupabaseClient,
+  row: ConnectionRow,
+): Promise<ConnectionRow> {
+  if (row.needs_reauth) return row;
   try {
+    if (!row.push_enabled) {
+      await admin.from('user_google_calendar').update({ push_enabled: true }).eq('id', row.id);
+      row.push_enabled = true;
+    }
+    await ensureFamilyCalendar(admin, row);
     const calendars = await listGoogleCalendars(admin, row);
-    const primary = calendars.find((cal) => cal.primary) ?? calendars[0];
-    if (!primary) return row;
-    const pull = [primary.id];
-    await admin.from('user_google_calendar').update({ pull_calendar_ids: pull }).eq('id', row.id);
-    row.pull_calendar_ids = pull;
+    const pull = calendars.map((cal) => cal.id);
+    const prev = row.pull_calendar_ids ?? [];
+    const same = pull.length === prev.length && pull.every((id) => prev.includes(id));
+    if (!same) {
+      await admin.from('user_google_calendar').update({ pull_calendar_ids: pull }).eq('id', row.id);
+      row.pull_calendar_ids = pull;
+    }
   } catch {
-    // leave empty
+    // leave as-is; status / reconnect surfaces auth errors
   }
   return row;
 }
@@ -736,7 +778,7 @@ async function collectPersonalEvents(
   let pullBudget = 40;
 
   for (const raw of accounts) {
-    const row = await ensureDefaultPullCalendars(admin, raw);
+    const row = await ensureSimpleSyncDefaults(admin, raw);
     const pullIds = (row.pull_calendar_ids ?? []).filter(Boolean);
     if (pullIds.length === 0) continue;
     let calendars: { id: string; name: string }[] = [];
@@ -805,8 +847,9 @@ export async function handleGoogleConnectStart(
   url.searchParams.set('scope', SCOPES);
   url.searchParams.set('access_type', 'offline');
   // select_account lets the user add a second Google account; consent ensures refresh_token.
+  // Do not set include_granted_scopes — granular consent can return Sign-In scopes only
+  // if Calendar was unchecked; we validate calendar scope after the code exchange.
   url.searchParams.set('prompt', 'select_account consent');
-  url.searchParams.set('include_granted_scopes', 'true');
   url.searchParams.set('state', state);
   return { status: 200, body: { url: url.toString() } };
 }
@@ -842,6 +885,13 @@ export async function handleGoogleConnectCallback(request: Request): Promise<Red
       return {
         status: 302,
         location: appReturnUrl({ google: 'error', reason: (token.error || 'token_exchange').slice(0, 80) }),
+      };
+    }
+
+    if (!(await tokenHasCalendarAccess(token.access_token, token.scope))) {
+      return {
+        status: 302,
+        location: appReturnUrl({ google: 'error', reason: 'missing_calendar_scope' }),
       };
     }
 
@@ -908,17 +958,12 @@ export async function handleGoogleConnectCallback(request: Request): Promise<Red
     }
 
     if (connectionId) {
-      let row = await loadConnection(admin, userId, connectionId);
+      const row = await loadConnection(admin, userId, connectionId);
       if (row) {
         try {
-          if (row.push_enabled) await ensureFamilyCalendar(admin, row);
+          await ensureSimpleSyncDefaults(admin, row);
         } catch {
-          // Connect still succeeds; user can pick a calendar in settings.
-        }
-        try {
-          row = await ensureDefaultPullCalendars(admin, row);
-        } catch {
-          // optional
+          // Connect still succeeds; reauth / status will surface problems.
         }
       }
     }
@@ -949,7 +994,7 @@ export async function handleGoogleStatus(userId: string): Promise<HandlerResult>
       continue;
     }
     try {
-      row = await ensureDefaultPullCalendars(admin, raw);
+      row = await ensureSimpleSyncDefaults(admin, raw);
     } catch (err) {
       if (err instanceof GoogleReauthRequiredError) {
         accounts.push(

@@ -164,7 +164,10 @@ export function canEditList(
   return canEditShared(listAccess(list, opts));
 }
 
-export function listShareLabel(list: StashList, people: readonly { id: string; name: string }[]): string {
+export function listShareLabel(
+  list: Pick<StashList, 'visibility' | 'personIds'>,
+  people: readonly { id: string; name: string }[],
+): string {
   if (list.visibility === 'household') return 'Family';
   if (list.visibility === 'private') return 'Private';
   const names = list.personIds

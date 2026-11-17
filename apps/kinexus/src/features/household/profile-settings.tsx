@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -16,11 +16,19 @@ import {
   fetchOwnProfileMeta,
   saveOwnProfileMeta,
 } from '@/src/features/creators/creators-api';
-import { Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
+import {
+  Btn,
+  Card,
+  EditIconButton,
+  ErrorText,
+  Field,
+  SettingsLockedRow,
+} from '@/src/features/household/ui';
+import { Sheet } from '@/src/features/meals/meals-kit';
 import { ProfileAvatar } from '@/src/features/shell/ProfileAvatar';
-import { PublicName } from '@/src/features/shell/PublicName';
-import { colors, radius } from '@/src/features/shell/theme';
+import { colors, radius, space } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
+import { useExperienceMode } from '@/src/lib/experience-mode';
 import { AVATAR_PRESETS } from '@/src/features/shell/avatar-presets';
 import {
   checkUsernameAvailable,
@@ -49,143 +57,35 @@ import {
 
 const BIO_MAX = 280;
 const LINKS_MAX = 5;
+const AVATAR_HERO_SIZE = 104;
+const CHECK_DEBOUNCE_MS = 400;
 
 function emptyLink(): PublicProfileLink {
   return { url: '', label: '' };
 }
 
-function PublicProfileMetaEditor() {
-  const [bio, setBio] = useState('');
-  const [links, setLinks] = useState<PublicProfileLink[]>([emptyLink()]);
-  const [isHidden, setIsHidden] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    void fetchOwnProfileMeta()
-      .then((meta) => {
-        if (cancelled) return;
-        setBio(meta.bio ?? '');
-        setLinks(meta.links.length > 0 ? meta.links.map((l) => ({ url: l.url, label: l.label ?? '' })) : [emptyLink()]);
-        setIsHidden(meta.isHidden);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load public profile');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  async function save() {
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const cleaned = links
-        .map((link) => ({
-          url: link.url.trim(),
-          label: link.label?.trim() || undefined,
-        }))
-        .filter((link) => link.url);
-      for (const link of cleaned) {
-        if (!link.url.toLowerCase().startsWith('https://')) {
-          throw new Error('Links must use https://');
-        }
-      }
-      if (cleaned.length > LINKS_MAX) throw new Error('At most 5 links');
-      const saved = await saveOwnProfileMeta({
-        bio: bio.trim() || null,
-        links: cleaned,
-        isHidden,
-      });
-      setBio(saved.bio ?? '');
-      setLinks(saved.links.length > 0 ? saved.links.map((l) => ({ url: l.url, label: l.label ?? '' })) : [emptyLink()]);
-      setIsHidden(saved.isHidden);
-      setNotice('Saved');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save');
-    } finally {
-      setBusy(false);
+function cleanLinks(links: PublicProfileLink[]): PublicProfileLink[] {
+  const cleaned = links
+    .map((link) => ({
+      url: link.url.trim(),
+      label: link.label?.trim() || undefined,
+    }))
+    .filter((link) => link.url);
+  for (const link of cleaned) {
+    if (!link.url.toLowerCase().startsWith('https://')) {
+      throw new Error('Links must use https://');
     }
   }
-
-  if (loading) {
-    return (
-      <View style={styles.stack}>
-        <Text style={styles.fieldLabel}>Public page</Text>
-        <ActivityIndicator color={colors.accent} />
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.stack}>
-      <Text style={styles.fieldLabel}>Public page</Text>
-      <Field
-        label={`Bio (${bio.length}/${BIO_MAX})`}
-        value={bio}
-        onChangeText={(value) => setBio(value.slice(0, BIO_MAX))}
-        placeholder="A short bio"
-        multiline
-      />
-      <Text style={styles.fieldLabel}>Links</Text>
-      {links.map((link, index) => (
-        <View key={`link-${index}`} style={styles.linkBlock}>
-          <Field
-            label="URL"
-            value={link.url}
-            onChangeText={(url) =>
-              setLinks((current) => current.map((row, i) => (i === index ? { ...row, url } : row)))
-            }
-            placeholder="https://"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <Field
-            label="Label"
-            value={link.label ?? ''}
-            onChangeText={(label) =>
-              setLinks((current) => current.map((row, i) => (i === index ? { ...row, label } : row)))
-            }
-            placeholder="Optional"
-          />
-          {links.length > 1 ? (
-            <Btn
-              label="Remove"
-              variant="ghost"
-              onPress={() => setLinks((current) => current.filter((_, i) => i !== index))}
-            />
-          ) : null}
-        </View>
-      ))}
-      {links.length < LINKS_MAX ? (
-        <Btn label="Add link" variant="ghost" onPress={() => setLinks((current) => [...current, emptyLink()])} />
-      ) : null}
-      <View style={styles.switchRow}>
-        <Text style={styles.switchLabel}>Hide my public profile</Text>
-        <Switch
-          value={isHidden}
-          onValueChange={setIsHidden}
-          trackColor={{ false: colors.border, true: colors.accentMuted }}
-          thumbColor={isHidden ? colors.accent : colors.textMuted}
-        />
-      </View>
-      <Btn label="Save public profile" variant="secondary" busy={busy} onPress={() => void save()} />
-      {notice ? <Text style={styles.ok}>{notice}</Text> : null}
-      <ErrorText message={error} />
-    </View>
-  );
+  if (cleaned.length > LINKS_MAX) throw new Error('At most 5 links');
+  return cleaned;
 }
 
-const CHECK_DEBOUNCE_MS = 400;
+function linksSummary(links: PublicProfileLink[]): string {
+  const urls = links.map((l) => l.url.trim()).filter(Boolean);
+  if (urls.length === 0) return '';
+  if (urls.length === 1) return urls[0]!;
+  return `${urls.length} links`;
+}
 
 function promptStorageKey(userId: string) {
   return `kinexus.usernameSetup.${userId}`;
@@ -465,10 +365,12 @@ function AvatarPresetPicker({
   value,
   providerSelected,
   onChange,
+  busy,
 }: {
   value: AvatarPresetId;
   providerSelected: boolean;
   onChange: (id: AvatarPresetId) => void;
+  busy?: boolean;
 }) {
   return (
     <View style={styles.presetGrid}>
@@ -478,10 +380,11 @@ function AvatarPresetPicker({
           <Pressable
             key={preset.id}
             onPress={() => onChange(preset.id)}
+            disabled={busy}
             accessibilityRole="button"
-            accessibilityState={{ selected: active }}
+            accessibilityState={{ selected: active, disabled: Boolean(busy) }}
             accessibilityLabel={preset.label}
-            style={[styles.presetCell, active && styles.presetCellActive]}>
+            style={[styles.presetCell, active && styles.presetCellActive, busy && styles.providerOptionDisabled]}>
             <Image source={preset.source} resizeMode="contain" style={styles.presetImage} />
           </Pressable>
         );
@@ -490,37 +393,127 @@ function AvatarPresetPicker({
   );
 }
 
-export function ProfileSection() {
-  const { user, identity, loading, error, reload, setIdentity } = useOwnIdentity();
-  const [displayName, setDisplayName] = useState('');
-  const [avatarChoice, setAvatarChoice] = useState<AvatarChoice>(resolveAvatarPresetId(null));
-  const [hasGoogleLinked, setHasGoogleLinked] = useState(false);
-  const [hasFacebookLinked, setHasFacebookLinked] = useState(false);
-  const [profileBusy, setProfileBusy] = useState(false);
-  const [googleBusy, setGoogleBusy] = useState(false);
-  const [facebookBusy, setFacebookBusy] = useState(false);
-  const [profileError, setProfileError] = useState<string | null>(null);
-  const [profileNotice, setProfileNotice] = useState<string | null>(null);
+function UsernameEditSheet({
+  visible,
+  identity,
+  onClose,
+  onSaved,
+}: {
+  visible: boolean;
+  identity: OwnIdentity;
+  onClose: () => void;
+  onSaved: (next: OwnIdentity) => void;
+}) {
+  return (
+    <Sheet visible={visible} title="Username" onClose={onClose}>
+      <View style={styles.sheetStack}>
+        <UsernameEditor
+          identity={identity}
+          submitLabel="Save"
+          onSaved={(next) => {
+            onSaved(next);
+            onClose();
+          }}
+        />
+      </View>
+    </Sheet>
+  );
+}
+
+function DisplayNameEditSheet({
+  visible,
+  identity,
+  onClose,
+  onSaved,
+}: {
+  visible: boolean;
+  identity: OwnIdentity;
+  onClose: () => void;
+  onSaved: (next: OwnIdentity) => void;
+}) {
+  const [draft, setDraft] = useState(identity.displayName ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setDisplayName(identity?.displayName ?? user?.displayName ?? '');
-    if (identity) setAvatarChoice(savedAvatarChoice(identity));
-  }, [
-    identity?.displayName,
-    identity?.avatarUrl,
-    identity?.avatarSource,
-    identity?.avatarGoogleUrl,
-    identity?.avatarFacebookId,
-    identity?.id,
-    user?.displayName,
-  ]);
+    if (!visible) return;
+    setDraft(identity.displayName ?? '');
+    setError(null);
+  }, [visible, identity.displayName]);
 
-  useEffect(() => {
-    if (!user || user.isDevBypass) {
-      setHasGoogleLinked(false);
-      setHasFacebookLinked(false);
+  const dirty = draft.trim() !== (identity.displayName ?? '').trim();
+
+  async function onSave() {
+    if (!dirty) {
+      onClose();
       return;
     }
+    setBusy(true);
+    setError(null);
+    try {
+      await updateOwnProfileFields(identity.id, {
+        displayName: draft.trim() || null,
+      });
+      const next = await fetchOwnIdentity(identity.id);
+      if (next) onSaved(next);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save display name');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet visible={visible} title="Display name" onClose={onClose}>
+      <View style={styles.sheetStack}>
+        <Field
+          label="Display name"
+          value={draft}
+          onChangeText={setDraft}
+          autoCapitalize="words"
+          autoCorrect={false}
+          editable={!busy}
+        />
+        <Btn label="Save" onPress={() => void onSave()} busy={busy} disabled={!dirty} />
+        <ErrorText message={error} />
+      </View>
+    </Sheet>
+  );
+}
+
+function AvatarEditSheet({
+  visible,
+  identity,
+  onClose,
+  onIdentityChange,
+}: {
+  visible: boolean;
+  identity: OwnIdentity;
+  onClose: () => void;
+  onIdentityChange: (next: OwnIdentity) => void;
+}) {
+  const [hasGoogleLinked, setHasGoogleLinked] = useState(false);
+  const [hasFacebookLinked, setHasFacebookLinked] = useState(false);
+  const [presetBusy, setPresetBusy] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [facebookBusy, setFacebookBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const choice = savedAvatarChoice(identity);
+  const googleSelected = choice === 'google';
+  const facebookSelected = choice === 'facebook';
+  const providerSelected = googleSelected || facebookSelected;
+  const presetValue = providerSelected
+    ? resolveAvatarPresetId(identity.avatarUrl)
+    : (choice as AvatarPresetId);
+  const anyBusy = presetBusy || googleBusy || facebookBusy;
+
+  useEffect(() => {
+    if (!visible) return;
+    setError(null);
+    setNotice(null);
     let cancelled = false;
     void currentUserHasLinkedGoogleIdentity()
       .then((linked) => {
@@ -539,155 +532,541 @@ export function ProfileSection() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [visible, identity.id]);
 
-  if (!user) return null;
-
-  if (user.isDevBypass) {
-    return (
-      <Card>
-        <Text style={styles.heading}>Profile</Text>
-        <Text style={styles.body}>Sign in with a live account to manage your public profile.</Text>
-      </Card>
-    );
+  async function refreshIdentity() {
+    const current = await fetchOwnIdentity(identity.id);
+    if (current) onIdentityChange(current);
   }
 
-  if (loading && !identity) {
-    return (
-      <Card>
-        <Text style={styles.heading}>Profile</Text>
-        <ActivityIndicator color={colors.accent} />
-      </Card>
-    );
-  }
-
-  if (!identity) {
-    return (
-      <Card>
-        <Text style={styles.heading}>Profile</Text>
-        <ErrorText message={error ?? 'Profile not found'} />
-        <Btn label="Retry" variant="secondary" onPress={() => void reload()} />
-      </Card>
-    );
-  }
-
-  const savedChoice = savedAvatarChoice(identity);
-  const displayDirty = displayName.trim() !== (identity.displayName ?? '').trim();
-  const avatarDirty = avatarChoice !== savedChoice;
-  const googleSelected = avatarChoice === 'google';
-  const facebookSelected = avatarChoice === 'facebook';
-  const providerSelected = googleSelected || facebookSelected;
-  const presetValue = providerSelected
-    ? resolveAvatarPresetId(identity.avatarUrl)
-    : (avatarChoice as AvatarPresetId);
-
-  async function refreshIdentitySelection(fallbackPreset = true) {
+  async function selectPreset(id: AvatarPresetId) {
+    if (anyBusy) return;
+    if (choice === id) return;
+    setPresetBusy(true);
+    setError(null);
+    setNotice(null);
     try {
-      const current = await fetchOwnIdentity(identity!.id);
-      if (current) {
-        setIdentity(current);
-        setAvatarChoice(savedAvatarChoice(current));
-        return;
+      await saveOwnAvatarPreset(identity.id, id);
+      await refreshIdentity();
+      setNotice('Saved');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save avatar');
+      try {
+        await refreshIdentity();
+      } catch {
+        // ignore
       }
-    } catch {
-      // fall through
-    }
-    if (fallbackPreset) {
-      setAvatarChoice(resolveAvatarPresetId(identity!.avatarUrl));
+    } finally {
+      setPresetBusy(false);
     }
   }
 
   async function optInGooglePhoto() {
-    if (!hasGoogleLinked || googleBusy || facebookBusy) return;
+    if (!hasGoogleLinked || anyBusy || googleSelected) return;
     setGoogleBusy(true);
-    setProfileError(null);
-    setProfileNotice(null);
+    setError(null);
+    setNotice(null);
     const result = await runGoogleAvatarOptIn({
-      expectedUserId: identity!.id,
+      expectedUserId: identity.id,
       reauth: reauthGoogleForAvatar,
     });
-    await refreshIdentitySelection();
+    try {
+      await refreshIdentity();
+    } catch {
+      // ignore
+    }
     if (!result.ok) {
-      setProfileError(result.error);
+      setError(result.error);
     } else {
-      setProfileNotice('Saved');
+      setNotice('Saved');
     }
     setGoogleBusy(false);
   }
 
   async function connectFacebook() {
-    if (hasFacebookLinked || facebookBusy || googleBusy) return;
+    if (hasFacebookLinked || anyBusy) return;
     setFacebookBusy(true);
-    setProfileError(null);
-    setProfileNotice(null);
-    const result = await linkFacebookIdentity(identity!.id);
+    setError(null);
+    setNotice(null);
+    const result = await linkFacebookIdentity(identity.id);
     if (!result.ok) {
-      setProfileError(result.error);
+      setError(result.error);
       setFacebookBusy(false);
       return;
     }
     setHasFacebookLinked(true);
-    setProfileNotice('Facebook connected');
+    setNotice('Facebook connected');
     setFacebookBusy(false);
   }
 
   async function optInFacebookPhoto() {
-    if (!hasFacebookLinked || facebookBusy || googleBusy) return;
+    if (!hasFacebookLinked || anyBusy || facebookSelected) return;
     setFacebookBusy(true);
-    setProfileError(null);
-    setProfileNotice(null);
+    setError(null);
+    setNotice(null);
     const result = await runFacebookAvatarOptIn({
-      expectedUserId: identity!.id,
+      expectedUserId: identity.id,
       reauth: reauthFacebookForAvatar,
     });
-    await refreshIdentitySelection();
+    try {
+      await refreshIdentity();
+    } catch {
+      // ignore
+    }
     if (!result.ok) {
-      setProfileError(result.error);
+      setError(result.error);
     } else {
-      setProfileNotice('Saved');
+      setNotice('Saved');
     }
     setFacebookBusy(false);
   }
 
-  async function saveProfileFields() {
-    setProfileBusy(true);
-    setProfileError(null);
-    setProfileNotice(null);
+  return (
+    <Sheet visible={visible} title="Profile picture" onClose={onClose}>
+      <View style={styles.sheetStack}>
+        <View style={styles.avatarSheetPreview}>
+          <ProfileAvatar
+            avatarUrl={presetValue}
+            avatarSource={
+              googleSelected ? 'google' : facebookSelected ? 'facebook' : 'preset'
+            }
+            avatarGoogleUrl={googleSelected ? identity.avatarGoogleUrl : null}
+            avatarFacebookId={facebookSelected ? identity.avatarFacebookId : null}
+            size={72}
+          />
+        </View>
+        <Text style={styles.fieldLabel}>Logos</Text>
+        <AvatarPresetPicker
+          value={presetValue}
+          providerSelected={providerSelected}
+          onChange={(id) => void selectPreset(id)}
+          busy={anyBusy}
+        />
+        <Pressable
+          onPress={() => void optInGooglePhoto()}
+          disabled={!hasGoogleLinked || anyBusy || googleSelected}
+          accessibilityRole="button"
+          accessibilityState={{
+            selected: googleSelected,
+            disabled: !hasGoogleLinked || anyBusy || googleSelected,
+          }}
+          accessibilityLabel="Use my Google photo"
+          style={[
+            styles.providerOption,
+            googleSelected && styles.presetCellActive,
+            (!hasGoogleLinked || anyBusy) && styles.providerOptionDisabled,
+          ]}>
+          {googleBusy ? (
+            <ActivityIndicator color={colors.accent} />
+          ) : (
+            <Text
+              style={[
+                styles.providerOptionLabel,
+                !hasGoogleLinked && styles.providerOptionLabelDisabled,
+              ]}>
+              Use my Google photo
+            </Text>
+          )}
+        </Pressable>
+        {hasFacebookLinked ? (
+          <Pressable
+            onPress={() => void optInFacebookPhoto()}
+            disabled={anyBusy || facebookSelected}
+            accessibilityRole="button"
+            accessibilityState={{
+              selected: facebookSelected,
+              disabled: anyBusy || facebookSelected,
+            }}
+            accessibilityLabel="Use my Facebook photo"
+            style={[
+              styles.providerOption,
+              facebookSelected && styles.presetCellActive,
+              anyBusy && styles.providerOptionDisabled,
+            ]}>
+            {facebookBusy ? (
+              <ActivityIndicator color={colors.accent} />
+            ) : (
+              <Text style={styles.providerOptionLabel}>Use my Facebook photo</Text>
+            )}
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={() => void connectFacebook()}
+            disabled={anyBusy}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: anyBusy }}
+            accessibilityLabel="Connect Facebook"
+            style={[styles.providerOption, anyBusy && styles.providerOptionDisabled]}>
+            {facebookBusy ? (
+              <ActivityIndicator color={colors.accent} />
+            ) : (
+              <Text style={styles.providerOptionLabel}>Connect Facebook</Text>
+            )}
+          </Pressable>
+        )}
+        {notice ? <Text style={styles.ok}>{notice}</Text> : null}
+        <ErrorText message={error} />
+      </View>
+    </Sheet>
+  );
+}
+
+type PublicMeta = {
+  bio: string;
+  links: PublicProfileLink[];
+  isHidden: boolean;
+};
+
+function usePublicProfileMeta() {
+  const [meta, setMeta] = useState<PublicMeta | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      if (displayDirty) {
-        await updateOwnProfileFields(identity!.id, {
-          displayName: displayName.trim() || null,
-        });
-      }
-      if (avatarDirty && avatarChoice !== 'google' && avatarChoice !== 'facebook') {
-        await saveOwnAvatarPreset(identity!.id, avatarChoice);
-      }
-      const next = await fetchOwnIdentity(identity!.id);
-      if (next) {
-        setIdentity(next);
-        setAvatarChoice(savedAvatarChoice(next));
-      }
-      setProfileNotice('Saved');
+      const next = await fetchOwnProfileMeta();
+      setMeta({
+        bio: next.bio ?? '',
+        links:
+          next.links.length > 0
+            ? next.links.map((l) => ({ url: l.url, label: l.label ?? '' }))
+            : [emptyLink()],
+        isHidden: next.isHidden,
+      });
     } catch (err) {
-      setProfileError(err instanceof Error ? err.message : 'Could not save profile');
-      try {
-        const current = await fetchOwnIdentity(identity!.id);
-        if (current) {
-          setIdentity(current);
-          setAvatarChoice(savedAvatarChoice(current));
-        }
-      } catch {
-        // ignore — never block household/profile recovery
-      }
+      setError(err instanceof Error ? err.message : 'Could not load public profile');
     } finally {
-      setProfileBusy(false);
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  return { meta, setMeta, loading, error, setError, reload };
+}
+
+function BioEditSheet({
+  visible,
+  meta,
+  onClose,
+  onSaved,
+}: {
+  visible: boolean;
+  meta: PublicMeta;
+  onClose: () => void;
+  onSaved: (next: PublicMeta) => void;
+}) {
+  const [draft, setDraft] = useState(meta.bio);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    setDraft(meta.bio);
+    setError(null);
+  }, [visible, meta.bio]);
+
+  const dirty = draft.trim() !== meta.bio.trim();
+
+  async function onSave() {
+    if (!dirty) {
+      onClose();
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const cleaned = cleanLinks(meta.links);
+      const saved = await saveOwnProfileMeta({
+        bio: draft.trim() || null,
+        links: cleaned,
+        isHidden: meta.isHidden,
+      });
+      onSaved({
+        bio: saved.bio ?? '',
+        links:
+          saved.links.length > 0
+            ? saved.links.map((l) => ({ url: l.url, label: l.label ?? '' }))
+            : [emptyLink()],
+        isHidden: saved.isHidden,
+      });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save bio');
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
-    <Card>
-      <Text style={styles.heading}>Profile</Text>
-      <View style={styles.previewRow}>
+    <Sheet visible={visible} title="Bio" onClose={onClose}>
+      <View style={styles.sheetStack}>
+        <Field
+          label={`Bio (${draft.length}/${BIO_MAX})`}
+          value={draft}
+          onChangeText={(value) => setDraft(value.slice(0, BIO_MAX))}
+          placeholder="A short bio"
+          multiline
+          editable={!busy}
+        />
+        <Btn label="Save" onPress={() => void onSave()} busy={busy} disabled={!dirty} />
+        <ErrorText message={error} />
+      </View>
+    </Sheet>
+  );
+}
+
+function LinksEditSheet({
+  visible,
+  meta,
+  onClose,
+  onSaved,
+}: {
+  visible: boolean;
+  meta: PublicMeta;
+  onClose: () => void;
+  onSaved: (next: PublicMeta) => void;
+}) {
+  const [links, setLinks] = useState<PublicProfileLink[]>(meta.links);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    setLinks(
+      meta.links.length > 0 ? meta.links.map((l) => ({ url: l.url, label: l.label ?? '' })) : [emptyLink()],
+    );
+    setError(null);
+  }, [visible, meta.links]);
+
+  async function onSave() {
+    setBusy(true);
+    setError(null);
+    try {
+      const cleaned = cleanLinks(links);
+      const saved = await saveOwnProfileMeta({
+        bio: meta.bio.trim() || null,
+        links: cleaned,
+        isHidden: meta.isHidden,
+      });
+      onSaved({
+        bio: saved.bio ?? '',
+        links:
+          saved.links.length > 0
+            ? saved.links.map((l) => ({ url: l.url, label: l.label ?? '' }))
+            : [emptyLink()],
+        isHidden: saved.isHidden,
+      });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save links');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet visible={visible} title="Links" onClose={onClose}>
+      <View style={styles.sheetStack}>
+        {links.map((link, index) => (
+          <View key={`link-${index}`} style={styles.linkBlock}>
+            <Field
+              label="URL"
+              value={link.url}
+              onChangeText={(url) =>
+                setLinks((current) => current.map((row, i) => (i === index ? { ...row, url } : row)))
+              }
+              placeholder="https://"
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!busy}
+            />
+            <Field
+              label="Label"
+              value={link.label ?? ''}
+              onChangeText={(label) =>
+                setLinks((current) => current.map((row, i) => (i === index ? { ...row, label } : row)))
+              }
+              placeholder="Optional"
+              editable={!busy}
+            />
+            {links.length > 1 ? (
+              <Btn
+                label="Remove"
+                variant="ghost"
+                onPress={() => setLinks((current) => current.filter((_, i) => i !== index))}
+                disabled={busy}
+              />
+            ) : null}
+          </View>
+        ))}
+        {links.length < LINKS_MAX ? (
+          <Btn
+            label="Add link"
+            variant="ghost"
+            onPress={() => setLinks((current) => [...current, emptyLink()])}
+            disabled={busy}
+          />
+        ) : null}
+        <Btn label="Save" onPress={() => void onSave()} busy={busy} />
+        <ErrorText message={error} />
+      </View>
+    </Sheet>
+  );
+}
+
+function PublicProfileLockedSection() {
+  const { meta, setMeta, loading, error, setError } = usePublicProfileMeta();
+  const [bioOpen, setBioOpen] = useState(false);
+  const [linksOpen, setLinksOpen] = useState(false);
+  const [toggleBusy, setToggleBusy] = useState(false);
+
+  async function onToggleHidden(next: boolean) {
+    if (!meta || toggleBusy) return;
+    const previous = meta.isHidden;
+    setMeta({ ...meta, isHidden: next });
+    setToggleBusy(true);
+    setError(null);
+    try {
+      const cleaned = cleanLinks(meta.links);
+      const saved = await saveOwnProfileMeta({
+        bio: meta.bio.trim() || null,
+        links: cleaned,
+        isHidden: next,
+      });
+      setMeta({
+        bio: saved.bio ?? '',
+        links:
+          saved.links.length > 0
+            ? saved.links.map((l) => ({ url: l.url, label: l.label ?? '' }))
+            : [emptyLink()],
+        isHidden: saved.isHidden,
+      });
+    } catch (err) {
+      setMeta({ ...meta, isHidden: previous });
+      setError(err instanceof Error ? err.message : 'Could not update visibility');
+    } finally {
+      setToggleBusy(false);
+    }
+  }
+
+  if (loading || !meta) {
+    return (
+      <View style={styles.stack}>
+        <ActivityIndicator color={colors.accent} />
+        <ErrorText message={error} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.stack}>
+      <SettingsLockedRow
+        label="Bio"
+        value={meta.bio}
+        placeholder="Add bio"
+        onPress={() => setBioOpen(true)}
+      />
+      <SettingsLockedRow
+        label="Links"
+        value={linksSummary(meta.links)}
+        placeholder="Add links"
+        onPress={() => setLinksOpen(true)}
+      />
+      <View style={styles.switchRow}>
+        <Text style={styles.switchLabel}>Hide my public profile</Text>
+        <Switch
+          value={meta.isHidden}
+          onValueChange={(value) => void onToggleHidden(value)}
+          disabled={toggleBusy}
+          trackColor={{ false: colors.border, true: colors.accentMuted }}
+          thumbColor={meta.isHidden ? colors.accent : colors.textMuted}
+        />
+      </View>
+      <ErrorText message={error} />
+      <BioEditSheet
+        visible={bioOpen}
+        meta={meta}
+        onClose={() => setBioOpen(false)}
+        onSaved={setMeta}
+      />
+      <LinksEditSheet
+        visible={linksOpen}
+        meta={meta}
+        onClose={() => setLinksOpen(false)}
+        onSaved={setMeta}
+      />
+    </View>
+  );
+}
+
+export function ProfileSection({ aside }: { aside?: ReactNode }) {
+  const { mode } = useExperienceMode();
+  const wide = mode === 'desktop';
+  const { user, identity, loading, error, reload, setIdentity } = useOwnIdentity();
+  const [usernameOpen, setUsernameOpen] = useState(false);
+  const [avatarOpen, setAvatarOpen] = useState(false);
+  const [displayOpen, setDisplayOpen] = useState(false);
+
+  if (!user) return aside ? <>{aside}</> : null;
+
+  if (user.isDevBypass) {
+    return (
+      <View style={styles.sectionRoot}>
+        <Card>
+          <Text style={styles.heading}>Profile</Text>
+          <Text style={styles.body}>Sign in with a live account to manage your public profile.</Text>
+        </Card>
+        {aside}
+      </View>
+    );
+  }
+
+  if (loading && !identity) {
+    return (
+      <View style={styles.sectionRoot}>
+        <Card>
+          <Text style={styles.heading}>Profile</Text>
+          <ActivityIndicator color={colors.accent} />
+        </Card>
+        {aside}
+      </View>
+    );
+  }
+
+  if (!identity) {
+    return (
+      <View style={styles.sectionRoot}>
+        <Card>
+          <Text style={styles.heading}>Profile</Text>
+          <ErrorText message={error ?? 'Profile not found'} />
+          <Btn label="Retry" variant="secondary" onPress={() => void reload()} />
+        </Card>
+        {aside}
+      </View>
+    );
+  }
+
+  const choice = savedAvatarChoice(identity);
+  const googleSelected = choice === 'google';
+  const facebookSelected = choice === 'facebook';
+  const providerSelected = googleSelected || facebookSelected;
+  const presetValue = providerSelected
+    ? resolveAvatarPresetId(identity.avatarUrl)
+    : (choice as AvatarPresetId);
+  const hasUsername = Boolean(identity.username?.trim());
+
+  const hero = (
+    <View style={[styles.hero, wide && styles.heroWide]}>
+      <Pressable
+        onPress={() => setAvatarOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Edit profile picture"
+        style={styles.avatarTap}>
         <ProfileAvatar
           avatarUrl={presetValue}
           avatarSource={
@@ -695,124 +1074,110 @@ export function ProfileSection() {
           }
           avatarGoogleUrl={googleSelected ? identity.avatarGoogleUrl : null}
           avatarFacebookId={facebookSelected ? identity.avatarFacebookId : null}
-          size={56}
+          size={wide ? 120 : AVATAR_HERO_SIZE}
         />
-        <View style={styles.previewText}>
-          <PublicName
-            user={{
-              globalHandle: identity.globalHandle,
-              username: identity.username,
-              isVerifiedCreator: identity.isVerifiedCreator,
-            }}
+        <View style={styles.avatarEditBadge} pointerEvents="none">
+          <Text style={styles.avatarEditGlyph}>✎</Text>
+        </View>
+      </Pressable>
+
+      <View style={styles.heroIdentity}>
+        <View style={styles.usernameRow}>
+          <Pressable
+            onPress={() => setUsernameOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel={hasUsername ? 'Edit username' : 'Add username'}
+            style={styles.usernamePress}>
+            <Text
+              style={[
+                styles.usernameHeading,
+                wide && styles.usernameHeadingWide,
+                !hasUsername && styles.usernameEmpty,
+              ]}
+              numberOfLines={1}>
+              {hasUsername ? identity.username : 'Add username'}
+            </Text>
+          </Pressable>
+          {identity.isVerifiedCreator ? (
+            <Text style={styles.verifiedBadge} accessibilityLabel="Verified creator">
+              ✓
+            </Text>
+          ) : null}
+          <EditIconButton
+            label={hasUsername ? 'Edit username' : 'Add username'}
+            onPress={() => setUsernameOpen(true)}
           />
         </View>
+        <Text style={[styles.permanentId, wide && styles.permanentIdWide]} numberOfLines={1}>
+          {identity.globalHandle}
+        </Text>
       </View>
+    </View>
+  );
 
-      <View style={styles.stack}>
-        <Text style={styles.fieldLabel}>Your permanent ID</Text>
-        <Text style={styles.handle}>{identity.globalHandle}</Text>
-      </View>
+  const fields = (
+    <View style={wide ? undefined : styles.lockedBlock}>
+      <SettingsLockedRow
+        label="Display name"
+        value={identity.displayName}
+        placeholder="Add display name"
+        onPress={() => setDisplayOpen(true)}
+      />
+      <PublicProfileLockedSection />
+      <ErrorText message={error} />
+    </View>
+  );
 
-      <UsernameEditor
+  const sheets = (
+    <>
+      <UsernameEditSheet
+        visible={usernameOpen}
         identity={identity}
+        onClose={() => setUsernameOpen(false)}
         onSaved={(next) => {
           setIdentity(next);
           void writePromptState(next.id, 'done');
         }}
       />
-
-      <Field
-        label="Display name"
-        value={displayName}
-        onChangeText={setDisplayName}
-        autoCapitalize="words"
-        autoCorrect={false}
+      <DisplayNameEditSheet
+        visible={displayOpen}
+        identity={identity}
+        onClose={() => setDisplayOpen(false)}
+        onSaved={setIdentity}
       />
-
-      <Text style={styles.fieldLabel}>Avatar</Text>
-      <AvatarPresetPicker
-        value={presetValue}
-        providerSelected={providerSelected}
-        onChange={setAvatarChoice}
+      <AvatarEditSheet
+        visible={avatarOpen}
+        identity={identity}
+        onClose={() => setAvatarOpen(false)}
+        onIdentityChange={setIdentity}
       />
-      <Pressable
-        onPress={() => void optInGooglePhoto()}
-        disabled={!hasGoogleLinked || googleBusy || facebookBusy || googleSelected}
-        accessibilityRole="button"
-        accessibilityState={{
-          selected: googleSelected,
-          disabled: !hasGoogleLinked || googleBusy || facebookBusy || googleSelected,
-        }}
-        accessibilityLabel="Use my Google photo"
-        style={[
-          styles.providerOption,
-          googleSelected && styles.presetCellActive,
-          (!hasGoogleLinked || googleBusy || facebookBusy) && styles.providerOptionDisabled,
-        ]}>
-        {googleBusy ? (
-          <ActivityIndicator color={colors.accent} />
-        ) : (
-          <Text
-            style={[
-              styles.providerOptionLabel,
-              !hasGoogleLinked && styles.providerOptionLabelDisabled,
-            ]}>
-            Use my Google photo
-          </Text>
-        )}
-      </Pressable>
-      {hasFacebookLinked ? (
-        <Pressable
-          onPress={() => void optInFacebookPhoto()}
-          disabled={facebookBusy || googleBusy || facebookSelected}
-          accessibilityRole="button"
-          accessibilityState={{
-            selected: facebookSelected,
-            disabled: facebookBusy || googleBusy || facebookSelected,
-          }}
-          accessibilityLabel="Use my Facebook photo"
-          style={[
-            styles.providerOption,
-            facebookSelected && styles.presetCellActive,
-            (facebookBusy || googleBusy) && styles.providerOptionDisabled,
-          ]}>
-          {facebookBusy ? (
-            <ActivityIndicator color={colors.accent} />
-          ) : (
-            <Text style={styles.providerOptionLabel}>Use my Facebook photo</Text>
-          )}
-        </Pressable>
-      ) : (
-        <Pressable
-          onPress={() => void connectFacebook()}
-          disabled={facebookBusy || googleBusy}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: facebookBusy || googleBusy }}
-          accessibilityLabel="Connect Facebook"
-          style={[
-            styles.providerOption,
-            (facebookBusy || googleBusy) && styles.providerOptionDisabled,
-          ]}>
-          {facebookBusy ? (
-            <ActivityIndicator color={colors.accent} />
-          ) : (
-            <Text style={styles.providerOptionLabel}>Connect Facebook</Text>
-          )}
-        </Pressable>
-      )}
+    </>
+  );
 
-      <Btn
-        label="Save profile"
-        variant="secondary"
-        onPress={() => void saveProfileFields()}
-        busy={profileBusy}
-        disabled={!displayDirty && !avatarDirty}
-      />
-      {profileNotice ? <Text style={styles.ok}>{profileNotice}</Text> : null}
-      <ErrorText message={profileError ?? error} />
+  if (wide) {
+    return (
+      <View style={styles.sectionRoot}>
+        <Card>{hero}</Card>
+        <View style={styles.wideSplit}>
+          <View style={styles.wideCol}>
+            <Card>{fields}</Card>
+          </View>
+          <View style={styles.wideCol}>{aside}</View>
+        </View>
+        {sheets}
+      </View>
+    );
+  }
 
-      <PublicProfileMetaEditor />
-    </Card>
+  return (
+    <View style={styles.sectionRoot}>
+      <Card>
+        {hero}
+        {fields}
+      </Card>
+      {aside}
+      {sheets}
+    </View>
   );
 }
 
@@ -841,10 +1206,8 @@ export function UsernameSetupPrompt({ onChanged }: { onChanged?: () => void }) {
   return (
     <Card>
       <Text style={styles.heading}>Set a username</Text>
-      <Text style={styles.body}>Optional. You can change this later in Profile.</Text>
       <View style={styles.stack}>
-        <Text style={styles.fieldLabel}>Your permanent ID</Text>
-        <Text style={styles.handle}>{identity.globalHandle}</Text>
+        <Text style={styles.permanentId}>{identity.globalHandle}</Text>
       </View>
       <UsernameEditor
         identity={identity}
@@ -884,17 +1247,16 @@ const styles = StyleSheet.create({
   stack: {
     gap: 8,
   },
+  sheetStack: {
+    gap: 12,
+    paddingTop: space.sm,
+  },
   fieldLabel: {
     color: colors.textMuted,
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.4,
     textTransform: 'uppercase',
-  },
-  handle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '600',
   },
   meta: {
     color: colors.textMuted,
@@ -924,14 +1286,105 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
-  previewRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+  sectionRoot: {
+    gap: 16,
+    width: '100%',
   },
-  previewText: {
+  wideSplit: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 16,
+    width: '100%',
+  },
+  wideCol: {
     flex: 1,
     minWidth: 0,
+  },
+  hero: {
+    alignItems: 'center',
+    gap: 14,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
+  heroWide: {
+    paddingVertical: 20,
+    gap: 16,
+  },
+  avatarTap: {
+    position: 'relative',
+  },
+  avatarEditBadge: {
+    position: 'absolute',
+    right: 2,
+    bottom: 2,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(11, 16, 22, 0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarEditGlyph: {
+    color: 'rgba(238, 243, 248, 0.55)',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+  avatarSheetPreview: {
+    alignItems: 'center',
+    paddingBottom: 4,
+  },
+  heroIdentity: {
+    alignItems: 'center',
+    gap: 4,
+    width: '100%',
+    paddingHorizontal: 8,
+  },
+  usernameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    maxWidth: '100%',
+  },
+  usernamePress: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  usernameHeading: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: '700',
+    lineHeight: 28,
+    textAlign: 'center',
+  },
+  usernameHeadingWide: {
+    fontSize: 28,
+    lineHeight: 34,
+  },
+  usernameEmpty: {
+    color: colors.accent,
+  },
+  verifiedBadge: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  permanentId: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  permanentIdWide: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  lockedBlock: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    marginTop: 4,
   },
   presetGrid: {
     flexDirection: 'row',
@@ -988,7 +1441,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    paddingVertical: 4,
+    paddingVertical: 10,
   },
   switchLabel: {
     flex: 1,

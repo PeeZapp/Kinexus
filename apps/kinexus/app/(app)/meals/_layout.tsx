@@ -2,6 +2,7 @@ import { Slot } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
 import { AiBlockedBanner } from '@/src/features/ai/AiBlockedBanner';
+import { AiChatConnectNudge } from '@/src/features/connectors/AiChatConnectNudge';
 import { HouseholdGate } from '@/src/features/household/HouseholdGate';
 import { MealsSubnav } from '@/src/features/meals/MealsSubnav';
 import { MealsWeekProvider } from '@/src/features/meals/MealsWeekContext';
@@ -14,6 +15,7 @@ export default function MealsLayout() {
         <View style={styles.root}>
           <MealsSubnav />
           <AiBlockedBanner />
+          <AiChatConnectNudge section="meals" />
           <View style={styles.body}>
             <Slot />
           </View>

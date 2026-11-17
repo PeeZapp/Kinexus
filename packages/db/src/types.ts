@@ -448,6 +448,7 @@ export type Database = {
         Row: {
           id: string;
           name: string;
+          emoji: string | null;
           country: string | null;
           currency: string | null;
           timezone: string | null;
@@ -460,6 +461,7 @@ export type Database = {
         Insert: {
           id?: string;
           name: string;
+          emoji?: string | null;
           country?: string | null;
           currency?: string | null;
           timezone?: string | null;
@@ -471,6 +473,7 @@ export type Database = {
         };
         Update: {
           name?: string;
+          emoji?: string | null;
           country?: string | null;
           currency?: string | null;
           timezone?: string | null;

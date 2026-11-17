@@ -108,63 +108,87 @@ export async function fetchOwnProfileMeta(): Promise<ProfileMeta> {
   const { data: session } = await supabase.auth.getSession();
   const userId = session.session?.user?.id;
   if (!userId) throw new Error('Sign in required');
-  const { data, error } = await (supabase as unknown as {
-    from: (table: string) => {
-      select: (cols: string) => {
-        eq: (
-          col: string,
-          value: string,
-        ) => {
-          maybeSingle: () => Promise<{
-            data: { bio: string | null; links: unknown; is_hidden: boolean } | null;
-            error: { message: string } | null;
-          }>;
-        };
-      };
-    };
-  })
+  const { data, error } = await supabase
     .from('public_profiles_meta')
     .select('bio, links, is_hidden')
     .eq('user_id', userId)
     .maybeSingle();
   if (error) throw new Error(error.message || 'Could not load profile');
-  const linksRaw = data?.links;
+  return mapOwnMetaRow(data);
+}
+
+function normalizeOwnLinks(links: PublicProfileLink[]): PublicProfileLink[] {
+  if (links.length > 5) throw new Error('At most 5 links');
+  const out: PublicProfileLink[] = [];
+  for (const link of links) {
+    const url = link.url.trim();
+    if (!url) continue;
+    if (!url.toLowerCase().startsWith('https://')) throw new Error('Links must use https://');
+    const label = link.label?.trim();
+    out.push(label ? { url, label } : { url });
+  }
+  return out;
+}
+
+function mapOwnMetaRow(row: {
+  bio?: string | null;
+  links?: unknown;
+  is_hidden?: boolean;
+} | null): ProfileMeta {
+  const linksRaw = row?.links;
   const links: PublicProfileLink[] = Array.isArray(linksRaw)
-    ? linksRaw.flatMap((row) => {
-        if (typeof row === 'string' && row.trim()) return [{ url: row.trim() }];
-        if (!row || typeof row !== 'object') return [];
-        const url = typeof (row as { url?: unknown }).url === 'string' ? (row as { url: string }).url.trim() : '';
+    ? linksRaw.flatMap((item) => {
+        if (typeof item === 'string' && item.trim()) return [{ url: item.trim() }];
+        if (!item || typeof item !== 'object') return [];
+        const url =
+          typeof (item as { url?: unknown }).url === 'string'
+            ? (item as { url: string }).url.trim()
+            : '';
         if (!url) return [];
-        const labelRaw = (row as { label?: unknown }).label;
+        const labelRaw = (item as { label?: unknown }).label;
         const label = typeof labelRaw === 'string' ? labelRaw.trim() : '';
         return [label ? { url, label } : { url }];
       })
     : [];
   return {
-    bio: typeof data?.bio === 'string' ? data.bio : null,
+    bio: typeof row?.bio === 'string' ? row.bio : null,
     links,
-    isHidden: Boolean(data?.is_hidden),
+    isHidden: Boolean(row?.is_hidden),
   };
 }
 
+/** Saves via Supabase RPC (same auth path as load) — avoids cross-origin API fetch failures. */
 export async function saveOwnProfileMeta(input: {
   bio: string | null;
   links: PublicProfileLink[];
   isHidden: boolean;
 }): Promise<ProfileMeta> {
-  if (!isApiConfigured()) {
-    throw new Error('API is not configured. Set EXPO_PUBLIC_API_URL and run the API server.');
-  }
-  const res = await fetch(resolveUrl('/me/profile-meta'), {
-    method: 'PUT',
-    headers: await requireAuthHeaders(),
-    body: JSON.stringify({
-      bio: input.bio,
-      links: input.links,
-      isHidden: input.isHidden,
-    }),
-  });
-  return parseJson<ProfileMeta>(res);
+  if (!supabase) throw new Error('Sign in required');
+  const { data: session } = await supabase.auth.getSession();
+  const userId = session.session?.user?.id;
+  if (!userId) throw new Error('Sign in required');
+
+  const links = normalizeOwnLinks(input.links);
+  const bio = input.bio?.trim() || null;
+
+  const { data, error } = await supabase.rpc('upsert_my_profile_meta' as never, {
+    p_bio: bio,
+    p_links: links,
+  } as never);
+  if (error) throw new Error(error.message || 'Could not save profile');
+
+  let row = data as { bio?: string | null; links?: unknown; is_hidden?: boolean } | null;
+
+  const { data: updated, error: hideError } = await supabase
+    .from('public_profiles_meta')
+    .update({ is_hidden: input.isHidden })
+    .eq('user_id', userId)
+    .select('bio, links, is_hidden')
+    .maybeSingle();
+  if (hideError) throw new Error(hideError.message || 'Could not update visibility');
+  if (updated) row = updated as { bio?: string | null; links?: unknown; is_hidden?: boolean };
+
+  return mapOwnMetaRow(row ?? { bio, links, is_hidden: input.isHidden });
 }
 
 export async function reportCreatorProfile(key: string, reason: string): Promise<void> {

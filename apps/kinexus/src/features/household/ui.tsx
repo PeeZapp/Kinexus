@@ -6,14 +6,16 @@ import {
   Text,
   TextInput,
   View,
+  type StyleProp,
   type TextInputProps,
+  type ViewStyle,
 } from 'react-native';
 
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { ErrorBanner } from '@/src/features/shell/states';
 
-export function Card({ children }: { children: ReactNode }) {
-  return <View style={styles.card}>{children}</View>;
+export function Card({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  return <View style={[styles.card, style]}>{children}</View>;
 }
 
 export function Field({
@@ -117,6 +119,64 @@ export function BackLink({ label, onPress }: { label: string; onPress: () => voi
       <Text style={styles.backLabel} numberOfLines={1}>
         {label}
       </Text>
+    </Pressable>
+  );
+}
+
+/** Locked settings summary row — tap opens an edit sheet. */
+export function SettingsLockedRow({
+  label,
+  value,
+  placeholder = 'None',
+  onPress,
+}: {
+  label: string;
+  value?: string | null;
+  placeholder?: string;
+  onPress: () => void;
+}) {
+  const trimmed = value?.trim() ?? '';
+  const empty = !trimmed;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Edit ${label}`}
+      style={({ pressed }) => [styles.lockedRow, pressed && styles.pressed]}>
+      <View style={styles.lockedRowText}>
+        <Text style={styles.fieldLabel}>{label}</Text>
+        <Text style={[styles.lockedValue, empty && styles.lockedPlaceholder]} numberOfLines={2}>
+          {empty ? placeholder : trimmed}
+        </Text>
+      </View>
+      <Text style={styles.lockedEdit} accessibilityElementsHidden>
+        ✎
+      </Text>
+    </Pressable>
+  );
+}
+
+export function EditIconButton({
+  onPress,
+  label,
+  faint,
+}: {
+  onPress: () => void;
+  label: string;
+  faint?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={8}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [
+        styles.editIconBtn,
+        faint && styles.editIconBtnFaint,
+        pressed && styles.pressed,
+      ]}>
+      <Text style={[styles.editIconGlyph, faint && styles.editIconGlyphFaint]}>✎</Text>
     </Pressable>
   );
 }
@@ -235,5 +295,56 @@ const styles = StyleSheet.create({
   },
   pillLabelActive: {
     color: colors.accent,
+  },
+  lockedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 56,
+    paddingVertical: 12,
+    paddingHorizontal: 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  lockedRowText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  lockedValue: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  lockedPlaceholder: {
+    color: colors.textDim,
+    fontWeight: '500',
+  },
+  lockedEdit: {
+    color: colors.textMuted,
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 20,
+    paddingHorizontal: 4,
+  },
+  editIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editIconBtnFaint: {
+    backgroundColor: 'rgba(11, 16, 22, 0.45)',
+  },
+  editIconGlyph: {
+    color: colors.textMuted,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  editIconGlyphFaint: {
+    color: 'rgba(238, 243, 248, 0.55)',
   },
 });

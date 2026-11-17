@@ -15,11 +15,8 @@ export function StaffSettingsLink() {
 
   return (
     <Card>
-      <Text style={styles.heading}>Staff dashboard</Text>
-      <Text style={styles.body}>
-        Review creator applications, daily content digests, and team invites.
-      </Text>
-      <Btn label="Open staff dashboard" onPress={() => router.push('/staff' as Href)} />
+      <Text style={styles.heading}>Staff</Text>
+      <Btn label="Open dashboard" onPress={() => router.push('/staff' as Href)} />
     </Card>
   );
 }
@@ -29,12 +26,5 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 17,
     fontWeight: '700',
-    marginBottom: 6,
-  },
-  body: {
-    color: colors.textMuted,
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 12,
   },
 });

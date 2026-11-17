@@ -4,6 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 
 import { Btn, Card, ErrorText } from '@/src/features/household/ui';
 import { colors } from '@/src/features/shell/theme';
+import { GROK_BOT_SUNDAY_OPS_ROUTINE, GROK_BOT_SUNDAY_OPS_TITLE } from '@/src/lib/grok-bot-routine';
 import { connectorAddress, connectorIsPublic, grokBotConnectMessage, openGrokBot } from '@/src/lib/grok-connect';
 import { useHousehold } from '@/src/lib/household';
 import {
@@ -19,6 +20,7 @@ export function GrokBotSettings() {
   const [issued, setIssued] = useState<{ address: string; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [copiedRoutine, setCopiedRoutine] = useState(false);
 
   const householdId = activeHousehold?.id;
 
@@ -69,8 +71,19 @@ export function GrokBotSettings() {
     }
   }
 
+  async function copySundayRoutine() {
+    setError(null);
+    try {
+      await Clipboard.setStringAsync(GROK_BOT_SUNDAY_OPS_ROUTINE);
+      setCopiedRoutine(true);
+      await openGrokBot();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not copy the routine.');
+    }
+  }
+
   return (
-    <Card>
+    <Card style={styles.cardFill}>
       <Text style={styles.heading}>Grok Bot</Text>
       <ErrorText message={error} />
       <Btn label="Connect Grok Bot" busy={busy} disabled={busy} onPress={() => void connect()} />
@@ -83,6 +96,15 @@ export function GrokBotSettings() {
           <Pressable onPress={() => void openGrokBot()}>
             <Text style={styles.open}>Open Grok Bot</Text>
           </Pressable>
+        </View>
+      ) : null}
+      {connectors.length > 0 ? (
+        <View style={styles.routine}>
+          <Text style={styles.routineTitle}>{GROK_BOT_SUNDAY_OPS_TITLE}</Text>
+          <Btn
+            label={copiedRoutine ? 'Routine copied' : 'Copy Sunday ops routine'}
+            onPress={() => void copySundayRoutine()}
+          />
         </View>
       ) : null}
       {connectors.map((row) => (
@@ -98,11 +120,14 @@ export function GrokBotSettings() {
 }
 
 const styles = StyleSheet.create({
+  cardFill: { flex: 1 },
   heading: { color: colors.text, fontSize: 17, fontWeight: '700' },
   issued: { gap: 8 },
   message: { color: colors.text, fontSize: 13 },
   note: { color: colors.textMuted, fontSize: 12 },
   open: { color: colors.accent, fontSize: 14, fontWeight: '800' },
+  routine: { gap: 8 },
+  routineTitle: { color: colors.text, fontSize: 15, fontWeight: '700' },
   connector: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
   connectorLabel: { color: colors.text, fontSize: 14, fontWeight: '700' },
   revoke: { color: colors.danger, fontSize: 13, fontWeight: '700' },

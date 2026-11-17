@@ -178,7 +178,7 @@ export async function revokeGroceryConnector(userId: string, connectorId: string
   return (data ?? []).length > 0;
 }
 
-type ConnectorHit = { householdId: string; connectorId: string };
+type ConnectorHit = { householdId: string; connectorId: string; userId: string };
 
 export async function connectorFromToken(token: string): Promise<ConnectorHit | null> {
   const hashed = hashGroceryToken(token);
@@ -192,7 +192,7 @@ export async function connectorFromToken(token: string): Promise<ConnectorHit | 
   if (error || !data) return null;
   if (!(await memberOf(data.user_id, data.household_id))) return null;
   await admin.from('grocery_connectors').update({ last_used_at: new Date().toISOString() }).eq('id', data.id);
-  return { householdId: data.household_id, connectorId: data.id };
+  return { householdId: data.household_id, connectorId: data.id, userId: data.user_id };
 }
 
 async function insertHandoff(

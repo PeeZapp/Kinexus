@@ -395,9 +395,7 @@ export function RecipeImageUploadScreen() {
   if (!editorQuery.data) {
     return (
       <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-        <BackLink label="Settings" onPress={() => router.replace('/settings')} />
-        <Text style={styles.kicker}>Catalog</Text>
-        <Text style={styles.title}>Recipe images</Text>
+        <BackLink label="Preferences" onPress={() => router.replace('/settings/preferences')} />
         <Text style={styles.lede}>
           Only the catalog editor can upload seed recipe photos. Open Meals once as a household owner
           to claim that role, then return here.
@@ -408,9 +406,7 @@ export function RecipeImageUploadScreen() {
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-      <BackLink label="Settings" onPress={() => router.replace('/settings')} />
-      <Text style={styles.kicker}>Meals</Text>
-      <Text style={styles.title}>Recipe images</Text>
+      <BackLink label="Preferences" onPress={() => router.replace('/settings/preferences')} />
       <Text style={styles.lede}>
         {recipes.length} recipes still need a photo
         {householdCount || catalogCount

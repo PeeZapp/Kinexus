@@ -93,7 +93,14 @@ export function isModulePathActive(mod: AppModule, pathname: string): boolean {
 }
 
 export function titleFromPath(pathname: string): string {
-  if (pathname === SETTINGS_PATH || pathname.startsWith(`${SETTINGS_PATH}/`)) return 'Settings';
+  if (pathname === SETTINGS_PATH) return 'Profile';
+  if (pathname.startsWith(`${SETTINGS_PATH}/household`)) return 'Household';
+  if (pathname.startsWith(`${SETTINGS_PATH}/people`)) return 'People';
+  if (pathname.startsWith(`${SETTINGS_PATH}/connections`)) return 'Connections';
+  if (pathname.startsWith(`${SETTINGS_PATH}/preferences`)) return 'Preferences';
+  if (pathname.startsWith(`${SETTINGS_PATH}/news`)) return 'News topics';
+  if (pathname.startsWith(`${SETTINGS_PATH}/recipe-images`)) return 'Catalog images';
+  if (pathname.startsWith(`${SETTINGS_PATH}/`)) return 'Settings';
   if (pathname === '/alerts' || pathname.startsWith('/alerts/')) return 'Alerts';
   if (pathname.startsWith('/invite')) return 'Invite';
   if (pathname.startsWith('/import') || pathname.startsWith('/shareintent')) return 'Import';

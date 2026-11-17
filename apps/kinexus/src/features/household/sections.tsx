@@ -13,12 +13,12 @@ import {
   type HouseholdInvite,
   type HouseholdMember,
   type HouseholdPerson,
-  type HouseholdRole,
   type PersonType,
 } from '@kinexus/domain';
 import { GROCERY_MARKETS, marketForHousehold, storeListLabel } from '@kinexus/domain';
 
-import { Btn, Card, ErrorText, Field, Pill } from '@/src/features/household/ui';
+import { OptionTiles } from '@/src/features/household/option-tiles';
+import { Btn, Card, ErrorText, Field } from '@/src/features/household/ui';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { confirmAction } from '@/src/lib/confirm';
 import { parseInviteToken } from '@/src/lib/invite';
@@ -68,12 +68,11 @@ export function CreateJoinPanel() {
   return (
     <Card>
       <Text style={styles.heading}>Create a household</Text>
-      <Text style={styles.body}>A household is the shared space for Meals, Lists, Nutrition, and Train.</Text>
       <Field label="Household name" value={name} onChangeText={setName} placeholder="The Zappas" autoCapitalize="words" />
       <Btn label="Create household" onPress={() => void onCreate()} busy={busy === 'create'} disabled={!name.trim()} />
       <View style={styles.divider}>
         <View style={styles.dividerLine} />
-        <Text style={styles.dividerLabel}>or join with an invite</Text>
+        <Text style={styles.dividerLabel}>or join</Text>
         <View style={styles.dividerLine} />
       </View>
       <Field
@@ -122,18 +121,17 @@ export function HouseholdSwitcher() {
     <Card>
       <Text style={styles.heading}>Household</Text>
       {memberships.length > 1 ? (
-        <View style={styles.wrapRow}>
-          {memberships.map((m) => (
-            <Pill
-              key={m.household.id}
-              label={m.household.name}
-              active={m.household.id === activeHousehold.id}
-              onPress={() => void setActiveHouseholdId(m.household.id)}
-            />
-          ))}
-        </View>
+        <OptionTiles
+          label="Active"
+          rows={memberships.map((m) => ({
+            key: m.household.id,
+            label: m.household.name,
+            active: m.household.id === activeHousehold.id,
+            onPress: () => void setActiveHouseholdId(m.household.id),
+          }))}
+        />
       ) : (
-        <Text style={styles.body}>{activeHousehold.name}</Text>
+        <Text style={styles.value}>{activeHousehold.name}</Text>
       )}
       {canManageHousehold ? (
         <>
@@ -198,35 +196,33 @@ export function LocationPanel() {
 
   return (
     <Card>
-      <Text style={styles.heading}>Grocery prices</Text>
-      <Text style={styles.body}>
-        Recipe costs use typical {storeListLabel(current.stores)} prices in {current.currency}. The ingredient catalog
-        refreshes on the first of each month, or tap update below.
+      <Text style={styles.heading}>Grocery market</Text>
+      <Text style={styles.meta}>
+        {storeListLabel(current.stores)} · {current.currency}
       </Text>
       {canManageHousehold ? (
-        <View style={styles.wrapRow}>
-          {GROCERY_MARKETS.map((market) => (
-            <Pill
-              key={market.country}
-              label={market.label}
-              active={market.country === current.country}
-              onPress={busy ? undefined : () => void onSelect(market.country, market.currency)}
-            />
-          ))}
-        </View>
+        <OptionTiles
+          rows={GROCERY_MARKETS.map((market) => ({
+            key: market.country,
+            label: market.label,
+            active: market.country === current.country,
+            disabled: busy,
+            onPress: busy ? undefined : () => void onSelect(market.country, market.currency),
+          }))}
+        />
       ) : (
-        <Text style={styles.body}>{current.label}</Text>
+        <Text style={styles.value}>{current.label}</Text>
       )}
       {canManageHousehold ? (
         <Btn
-          label={pricing ? 'Updating prices…' : 'Update prices now'}
+          label={pricing ? 'Updating…' : 'Update prices'}
           variant="secondary"
           onPress={() => void onRefreshPrices()}
           busy={pricing}
           disabled={busy}
         />
       ) : null}
-      {priceNote ? <Text style={styles.body}>{priceNote}</Text> : null}
+      {priceNote ? <Text style={styles.meta}>{priceNote}</Text> : null}
       <ErrorText message={error} />
     </Card>
   );
@@ -245,7 +241,7 @@ export function InvitePanel() {
     return (
       <Card>
         <Text style={styles.heading}>Invites</Text>
-        <Text style={styles.body}>Only owners, admins, and adults can invite people to this household.</Text>
+        <Text style={styles.meta}>Owners, admins, and adults can invite.</Text>
       </Card>
     );
   }
@@ -273,15 +269,16 @@ export function InvitePanel() {
 
   return (
     <Card>
-      <Text style={styles.heading}>Invite a member</Text>
-      <Text style={styles.body}>
-        Creates a one-time link. The raw token is shown once — it is stored hashed, not as a guessable code.
-      </Text>
-      <View style={styles.wrapRow}>
-        {choices.map((choice) => (
-          <Pill key={choice} label={roleLabel(choice)} active={role === choice} onPress={() => setRole(choice)} />
-        ))}
-      </View>
+      <Text style={styles.heading}>Invite</Text>
+      <OptionTiles
+        label="Role"
+        rows={choices.map((choice) => ({
+          key: choice,
+          label: roleLabel(choice),
+          active: role === choice,
+          onPress: () => setRole(choice),
+        }))}
+      />
       <Btn label="Create invite link" onPress={() => void onCreate()} busy={busy} />
       {created ? (
         <View style={styles.createdBox}>
@@ -294,7 +291,7 @@ export function InvitePanel() {
             variant="secondary"
             onPress={() => void copy('url', created.url)}
           />
-          <Text style={styles.kicker}>Or copy token</Text>
+          <Text style={styles.kicker}>Token</Text>
           <Text selectable style={styles.mono}>
             {created.token}
           </Text>
@@ -414,64 +411,70 @@ export function MembersList({ members }: { members: HouseholdMember[] }) {
     }
   }
 
+  const soleOwner = role === 'owner' && members.filter((member) => member.role === 'owner').length <= 1;
+
   return (
-    <Card>
-      <Text style={styles.heading}>Members</Text>
-      {members.map((member) => {
-        const isSelf = member.userId === user?.id;
-        const choices = assignableRoles(role, member.role, isSelf);
-        const removable = canRemoveMember(role, member.role, isSelf);
-        return (
-          <View key={member.userId} style={styles.memberBlock}>
-            <View style={styles.row}>
-              <View style={styles.rowText}>
-                <Text style={styles.rowTitle}>{member.profile.displayName ?? 'Member'}</Text>
-                <Text style={styles.meta}>{member.profile.email ?? member.userId}</Text>
+    <>
+      <Card>
+        <Text style={styles.heading}>Members</Text>
+        {members.map((member) => {
+          const isSelf = member.userId === user?.id;
+          const choices = assignableRoles(role, member.role, isSelf);
+          const removable = canRemoveMember(role, member.role, isSelf);
+          return (
+            <View key={member.userId} style={styles.memberBlock}>
+              <View style={styles.row}>
+                <View style={styles.rowText}>
+                  <Text style={styles.rowTitle}>{member.profile.displayName ?? 'Member'}</Text>
+                  <Text style={styles.meta}>{member.profile.email ?? member.userId}</Text>
+                </View>
+                <Text style={styles.roleBadge}>
+                  {roleLabel(isSelf && role ? role : member.role)}
+                  {isSelf && role && role !== member.role ? ' · preview' : ''}
+                </Text>
               </View>
-              <Text style={styles.roleBadge}>
-                {roleLabel(isSelf && role ? role : member.role)}
-                {isSelf && role && role !== member.role ? ' · preview' : ''}
-              </Text>
-            </View>
-            {choices.length > 0 ? (
-              <View style={styles.wrapRow}>
-                {choices.map((choice) => (
-                  <Pill
-                    key={choice}
-                    label={roleLabel(choice)}
-                    active={member.role === choice}
-                    onPress={
+              {choices.length > 0 ? (
+                <OptionTiles
+                  label="Role"
+                  rows={choices.map((choice) => ({
+                    key: choice,
+                    label: roleLabel(choice),
+                    active: member.role === choice,
+                    disabled: Boolean(busyId) || !canChangeMemberRole(role, member.role, choice, isSelf),
+                    onPress:
                       busyId || !canChangeMemberRole(role, member.role, choice, isSelf)
                         ? undefined
-                        : () => void changeRole(member, choice)
-                    }
-                  />
-                ))}
-              </View>
-            ) : null}
-            {removable ? (
-              <Pressable onPress={() => void confirmRemove(member)} hitSlop={8} disabled={busyId === member.userId}>
-                <Text style={styles.dangerLink}>Remove</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        );
-      })}
-      {role === 'owner' && members.filter((member) => member.role === 'owner').length <= 1 ? (
-        <>
-          <Btn label="Delete family" variant="danger" onPress={() => void confirmDeleteFamily()} />
-          <Btn label="Delete my account" variant="danger" onPress={() => void confirmDeleteAccount()} />
-        </>
-      ) : (
-        <>
-          <Btn label="Leave household" variant="danger" onPress={() => void confirmLeave()} />
-          {role === 'owner' ? (
+                        : () => void changeRole(member, choice),
+                  }))}
+                />
+              ) : null}
+              {removable ? (
+                <Pressable onPress={() => void confirmRemove(member)} hitSlop={8} disabled={busyId === member.userId}>
+                  <Text style={styles.dangerLink}>Remove</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          );
+        })}
+        <ErrorText message={error} />
+      </Card>
+      <Card>
+        <Text style={styles.heading}>Leave or delete</Text>
+        {soleOwner ? (
+          <>
             <Btn label="Delete family" variant="danger" onPress={() => void confirmDeleteFamily()} />
-          ) : null}
-        </>
-      )}
-      <ErrorText message={error} />
-    </Card>
+            <Btn label="Delete my account" variant="danger" onPress={() => void confirmDeleteAccount()} />
+          </>
+        ) : (
+          <>
+            <Btn label="Leave household" variant="danger" onPress={() => void confirmLeave()} />
+            {role === 'owner' ? (
+              <Btn label="Delete family" variant="danger" onPress={() => void confirmDeleteFamily()} />
+            ) : null}
+          </>
+        )}
+      </Card>
+    </>
   );
 }
 
@@ -504,13 +507,12 @@ export function PeoplePanel() {
     }
   }
 
+  const customDietary = dietary.filter((tag) => !DIETARY_PRESETS.includes(tag));
+
   return (
     <Card>
       <Text style={styles.heading}>People</Text>
-      <Text style={styles.body}>
-        Family members you plan for. Link a signed-in account so they can pick recipes on slots you assign to them.
-      </Text>
-      {people.length === 0 ? <Text style={styles.meta}>No people yet.</Text> : null}
+      {people.length === 0 ? <Text style={styles.meta}>No people yet</Text> : null}
       {people.map((person) => (
         <PersonRow
           key={person.id}
@@ -523,18 +525,37 @@ export function PeoplePanel() {
         />
       ))}
       <Field label="Add person" value={name} onChangeText={setName} placeholder="Name" autoCapitalize="words" />
-      <View style={styles.wrapRow}>
-        {PERSON_TYPES.map((t) => (
-          <Pill key={t.value} label={t.label} active={personType === t.value} onPress={() => setPersonType(t.value)} />
-        ))}
-      </View>
-      <View style={styles.wrapRow}>
-        {DIETARY_PRESETS.map((tag) => (
-          <Pill key={tag} label={tag} active={dietary.includes(tag)} onPress={() => toggleDiet(tag)} />
-        ))}
-      </View>
+      <OptionTiles
+        label="Type"
+        rows={PERSON_TYPES.map((t) => ({
+          key: t.value,
+          label: t.label,
+          active: personType === t.value,
+          onPress: () => setPersonType(t.value),
+        }))}
+      />
+      <OptionTiles
+        label="Dietary"
+        rows={DIETARY_PRESETS.map((tag) => ({
+          key: tag,
+          label: tag,
+          active: dietary.includes(tag),
+          onPress: () => toggleDiet(tag),
+        }))}
+      />
+      {customDietary.length > 0 ? (
+        <OptionTiles
+          label="Yours"
+          rows={customDietary.map((tag) => ({
+            key: `custom-${tag}`,
+            label: tag,
+            active: true,
+            onPress: () => toggleDiet(tag),
+          }))}
+        />
+      ) : null}
       <Field
-        label="Custom dietary tag"
+        label="Custom dietary"
         value={custom}
         onChangeText={setCustom}
         placeholder="e.g. soy-free"
@@ -587,17 +608,23 @@ function PersonRow({
         </Pressable>
       </View>
       {canLink ? (
-        <View style={styles.wrapRow}>
-          <Pill label="No login" active={!person.userId} onPress={() => onLink(null)} />
-          {available.map((member) => (
-            <Pill
-              key={member.userId}
-              label={member.profile.displayName ?? member.profile.email ?? 'Member'}
-              active={person.userId === member.userId}
-              onPress={() => onLink(member.userId)}
-            />
-          ))}
-        </View>
+        <OptionTiles
+          label="Login"
+          rows={[
+            {
+              key: 'none',
+              label: 'No login',
+              active: !person.userId,
+              onPress: () => onLink(null),
+            },
+            ...available.map((member) => ({
+              key: member.userId,
+              label: member.profile.displayName ?? member.profile.email ?? 'Member',
+              active: person.userId === member.userId,
+              onPress: () => onLink(member.userId),
+            })),
+          ]}
+        />
       ) : null}
     </View>
   );
@@ -609,10 +636,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
   },
-  body: {
-    color: colors.textMuted,
-    fontSize: 14,
-    lineHeight: 21,
+  value: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '600',
   },
   kicker: {
     color: colors.accent,
@@ -639,11 +666,6 @@ const styles = StyleSheet.create({
   dividerLabel: {
     color: colors.textDim,
     fontSize: 12,
-  },
-  wrapRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
   },
   createdBox: {
     backgroundColor: colors.bgElevated,

@@ -103,16 +103,51 @@ Plan gatherings without becoming event SaaS.
 
 ---
 
+## Voice surfaces
+
+Compose existing Today / Meals / Lists / tasks / Discuss — not a new module. After the live suite is stable enough that voice writes and a day briefing stay trustworthy.
+
+### 11. Alexa skill
+Hands-free capture on Echo speakers (Nest third-party list skills are not available).
+
+- Primary: add to shopping list, standard lists, Today tasks, Discuss
+- Secondary (nice): day briefing — calendar, meals, Train plan; weather optional
+- Account linking + thin fulfillment over existing APIs / Today overview
+- Small intent set first; expand only if households actually use it
+
+### 12. Google phone assistant
+App Actions / deep links on Android phones — not Nest speakers.
+
+- Same add destinations as the Alexa skill where App Actions can fulfill them
+- Open or confirm via the phone app; no custom Nest conversational skill
+- Keep parity of destinations with Alexa; utterance polish can lag
+
+---
+
+## Agent connectors
+
+### 13. Expand Grok Bot capabilities
+Sunday meal + shop ops ship first (plan → rebuild list → match prices → trolley / browser checkout). Expand only after that routine is reliable in real households.
+
+- Train: weekly plan fill, missed-session nudges, calendar sync checks
+- Today / Calendar: morning briefing, clash fixes, guest-driven meal swaps
+- Lists / Discuss: event-triggered capture from Slack/email
+- Money: light spend digests (read-only first)
+- Hardening: clearer fallback when supermarket login/CAPTCHA blocks Bot checkout; optional human-only handoff mode
+- Do not rebuild a full in-app agent scheduler — lean on Grok Bot routines + Kinexus MCP tools
+
+---
+
 ## Business
 
-### 11. Monetisation planning & fundraising
+### 14. Monetisation planning & fundraising
 Only after the product story and core modules are clear.
 
 - What is free vs paid (likely module packs or household tier — decide later)
 - Pricing hypotheses, not implementation first
 - Materials for fundraising if pursued
 
-### 12. Release
+### 15. Release
 Broader launch once product, legal, and monetisation direction are set.
 
 - Store / web launch readiness
@@ -122,7 +157,9 @@ Broader launch once product, legal, and monetisation direction are set.
 
 ## Out of scope for this roadmap
 
-Not planned: full chat/messaging, smart home / IoT, deals/coupons, social discovery, pets, vehicles, garden, or generic habit-streak products. Revisit only if real household demand is loud.
+Not planned: full chat/messaging, smart-home device control (lights, locks, thermostats), deals/coupons, social discovery, pets, vehicles, garden, or generic habit-streak products. Revisit only if real household demand is loud.
+
+Voice list capture is planned above (Alexa skill + Google phone assistant). Nest speaker third-party list skills remain unavailable on Google’s platform.
 
 ---
 
@@ -138,5 +175,8 @@ Not planned: full chat/messaging, smart home / IoT, deals/coupons, social discov
 8. Kids / School rhythm  
 9. Trips  
 10. Events / Hosting  
-11. Monetisation planning & fundraising  
-12. Release  
+11. Alexa skill  
+12. Google phone assistant  
+13. Expand Grok Bot capabilities  
+14. Monetisation planning & fundraising  
+15. Release 

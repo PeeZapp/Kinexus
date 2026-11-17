@@ -40,11 +40,13 @@ export {
   canChangeMemberRole,
   canCreateShared,
   canDeleteFinanceRecords,
+  canDeleteHousehold,
   canEditBudgetTxn,
   canEditFinanceRecords,
   canEditShared,
   canEnterBudgetAmounts,
   canInvite,
+  canLeaveHousehold,
   canManageBudgetPlan,
   canManageHousehold,
   canRemoveMember,
@@ -55,6 +57,13 @@ export {
   ROLE_LABELS,
 } from './household/access';
 export type { AssignableRole } from './household/access';
+
+export {
+  DEFAULT_HOUSEHOLD_EMOJI,
+  HOUSEHOLD_EMOJIS,
+  normalizeHouseholdEmoji,
+} from './household/emojis';
+export type { HouseholdEmoji } from './household/emojis';
 
 export * as meals from './meals/index';
 

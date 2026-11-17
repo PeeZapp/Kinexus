@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   assignableRoles,
   canChangeMemberRole,
+  canDeleteHousehold,
   canEditBudgetTxn,
   canEditShared,
+  canLeaveHousehold,
   canRemoveMember,
   canSeeShared,
   canViewFinances,
@@ -26,12 +28,27 @@ describe('household access', () => {
     expect(inviteRoles('admin')).toEqual(['admin', 'adult', 'teen', 'child']);
   });
 
-  it('lets admins change anyone except the owner, and adults only lower roles', () => {
-    expect(canChangeMemberRole('admin', 'admin', 'teen', false)).toBe(true);
+  it('lets owners/admins age up kids and promote adults, not free-form role edits', () => {
+    expect(canChangeMemberRole('admin', 'child', 'teen', false)).toBe(true);
+    expect(canChangeMemberRole('admin', 'child', 'adult', false)).toBe(true);
+    expect(canChangeMemberRole('admin', 'teen', 'adult', false)).toBe(true);
+    expect(canChangeMemberRole('admin', 'adult', 'admin', false)).toBe(true);
+    expect(canChangeMemberRole('admin', 'admin', 'adult', false)).toBe(false);
+    expect(canChangeMemberRole('owner', 'admin', 'adult', false)).toBe(true);
+    expect(canChangeMemberRole('admin', 'adult', 'teen', false)).toBe(false);
     expect(canChangeMemberRole('admin', 'owner', 'adult', false)).toBe(false);
-    expect(canChangeMemberRole('adult', 'teen', 'child', false)).toBe(true);
-    expect(canChangeMemberRole('adult', 'admin', 'adult', false)).toBe(false);
-    expect(assignableRoles('adult', 'admin', false)).toEqual([]);
+    expect(canChangeMemberRole('adult', 'teen', 'adult', false)).toBe(false);
+    expect(canChangeMemberRole('teen', 'child', 'teen', false)).toBe(false);
+    expect(assignableRoles('adult', 'child', false)).toEqual([]);
+    expect(assignableRoles('admin', 'child', false)).toEqual(['adult', 'teen']);
+  });
+
+  it('lets adults leave and owners/admins delete', () => {
+    expect(canLeaveHousehold('adult', false)).toBe(true);
+    expect(canLeaveHousehold('child', false)).toBe(false);
+    expect(canLeaveHousehold('owner', true)).toBe(false);
+    expect(canDeleteHousehold('admin')).toBe(true);
+    expect(canDeleteHousehold('adult')).toBe(false);
   });
 
   it('lets owners and admins remove only adult, teen, and child', () => {

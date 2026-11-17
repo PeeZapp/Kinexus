@@ -21,6 +21,7 @@ import {
 } from '@/src/features/household/sections';
 import { UnitsSettings } from '@/src/features/household/UnitsSettings';
 import { ErrorText } from '@/src/features/household/ui';
+import { LegalLinks } from '@/src/features/legal/LegalLinks';
 import { StaffSettingsLink } from '@/src/features/staff/StaffSettingsLink';
 import { NewsTopicsLink } from '@/src/features/today/NewsTopicsScreen';
 import { colors, space } from '@/src/features/shell/theme';
@@ -59,6 +60,7 @@ export function SettingsMobile() {
         <NewsTopicsLink />
         <RecipeImageUploadLink />
         <CreateJoinPanel />
+        <LegalLinks />
       </ScrollView>
     );
   }
@@ -92,6 +94,7 @@ export function SettingsMobile() {
       <MembersList members={members} />
       <PeoplePanel />
       <CreatorPanel />
+      <LegalLinks />
     </ScrollView>
   );
 }

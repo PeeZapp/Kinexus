@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { LegalLinks } from '@/src/features/legal/LegalLinks';
 import { AppMark } from '@/src/features/shell/AppMark';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { PwaInstallHint } from '@/src/features/shell/PwaInstallHint';
@@ -204,6 +205,9 @@ export default function SignInScreen() {
           </Text>
         )}
       </View>
+      <View style={styles.legal}>
+        <LegalLinks />
+      </View>
       {Platform.OS === 'web' ? (
         <View style={styles.install}>
           <PwaInstallHint />
@@ -369,6 +373,12 @@ const styles = StyleSheet.create({
     color: colors.textDim,
     fontSize: 12,
     lineHeight: 18,
+  },
+  legal: {
+    width: '100%',
+    maxWidth: 440,
+    alignItems: 'center',
+    marginTop: space.md,
   },
   install: {
     width: '100%',

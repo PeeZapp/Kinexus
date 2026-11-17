@@ -1,6 +1,7 @@
 import { Redirect, usePathname } from 'expo-router';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
+import { HomeLanding } from '@/src/features/legal/HomeLanding';
 import { SETTINGS_HREF } from '@/src/features/shell/modules';
 import { colors } from '@/src/features/shell/theme';
 import { useAuth } from '@/src/lib/auth';
@@ -26,7 +27,7 @@ export default function Index() {
   }
 
   if (!user) {
-    return <Redirect href="/sign-in" />;
+    return <HomeLanding />;
   }
 
   if (pendingInviteToken) {

@@ -20,6 +20,7 @@ import {
 } from '@/src/features/household/sections';
 import { UnitsSettings } from '@/src/features/household/UnitsSettings';
 import { ErrorText } from '@/src/features/household/ui';
+import { LegalLinks } from '@/src/features/legal/LegalLinks';
 import { StaffSettingsLink } from '@/src/features/staff/StaffSettingsLink';
 import { NewsTopicsLink } from '@/src/features/today/NewsTopicsScreen';
 import { colors, space } from '@/src/features/shell/theme';
@@ -60,6 +61,7 @@ export function SettingsDesktop() {
           <NewsTopicsLink />
           <RecipeImageUploadLink />
           <CreateJoinPanel />
+          <LegalLinks />
         </View>
       </ScrollView>
     );
@@ -96,6 +98,7 @@ export function SettingsDesktop() {
           <GrokBotSettings />
           <LocationPanel />
           <InvitePanel />
+          <LegalLinks />
         </View>
         <View style={styles.col}>
           <MembersList members={members} />

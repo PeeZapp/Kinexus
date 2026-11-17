@@ -1,7 +1,8 @@
-import { Link } from 'expo-router';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Link, useRouter } from 'expo-router';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BackLink } from '@/src/features/household/ui';
 import { AppMark } from '@/src/features/shell/AppMark';
 import { colors, space } from '@/src/features/shell/theme';
 
@@ -24,6 +25,15 @@ export function LegalPage({
   otherLabel: string;
 }) {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+
+  function goHome() {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/');
+  }
 
   return (
     <ScrollView
@@ -32,10 +42,11 @@ export function LegalPage({
         styles.content,
         { paddingTop: Math.max(insets.top, 24), paddingBottom: Math.max(insets.bottom, 40) },
       ]}>
-      <View style={styles.brand}>
+      <BackLink label="Kinexus" onPress={goHome} />
+      <Pressable onPress={goHome} style={styles.brand} accessibilityRole="link">
         <AppMark size={40} />
         <Text style={styles.brandName}>Kinexus</Text>
-      </View>
+      </Pressable>
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.meta}>Last updated {updated}</Text>
       {sections.map((section) => (
@@ -49,11 +60,11 @@ export function LegalPage({
         </View>
       ))}
       <View style={styles.footer}>
+        <Pressable onPress={goHome}>
+          <Text style={styles.link}>Back to Kinexus</Text>
+        </Pressable>
         <Link href={otherHref}>
           <Text style={styles.link}>{otherLabel}</Text>
-        </Link>
-        <Link href="/sign-in">
-          <Text style={styles.link}>Sign in</Text>
         </Link>
       </View>
     </ScrollView>
@@ -74,7 +85,9 @@ const styles = StyleSheet.create({
   brand: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     gap: 12,
+    marginTop: space.sm,
     marginBottom: space.lg,
   },
   brandName: {

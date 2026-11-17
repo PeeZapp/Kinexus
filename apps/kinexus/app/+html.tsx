@@ -21,8 +21,14 @@ export default function Root({ children }: { children: ReactNode }) {
         <meta name="format-detection" content="telephone=no" />
         <meta
           name="description"
-          content="One suite for meals, lists, money, nutrition, and training."
+          content="Kinexus is a household suite for meals, calendar, lists, money, nutrition, and training."
         />
+        {process.env.EXPO_PUBLIC_GOOGLE_SITE_VERIFICATION ? (
+          <meta
+            name="google-site-verification"
+            content={process.env.EXPO_PUBLIC_GOOGLE_SITE_VERIFICATION}
+          />
+        ) : null}
         <link rel="manifest" href="/manifest.json" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <script dangerouslySetInnerHTML={{ __html: walletInjectGuard }} />

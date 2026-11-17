@@ -9,8 +9,10 @@ No ads, monetization, or notifications were added.
 Google **does not** offer non-expiring access tokens. Long-lived sync uses a **refresh token**. In OAuth consent **Testing**, Google expires those refresh tokens after **~7 days** (`invalid_grant` / “Token has been expired or revoked”). **Production** publishing removes that 7-day limit (tokens still die if the user revokes, unused ~6 months, or consent changes).
 
 1. **Publish OAuth consent to Production** — [Google Cloud Console → APIs & Services → OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent) → **Publish app**. User type External is fine; verification can wait (unverified = warning UI + ~100-user cap, but refresh tokens no longer expire every 7 days). Calendar scope is sensitive; full verification is needed only for broad public use.
-2. **Reconnect every affected account** in Kinexus Settings → Google Calendar (Remove + Connect, or Reconnect when `needs_reauth` shows). Old Testing refresh tokens stay dead until re-consent.
-3. Confirm avatar Google photo path on production after Vercel rewrite for `/profile/avatar/google/*` ships.
+2. **Public home (no login wall)** — `https://kinexus-green.vercel.app/` must show app info without signing in (signed-out `/` is `HomeLanding`). Privacy / Terms: `/privacy`, `/terms`.
+3. **Verify site ownership for Google** — [Search Console](https://search.google.com/search-console) → Add URL prefix `https://kinexus-green.vercel.app/` → HTML tag → put the token in Vercel env `EXPO_PUBLIC_GOOGLE_SITE_VERIFICATION` → redeploy → click Verify. Wait ~24 hours, then retry OAuth branding / publish checks.
+4. **Reconnect every affected account** in Kinexus Settings → Google Calendar (Remove + Connect, or Reconnect when `needs_reauth` shows). Old Testing refresh tokens stay dead until re-consent.
+5. Confirm avatar Google photo path on production after Vercel rewrite for `/profile/avatar/google/*` ships.
 
 | # | Criterion | Status | Notes |
 |---|-----------|--------|-------|

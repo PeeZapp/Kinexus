@@ -55,6 +55,8 @@ export type GoogleAccountStatus = {
   pushCalendarName: string | null;
   pullCalendarIds: string[];
   connectedAt: string;
+  needsReauth?: boolean;
+  authError?: string | null;
   calendars?: GoogleCalendarListItem[];
   calendarsError?: string | null;
 };

@@ -31,6 +31,8 @@ type ConnectionRow = {
   push_calendar_id: string | null;
   push_calendar_name: string | null;
   pull_calendar_ids: string[];
+  needs_reauth: boolean;
+  auth_error: string | null;
   connected_at: string;
   updated_at: string;
 };
@@ -43,9 +45,31 @@ export type GoogleAccountPublic = {
   pushCalendarName: string | null;
   pullCalendarIds: string[];
   connectedAt: string;
+  needsReauth: boolean;
+  authError: string | null;
   calendars?: { id: string; name: string; primary: boolean; writable: boolean }[];
   calendarsError?: string | null;
 };
+
+const REAUTH_MESSAGE =
+  'Google access expired or was revoked. Reconnect this account to restore calendar sync.';
+
+class GoogleReauthRequiredError extends Error {
+  constructor(detail?: string) {
+    super(detail?.trim() ? `${REAUTH_MESSAGE} (${detail.trim()})` : REAUTH_MESSAGE);
+    this.name = 'GoogleReauthRequiredError';
+  }
+}
+
+function isRefreshTokenDead(error?: string, description?: string): boolean {
+  const blob = `${error ?? ''} ${description ?? ''}`.toLowerCase();
+  return (
+    blob.includes('invalid_grant') ||
+    blob.includes('token has been expired or revoked') ||
+    blob.includes('expired or revoked') ||
+    blob.includes('invalid_rapt')
+  );
+}
 
 function accountPublic(
   row: ConnectionRow,
@@ -62,6 +86,8 @@ function accountPublic(
     pushCalendarName: row.push_calendar_name,
     pullCalendarIds: row.pull_calendar_ids ?? [],
     connectedAt: row.connected_at,
+    needsReauth: Boolean(row.needs_reauth),
+    authError: row.auth_error,
     calendars: extra?.calendars ?? [],
     calendarsError: extra?.calendarsError ?? null,
   };
@@ -299,7 +325,61 @@ function connectionIdFromBody(body: { connectionId?: unknown }): string {
   return typeof body.connectionId === 'string' ? body.connectionId.trim() : '';
 }
 
+async function markNeedsReauth(
+  admin: SupabaseClient,
+  row: ConnectionRow,
+  detail: string,
+): Promise<void> {
+  const authError = detail.slice(0, 500) || REAUTH_MESSAGE;
+  const { error } = await admin
+    .from('user_google_calendar')
+    .update({
+      needs_reauth: true,
+      auth_error: authError,
+      access_token: null,
+      access_expires_at: null,
+    })
+    .eq('id', row.id);
+  if (error) throw error;
+  row.needs_reauth = true;
+  row.auth_error = authError;
+  row.access_token = null;
+  row.access_expires_at = null;
+}
+
+async function clearNeedsReauth(
+  admin: SupabaseClient,
+  connectionId: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  const { error } = await admin
+    .from('user_google_calendar')
+    .update({
+      ...patch,
+      needs_reauth: false,
+      auth_error: null,
+    })
+    .eq('id', connectionId);
+  if (error) throw error;
+}
+
+async function revokeGoogleToken(token: string | null | undefined): Promise<void> {
+  const value = token?.trim();
+  if (!value) return;
+  try {
+    await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(value)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+  } catch {
+    // best-effort; DB delete still proceeds
+  }
+}
+
 async function accessTokenFor(admin: SupabaseClient, row: ConnectionRow): Promise<string> {
+  if (row.needs_reauth) {
+    throw new GoogleReauthRequiredError(row.auth_error ?? undefined);
+  }
   const expiresAt = row.access_expires_at ? Date.parse(row.access_expires_at) : 0;
   if (row.access_token && expiresAt > Date.now() + 60_000) {
     return row.access_token;
@@ -311,21 +391,25 @@ async function accessTokenFor(admin: SupabaseClient, row: ConnectionRow): Promis
     grant_type: 'refresh_token',
   });
   if (!token.access_token) {
-    throw new Error(token.error_description || token.error || 'Could not refresh Google access token');
+    const detail = token.error_description || token.error || 'Could not refresh Google access token';
+    if (isRefreshTokenDead(token.error, token.error_description)) {
+      await markNeedsReauth(admin, row, detail);
+      throw new GoogleReauthRequiredError(detail);
+    }
+    throw new Error(detail);
   }
   const accessExpiresAt = new Date(Date.now() + (token.expires_in ?? 3600) * 1000).toISOString();
-  const { error } = await admin
-    .from('user_google_calendar')
-    .update({
-      access_token: token.access_token,
-      access_expires_at: accessExpiresAt,
-      refresh_token: token.refresh_token ?? row.refresh_token,
-    })
-    .eq('id', row.id);
-  if (error) throw error;
+  const nextRefresh = token.refresh_token ?? row.refresh_token;
+  await clearNeedsReauth(admin, row.id, {
+    access_token: token.access_token,
+    access_expires_at: accessExpiresAt,
+    refresh_token: nextRefresh,
+  });
   row.access_token = token.access_token;
   row.access_expires_at = accessExpiresAt;
-  if (token.refresh_token) row.refresh_token = token.refresh_token;
+  row.refresh_token = nextRefresh;
+  row.needs_reauth = false;
+  row.auth_error = null;
   return token.access_token;
 }
 
@@ -365,10 +449,14 @@ async function listGoogleCalendars(
       );
     }
     if (res.status === 401 || res.status === 403) {
-      throw new Error(
+      const message =
         detail ||
-          'Google denied calendar access. Remove the account and connect again, then approve calendar permission.',
-      );
+        'Google denied calendar access. Remove the account and connect again, then approve calendar permission.';
+      if (/auth|token|expired|revoked|insufficient/i.test(message) || res.status === 401) {
+        await markNeedsReauth(admin, row, message);
+        throw new GoogleReauthRequiredError(message);
+      }
+      throw new Error(message);
     }
     throw new Error(detail || `Google calendar list failed (${res.status})`);
   }
@@ -800,6 +888,8 @@ export async function handleGoogleConnectCallback(request: Request): Promise<Red
       push_calendar_id: existing?.push_calendar_id ?? null,
       push_calendar_name: existing?.push_calendar_name ?? null,
       pull_calendar_ids: existing?.pull_calendar_ids ?? [],
+      needs_reauth: false,
+      auth_error: null,
       connected_at: existing?.connected_at ?? new Date().toISOString(),
     };
 
@@ -849,10 +939,28 @@ export async function handleGoogleStatus(userId: string): Promise<HandlerResult>
   const accounts: GoogleAccountPublic[] = [];
   for (const raw of rows) {
     let row = raw;
+    if (row.needs_reauth) {
+      accounts.push(
+        accountPublic(row, {
+          calendars: [],
+          calendarsError: row.auth_error || REAUTH_MESSAGE,
+        }),
+      );
+      continue;
+    }
     try {
       row = await ensureDefaultPullCalendars(admin, raw);
-    } catch {
-      // keep going
+    } catch (err) {
+      if (err instanceof GoogleReauthRequiredError) {
+        accounts.push(
+          accountPublic(row, {
+            calendars: [],
+            calendarsError: err.message,
+          }),
+        );
+        continue;
+      }
+      // keep going for non-auth failures
     }
     try {
       const calendars = await listGoogleCalendars(admin, row);
@@ -961,12 +1069,16 @@ export async function handleGoogleDisconnect(
   if (connectionId) {
     const row = await loadConnection(admin, userId, connectionId);
     if (!row) return { status: 404, body: { error: 'Google account is not connected' } };
+    await revokeGoogleToken(row.refresh_token || row.access_token || '');
     await admin.from('household_event_google_maps').delete().eq('connection_id', row.id);
     const { error } = await admin.from('user_google_calendar').delete().eq('id', row.id).eq('user_id', userId);
     if (error) return { status: 500, body: { error: error.message } };
   } else {
     const accounts = await loadConnections(admin, userId);
     const ids = accounts.map((row) => row.id);
+    for (const row of accounts) {
+      await revokeGoogleToken(row.refresh_token || row.access_token || '');
+    }
     if (ids.length > 0) {
       await admin.from('household_event_google_maps').delete().in('connection_id', ids);
     }
@@ -1006,6 +1118,10 @@ export async function handleGooglePushEvent(
     let pushed = 0;
     const errors: string[] = [];
     for (const row of (connections ?? []) as ConnectionRow[]) {
+      if (row.needs_reauth) {
+        errors.push(`${row.google_email || row.id}: ${REAUTH_MESSAGE}`);
+        continue;
+      }
       try {
         await pushEventToUser(admin, row, event);
         pushed += 1;

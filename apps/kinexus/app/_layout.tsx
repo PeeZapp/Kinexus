@@ -38,6 +38,8 @@ export default function RootLayout() {
                     <Stack.Screen name="(staff)" />
                     <Stack.Screen name="auth/callback" />
                     <Stack.Screen name="oauth/consent" />
+                    <Stack.Screen name="privacy" />
+                    <Stack.Screen name="terms" />
                     <Stack.Screen name="invite/[token]" />
                     <Stack.Screen name="share" />
                     <Stack.Screen name="u/[key]" />

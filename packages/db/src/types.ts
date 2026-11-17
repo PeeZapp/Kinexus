@@ -312,6 +312,8 @@ export type Database = {
           push_calendar_id: string | null;
           push_calendar_name: string | null;
           pull_calendar_ids: string[];
+          needs_reauth: boolean;
+          auth_error: string | null;
           connected_at: string;
           updated_at: string;
         };
@@ -327,6 +329,8 @@ export type Database = {
           push_calendar_id?: string | null;
           push_calendar_name?: string | null;
           pull_calendar_ids?: string[];
+          needs_reauth?: boolean;
+          auth_error?: string | null;
           connected_at?: string;
           updated_at?: string;
         };
@@ -340,6 +344,8 @@ export type Database = {
           push_calendar_id?: string | null;
           push_calendar_name?: string | null;
           pull_calendar_ids?: string[];
+          needs_reauth?: boolean;
+          auth_error?: string | null;
           updated_at?: string;
         };
         Relationships: [

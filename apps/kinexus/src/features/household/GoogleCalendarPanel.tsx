@@ -26,12 +26,14 @@ function AccountBlock({
   onBusy,
   onError,
   onNote,
+  onReconnect,
 }: {
   account: GoogleAccountStatus;
   busy: boolean;
   onBusy: (value: boolean) => void;
   onError: (value: string | null) => void;
   onNote: (value: string | null) => void;
+  onReconnect: () => void;
 }) {
   const queryClient = useQueryClient();
   const [calendars, setCalendars] = useState<GoogleCalendarListItem[]>(account.calendars ?? []);
@@ -142,31 +144,45 @@ function AccountBlock({
     }
   }
 
+  const needsReauth = Boolean(account.needsReauth) || /expired|revoked|invalid_grant|reconnect/i.test(listError ?? '');
+
   return (
     <View style={styles.account}>
       <Text style={styles.accountEmail}>{account.email || 'Google account'}</Text>
-      <Text style={styles.body}>
-        {account.pushEnabled
-          ? account.pushCalendarName
-            ? `Pushing family events to ${account.pushCalendarName}.`
-            : 'Push is on — pick a target calendar below.'
-          : 'Push is off. Turn it on to send family events to Google.'}
-      </Text>
-      <View style={styles.row}>
-        <Btn
-          label={account.pushEnabled ? 'Push on' : 'Push off'}
-          variant="secondary"
-          onPress={() => void onTogglePush(!account.pushEnabled)}
-          busy={busy}
-        />
-        <Btn label="Reload calendars" variant="secondary" onPress={() => void reloadCalendars()} busy={listing} />
-        <Btn label="Remove" variant="secondary" onPress={() => void onDisconnect()} busy={busy} />
-      </View>
+      {needsReauth ? (
+        <>
+          <ErrorText message={account.authError || listError || 'Google access expired. Reconnect to restore sync.'} />
+          <View style={styles.row}>
+            <Btn label="Reconnect" onPress={onReconnect} busy={busy} />
+            <Btn label="Remove" variant="secondary" onPress={() => void onDisconnect()} busy={busy} />
+          </View>
+        </>
+      ) : (
+        <>
+          <Text style={styles.body}>
+            {account.pushEnabled
+              ? account.pushCalendarName
+                ? `Pushing family events to ${account.pushCalendarName}.`
+                : 'Push is on — pick a target calendar below.'
+              : 'Push is off. Turn it on to send family events to Google.'}
+          </Text>
+          <View style={styles.row}>
+            <Btn
+              label={account.pushEnabled ? 'Push on' : 'Push off'}
+              variant="secondary"
+              onPress={() => void onTogglePush(!account.pushEnabled)}
+              busy={busy}
+            />
+            <Btn label="Reload calendars" variant="secondary" onPress={() => void reloadCalendars()} busy={listing} />
+            <Btn label="Remove" variant="secondary" onPress={() => void onDisconnect()} busy={busy} />
+          </View>
+        </>
+      )}
 
-      {listing ? <Text style={styles.body}>Loading calendars from Google…</Text> : null}
-      {listError ? <ErrorText message={listError} /> : null}
+      {needsReauth ? null : listing ? <Text style={styles.body}>Loading calendars from Google…</Text> : null}
+      {needsReauth ? null : listError ? <ErrorText message={listError} /> : null}
 
-      {calendars.length > 0 ? (
+      {!needsReauth && calendars.length > 0 ? (
         <>
           <Text style={styles.sub}>Push family events to</Text>
           <View style={styles.wrapRow}>
@@ -202,7 +218,7 @@ function AccountBlock({
             ))}
           </View>
         </>
-      ) : !listing && !listError ? (
+      ) : !needsReauth && !listing && !listError ? (
         <Text style={styles.body}>No calendars loaded yet. Tap Reload calendars.</Text>
       ) : null}
     </View>
@@ -288,6 +304,7 @@ export function GoogleCalendarPanel() {
           onBusy={setBusy}
           onError={setError}
           onNote={setNote}
+          onReconnect={() => void onConnect()}
         />
       ))}
       <Btn

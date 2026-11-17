@@ -23,12 +23,13 @@ export default function Root({ children }: { children: ReactNode }) {
           name="description"
           content="Kinexus is a household suite for meals, calendar, lists, money, nutrition, and training."
         />
-        {process.env.EXPO_PUBLIC_GOOGLE_SITE_VERIFICATION ? (
-          <meta
-            name="google-site-verification"
-            content={process.env.EXPO_PUBLIC_GOOGLE_SITE_VERIFICATION}
-          />
-        ) : null}
+        <meta
+          name="google-site-verification"
+          content={
+            process.env.EXPO_PUBLIC_GOOGLE_SITE_VERIFICATION?.trim() ||
+            'aRGtmuyxaw-Ibv8ShEFd8awKmZNgOQxo_ATZWmEh3MM'
+          }
+        />
         <link rel="manifest" href="/manifest.json" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <script dangerouslySetInnerHTML={{ __html: walletInjectGuard }} />

@@ -19,7 +19,7 @@ import { useAiStatus } from '@/src/lib/ai-status-context';
 import { confirmAction } from '@/src/lib/confirm';
 import { useHousehold } from '@/src/lib/household';
 
-export function AiKeySettings() {
+export function AiKeySettings({ fill = false }: { fill?: boolean } = {}) {
   const { activeHousehold, canManageHousehold } = useHousehold();
   const { refresh } = useAiStatus();
   const householdId = activeHousehold?.id;
@@ -140,9 +140,9 @@ export function AiKeySettings() {
   const showForm = !meta?.hasKey || replacing;
 
   return (
-    <View style={[styles.stack, styles.fill]}>
+    <View style={[styles.stack, fill ? styles.fill : styles.stackMobile]}>
       <AiBlockedBanner dismissible={false} />
-    <Card style={styles.cardFill}>
+    <Card style={fill ? styles.cardFill : styles.cardMobile}>
       <Text style={styles.heading}>AI key</Text>
       <ErrorText message={error} />
 
@@ -225,7 +225,9 @@ export function AiKeySettings() {
 const styles = StyleSheet.create({
   stack: { gap: space.sm },
   fill: { flex: 1 },
-  cardFill: { flex: 1 },
+  stackMobile: { alignSelf: 'stretch', width: '100%', minWidth: 0, maxWidth: '100%' },
+  cardFill: { flexGrow: 1, alignSelf: 'stretch', width: '100%', minWidth: 0, maxWidth: '100%' },
+  cardMobile: { alignSelf: 'stretch', width: '100%', minWidth: 0, maxWidth: '100%' },
   heading: { color: colors.text, fontSize: 17, fontWeight: '700' },
   line: { color: colors.text, fontSize: 14 },
   saved: { gap: 10 },

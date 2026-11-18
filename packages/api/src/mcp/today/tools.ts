@@ -291,7 +291,15 @@ const getTodayInput = z.object({ date: z.string().optional() });
 const getTodayOutput = z.object({
   date: z.string(),
   householdId: z.string(),
-  tasks: z.array(z.object({ id: z.string(), label: z.string(), done: z.boolean() })),
+  tasks: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      done: z.boolean(),
+      scope: z.enum(['personal', 'household']),
+      assignedTo: z.string().nullable(),
+    }),
+  ),
   talk: z.array(z.object({ id: z.string(), body: z.string(), createdBy: z.string() })),
   calendar: z.array(
     z.object({
@@ -343,7 +351,7 @@ export const getTodayTool: McpToolDefinition<typeof getTodayInput, typeof getTod
   name: 'get_today',
   title: 'Get today overview',
   description:
-    'Concise brief for a date (default today): personal tasks, talk, calendar, meals/shopping if scoped, unread alerts, optional train. Never includes journal/PIN, puzzles, or others’ private lists.',
+    'Concise brief for a date (default today): personal + household tasks, talk, calendar, meals/shopping if scoped, unread alerts, optional train. Never includes journal/PIN, puzzles, or others’ private lists.',
   inputSchema: getTodayInput,
   outputSchema: getTodayOutput,
   scope: 'today:read',

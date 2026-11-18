@@ -2,6 +2,7 @@ export type AlertSegment =
   | 'meal_plan'
   | 'calendar'
   | 'talk'
+  | 'tasks'
   | 'wishlist'
   | 'shopping'
   | 'checklist'
@@ -13,6 +14,7 @@ export const ALERT_SEGMENTS: readonly AlertSegment[] = [
   'meal_plan',
   'calendar',
   'talk',
+  'tasks',
   'wishlist',
   'shopping',
   'checklist',
@@ -29,6 +31,8 @@ export function alertSegmentLabel(segment: AlertSegment): string {
       return 'Calendar';
     case 'talk':
       return 'Talk';
+    case 'tasks':
+      return 'Tasks';
     case 'wishlist':
       return 'Wishlist';
     case 'shopping':

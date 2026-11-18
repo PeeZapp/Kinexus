@@ -89,7 +89,7 @@ async function openPlatform(platform: AiChatPlatform): Promise<void> {
   if (url) await Linking.openURL(url);
 }
 
-export function ConnectedAiChats() {
+export function ConnectedAiChats({ fill = false }: { fill?: boolean } = {}) {
   const queryClient = useQueryClient();
   const [connections, setConnections] = useState<McpConnection[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -236,7 +236,7 @@ export function ConnectedAiChats() {
   }
 
   return (
-    <Card style={styles.cardFill}>
+    <Card style={fill ? styles.cardFill : styles.cardMobile}>
       <View style={styles.headingRow}>
         <Text style={styles.heading}>Connected AI chats</Text>
         <Pressable onPress={() => setInfoOpen(true)} accessibilityRole="button" hitSlop={8}>
@@ -274,7 +274,7 @@ export function ConnectedAiChats() {
 
       <ErrorText message={error} />
       <AiChatTipsRestoreRow />
-      <View style={styles.footerSpacer} />
+      {fill ? <View style={styles.footerSpacer} /> : null}
       {platforms.length > 0 ? <Btn label="Connect" onPress={() => setPickerOpen(true)} /> : null}
       <AiChatConnectInfoModal visible={infoOpen} onClose={() => setInfoOpen(false)} />
 
@@ -400,8 +400,9 @@ function ConnectWizard({
 }
 
 const styles = StyleSheet.create({
-  cardFill: { flex: 1 },
-  footerSpacer: { flexGrow: 1, minHeight: 0 },
+  cardFill: { flexGrow: 1, alignSelf: 'stretch', width: '100%', minWidth: 0, maxWidth: '100%' },
+  cardMobile: { alignSelf: 'stretch', width: '100%', minWidth: 0, maxWidth: '100%' },
+  footerSpacer: { flexGrow: 1, minHeight: 0, width: '100%' },
   headingRow: {
     flexDirection: 'row',
     alignItems: 'center',

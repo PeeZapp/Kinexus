@@ -189,6 +189,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     padding: space.md,
     gap: 12,
+    width: '100%',
     minWidth: 0,
     maxWidth: '100%',
   },
@@ -220,6 +221,8 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   btn: {
+    maxWidth: '100%',
+    minWidth: 0,
     minHeight: 48,
     borderRadius: radius.md,
     alignItems: 'center',

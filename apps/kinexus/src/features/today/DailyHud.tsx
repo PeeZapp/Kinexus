@@ -9,6 +9,7 @@ import {
   DAY_TASK_LIMIT,
   eventIsPast,
   formatEventTimeLabel,
+  HOUSEHOLD_DAY_TASK_LIMIT,
   localPuzzleDate,
   markerKindLabel,
   markersForDay,
@@ -22,11 +23,28 @@ import { EVENT_COLOR, MARKER_COLOR } from '@/src/features/calendar/colors';
 import { loadPersonalGoogleDayEvents } from '@/src/features/calendar/google-sync';
 import { loadCalendarMarkers } from '@/src/features/calendar/observances';
 import { loadDayEvents } from '@/src/features/calendar/store';
+import { OptionTiles } from '@/src/features/household/option-tiles';
 import { ErrorText } from '@/src/features/household/ui';
 import { recipeHref } from '@/src/features/meals/recipe-href';
 import { AppModal } from '@/src/features/shell/AppModal';
 import { colors, radius } from '@/src/features/shell/theme';
-import { emptyUserDay, loadJournalEntries, loadUserDay, saveUserDay, addJournalEntry, type UserDay } from '@/src/features/today/day-store';
+import {
+  emptyUserDay,
+  loadJournalEntries,
+  loadUserDay,
+  rollPersonalTasksForward,
+  saveUserDay,
+  addJournalEntry,
+  type UserDay,
+} from '@/src/features/today/day-store';
+import {
+  addHouseholdDayTask,
+  loadHouseholdDayTasks,
+  removeHouseholdDayTask,
+  rollHouseholdDayTasksForward,
+  setHouseholdDayTaskDone,
+  type HouseholdDayTask,
+} from '@/src/features/today/household-tasks-store';
 import {
   isJournalPin,
   loadJournalLock,
@@ -91,7 +109,10 @@ export function DailyHud({
   const latest = addDaysIso(today, 1);
   const day = useQuery({
     queryKey: ['user-day', user.id, date],
-    queryFn: () => loadUserDay(user, date),
+    queryFn: async () => {
+      if (date === today) return rollPersonalTasksForward(user, today);
+      return loadUserDay(user, date);
+    },
   });
   const onToday = date === today;
 
@@ -267,7 +288,12 @@ function DayBoard({
       <ErrorText message={error} />
       <View style={desktop && hasCalendar ? styles.pair : styles.stack}>
         <View style={desktop && hasCalendar ? styles.share : styles.fill}>
-          <TasksPanel tasks={day.tasks} onChange={(tasks) => commit({ ...dayRef.current, tasks }, true)} />
+          <TasksPanel
+            user={user}
+            date={day.date}
+            tasks={day.tasks}
+            onChange={(tasks) => commit({ ...dayRef.current, tasks }, true)}
+          />
         </View>
         {hasCalendar ? (
           <View style={desktop ? styles.share : styles.fill}>
@@ -302,35 +328,146 @@ function DayBoard({
   );
 }
 
-function TasksPanel({ tasks, onChange }: { tasks: DayTask[]; onChange: (tasks: DayTask[]) => void }) {
+type TaskAudience = 'me' | 'household' | string;
+
+function TasksPanel({
+  user,
+  date,
+  tasks,
+  onChange,
+}: {
+  user: AuthUser;
+  date: string;
+  tasks: DayTask[];
+  onChange: (tasks: DayTask[]) => void;
+}) {
+  const { activeHousehold, isReady, members } = useHousehold();
+  const householdId = activeHousehold?.id ?? null;
+  const queryClient = useQueryClient();
   const [draft, setDraft] = useState('');
-  const full = tasks.length >= DAY_TASK_LIMIT;
-  const open = tasks.filter((task) => !task.done).length;
+  const [audience, setAudience] = useState<TaskAudience>('me');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const canShare = Boolean(householdId && isSupabaseConfigured && !user.isDevBypass);
+  const nameById = new Map(
+    members.map((member) => [member.profile.id, firstName(member.profile.displayName)] as const),
+  );
+
+  const shared = useQuery({
+    queryKey: ['household-day-tasks', householdId, date],
+    enabled: Boolean(householdId && isSupabaseConfigured && !user.isDevBypass),
+    queryFn: async () => {
+      const today = localPuzzleDate();
+      if (date === today) await rollHouseholdDayTasksForward(householdId!, today);
+      return loadHouseholdDayTasks(householdId!, date);
+    },
+  });
+
+  useEffect(() => {
+    if (!canShare || !householdId || !supabase) return;
+    return retainPostgresChannel(supabase, `household-day-tasks:${householdId}`, (channel) =>
+      channel
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'household_day_tasks',
+            filter: `household_id=eq.${householdId}`,
+          },
+          () => {
+            void queryClient.invalidateQueries({ queryKey: ['household-day-tasks', householdId] });
+          },
+        )
+        .subscribe(),
+    );
+  }, [canShare, householdId, queryClient]);
+
+  const sharedTasks = shared.data ?? [];
+  const personalFull = tasks.length >= DAY_TASK_LIMIT;
+  const sharedFull = sharedTasks.length >= HOUSEHOLD_DAY_TASK_LIMIT;
+  const full = audience === 'me' ? personalFull : sharedFull;
+  const open = tasks.filter((task) => !task.done).length + sharedTasks.filter((task) => !task.done).length;
+  const empty = tasks.length === 0 && sharedTasks.length === 0;
 
   const add = () => {
     const label = draft.replace(/\s+/g, ' ').trim().slice(0, 120);
-    if (!label || full) return;
-    onChange(normalizeDayTasks([...tasks, { id: taskId(), label, done: false }]));
-    setDraft('');
+    if (!label || full || busy) return;
+    if (audience === 'me') {
+      onChange(normalizeDayTasks([...tasks, { id: taskId(), label, done: false }]));
+      setDraft('');
+      return;
+    }
+    if (!householdId || !canShare) {
+      setError('Join a household and sign in to share tasks.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const assignedTo = audience === 'household' ? null : audience;
+    void addHouseholdDayTask(user, householdId, date, label, assignedTo)
+      .then((item) => {
+        queryClient.setQueryData<HouseholdDayTask[]>(
+          ['household-day-tasks', householdId, date],
+          (current) => [...(current ?? []), item],
+        );
+        setDraft('');
+        setBusy(false);
+      })
+      .catch((err: unknown) => {
+        setBusy(false);
+        setError(err instanceof Error ? err.message : 'Could not add the shared task.');
+      });
+  };
+
+  const toggleShared = (task: HouseholdDayTask) => {
+    if (!householdId || busy) return;
+    const next = !task.done;
+    queryClient.setQueryData<HouseholdDayTask[]>(
+      ['household-day-tasks', householdId, date],
+      (current) => (current ?? []).map((item) => (item.id === task.id ? { ...item, done: next } : item)),
+    );
+    void setHouseholdDayTaskDone(task.id, next).catch((err: unknown) => {
+      void queryClient.invalidateQueries({ queryKey: ['household-day-tasks', householdId, date] });
+      setError(err instanceof Error ? err.message : 'Could not update the task.');
+    });
+  };
+
+  const removeShared = (task: HouseholdDayTask) => {
+    if (!householdId || busy) return;
+    queryClient.setQueryData<HouseholdDayTask[]>(
+      ['household-day-tasks', householdId, date],
+      (current) => (current ?? []).filter((item) => item.id !== task.id),
+    );
+    void removeHouseholdDayTask(task.id).catch((err: unknown) => {
+      void queryClient.invalidateQueries({ queryKey: ['household-day-tasks', householdId, date] });
+      setError(err instanceof Error ? err.message : 'Could not remove the task.');
+    });
   };
 
   return (
     <View style={styles.panel}>
       <View style={styles.panelHead}>
         <Text style={styles.panelTitle}>Tasks</Text>
-        <Text style={styles.panelMeta}>{tasks.length === 0 ? 'Clear' : open === 0 ? 'Complete' : `${open} open`}</Text>
+        <Text style={styles.panelMeta}>
+          {empty ? 'Clear' : open === 0 ? 'Complete' : `${open} open`}
+        </Text>
       </View>
-      {tasks.length === 0 ? <Text style={styles.empty}>Nothing listed for this day.</Text> : null}
+      {empty ? <Text style={styles.empty}>Nothing listed for this day.</Text> : null}
       {tasks.map((task) => (
-        <View key={task.id} style={styles.taskRow}>
+        <View key={`me:${task.id}`} style={styles.taskRow}>
           <Pressable
             accessibilityRole="checkbox"
             accessibilityState={{ checked: task.done }}
-            onPress={() => onChange(tasks.map((item) => (item.id === task.id ? { ...item, done: !item.done } : item)))}
+            onPress={() =>
+              onChange(tasks.map((item) => (item.id === task.id ? { ...item, done: !item.done } : item)))
+            }
             style={[styles.check, task.done && styles.checkOn]}>
             {task.done ? <Text style={styles.checkMark}>✓</Text> : null}
           </Pressable>
-          <Text style={[styles.taskLabel, task.done && styles.taskDone]}>{task.label}</Text>
+          <View style={styles.talkBody}>
+            <Text style={[styles.taskLabel, task.done && styles.taskDone]}>{task.label}</Text>
+          </View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Remove ${task.label}`}
@@ -341,19 +478,74 @@ function TasksPanel({ tasks, onChange }: { tasks: DayTask[]; onChange: (tasks: D
           </Pressable>
         </View>
       ))}
+      {sharedTasks.map((task) => {
+        const who = task.assignedTo ? nameById.get(task.assignedTo) ?? 'Someone' : 'Everyone';
+        return (
+          <View key={`hh:${task.id}`} style={styles.taskRow}>
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: task.done }}
+              onPress={() => toggleShared(task)}
+              style={[styles.check, task.done && styles.checkOn]}>
+              {task.done ? <Text style={styles.checkMark}>✓</Text> : null}
+            </Pressable>
+            <View style={styles.talkBody}>
+              <Text style={styles.talkWho}>{who}</Text>
+              <Text style={[styles.taskLabel, task.done && styles.taskDone]}>{task.label}</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${task.label}`}
+              hitSlop={8}
+              onPress={() => removeShared(task)}
+              style={styles.removeHit}>
+              <Text style={styles.remove}>×</Text>
+            </Pressable>
+          </View>
+        );
+      })}
+      {canShare && isReady ? (
+        <OptionTiles
+          rows={[
+            {
+              key: 'me',
+              label: 'Just me',
+              active: audience === 'me',
+              onPress: () => setAudience('me'),
+            },
+            {
+              key: 'household',
+              label: 'Everyone',
+              active: audience === 'household',
+              onPress: () => setAudience('household'),
+            },
+            ...members.map((member) => ({
+              key: member.profile.id,
+              label: firstName(member.profile.displayName),
+              active: audience === member.profile.id,
+              onPress: () => setAudience(member.profile.id),
+            })),
+          ]}
+        />
+      ) : null}
+      <ErrorText message={error} />
       <View style={styles.addRow}>
         <TextInput
           value={draft}
           onChangeText={setDraft}
           placeholder={full ? 'The list is full' : 'Add a task'}
           placeholderTextColor={colors.textDim}
-          editable={!full}
+          editable={!full && !busy}
           style={styles.addInput}
           returnKeyType="done"
           onSubmitEditing={add}
         />
-        <Pressable accessibilityRole="button" disabled={!draft.trim() || full} onPress={add} style={styles.addBtn}>
-          <Text style={[styles.addBtnLabel, (!draft.trim() || full) && styles.addBtnOff]}>Add</Text>
+        <Pressable
+          accessibilityRole="button"
+          disabled={!draft.trim() || full || busy}
+          onPress={add}
+          style={styles.addBtn}>
+          <Text style={[styles.addBtnLabel, (!draft.trim() || full || busy) && styles.addBtnOff]}>Add</Text>
         </Pressable>
       </View>
     </View>

@@ -954,6 +954,7 @@ export {
 
 export {
   DAY_TASK_LIMIT,
+  HOUSEHOLD_DAY_TASK_LIMIT,
   JOURNAL_LIMIT,
   NEWS_INTEREST_LIMIT,
   NEWS_INTEREST_SUGGESTIONS,
@@ -978,12 +979,14 @@ export {
   normalizeSportPriority,
   normalizeTopicPriorities,
   normalizeTopicPriority,
+  rollIncompleteDayTasks,
   topicPriorityConfigsForInterests,
   weatherCodeLabel,
   weatherKind,
 } from './overview/index';
 export type {
   DayTask,
+  DayTaskBucket,
   NewsHeadline,
   NewsSection,
   NewsTopicPriorities,

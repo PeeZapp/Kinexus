@@ -738,6 +738,60 @@ export type Database = {
           },
         ];
       };
+      household_day_tasks: {
+        Row: {
+          id: string;
+          household_id: string;
+          day: string;
+          label: string;
+          done: boolean;
+          assigned_to: string | null;
+          created_by: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          household_id: string;
+          day: string;
+          label: string;
+          done?: boolean;
+          assigned_to?: string | null;
+          created_by: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          day?: string;
+          label?: string;
+          done?: boolean;
+          assigned_to?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'household_day_tasks_household_id_fkey';
+            columns: ['household_id'];
+            isOneToOne: false;
+            referencedRelation: 'households';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'household_day_tasks_assigned_to_fkey';
+            columns: ['assigned_to'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'household_day_tasks_created_by_fkey';
+            columns: ['created_by'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       household_events: {
         Row: {
           id: string;

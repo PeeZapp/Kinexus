@@ -110,10 +110,16 @@ export function WatchlistScreen() {
   const { mode } = useExperienceMode();
   const { user } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams<{ shareUrl?: string | string[]; listId?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    shareUrl?: string | string[];
+    listId?: string | string[];
+    titleId?: string | string[];
+  }>();
   const shareUrl = typeof params.shareUrl === 'string' ? params.shareUrl : params.shareUrl?.[0] ?? null;
   const shareListId = typeof params.listId === 'string' ? params.listId : params.listId?.[0] ?? null;
+  const deepTitleId = typeof params.titleId === 'string' ? params.titleId : params.titleId?.[0] ?? null;
   const shareHandled = useRef(false);
+  const titleDeepLink = useRef<string | null>(null);
   const { people, role, activeHousehold, refresh } = useHousehold();
   const selfName = user?.displayName?.trim() || 'You';
   const selfId = selfAdultId(people, user?.id, selfName);
@@ -509,6 +515,27 @@ export function WatchlistScreen() {
     setCatalogQuery(shareUrl);
     router.replace('/lists/watchlist' as Href);
   }, [router, shareListId, shareUrl, watchlist.lists]);
+
+  useEffect(() => {
+    if (!deepTitleId) {
+      titleDeepLink.current = null;
+      return;
+    }
+    if (titleDeepLink.current === deepTitleId || watchlist.loading) return;
+    titleDeepLink.current = deepTitleId;
+    const entry = entries.find((row) => row.title.id === deepTitleId) ?? null;
+    if (entry) {
+      setSelectedListId(entry.list.id);
+      setListQuery('');
+      setFindInList(false);
+      setStatus(null);
+      setMediaType(null);
+      setProviderId(null);
+      setOpenItemId(entry.item.id);
+      void watchlist.refreshTitle(entry.title).catch(() => undefined);
+    }
+    router.replace('/lists/watchlist' as Href);
+  }, [deepTitleId, entries, router, watchlist.loading, watchlist.refreshTitle]);
 
   const selectedList = watchlist.lists.find((list) => list.id === selectedListId) ?? null;
   const openEntry: WatchlistEntry | null = entries.find((entry) => entry.item.id === openItemId) ?? null;

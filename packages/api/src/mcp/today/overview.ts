@@ -13,7 +13,13 @@ import { resolveCallerHousehold } from './shared.js';
 export type TodayOverview = {
   date: string;
   householdId: string;
-  tasks: { id: string; label: string; done: boolean }[];
+  tasks: {
+    id: string;
+    label: string;
+    done: boolean;
+    scope: 'personal' | 'household';
+    assignedTo: string | null;
+  }[];
   talk: { id: string; body: string; createdBy: string }[];
   calendar: {
     id: string;
@@ -53,21 +59,43 @@ export type TodayOverview = {
 async function loadDayTasks(
   client: SupabaseClient,
   userId: string,
+  householdId: string,
   date: string,
-): Promise<{ id: string; label: string; done: boolean }[]> {
-  const { data, error } = await client
+): Promise<TodayOverview['tasks']> {
+  const personal = client
     .from('user_days')
     .select('tasks')
     .eq('user_id', userId)
     .eq('day', date)
     .maybeSingle();
+  const shared = client
+    .from('household_day_tasks')
+    .select('id, label, done, assigned_to')
+    .eq('household_id', householdId)
+    .eq('day', date)
+    .order('created_at', { ascending: true })
+    .limit(40);
+
+  // Intentionally select only task fields — never journal / workout notes / PIN content.
+  const [{ data, error }, sharedResult] = await Promise.all([personal, shared]);
   if (error) throw new Error(error.message);
-  // Intentionally select only `tasks` — never journal / workout notes / PIN content.
-  return normalizeDayTasks(data?.tasks).map((task) => ({
+  if (sharedResult.error) throw new Error(sharedResult.error.message);
+
+  const personalTasks = normalizeDayTasks(data?.tasks).map((task) => ({
     id: task.id,
     label: task.label,
     done: task.done,
+    scope: 'personal' as const,
+    assignedTo: null,
   }));
+  const householdTasks = (sharedResult.data ?? []).map((row) => ({
+    id: String((row as { id: string }).id),
+    label: String((row as { label: string }).label ?? ''),
+    done: Boolean((row as { done: boolean }).done),
+    scope: 'household' as const,
+    assignedTo: ((row as { assigned_to: string | null }).assigned_to ?? null) as string | null,
+  }));
+  return [...personalTasks, ...householdTasks];
 }
 
 async function loadAlertsBrief(
@@ -122,7 +150,7 @@ export async function getTodayOverview(
   ];
 
   const [tasks, talk, calendar, alerts] = await Promise.all([
-    loadDayTasks(caller.client, caller.userId, date),
+    loadDayTasks(caller.client, caller.userId, householdId, date),
     listTalkItems(caller.client, caller.userId).then((r) =>
       r.open.map((item) => ({ id: item.id, body: item.body, createdBy: item.createdBy })),
     ),

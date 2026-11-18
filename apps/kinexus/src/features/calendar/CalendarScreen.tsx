@@ -353,15 +353,23 @@ export function CalendarScreen() {
       {desktop ? (
         <View style={styles.desktopSplit}>
           {monthPane}
-          <ScrollView style={styles.agendaScroll} contentContainerStyle={styles.agendaScrollContent}>
+          <ScrollView
+            style={styles.agendaScroll}
+            contentContainerStyle={styles.agendaScrollContent}
+            showsVerticalScrollIndicator={false}>
             {agendaPane}
           </ScrollView>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.scroll}>
+        <View style={styles.mobileSplit}>
           {monthPane}
-          {agendaPane}
-        </ScrollView>
+          <ScrollView
+            style={styles.mobileAgendaScroll}
+            contentContainerStyle={styles.mobileAgendaScrollContent}
+            showsVerticalScrollIndicator={false}>
+            {agendaPane}
+          </ScrollView>
+        </View>
       )}
 
       {draft ? (
@@ -383,9 +391,17 @@ export function CalendarScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
+  root: { flex: 1, minHeight: 0, overflow: 'hidden', backgroundColor: colors.bg },
   rootDesktop: { alignItems: 'center' },
-  scroll: { padding: space.md, paddingBottom: space.xl, gap: space.lg },
+  mobileSplit: {
+    flex: 1,
+    minHeight: 0,
+    paddingHorizontal: space.md,
+    paddingTop: space.md,
+    gap: space.lg,
+  },
+  mobileAgendaScroll: { flex: 1, minHeight: 0 },
+  mobileAgendaScrollContent: { paddingBottom: space.xl },
   desktopSplit: {
     flex: 1,
     width: '100%',

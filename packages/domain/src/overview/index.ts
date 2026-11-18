@@ -1,13 +1,15 @@
 export {
   DAY_TASK_LIMIT,
+  HOUSEHOLD_DAY_TASK_LIMIT,
   JOURNAL_LIMIT,
   WORKOUT_NOTES_LIMIT,
   WORKOUT_TITLE_LIMIT,
   clipDayText,
   normalizeDayTask,
   normalizeDayTasks,
+  rollIncompleteDayTasks,
 } from './day';
-export type { DayTask } from './day';
+export type { DayTask, DayTaskBucket } from './day';
 
 export const OVERVIEW_WIDGETS = ['weather', 'news', 'wordle', 'puzzles'] as const;
 

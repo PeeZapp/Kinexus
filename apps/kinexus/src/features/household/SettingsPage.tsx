@@ -87,6 +87,9 @@ const styles = StyleSheet.create({
   },
   stack: {
     gap: 16,
+    width: '100%',
+    minWidth: 0,
+    maxWidth: '100%',
   },
   stackDesktop: {
     maxWidth: 720,

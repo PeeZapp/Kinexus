@@ -17,6 +17,22 @@ import { LoadingState } from '@/src/features/shell/states';
 import { colors, radius, space } from '@/src/features/shell/theme';
 import { confirmAction } from '@/src/lib/confirm';
 
+function titleIdFromPayload(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const value = (payload as { titleId?: unknown }).titleId;
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+/** Ensure watchlist availability alerts deep-link to the title card (incl. older alerts). */
+function resolveAlertHref(item: { segment: string; href: string | null; payload: unknown }): string | null {
+  if (item.segment !== 'watchlist_available') return item.href;
+  const titleId = titleIdFromPayload(item.payload);
+  if (!titleId) return item.href ?? '/lists/watchlist';
+  if (item.href && /[?&]titleId=/.test(item.href)) return item.href;
+  const base = (item.href ?? '/lists/watchlist').split('?')[0] || '/lists/watchlist';
+  return `${base}?titleId=${encodeURIComponent(titleId)}`;
+}
+
 export function AlertsInboxScreen() {
   const inbox = useAlertsInbox(80);
   const unread = useAlertsUnreadCount();
@@ -72,14 +88,15 @@ export function AlertsInboxScreen() {
 
   const onDelete = (id: string) => void run(() => deleteAlert(id), 'Could not delete alert');
 
-  const onOpen = async (id: string, href: string | null) => {
+  const onOpen = async (item: (typeof rows)[number]) => {
     setError(null);
     try {
-      await markAlertRead(id);
+      await markAlertRead(item.id);
       await queryClient.invalidateQueries({ queryKey: ['alerts'] });
     } catch {
       // Non-blocking: still navigate.
     }
+    const href = resolveAlertHref(item);
     if (href) router.push(href as never);
     else await refresh();
   };
@@ -140,7 +157,7 @@ export function AlertsInboxScreen() {
               style={[styles.row, item.unread && styles.rowUnread]}>
               <Pressable
                 accessibilityRole="button"
-                onPress={() => void onOpen(item.id, item.href)}
+                onPress={() => void onOpen(item)}
                 style={({ pressed }) => [styles.rowHit, pressed && styles.rowPressed]}>
                 <Text style={[styles.rowTitle, item.unread && styles.rowTitleUnread]} numberOfLines={2}>
                   {item.title}

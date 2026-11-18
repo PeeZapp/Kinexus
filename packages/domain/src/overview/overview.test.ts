@@ -6,6 +6,7 @@ import {
   normalizeNewsTopicPriorities,
   normalizeOverviewWidgets,
   normalizeTopicPriorities,
+  rollIncompleteDayTasks,
   topicPriorityConfigsForInterests,
   weatherCodeLabel,
   weatherKind,
@@ -56,6 +57,41 @@ describe('overview widgets', () => {
       { id: 'task1', label: 'Stretch', done: false },
       { id: 'task2', label: 'Call home', done: false },
     ]);
+  });
+
+  it('rolls incomplete tasks onto the target day and leaves done ones behind', () => {
+    expect(
+      rollIncompleteDayTasks(
+        [
+          {
+            date: '2026-11-18',
+            tasks: [{ id: 'keep1', label: 'Already here', done: false }],
+          },
+          {
+            date: '2026-11-17',
+            tasks: [
+              { id: 'open1', label: 'Vacuum', done: false },
+              { id: 'done1', label: 'Done yesterday', done: true },
+            ],
+          },
+          {
+            date: '2026-11-16',
+            tasks: [{ id: 'open2', label: 'Call mum', done: false }],
+          },
+        ],
+        '2026-11-18',
+      ),
+    ).toEqual({
+      target: [
+        { id: 'keep1', label: 'Already here', done: false },
+        { id: 'open1', label: 'Vacuum', done: false },
+        { id: 'open2', label: 'Call mum', done: false },
+      ],
+      priors: [
+        { date: '2026-11-17', tasks: [{ id: 'done1', label: 'Done yesterday', done: true }] },
+        { date: '2026-11-16', tasks: [] },
+      ],
+    });
   });
 
   it('labels a seven-day forecast code', () => {

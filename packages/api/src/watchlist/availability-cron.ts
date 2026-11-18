@@ -222,7 +222,7 @@ async function insertWatchlistAvailableAlert(admin: SupabaseClient, input: {
     segment: 'watchlist_available',
     title: input.title.slice(0, 160),
     body,
-    href: '/lists/watchlist',
+    href: `/lists/watchlist?titleId=${encodeURIComponent(input.titleId)}`,
     payload: { titleId: input.titleId, providerIds: input.providerIds } as unknown,
   });
   if (error) throw error;

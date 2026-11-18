@@ -14,7 +14,7 @@ import {
   type GroceryConnector,
 } from '@/src/lib/meals-api';
 
-export function GrokBotSettings() {
+export function GrokBotSettings({ fill = false }: { fill?: boolean } = {}) {
   const { activeHousehold } = useHousehold();
   const [connectors, setConnectors] = useState<GroceryConnector[]>([]);
   const [issued, setIssued] = useState<{ address: string; message: string } | null>(null);
@@ -83,7 +83,7 @@ export function GrokBotSettings() {
   }
 
   return (
-    <Card style={styles.cardFill}>
+    <Card style={fill ? styles.cardFill : styles.cardMobile}>
       <Text style={styles.heading}>Grok Bot</Text>
       <ErrorText message={error} />
       <Btn label="Connect Grok Bot" busy={busy} disabled={busy} onPress={() => void connect()} />
@@ -120,7 +120,8 @@ export function GrokBotSettings() {
 }
 
 const styles = StyleSheet.create({
-  cardFill: { flex: 1 },
+  cardFill: { flexGrow: 1, alignSelf: 'stretch', width: '100%', minWidth: 0, maxWidth: '100%' },
+  cardMobile: { alignSelf: 'stretch', width: '100%', minWidth: 0, maxWidth: '100%' },
   heading: { color: colors.text, fontSize: 17, fontWeight: '700' },
   issued: { gap: 8 },
   message: { color: colors.text, fontSize: 13 },

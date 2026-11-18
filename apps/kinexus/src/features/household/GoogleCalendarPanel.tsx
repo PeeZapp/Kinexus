@@ -81,7 +81,7 @@ function AccountBlock({
   );
 }
 
-export function GoogleCalendarPanel() {
+export function GoogleCalendarPanel({ fill = false }: { fill?: boolean } = {}) {
   const { role, activeHousehold } = useHousehold();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
@@ -148,7 +148,7 @@ export function GoogleCalendarPanel() {
   }
 
   return (
-    <Card style={styles.cardFill}>
+    <Card style={fill ? styles.cardFill : styles.cardMobile}>
       <View style={styles.headingRow}>
         <Text style={styles.heading}>Google Calendar</Text>
       </View>
@@ -172,7 +172,7 @@ export function GoogleCalendarPanel() {
       ))}
       {note ? <Text style={styles.meta}>{note}</Text> : null}
       <ErrorText message={error || (status.error instanceof Error ? status.error.message : null)} />
-      <View style={styles.footerSpacer} />
+      {fill ? <View style={styles.footerSpacer} /> : null}
       <Btn
         label={accounts.length > 0 ? 'Connect another account' : 'Connect'}
         onPress={() => void onConnect()}
@@ -185,11 +185,22 @@ export function GoogleCalendarPanel() {
 
 const styles = StyleSheet.create({
   cardFill: {
-    flex: 1,
+    flexGrow: 1,
+    alignSelf: 'stretch',
+    width: '100%',
+    minWidth: 0,
+    maxWidth: '100%',
+  },
+  cardMobile: {
+    alignSelf: 'stretch',
+    width: '100%',
+    minWidth: 0,
+    maxWidth: '100%',
   },
   footerSpacer: {
     flexGrow: 1,
     minHeight: 0,
+    width: '100%',
   },
   headingRow: {
     flexDirection: 'row',

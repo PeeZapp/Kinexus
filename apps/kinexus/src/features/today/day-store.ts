@@ -3,6 +3,7 @@ import {
   clipDayText,
   JOURNAL_LIMIT,
   normalizeDayTasks,
+  rollIncompleteDayTasks,
   WORKOUT_NOTES_LIMIT,
   WORKOUT_TITLE_LIMIT,
   type DayTask,
@@ -78,6 +79,100 @@ export async function loadUserDay(user: AuthUser, date: string): Promise<UserDay
     workoutTitle: clipDayText(data.workout_title, WORKOUT_TITLE_LIMIT).trim(),
     workoutNotes: clipDayText(data.workout_notes, WORKOUT_NOTES_LIMIT),
   };
+}
+
+/** Pull incomplete personal tasks from earlier days onto `today` and persist the move. */
+export async function rollPersonalTasksForward(user: AuthUser, today: string): Promise<UserDay> {
+  const current = await loadUserDay(user, today);
+
+  if (usesLocalStore(user)) {
+    const prefix = `kinexus.userDay.${user.id}.`;
+    const keys = (await AsyncStorage.getAllKeys()).filter((key) => key.startsWith(prefix));
+    const pairs = keys.length > 0 ? await AsyncStorage.multiGet(keys) : [];
+    const buckets: { date: string; tasks: DayTask[] }[] = [{ date: today, tasks: current.tasks }];
+    for (const [key, raw] of pairs) {
+      const date = key.slice(prefix.length);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date >= today || !raw) continue;
+      try {
+        buckets.push({ date, tasks: fromStored(date, JSON.parse(raw)).tasks });
+      } catch {
+        continue;
+      }
+    }
+    const rolled = rollIncompleteDayTasks(buckets, today);
+    const next = { ...current, tasks: rolled.target };
+    const writes: [string, string][] = [[storageKey(user.id, today), JSON.stringify(next)]];
+    for (const prior of rolled.priors) {
+      const raw = await AsyncStorage.getItem(storageKey(user.id, prior.date));
+      if (!raw) {
+        if (prior.tasks.length === 0) continue;
+        writes.push([
+          storageKey(user.id, prior.date),
+          JSON.stringify({ ...emptyUserDay(prior.date), tasks: prior.tasks }),
+        ]);
+        continue;
+      }
+      try {
+        const stored = fromStored(prior.date, JSON.parse(raw));
+        writes.push([
+          storageKey(user.id, prior.date),
+          JSON.stringify({ ...stored, tasks: prior.tasks }),
+        ]);
+      } catch {
+        continue;
+      }
+    }
+    await AsyncStorage.multiSet(writes);
+    return next;
+  }
+
+  const { data, error } = await supabase!
+    .from('user_days')
+    .select('day, tasks, journal, workout_title, workout_notes')
+    .eq('user_id', user.id)
+    .lt('day', today)
+    .order('day', { ascending: false })
+    .limit(90);
+  if (error) throw explain(error);
+
+  const buckets = [
+    { date: today, tasks: current.tasks },
+    ...(data ?? []).map((row) => ({
+      date: row.day as string,
+      tasks: normalizeDayTasks(row.tasks),
+    })),
+  ];
+  const rolled = rollIncompleteDayTasks(buckets, today);
+  const moved = rolled.target.length !== current.tasks.length
+    || rolled.target.some((task, index) => task.id !== current.tasks[index]?.id);
+  const priorChanged = rolled.priors.some((prior) => {
+    const original = (data ?? []).find((row) => row.day === prior.date);
+    return JSON.stringify(normalizeDayTasks(original?.tasks)) !== JSON.stringify(prior.tasks);
+  });
+  if (!moved && !priorChanged) return current;
+
+  const next = { ...current, tasks: rolled.target };
+  await saveUserDay(user, next);
+  await Promise.all(
+    rolled.priors.map(async (prior) => {
+      const original = (data ?? []).find((row) => row.day === prior.date);
+      if (!original) return;
+      if (JSON.stringify(normalizeDayTasks(original.tasks)) === JSON.stringify(prior.tasks)) return;
+      const { error: updateError } = await supabase!.from('user_days').upsert(
+        {
+          user_id: user.id,
+          day: prior.date,
+          tasks: prior.tasks as unknown as Json,
+          journal: clipDayText(original.journal, JOURNAL_LIMIT),
+          workout_title: clipDayText(original.workout_title, WORKOUT_TITLE_LIMIT).trim(),
+          workout_notes: clipDayText(original.workout_notes, WORKOUT_NOTES_LIMIT),
+        },
+        { onConflict: 'user_id,day' },
+      );
+      if (updateError) throw explain(updateError);
+    }),
+  );
+  return next;
 }
 
 export type JournalEntry = {

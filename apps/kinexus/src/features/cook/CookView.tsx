@@ -115,6 +115,7 @@ function CookViewBody({
         .map((item) => ({
           name: item.name,
           amount: scaledQuantityLabel(item.quantity, recipe.originalServings, servings),
+          section: item.group?.trim() || undefined,
         }))
         .filter((item) => Boolean(item.name.trim()) && Boolean(item.amount?.trim())),
     [recipe.ingredients, recipe.originalServings, servings],

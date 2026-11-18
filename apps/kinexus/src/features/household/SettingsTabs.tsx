@@ -88,18 +88,18 @@ export function SettingsConnectionsTab() {
         <>
           <View style={styles.splitRow}>
             <View style={styles.splitCol}>
-              <GoogleCalendarPanel />
+              <GoogleCalendarPanel fill />
             </View>
             <View style={styles.splitCol}>
-              <ConnectedAiChats />
+              <ConnectedAiChats fill />
             </View>
           </View>
           <View style={styles.splitRow}>
             <View style={styles.splitCol}>
-              <GrokBotSettings />
+              <GrokBotSettings fill />
             </View>
             <View style={styles.splitCol}>
-              <AiKeySettings />
+              <AiKeySettings fill />
             </View>
           </View>
         </>

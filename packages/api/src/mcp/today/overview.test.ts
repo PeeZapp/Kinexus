@@ -114,6 +114,7 @@ function overviewClient(opts: {
           },
         };
       }
+      if (table === 'household_day_tasks') return tableApi([]);
       if (table === 'household_talk_items') return tableApi(talk);
       if (table === 'household_events') return tableApi(events);
       if (table === 'household_event_people') return tableApi([]);
@@ -189,7 +190,9 @@ describe('get_today overview', () => {
     });
     const overview = await getTodayOverview(callerFor(client), { date: '2026-11-15' });
     expect(overview.date).toBe('2026-11-15');
-    expect(overview.tasks).toEqual([{ id: 'task-1', label: 'Call mum', done: false }]);
+    expect(overview.tasks).toEqual([
+      { id: 'task-1', label: 'Call mum', done: false, scope: 'personal', assignedTo: null },
+    ]);
     expect(overview.talk.map((t) => t.body)).toEqual(['School fees']);
     expect(overview.calendar.map((e) => e.title)).toEqual(['Soccer']);
     expect(overview.alerts.unreadCount).toBe(1);

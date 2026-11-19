@@ -123,7 +123,7 @@ export async function handoffShareTarget(
 ): Promise<void> {
   const { target, url, text, list, files } = input;
 
-  if (list && (target === 'watchlist' || target === 'readlist' || target === 'wishlist')) {
+  if (list && (target === 'watchlist' || target === 'readlist' || target === 'wishlist' || target === 'saves')) {
     await writeLastUsedShareList(target, list);
   }
 
@@ -219,6 +219,17 @@ export async function handoffShareTarget(
   if (target === 'wishlist') {
     router.replace({
       pathname: '/lists/wishlists',
+      params: {
+        ...(url ? { shareUrl: url } : {}),
+        ...(list?.id ? { listId: list.id } : {}),
+      },
+    } as Href);
+    return;
+  }
+
+  if (target === 'saves') {
+    router.replace({
+      pathname: '/lists/saves',
       params: {
         ...(url ? { shareUrl: url } : {}),
         ...(list?.id ? { listId: list.id } : {}),

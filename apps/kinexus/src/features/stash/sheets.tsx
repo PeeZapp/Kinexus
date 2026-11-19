@@ -12,7 +12,6 @@ import {
   formatListLabel,
   formatMoney,
   detailNote,
-  isIsoDate,
   linkTypeLabel,
   normalizeListEmoji,
   normalizeListTheme,
@@ -30,11 +29,15 @@ import {
   type StashProduct,
 } from '@kinexus/domain';
 
+import { IsoDatePicker } from '@/src/features/household/IsoDatePicker';
 import { Btn, Field, Pill } from '@/src/features/household/ui';
 import { Sheet } from '@/src/features/meals/meals-kit';
 import { StashPhoto } from '@/src/features/stash/StashShared';
 import type { ChecklistItemDraft, LinkDraft, ListIdentityDraft, ListShareDraft, ProductDraft } from '@/src/features/stash/use-stash-sync';
 import { colors, radius, space } from '@/src/features/shell/theme';
+
+const DUE_YEAR_MIN = new Date().getFullYear() - 1;
+const DUE_YEAR_MAX = new Date().getFullYear() + 10;
 
 function openUrl(url: string) {
   if (!url) return;
@@ -285,7 +288,6 @@ export function ChecklistItemSheet({
   const [category, setCategory] = useState<string | null>(null);
   const [priority, setPriority] = useState<StashListItemPriority>(0);
   const [dueOn, setDueOn] = useState<string | null>(null);
-  const [dueText, setDueText] = useState('');
   const [recurrence, setRecurrence] = useState<StashListRecurrence>('none');
   const [assignedPersonId, setAssignedPersonId] = useState<string | null>(null);
   const [listId, setListId] = useState<string | null>(null);
@@ -302,7 +304,6 @@ export function ChecklistItemSheet({
     setCategory(item?.category ?? null);
     setPriority(item?.priority ?? 0);
     setDueOn(item?.dueOn ?? null);
-    setDueText(item?.dueOn ?? '');
     setRecurrence(item?.recurrence ?? 'none');
     setAssignedPersonId(item?.assignedPersonId ?? null);
     setListId(singleListId);
@@ -311,21 +312,10 @@ export function ChecklistItemSheet({
 
   function chooseDue(next: string | null) {
     setDueOn(next);
-    setDueText(next ?? '');
   }
 
   async function save() {
-    const typed = dueText.trim();
     let nextDue = dueOn;
-    if (typed) {
-      if (!isIsoDate(typed)) {
-        setLocalError('Due date needs to be YYYY-MM-DD');
-        return;
-      }
-      nextDue = typed;
-    } else {
-      nextDue = null;
-    }
     if (recurrence !== 'none' && !nextDue) nextDue = today;
     if (chooseList && !listId) {
       setLocalError('Choose a list for this item');
@@ -360,15 +350,14 @@ export function ChecklistItemSheet({
           ))}
           {dueOn && !presetMatch ? <Pill label={dueOn} active /> : null}
         </View>
-        <Field
-          label="Or a specific date"
-          value={dueText}
-          onChangeText={(value) => {
-            setDueText(value);
-            setDueOn(isIsoDate(value.trim()) ? value.trim() : dueOn);
-          }}
-          placeholder="YYYY-MM-DD"
-          autoCapitalize="none"
+        <IsoDatePicker
+          label="Specific date"
+          value={dueOn}
+          onChange={chooseDue}
+          optional
+          minYear={DUE_YEAR_MIN}
+          maxYear={DUE_YEAR_MAX}
+          yearOrder="asc"
         />
         <Text style={styles.label}>Repeat</Text>
         <View style={styles.wrap}>
@@ -712,6 +701,7 @@ export function AddLinkSheet({
   collections,
   people = [],
   defaultCollectionId,
+  initialUrl,
   onClose,
   onScrape,
   onSave,
@@ -722,6 +712,7 @@ export function AddLinkSheet({
   collections: SavedLinkCollection[];
   people?: HouseholdPerson[];
   defaultCollectionId: string | null;
+  initialUrl?: string | null;
   onClose: () => void;
   onScrape: (url: string) => Promise<LinkDraft>;
   onSave: (draft: LinkDraft) => Promise<void>;
@@ -747,7 +738,8 @@ export function AddLinkSheet({
       return;
     }
     requestId.current += 1;
-    setUrl('');
+    const seeded = initialUrl?.trim() || '';
+    setUrl(seeded);
     setTitle('');
     setNotes('');
     setCollectionId(defaultCollectionId);
@@ -755,7 +747,7 @@ export function AddLinkSheet({
     setDraft({});
     setScrapedForUrl(null);
     setLocalError(null);
-  }, [defaultCollectionId, visible]);
+  }, [defaultCollectionId, initialUrl, visible]);
 
   async function lookup(target: string): Promise<LinkDraft | null> {
     const trimmed = target.trim();

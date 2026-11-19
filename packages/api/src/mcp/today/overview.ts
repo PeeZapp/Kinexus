@@ -18,7 +18,8 @@ export type TodayOverview = {
     label: string;
     done: boolean;
     scope: 'personal' | 'household';
-    assignedTo: string | null;
+    visibility: 'private' | 'household' | 'people';
+    visibleTo: string[];
   }[];
   talk: { id: string; body: string; createdBy: string }[];
   calendar: {
@@ -70,7 +71,7 @@ async function loadDayTasks(
     .maybeSingle();
   const shared = client
     .from('household_day_tasks')
-    .select('id, label, done, assigned_to')
+    .select('id, label, done, visibility, visible_to')
     .eq('household_id', householdId)
     .eq('day', date)
     .order('created_at', { ascending: true })
@@ -86,15 +87,24 @@ async function loadDayTasks(
     label: task.label,
     done: task.done,
     scope: 'personal' as const,
-    assignedTo: null,
+    visibility: 'private' as const,
+    visibleTo: [] as string[],
   }));
-  const householdTasks = (sharedResult.data ?? []).map((row) => ({
-    id: String((row as { id: string }).id),
-    label: String((row as { label: string }).label ?? ''),
-    done: Boolean((row as { done: boolean }).done),
-    scope: 'household' as const,
-    assignedTo: ((row as { assigned_to: string | null }).assigned_to ?? null) as string | null,
-  }));
+  const householdTasks = (sharedResult.data ?? []).map((row) => {
+    const visibility =
+      (row as { visibility?: string }).visibility === 'people' ? ('people' as const) : ('household' as const);
+    const visibleTo = Array.isArray((row as { visible_to?: unknown }).visible_to)
+      ? ((row as { visible_to: string[] }).visible_to ?? []).filter(Boolean)
+      : [];
+    return {
+      id: String((row as { id: string }).id),
+      label: String((row as { label: string }).label ?? ''),
+      done: Boolean((row as { done: boolean }).done),
+      scope: 'household' as const,
+      visibility,
+      visibleTo,
+    };
+  });
   return [...personalTasks, ...householdTasks];
 }
 

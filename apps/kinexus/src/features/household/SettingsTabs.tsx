@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { CreatorPanel } from '@/src/features/creators/CreatorPanel';
+import { DeveloperAlertsPanel } from '@/src/features/alerts/DeveloperAlertsPanel';
 import { GoogleCalendarPanel } from '@/src/features/household/GoogleCalendarPanel';
 import { ConnectedAiChats } from '@/src/features/connectors/ConnectedAiChats';
 import { AiKeySettings } from '@/src/features/household/AiKeySettings';
@@ -16,6 +17,7 @@ import {
   CreateJoinPanel,
   LocationPanel,
 } from '@/src/features/household/sections';
+import { useDeveloperSettingsAccess } from '@/src/features/household/useDeveloperSettingsAccess';
 import { UnitsSettings } from '@/src/features/household/UnitsSettings';
 import { LegalLinks } from '@/src/features/legal/LegalLinks';
 import { StaffSettingsLink } from '@/src/features/staff/StaffSettingsLink';
@@ -126,11 +128,32 @@ export function SettingsPreferencesTab() {
       {activeHousehold ? <LocationPanel /> : null}
       {activeHousehold ? <RolePreviewCard /> : null}
       <NewsTopicsLink />
-      <StaffSettingsLink />
-      <RecipeImageUploadLink />
       {activeHousehold ? <CreatorPanel /> : null}
       {!activeHousehold ? <CreateJoinPanel /> : null}
       <LegalLinks />
+    </SettingsPage>
+  );
+}
+
+export function SettingsDeveloperTab() {
+  const { isReady, error } = useSettingsReady();
+  const access = useDeveloperSettingsAccess();
+
+  if (!isReady || !access.ready) return <SettingsPage loading />;
+
+  if (!access.showTab) {
+    return (
+      <SettingsPage error={error}>
+        <EmptyCard title="Developer tools are unavailable on this account" />
+      </SettingsPage>
+    );
+  }
+
+  return (
+    <SettingsPage error={error}>
+      {access.isStaff ? <DeveloperAlertsPanel /> : null}
+      <StaffSettingsLink />
+      <RecipeImageUploadLink />
     </SettingsPage>
   );
 }

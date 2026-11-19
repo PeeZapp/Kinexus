@@ -16,7 +16,10 @@ export type ShareIntentFile = {
 
 export type ShareIntentPayload = {
   files?: ShareIntentFile[] | null;
+  /** Native share intent URL field. */
   webUrl?: string | null;
+  /** PWA Web Share Target `url` query/form field. */
+  url?: string | null;
   text?: string | null;
   title?: string | null;
 };
@@ -54,7 +57,7 @@ export function decideShareIntent(payload: ShareIntentPayload): ShareIntentDecis
   }
 
   const guess = guessShareTarget({
-    url: payload.webUrl,
+    url: payload.webUrl ?? payload.url,
     text: payload.text,
     title: payload.title,
   });

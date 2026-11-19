@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -20,7 +19,6 @@ import {
 import { recipePhotoUrl } from '@/src/features/meals/RecipePhoto';
 import type { PlanSlot, useMealsSync } from '@/src/features/meals/use-meals-sync';
 import { isoDayNumber, todayDay, weekDayIso } from '@/src/features/meals/week-labels';
-import { AppModal } from '@/src/features/shell/AppModal';
 import { FilterDropdown, useFilterMenus } from '@/src/features/shell/FilterMenu';
 import { colors, radius, space } from '@/src/features/shell/theme';
 
@@ -87,7 +85,6 @@ export function PlanMobile({
   const applied = planBoardCells(cells);
   const dayLabel = thisWeek && selectedDay === today ? 'Today' : DAY_LABELS[selectedDay];
   const { openMenu, toggleMenu, pick } = useFilterMenus();
-  const [moreOpen, setMoreOpen] = useState(false);
   const showingLabel =
     personFilter === 'all' ? 'Everyone' : peopleOptions.find((person) => person.id === personFilter)?.name ?? 'Everyone';
   const dayLine = removed
@@ -106,7 +103,63 @@ export function PlanMobile({
         dateNums={dateNums}
         onSelect={onSelectDay}
       />
-      <View style={styles.hud}>
+      <View style={styles.actionRow}>
+        {showGenerate ? (
+          <Pressable
+            onPress={onGenerate}
+            style={({ pressed }) => [styles.actionBtn, styles.actionGen, pressed && styles.hudPressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Generate plan">
+            <Text style={styles.actionGenLabel} numberOfLines={1}>
+              Generate
+            </Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          onPress={onShopping}
+          style={({ pressed }) => [styles.actionBtn, styles.actionSecondary, pressed && styles.hudPressed]}
+          accessibilityRole="button"
+          accessibilityLabel="Shopping list">
+          <Text style={styles.actionSecondaryLabel} numberOfLines={1}>
+            Shopping
+          </Text>
+        </Pressable>
+        {canManage ? (
+          <Pressable
+            onPress={onClearWeek}
+            style={({ pressed }) => [styles.actionBtn, styles.actionDanger, pressed && styles.hudPressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Clear week"
+            disabled={clearingWeek}>
+            <Text style={styles.actionDangerLabel} numberOfLines={1}>
+              {clearingWeek ? 'Clearing…' : 'Clear week'}
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+      <OfflineBanner online={meals.online} pendingCount={meals.pendingCount} extra={meals.importBlockedReason} />
+      {clearError || meals.error ? (
+        <Text style={styles.compactError} numberOfLines={1}>
+          {clearError ?? meals.error}
+        </Text>
+      ) : null}
+      <View style={styles.dayMeta}>
+        <View style={styles.dayMetaCopy}>
+          <Text style={styles.dayLine} numberOfLines={1}>
+            {dayLine}
+          </Text>
+          {canManage ? (
+            removed ? (
+              <Pressable onPress={() => onRestoreDay(selectedDay)} hitSlop={6}>
+                <Text style={styles.dayAction}>Restore</Text>
+              </Pressable>
+            ) : (
+              <Pressable onPress={() => onRemoveDay(selectedDay)} hitSlop={6}>
+                <Text style={styles.dayActionMuted}>Remove day</Text>
+              </Pressable>
+            )
+          ) : null}
+        </View>
         <FilterDropdown<PlanPersonFilter>
           id="showing"
           label="Showing"
@@ -119,58 +172,8 @@ export function PlanMobile({
           ]}
           onToggle={toggleMenu}
           onSelect={pick(onPersonFilter)}
-          style={styles.hudDropdown}
+          style={styles.dayMetaDropdown}
         />
-        <View style={styles.hudActions}>
-          {showGenerate ? (
-            <Pressable
-              onPress={onGenerate}
-              style={({ pressed }) => [styles.hudGen, pressed && styles.hudPressed]}
-              accessibilityRole="button"
-              accessibilityLabel="Generate plan">
-              <Text style={styles.hudGenLabel}>Generate</Text>
-            </Pressable>
-          ) : null}
-          <Pressable
-            onPress={onShopping}
-            style={({ pressed }) => [styles.hudIconBtn, pressed && styles.hudPressed]}
-            accessibilityRole="button"
-            accessibilityLabel="Shopping list">
-            <Text style={styles.hudIcon}>☰</Text>
-          </Pressable>
-          {canManage ? (
-            <Pressable
-              onPress={() => setMoreOpen(true)}
-              style={({ pressed }) => [styles.hudIconBtn, pressed && styles.hudPressed]}
-              accessibilityRole="button"
-              accessibilityLabel="More plan actions"
-              disabled={clearingWeek}>
-              <Text style={styles.hudIcon}>⋯</Text>
-            </Pressable>
-          ) : null}
-        </View>
-      </View>
-      <OfflineBanner online={meals.online} pendingCount={meals.pendingCount} extra={meals.importBlockedReason} />
-      {clearError || meals.error ? (
-        <Text style={styles.compactError} numberOfLines={1}>
-          {clearError ?? meals.error}
-        </Text>
-      ) : null}
-      <View style={styles.dayMeta}>
-        <Text style={styles.dayLine} numberOfLines={1}>
-          {dayLine}
-        </Text>
-        {canManage ? (
-          removed ? (
-            <Pressable onPress={() => onRestoreDay(selectedDay)} hitSlop={6}>
-              <Text style={styles.dayAction}>Restore</Text>
-            </Pressable>
-          ) : (
-            <Pressable onPress={() => onRemoveDay(selectedDay)} hitSlop={6}>
-              <Text style={styles.dayActionMuted}>Remove day</Text>
-            </Pressable>
-          )
-        ) : null}
       </View>
       {!removed || canManage ? (
         <View style={styles.stack}>
@@ -195,25 +198,6 @@ export function PlanMobile({
         </View>
       ) : null}
 
-      <AppModal visible={moreOpen} transparent animationType="fade" onRequestClose={() => setMoreOpen(false)}>
-        <Pressable style={styles.moreBackdrop} onPress={() => setMoreOpen(false)} accessibilityLabel="Close menu">
-          <Pressable onPress={() => undefined} style={styles.moreCard} accessibilityViewIsModal>
-            <Pressable
-              onPress={() => {
-                setMoreOpen(false);
-                onClearWeek();
-              }}
-              style={styles.moreItem}
-              accessibilityRole="button"
-              disabled={clearingWeek}>
-              <Text style={styles.moreDanger}>{clearingWeek ? 'Clearing…' : 'Clear week'}</Text>
-            </Pressable>
-            <Pressable onPress={() => setMoreOpen(false)} style={styles.moreClose} accessibilityRole="button">
-              <Text style={styles.moreCloseLabel}>Close</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </AppModal>
     </ScrollView>
   );
 }
@@ -307,87 +291,66 @@ function slotTitleCase(slot: MealSlotKey): string {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { paddingHorizontal: space.md, paddingTop: 4, gap: 8 },
-  hud: {
+  actionRow: {
     flexDirection: 'row',
-    flexWrap: 'nowrap',
-    alignItems: 'center',
+    alignItems: 'stretch',
     gap: 8,
-    minHeight: 40,
-    zIndex: 30,
+    minHeight: 44,
   },
-  hudDropdown: {
+  actionBtn: {
     flexGrow: 1,
     flexShrink: 1,
-    flexBasis: 0,
-    minWidth: 0,
-    maxWidth: '100%',
-    zIndex: 30,
-  },
-  hudActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flexGrow: 0,
-    flexShrink: 0,
-  },
-  hudGen: {
-    minHeight: 32,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    flexBasis: '30%',
+    minHeight: 44,
+    paddingHorizontal: 8,
     borderRadius: radius.sm,
-    backgroundColor: colors.accent,
     justifyContent: 'center',
+    alignItems: 'center',
   },
-  hudGenLabel: { color: colors.bg, fontSize: 12, fontWeight: '700' },
-  hudIconBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.sm,
+  actionGen: {
+    backgroundColor: colors.accent,
+  },
+  actionGenLabel: { color: colors.bg, fontSize: 13, fontWeight: '700' },
+  actionSecondary: {
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.bgHover,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  hudIcon: { color: colors.text, fontSize: 16, fontWeight: '700', marginTop: -1 },
+  actionSecondaryLabel: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  actionDanger: {
+    borderWidth: 1,
+    borderColor: colors.danger,
+    backgroundColor: colors.bgHover,
+  },
+  actionDangerLabel: { color: colors.danger, fontSize: 13, fontWeight: '700' },
   hudPressed: { opacity: 0.78 },
   compactError: {
     color: colors.danger,
     fontSize: 12,
     fontWeight: '600',
   },
-  dayMeta: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  dayLine: { flex: 1, minWidth: 0, color: colors.text, fontSize: 13, fontWeight: '700' },
+  dayMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    zIndex: 30,
+  },
+  dayMetaCopy: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    gap: 4,
+  },
+  dayMetaDropdown: {
+    flexGrow: 0,
+    flexShrink: 1,
+    maxWidth: '48%',
+    minWidth: 132,
+    zIndex: 30,
+  },
+  dayLine: { color: colors.text, fontSize: 13, fontWeight: '700' },
   dayAction: { color: colors.accent, fontSize: 12, fontWeight: '700' },
   dayActionMuted: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
   stack: { gap: 12 },
-  moreBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  moreCard: {
-    width: '100%',
-    maxWidth: 320,
-    backgroundColor: colors.bgElevated,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    overflow: 'hidden',
-  },
-  moreItem: {
-    minHeight: 52,
-    paddingHorizontal: space.md,
-    justifyContent: 'center',
-  },
-  moreDanger: { color: colors.danger, fontSize: 16, fontWeight: '700' },
-  moreClose: {
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  moreCloseLabel: { color: colors.accent, fontSize: 15, fontWeight: '700' },
 });

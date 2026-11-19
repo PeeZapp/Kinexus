@@ -8,6 +8,7 @@ export type ShareTarget =
   | 'watchlist'
   | 'readlist'
   | 'wishlist'
+  | 'saves'
   | 'shopping'
   | 'workout'
   | 'bank_transactions'
@@ -33,7 +34,15 @@ export type ShareTargetGuess = {
   preview: { host: string | null; title: string | null };
 };
 
-const ALL_TARGETS: ShareTarget[] = ['recipe', 'watchlist', 'readlist', 'wishlist', 'shopping', 'workout'];
+const ALL_TARGETS: ShareTarget[] = [
+  'saves',
+  'recipe',
+  'watchlist',
+  'readlist',
+  'wishlist',
+  'shopping',
+  'workout',
+];
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'heic', 'heif', 'webp']);
 const IMAGE_MIMES = new Set([
@@ -434,7 +443,12 @@ export function guessShareTarget(input: ShareTargetInput): ShareTargetGuess {
 
   if (parsed && host && isAmazonHost(host)) {
     if (amazonLooksLikeBook(parsed)) {
-      return { targets: rankWithPrimary('readlist', ['readlist', 'wishlist', 'recipe', 'watchlist', 'shopping']), url: parsed.href, text, preview };
+      return {
+        targets: rankWithPrimary('readlist', ['readlist', 'wishlist', 'saves', 'recipe', 'watchlist', 'shopping']),
+        url: parsed.href,
+        text,
+        preview,
+      };
     }
     if (amazonAsin(parsed.pathname) || isProductPath(parsed.pathname)) {
       return { targets: rankWithPrimary('wishlist'), url: parsed.href, text, preview };
@@ -455,7 +469,7 @@ export function guessShareTarget(input: ShareTargetInput): ShareTargetGuess {
 
   if (parsed) {
     return {
-      targets: ['recipe', 'wishlist', 'watchlist', 'readlist', 'shopping'],
+      targets: rankWithPrimary('saves'),
       url: parsed.href,
       text,
       preview,
@@ -480,6 +494,8 @@ export function shareTargetLabel(target: ShareTarget): string {
       return 'Readlist';
     case 'wishlist':
       return 'Wishlist';
+    case 'saves':
+      return 'Saves';
     case 'shopping':
       return 'Shopping';
     case 'workout':
@@ -501,6 +517,8 @@ export function shareTargetPrimaryActionLabel(target: ShareTarget): string {
       return 'Add to Readlist';
     case 'wishlist':
       return 'Add to Wishlist';
+    case 'saves':
+      return 'Save link';
     case 'shopping':
       return 'Add to Shopping';
     case 'workout':
@@ -512,6 +530,8 @@ export function shareTargetPrimaryActionLabel(target: ShareTarget): string {
   }
 }
 
-export function isListShareTarget(target: ShareTarget): target is 'watchlist' | 'readlist' | 'wishlist' {
-  return target === 'watchlist' || target === 'readlist' || target === 'wishlist';
+export function isListShareTarget(
+  target: ShareTarget,
+): target is 'watchlist' | 'readlist' | 'wishlist' | 'saves' {
+  return target === 'watchlist' || target === 'readlist' || target === 'wishlist' || target === 'saves';
 }

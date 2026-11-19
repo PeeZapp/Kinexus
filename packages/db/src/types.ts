@@ -125,7 +125,7 @@ export type Database = {
         Row: {
           id: string;
           user_id: string;
-          household_id: string;
+          household_id: string | null;
           actor_user_id: string | null;
           segment: string;
           title: string;
@@ -138,7 +138,7 @@ export type Database = {
         Insert: {
           id?: string;
           user_id: string;
-          household_id: string;
+          household_id?: string | null;
           actor_user_id?: string | null;
           segment: string;
           title: string;
@@ -149,6 +149,7 @@ export type Database = {
           created_at?: string;
         };
         Update: {
+          household_id?: string | null;
           actor_user_id?: string | null;
           title?: string;
           body?: string | null;
@@ -745,7 +746,8 @@ export type Database = {
           day: string;
           label: string;
           done: boolean;
-          assigned_to: string | null;
+          visibility: 'household' | 'people';
+          visible_to: string[];
           created_by: string;
           created_at: string;
           updated_at: string;
@@ -756,7 +758,8 @@ export type Database = {
           day: string;
           label: string;
           done?: boolean;
-          assigned_to?: string | null;
+          visibility?: 'household' | 'people';
+          visible_to?: string[];
           created_by: string;
           created_at?: string;
           updated_at?: string;
@@ -765,7 +768,8 @@ export type Database = {
           day?: string;
           label?: string;
           done?: boolean;
-          assigned_to?: string | null;
+          visibility?: 'household' | 'people';
+          visible_to?: string[];
           updated_at?: string;
         };
         Relationships: [
@@ -774,13 +778,6 @@ export type Database = {
             columns: ['household_id'];
             isOneToOne: false;
             referencedRelation: 'households';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'household_day_tasks_assigned_to_fkey';
-            columns: ['assigned_to'];
-            isOneToOne: false;
-            referencedRelation: 'profiles';
             referencedColumns: ['id'];
           },
           {
@@ -4648,6 +4645,16 @@ export type Database = {
           p_body?: string | null;
           p_href?: string | null;
           p_payload?: Json;
+        };
+        Returns: undefined;
+      };
+      notify_platform_staff_alert: {
+        Args: {
+          p_title: string;
+          p_body?: string | null;
+          p_href?: string | null;
+          p_payload?: Json;
+          p_household_id?: string | null;
         };
         Returns: undefined;
       };

@@ -19,7 +19,9 @@ import {
   type DayTask,
 } from '@kinexus/domain';
 
+import { queueCalendarOpen } from '@/src/features/calendar/calendar-open-stash';
 import { EVENT_COLOR, MARKER_COLOR } from '@/src/features/calendar/colors';
+import { EventDetailSheet } from '@/src/features/calendar/EventDetailSheet';
 import { loadPersonalGoogleDayEvents } from '@/src/features/calendar/google-sync';
 import { loadCalendarMarkers } from '@/src/features/calendar/observances';
 import { loadDayEvents } from '@/src/features/calendar/store';
@@ -43,6 +45,7 @@ import {
   removeHouseholdDayTask,
   rollHouseholdDayTasksForward,
   setHouseholdDayTaskDone,
+  updateHouseholdDayTask,
   type HouseholdDayTask,
 } from '@/src/features/today/household-tasks-store';
 import {
@@ -60,6 +63,7 @@ import {
   removeTalkItem,
   setTalkItemDone,
   TALK_ITEM_LIMIT,
+  updateTalkItem,
   type TalkItem,
 } from '@/src/features/today/talk-store';
 import type { AuthUser } from '@/src/lib/auth';
@@ -328,7 +332,34 @@ function DayBoard({
   );
 }
 
-type TaskAudience = 'me' | 'household' | string;
+type TaskAudience =
+  | { mode: 'me' }
+  | { mode: 'household' }
+  | { mode: 'people'; userIds: string[] };
+
+type TaskEditor =
+  | { kind: 'create' }
+  | { kind: 'edit-personal'; id: string; done: boolean }
+  | { kind: 'edit-shared'; id: string; done: boolean };
+
+function sharedTaskTag(
+  task: HouseholdDayTask,
+  selfId: string,
+  nameById: Map<string, string>,
+): string {
+  if (task.visibility === 'household') return 'Everyone';
+  const names = task.visibleTo
+    .filter((id) => id !== selfId)
+    .map((id) => nameById.get(id) ?? 'Someone');
+  if (names.length === 0) return 'Shared';
+  if (names.length <= 2) return names.join(' · ');
+  return `${names[0]} +${names.length - 1}`;
+}
+
+function audienceFromShared(task: HouseholdDayTask): TaskAudience {
+  if (task.visibility === 'household') return { mode: 'household' };
+  return { mode: 'people', userIds: [...task.visibleTo] };
+}
 
 function TasksPanel({
   user,
@@ -345,10 +376,13 @@ function TasksPanel({
   const householdId = activeHousehold?.id ?? null;
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState('');
-  const [audience, setAudience] = useState<TaskAudience>('me');
+  const [editor, setEditor] = useState<TaskEditor | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+  const [audience, setAudience] = useState<TaskAudience>({ mode: 'me' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const canShare = Boolean(householdId && isSupabaseConfigured && !user.isDevBypass);
+  const canShare = Boolean(householdId && isReady && isSupabaseConfigured && !user.isDevBypass);
+  const others = members.filter((member) => member.profile.id !== user.id);
   const nameById = new Map(
     members.map((member) => [member.profile.id, firstName(member.profile.displayName)] as const),
   );
@@ -386,46 +420,183 @@ function TasksPanel({
   const sharedTasks = shared.data ?? [];
   const personalFull = tasks.length >= DAY_TASK_LIMIT;
   const sharedFull = sharedTasks.length >= HOUSEHOLD_DAY_TASK_LIMIT;
-  const full = audience === 'me' ? personalFull : sharedFull;
+  const listsFull = personalFull && sharedFull;
   const open = tasks.filter((task) => !task.done).length + sharedTasks.filter((task) => !task.done).length;
   const empty = tasks.length === 0 && sharedTasks.length === 0;
+  const modalOpen = editor !== null;
+  const cleanedEdit = editLabel.replace(/\s+/g, ' ').trim().slice(0, 120);
+  const stayingPersonal = editor?.kind === 'edit-personal' && audience.mode === 'me';
+  const stayingShared = editor?.kind === 'edit-shared' && audience.mode !== 'me';
+  const audienceBlocked =
+    !cleanedEdit ||
+    (audience.mode === 'people' && audience.userIds.length === 0) ||
+    (audience.mode === 'me' && personalFull && !stayingPersonal) ||
+    (audience.mode !== 'me' && sharedFull && !stayingShared);
 
-  const add = () => {
+  const resetEditor = () => {
+    setEditor(null);
+    setEditLabel('');
+    setAudience({ mode: 'me' });
+    setError(null);
+  };
+
+  const closeModal = () => {
+    if (busy) return;
+    resetEditor();
+  };
+
+  const togglePerson = (id: string) => {
+    setAudience((current) => {
+      if (current.mode === 'people') {
+        const on = current.userIds.includes(id);
+        const next = on ? current.userIds.filter((item) => item !== id) : [...current.userIds, id];
+        return next.length === 0 ? { mode: 'me' } : { mode: 'people', userIds: next };
+      }
+      return { mode: 'people', userIds: [id] };
+    });
+  };
+
+  const beginAdd = () => {
     const label = draft.replace(/\s+/g, ' ').trim().slice(0, 120);
-    if (!label || full || busy) return;
-    if (audience === 'me') {
+    if (!label || listsFull || busy) return;
+    setError(null);
+    if (!canShare) {
+      if (personalFull) {
+        setError('Your private list is full for this day.');
+        return;
+      }
       onChange(normalizeDayTasks([...tasks, { id: taskId(), label, done: false }]));
       setDraft('');
       return;
     }
+    setAudience({ mode: 'me' });
+    setEditLabel(label);
+    setEditor({ kind: 'create' });
+  };
+
+  const beginEditPersonal = (task: DayTask) => {
+    if (busy) return;
+    setError(null);
+    setEditLabel(task.label);
+    setAudience({ mode: 'me' });
+    setEditor({ kind: 'edit-personal', id: task.id, done: task.done });
+  };
+
+  const beginEditShared = (task: HouseholdDayTask) => {
+    if (busy) return;
+    setError(null);
+    setEditLabel(task.label);
+    setAudience(audienceFromShared(task));
+    setEditor({ kind: 'edit-shared', id: task.id, done: task.done });
+  };
+
+  const patchSharedCache = (next: HouseholdDayTask[] | ((current: HouseholdDayTask[]) => HouseholdDayTask[])) => {
+    queryClient.setQueryData<HouseholdDayTask[]>(['household-day-tasks', householdId, date], (current) => {
+      const list = current ?? [];
+      return typeof next === 'function' ? next(list) : next;
+    });
+  };
+
+  const confirmEditor = () => {
+    if (!editor || busy || audienceBlocked) return;
+    const label = cleanedEdit;
+
+    const finishLocalPersonal = (nextTasks: DayTask[]) => {
+      onChange(normalizeDayTasks(nextTasks));
+      if (editor.kind === 'create') setDraft('');
+      resetEditor();
+    };
+
+    if (audience.mode === 'me') {
+      if (editor.kind === 'create') {
+        finishLocalPersonal([...tasks, { id: taskId(), label, done: false }]);
+        return;
+      }
+      if (editor.kind === 'edit-personal') {
+        finishLocalPersonal(
+          tasks.map((item) => (item.id === editor.id ? { ...item, label } : item)),
+        );
+        return;
+      }
+      // Shared → private
+      if (personalFull) {
+        setError('Your private list is full for this day.');
+        return;
+      }
+      if (!householdId) return;
+      setBusy(true);
+      setError(null);
+      void removeHouseholdDayTask(editor.id)
+        .then(() => {
+          patchSharedCache((current) => current.filter((item) => item.id !== editor.id));
+          onChange(normalizeDayTasks([...tasks, { id: taskId(), label, done: editor.done }]));
+          setBusy(false);
+          resetEditor();
+        })
+        .catch((err: unknown) => {
+          setBusy(false);
+          setError(err instanceof Error ? err.message : 'Could not update the task.');
+        });
+      return;
+    }
+
     if (!householdId || !canShare) {
       setError('Join a household and sign in to share tasks.');
       return;
     }
+
+    const share =
+      audience.mode === 'household'
+        ? ({ visibility: 'household' } as const)
+        : ({ visibility: 'people', visibleTo: audience.userIds } as const);
+
     setBusy(true);
     setError(null);
-    const assignedTo = audience === 'household' ? null : audience;
-    void addHouseholdDayTask(user, householdId, date, label, assignedTo)
+
+    if (editor.kind === 'edit-shared') {
+      void updateHouseholdDayTask(user, editor.id, label, share)
+        .then((item) => {
+          patchSharedCache((current) => current.map((row) => (row.id === item.id ? item : row)));
+          setBusy(false);
+          resetEditor();
+        })
+        .catch((err: unknown) => {
+          setBusy(false);
+          setError(err instanceof Error ? err.message : 'Could not update the task.');
+        });
+      return;
+    }
+
+    // create shared, or personal → shared
+    void addHouseholdDayTask(user, householdId, date, label, share)
       .then((item) => {
-        queryClient.setQueryData<HouseholdDayTask[]>(
-          ['household-day-tasks', householdId, date],
-          (current) => [...(current ?? []), item],
-        );
-        setDraft('');
+        const withDone = editor.kind === 'edit-personal' ? { ...item, done: editor.done } : item;
+        if (editor.kind === 'edit-personal' && editor.done !== item.done) {
+          return setHouseholdDayTaskDone(item.id, editor.done).then(() => withDone);
+        }
+        return withDone;
+      })
+      .then((item) => {
+        patchSharedCache((current) => [...current, item]);
+        if (editor.kind === 'edit-personal') {
+          onChange(normalizeDayTasks(tasks.filter((row) => row.id !== editor.id)));
+        } else {
+          setDraft('');
+        }
         setBusy(false);
+        resetEditor();
       })
       .catch((err: unknown) => {
         setBusy(false);
-        setError(err instanceof Error ? err.message : 'Could not add the shared task.');
+        setError(err instanceof Error ? err.message : 'Could not save the task.');
       });
   };
 
   const toggleShared = (task: HouseholdDayTask) => {
     if (!householdId || busy) return;
     const next = !task.done;
-    queryClient.setQueryData<HouseholdDayTask[]>(
-      ['household-day-tasks', householdId, date],
-      (current) => (current ?? []).map((item) => (item.id === task.id ? { ...item, done: next } : item)),
+    patchSharedCache((current) =>
+      current.map((item) => (item.id === task.id ? { ...item, done: next } : item)),
     );
     void setHouseholdDayTaskDone(task.id, next).catch((err: unknown) => {
       void queryClient.invalidateQueries({ queryKey: ['household-day-tasks', householdId, date] });
@@ -435,15 +606,17 @@ function TasksPanel({
 
   const removeShared = (task: HouseholdDayTask) => {
     if (!householdId || busy) return;
-    queryClient.setQueryData<HouseholdDayTask[]>(
-      ['household-day-tasks', householdId, date],
-      (current) => (current ?? []).filter((item) => item.id !== task.id),
-    );
+    patchSharedCache((current) => current.filter((item) => item.id !== task.id));
     void removeHouseholdDayTask(task.id).catch((err: unknown) => {
       void queryClient.invalidateQueries({ queryKey: ['household-day-tasks', householdId, date] });
       setError(err instanceof Error ? err.message : 'Could not remove the task.');
     });
   };
+
+  const meDisabled = personalFull && !stayingPersonal;
+  const shareDisabled = sharedFull && !stayingShared;
+  const saving = editor?.kind === 'create' ? 'Adding…' : 'Saving…';
+  const saveLabel = editor?.kind === 'create' ? 'Add task' : 'Save';
 
   return (
     <View style={styles.panel}>
@@ -465,9 +638,22 @@ function TasksPanel({
             style={[styles.check, task.done && styles.checkOn]}>
             {task.done ? <Text style={styles.checkMark}>✓</Text> : null}
           </Pressable>
-          <View style={styles.talkBody}>
-            <Text style={[styles.taskLabel, task.done && styles.taskDone]}>{task.label}</Text>
-          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Edit ${task.label}`}
+            onPress={() => beginEditPersonal(task)}
+            style={styles.taskHit}>
+            <Text style={[styles.taskLabel, task.done && styles.taskDone]} numberOfLines={2}>
+              {task.label}
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Edit Just me"
+            onPress={() => beginEditPersonal(task)}
+            style={styles.taskTag}>
+            <Text style={styles.taskTagLabel}>Just me</Text>
+          </Pressable>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Remove ${task.label}`}
@@ -479,7 +665,7 @@ function TasksPanel({
         </View>
       ))}
       {sharedTasks.map((task) => {
-        const who = task.assignedTo ? nameById.get(task.assignedTo) ?? 'Someone' : 'Everyone';
+        const tag = sharedTaskTag(task, user.id, nameById);
         return (
           <View key={`hh:${task.id}`} style={styles.taskRow}>
             <Pressable
@@ -489,10 +675,24 @@ function TasksPanel({
               style={[styles.check, task.done && styles.checkOn]}>
               {task.done ? <Text style={styles.checkMark}>✓</Text> : null}
             </Pressable>
-            <View style={styles.talkBody}>
-              <Text style={styles.talkWho}>{who}</Text>
-              <Text style={[styles.taskLabel, task.done && styles.taskDone]}>{task.label}</Text>
-            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Edit ${task.label}`}
+              onPress={() => beginEditShared(task)}
+              style={styles.taskHit}>
+              <Text style={[styles.taskLabel, task.done && styles.taskDone]} numberOfLines={2}>
+                {task.label}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Edit ${tag}`}
+              onPress={() => beginEditShared(task)}
+              style={styles.taskTag}>
+              <Text style={styles.taskTagLabel} numberOfLines={1}>
+                {tag}
+              </Text>
+            </Pressable>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Remove ${task.label}`}
@@ -504,50 +704,90 @@ function TasksPanel({
           </View>
         );
       })}
-      {canShare && isReady ? (
-        <OptionTiles
-          rows={[
-            {
-              key: 'me',
-              label: 'Just me',
-              active: audience === 'me',
-              onPress: () => setAudience('me'),
-            },
-            {
-              key: 'household',
-              label: 'Everyone',
-              active: audience === 'household',
-              onPress: () => setAudience('household'),
-            },
-            ...members.map((member) => ({
-              key: member.profile.id,
-              label: firstName(member.profile.displayName),
-              active: audience === member.profile.id,
-              onPress: () => setAudience(member.profile.id),
-            })),
-          ]}
-        />
-      ) : null}
-      <ErrorText message={error} />
+      <ErrorText message={error && !modalOpen ? error : null} />
       <View style={styles.addRow}>
         <TextInput
           value={draft}
           onChangeText={setDraft}
-          placeholder={full ? 'The list is full' : 'Add a task'}
+          placeholder={listsFull ? 'The list is full' : 'Add a task'}
           placeholderTextColor={colors.textDim}
-          editable={!full && !busy}
+          editable={!listsFull && !busy}
           style={styles.addInput}
           returnKeyType="done"
-          onSubmitEditing={add}
+          onSubmitEditing={beginAdd}
         />
         <Pressable
           accessibilityRole="button"
-          disabled={!draft.trim() || full || busy}
-          onPress={add}
+          disabled={!draft.trim() || listsFull || busy}
+          onPress={beginAdd}
           style={styles.addBtn}>
-          <Text style={[styles.addBtnLabel, (!draft.trim() || full || busy) && styles.addBtnOff]}>Add</Text>
+          <Text style={[styles.addBtnLabel, (!draft.trim() || listsFull || busy) && styles.addBtnOff]}>
+            Add
+          </Text>
         </Pressable>
       </View>
+
+      <AppModal visible={modalOpen} transparent animationType="fade" onRequestClose={closeModal}>
+        <Pressable style={styles.sheetBackdrop} onPress={closeModal}>
+          <Pressable onPress={() => undefined} accessibilityViewIsModal style={styles.taskSheetCard}>
+            <View style={styles.sheetHead}>
+              <Text style={styles.sheetTitle}>{editor?.kind === 'create' ? 'Add task' : 'Edit task'}</Text>
+              <Pressable onPress={closeModal} hitSlop={8} disabled={busy}>
+                <Text style={styles.link}>Cancel</Text>
+              </Pressable>
+            </View>
+            <View style={styles.taskSheetBody}>
+              <TextInput
+                value={editLabel}
+                onChangeText={setEditLabel}
+                placeholder="Task"
+                placeholderTextColor={colors.textDim}
+                editable={!busy}
+                style={styles.taskSheetInput}
+                maxLength={120}
+                returnKeyType="done"
+                onSubmitEditing={confirmEditor}
+              />
+              {canShare ? (
+                <OptionTiles
+                  label="Who can see"
+                  rows={[
+                    {
+                      key: 'me',
+                      label: 'Just me',
+                      active: audience.mode === 'me',
+                      disabled: meDisabled,
+                      onPress: meDisabled ? undefined : () => setAudience({ mode: 'me' }),
+                    },
+                    {
+                      key: 'household',
+                      label: 'Everyone',
+                      active: audience.mode === 'household',
+                      disabled: shareDisabled,
+                      onPress: shareDisabled ? undefined : () => setAudience({ mode: 'household' }),
+                    },
+                    ...others.map((member) => ({
+                      key: member.profile.id,
+                      label: firstName(member.profile.displayName),
+                      active: audience.mode === 'people' && audience.userIds.includes(member.profile.id),
+                      disabled: shareDisabled,
+                      onPress: shareDisabled ? undefined : () => togglePerson(member.profile.id),
+                    })),
+                  ]}
+                />
+              ) : null}
+              <ErrorText message={error} />
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy || audienceBlocked}
+                onPress={confirmEditor}
+                style={[styles.taskSheetSave, (busy || audienceBlocked) && styles.taskSheetSaveOff]}>
+                <Text style={styles.taskSheetSaveLabel}>{busy ? saving : saveLabel}</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </AppModal>
     </View>
   );
 }
@@ -562,6 +802,8 @@ function TalkPanel({ user }: { user: AuthUser }) {
   const householdId = activeHousehold?.id ?? null;
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editBody, setEditBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const nameById = new Map(
@@ -598,10 +840,46 @@ function TalkPanel({ user }: { user: AuthUser }) {
   const full = items.length >= TALK_ITEM_LIMIT;
   const open = items.filter((item) => !item.done).length;
   const canWrite = Boolean(householdId && isSupabaseConfigured && !user.isDevBypass);
+  const modalOpen = editingId !== null;
+  const cleanedEdit = editBody.replace(/\s+/g, ' ').trim().slice(0, 120);
 
   const patchCache = (next: TalkItem[]) => {
     if (!householdId) return;
     queryClient.setQueryData<TalkItem[]>(['household-talk', householdId], next);
+  };
+
+  const closeEdit = () => {
+    if (busy) return;
+    setEditingId(null);
+    setEditBody('');
+    setError(null);
+  };
+
+  const beginEdit = (item: TalkItem) => {
+    if (!canWrite || busy) return;
+    setError(null);
+    setEditingId(item.id);
+    setEditBody(item.body);
+  };
+
+  const saveEdit = () => {
+    if (!editingId || !cleanedEdit || !canWrite || busy) return;
+    setBusy(true);
+    setError(null);
+    const previous = items;
+    patchCache(items.map((row) => (row.id === editingId ? { ...row, body: cleanedEdit } : row)));
+    void updateTalkItem(editingId, cleanedEdit)
+      .then((item) => {
+        patchCache(previous.map((row) => (row.id === item.id ? item : row)));
+        setBusy(false);
+        setEditingId(null);
+        setEditBody('');
+      })
+      .catch((err: unknown) => {
+        patchCache(previous);
+        setBusy(false);
+        setError(err instanceof Error ? err.message : 'Could not update that.');
+      });
   };
 
   const add = () => {
@@ -664,7 +942,7 @@ function TalkPanel({ user }: { user: AuthUser }) {
       ) : null}
       <ErrorText
         message={
-          error ??
+          (!modalOpen ? error : null) ??
           (talk.error instanceof Error
             ? talk.error.message
             : talk.isError
@@ -684,10 +962,17 @@ function TalkPanel({ user }: { user: AuthUser }) {
               style={[styles.check, item.done && styles.checkOn]}>
               {item.done ? <Text style={styles.checkMark}>✓</Text> : null}
             </Pressable>
-            <View style={styles.talkBody}>
-              <Text style={[styles.taskLabel, item.done && styles.taskDone]}>{item.body}</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={canWrite ? `Edit ${item.body}` : item.body}
+              disabled={!canWrite}
+              onPress={() => beginEdit(item)}
+              style={styles.talkBody}>
+              <Text style={[styles.taskLabel, item.done && styles.taskDone]} numberOfLines={2}>
+                {item.body}
+              </Text>
               <Text style={styles.talkWho}>{who}</Text>
-            </View>
+            </Pressable>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Remove ${item.body}`}
@@ -724,6 +1009,41 @@ function TalkPanel({ user }: { user: AuthUser }) {
           </Pressable>
         </View>
       ) : null}
+
+      <AppModal visible={modalOpen} transparent animationType="fade" onRequestClose={closeEdit}>
+        <Pressable style={styles.sheetBackdrop} onPress={closeEdit}>
+          <Pressable onPress={() => undefined} accessibilityViewIsModal style={styles.taskSheetCard}>
+            <View style={styles.sheetHead}>
+              <Text style={styles.sheetTitle}>Edit</Text>
+              <Pressable onPress={closeEdit} hitSlop={8} disabled={busy}>
+                <Text style={styles.link}>Cancel</Text>
+              </Pressable>
+            </View>
+            <View style={styles.taskSheetBody}>
+              <TextInput
+                value={editBody}
+                onChangeText={setEditBody}
+                placeholder="Something to talk about"
+                placeholderTextColor={colors.textDim}
+                editable={!busy}
+                style={styles.taskSheetInput}
+                maxLength={120}
+                returnKeyType="done"
+                onSubmitEditing={saveEdit}
+                autoFocus
+              />
+              <ErrorText message={error} />
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy || !cleanedEdit}
+                onPress={saveEdit}
+                style={[styles.taskSheetSave, (busy || !cleanedEdit) && styles.taskSheetSaveOff]}>
+                <Text style={styles.taskSheetSaveLabel}>{busy ? 'Saving…' : 'Save'}</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </AppModal>
     </View>
   );
 }
@@ -742,6 +1062,7 @@ function CalendarPanel({
   peopleNames: Map<string, string>;
 }) {
   const router = useRouter();
+  const [detail, setDetail] = useState<CalendarEvent | null>(null);
   const open = events.filter((event) => !eventIsPast(event, day)).length;
 
   return (
@@ -757,7 +1078,10 @@ function CalendarPanel({
         <Pressable
           key={marker.id}
           accessibilityRole="link"
-          onPress={() => router.push('/calendar' as Href)}
+          onPress={() => {
+            queueCalendarOpen({ day, mode: 'day' });
+            router.push('/calendar' as Href);
+          }}
           style={({ pressed }) => [styles.calRow, pressed && styles.coursePressed]}>
           <View style={[styles.calDot, { backgroundColor: MARKER_COLOR[marker.kind] }]} />
           <View style={styles.calBody}>
@@ -786,9 +1110,9 @@ function CalendarPanel({
         return (
           <Pressable
             key={event.id}
-            accessibilityRole="link"
-            onPress={() => (personal ? undefined : router.push('/calendar' as Href))}
-            style={({ pressed }) => [styles.calRow, pressed && !personal && styles.coursePressed, past && styles.calPast]}>
+            accessibilityRole="button"
+            onPress={() => setDetail(event)}
+            style={({ pressed }) => [styles.calRow, pressed && styles.coursePressed, past && styles.calPast]}>
             <View style={[styles.calDot, { backgroundColor: EVENT_COLOR[event.color] }]} />
             <View style={styles.calBody}>
               <Text style={styles.calTime}>
@@ -811,6 +1135,24 @@ function CalendarPanel({
       {events.length > 0 ? (
         <Text style={styles.panelFoot}>{open === 0 ? 'All done for now' : open === 1 ? '1 still ahead' : `${open} still ahead`}</Text>
       ) : null}
+
+      <EventDetailSheet
+        visible={Boolean(detail)}
+        event={detail}
+        people={peopleNames}
+        onClose={() => setDetail(null)}
+        onEdit={
+          detail && detail.source !== 'google'
+            ? () => {
+                const eventId = detail.id;
+                const eventDay = detail.startsOn || day;
+                setDetail(null);
+                queueCalendarOpen({ day: eventDay, eventId, mode: 'edit' });
+                router.push('/calendar' as Href);
+              }
+            : undefined
+        }
+      />
     </View>
   );
 }
@@ -1498,11 +1840,27 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 14,
   },
-  taskLabel: {
+  taskHit: {
     flex: 1,
+    minWidth: 0,
+  },
+  taskLabel: {
     color: colors.text,
     fontSize: 15,
     lineHeight: 20,
+  },
+  taskTag: {
+    maxWidth: 108,
+    borderRadius: 999,
+    backgroundColor: colors.accentSoft,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  taskTagLabel: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   talkBody: {
     flex: 1,
@@ -1517,6 +1875,47 @@ const styles = StyleSheet.create({
   taskDone: {
     color: colors.textDim,
     textDecorationLine: 'line-through',
+  },
+  taskSheetCard: {
+    maxWidth: 420,
+    width: '100%',
+    alignSelf: 'center',
+    backgroundColor: colors.bgCard,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+  },
+  taskSheetBody: {
+    gap: 14,
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    paddingBottom: 18,
+  },
+  taskSheetInput: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 22,
+    minHeight: 44,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingVertical: 8,
+  },
+  taskSheetSave: {
+    minHeight: 48,
+    borderRadius: radius.sm,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  taskSheetSaveOff: {
+    opacity: 0.4,
+  },
+  taskSheetSaveLabel: {
+    color: colors.bg,
+    fontSize: 15,
+    fontWeight: '700',
   },
   removeHit: {
     paddingVertical: 8,

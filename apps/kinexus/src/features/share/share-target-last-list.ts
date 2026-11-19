@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ShareTarget } from '@kinexus/domain';
 import { isListShareTarget } from '@kinexus/domain';
 
-export type ShareListKind = 'watchlist' | 'readlist' | 'wishlist';
+export type ShareListKind = 'watchlist' | 'readlist' | 'wishlist' | 'saves';
 
 export type LastUsedShareList = {
   id: string;

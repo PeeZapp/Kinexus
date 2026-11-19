@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import type { Href } from 'expo-router';
 
 import {
   canCreateLists,
@@ -62,6 +64,11 @@ export function SavesScreen() {
   const { user } = useAuth();
   const { people, role } = useHousehold();
   const stash = useStashSync();
+  const router = useRouter();
+  const params = useLocalSearchParams<{ shareUrl?: string | string[]; listId?: string | string[] }>();
+  const shareUrl = typeof params.shareUrl === 'string' ? params.shareUrl : params.shareUrl?.[0] ?? null;
+  const shareListId = typeof params.listId === 'string' ? params.listId : params.listId?.[0] ?? null;
+  const shareHandled = useRef(false);
   const personId = people.find((person) => person.userId === user?.id)?.id ?? null;
   const canCreate = canCreateLists(role);
   const [query, setQuery] = useState('');
@@ -69,6 +76,7 @@ export function SavesScreen() {
   const [type, setType] = useState<SavedLinkType | null>(null);
   const [status, setStatus] = useState<SavedLinkStatus | null>(null);
   const [addLink, setAddLink] = useState(false);
+  const [shareLinkUrl, setShareLinkUrl] = useState<string | null>(null);
   const [addCollection, setAddCollection] = useState(false);
   const [linkId, setLinkId] = useState<string | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
@@ -77,6 +85,20 @@ export function SavesScreen() {
   const [identity, setIdentity] = useState<ListIdentityDraft>(DEFAULT_IDENTITY);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (shareHandled.current || !shareUrl) return;
+    if (stash.loading) return;
+    shareHandled.current = true;
+    const targetId =
+      shareListId && stash.collections.some((collection) => collection.id === shareListId)
+        ? shareListId
+        : null;
+    if (targetId) setSelectedCollectionId(targetId);
+    setShareLinkUrl(shareUrl);
+    setAddLink(true);
+    router.replace('/lists/saves' as Href);
+  }, [router, shareListId, shareUrl, stash.collections, stash.loading]);
 
   const selectedCollection =
     selectedCollectionId && selectedCollectionId !== UNCATEGORIZED_COLLECTION_ID
@@ -259,9 +281,13 @@ export function SavesScreen() {
         collections={stash.collections}
         people={people}
         defaultCollectionId={viewingUncategorized ? null : selectedCollectionId}
+        initialUrl={shareLinkUrl}
         busy={busy}
         error={actionError}
-        onClose={() => setAddLink(false)}
+        onClose={() => {
+          setAddLink(false);
+          setShareLinkUrl(null);
+        }}
         onScrape={async (url) => {
           const scraped = await stash.scrapeLink(url);
           return {
@@ -275,7 +301,10 @@ export function SavesScreen() {
           };
         }}
         onSave={async (draft) => {
-          if (await run(() => stash.createLink(draft))) setAddLink(false);
+          if (await run(() => stash.createLink(draft))) {
+            setAddLink(false);
+            setShareLinkUrl(null);
+          }
         }}
       />
       <LinkSheet

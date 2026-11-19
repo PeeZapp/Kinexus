@@ -8,8 +8,10 @@ export type AlertSegment =
   | 'checklist'
   | 'watchlist_available'
   | 'budget'
-  | 'investment_alert';
+  | 'investment_alert'
+  | 'staff';
 
+/** Household-facing alert segments (prefs + main inbox). */
 export const ALERT_SEGMENTS: readonly AlertSegment[] = [
   'meal_plan',
   'calendar',
@@ -23,7 +25,11 @@ export const ALERT_SEGMENTS: readonly AlertSegment[] = [
   'investment_alert',
 ];
 
-export function alertSegmentLabel(segment: AlertSegment): string {
+export const STAFF_ALERT_SEGMENT: AlertSegment = 'staff';
+
+export type AlertScope = 'household' | 'staff';
+
+export function alertSegmentLabel(segment: AlertSegment | string): string {
   switch (segment) {
     case 'meal_plan':
       return 'Meal planner';
@@ -45,5 +51,9 @@ export function alertSegmentLabel(segment: AlertSegment): string {
       return 'Budget';
     case 'investment_alert':
       return 'Investment alerts';
+    case 'staff':
+      return 'Developer';
+    default:
+      return 'Alert';
   }
 }

@@ -3,12 +3,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 
-import {
-  extractRecipeUrlFromShare,
-  isShareStatementFile,
-  type ShareTarget,
-  type ShareTargetGuess,
-} from '@kinexus/domain';
+import { isShareStatementFile, type ShareTarget, type ShareTargetGuess } from '@kinexus/domain';
 
 import { CookShell } from '@/src/features/cook/CookShell';
 import { recipeParam } from '@/src/features/meals/recipe-href';
@@ -68,8 +63,9 @@ export default function ShareRecipeRoute() {
       wishlist: stash.lists
         .filter((list) => list.kind === 'wishlist')
         .map((list) => ({ id: list.id, name: list.name })),
+      saves: stash.collections.map((collection) => ({ id: collection.id, name: collection.name })),
     }),
-    [readlist.lists, stash.lists, watchlist.lists],
+    [readlist.lists, stash.collections, stash.lists, watchlist.lists],
   );
 
   useEffect(() => {
@@ -138,20 +134,15 @@ export default function ShareRecipeRoute() {
         }
       }
 
-      handled.current = true;
-      const extracted = extractRecipeUrlFromShare({ url, text, title });
-      if (extracted) {
-        router.replace({ pathname: '/import', params: { url: extracted } } as Href);
-        return;
-      }
-
       const linkDecision = decideShareIntent({ url, text, title });
       if (linkDecision.kind === 'picker') {
+        handled.current = true;
         setPendingFiles(null);
         setGuess(linkDecision.guess);
         return;
       }
 
+      handled.current = true;
       router.replace('/import' as Href);
     })();
   }, [authReady, params.sharedFiles, params.text, params.title, params.url, router, user]);

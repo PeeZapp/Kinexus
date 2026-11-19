@@ -1,9 +1,9 @@
-import type { AlertSegment } from '@/src/features/alerts/segments';
+import { STAFF_ALERT_SEGMENT, type AlertScope, type AlertSegment } from '@/src/features/alerts/segments';
 import { supabase } from '@/src/lib/supabase';
 
 export type AlertRow = {
   id: string;
-  householdId: string;
+  householdId: string | null;
   actorUserId: string | null;
   segment: AlertSegment | string;
   title: string;
@@ -16,7 +16,7 @@ export type AlertRow = {
 
 function mapAlert(row: {
   id: string;
-  household_id: string;
+  household_id: string | null;
   actor_user_id: string | null;
   segment: string;
   title: string;
@@ -40,24 +40,25 @@ function mapAlert(row: {
   };
 }
 
-export async function fetchUnreadAlertCount(): Promise<number> {
+export async function fetchUnreadAlertCount(scope: AlertScope = 'household'): Promise<number> {
   if (!supabase) return 0;
-  const { count, error } = await supabase
-    .from('user_alerts')
-    .select('id', { count: 'exact', head: true })
-    .is('read_at', null);
+  let query = supabase.from('user_alerts').select('id', { count: 'exact', head: true }).is('read_at', null);
+  query = scope === 'staff' ? query.eq('segment', STAFF_ALERT_SEGMENT) : query.neq('segment', STAFF_ALERT_SEGMENT);
+  const { count, error } = await query;
   if (error) throw error;
   return count ?? 0;
 }
 
-export async function fetchAlerts(limit = 60): Promise<AlertRow[]> {
+export async function fetchAlerts(limit = 60, scope: AlertScope = 'household'): Promise<AlertRow[]> {
   if (!supabase) return [];
-  const { data, error } = await supabase
+  let query = supabase
     .from('user_alerts')
     .select('id, household_id, actor_user_id, segment, title, body, href, payload, read_at, created_at')
     .order('read_at', { ascending: true, nullsFirst: true })
     .order('created_at', { ascending: false })
     .limit(limit);
+  query = scope === 'staff' ? query.eq('segment', STAFF_ALERT_SEGMENT) : query.neq('segment', STAFF_ALERT_SEGMENT);
+  const { data, error } = await query;
   if (error) throw error;
   return (data ?? []).map(mapAlert);
 }
@@ -68,12 +69,11 @@ export async function markAlertRead(alertId: string): Promise<void> {
   if (error) throw error;
 }
 
-export async function markAllAlertsRead(): Promise<void> {
+export async function markAllAlertsRead(scope: AlertScope = 'household'): Promise<void> {
   if (!supabase) throw new Error('Supabase is not configured');
-  const { error } = await supabase
-    .from('user_alerts')
-    .update({ read_at: new Date().toISOString() })
-    .is('read_at', null);
+  let query = supabase.from('user_alerts').update({ read_at: new Date().toISOString() }).is('read_at', null);
+  query = scope === 'staff' ? query.eq('segment', STAFF_ALERT_SEGMENT) : query.neq('segment', STAFF_ALERT_SEGMENT);
+  const { error } = await query;
   if (error) throw error;
 }
 
@@ -83,27 +83,27 @@ export async function deleteAlert(alertId: string): Promise<void> {
   if (error) throw error;
 }
 
-export async function clearAllAlerts(): Promise<void> {
+export async function clearAllAlerts(scope: AlertScope = 'household'): Promise<void> {
   if (!supabase) throw new Error('Supabase is not configured');
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError) throw userError;
   const userId = userData.user?.id;
   if (!userId) throw new Error('Sign in to clear alerts');
-  const { error } = await supabase.from('user_alerts').delete().eq('user_id', userId);
+  let query = supabase.from('user_alerts').delete().eq('user_id', userId);
+  query = scope === 'staff' ? query.eq('segment', STAFF_ALERT_SEGMENT) : query.neq('segment', STAFF_ALERT_SEGMENT);
+  const { error } = await query;
   if (error) throw error;
 }
 
-export async function clearReadAlerts(): Promise<void> {
+export async function clearReadAlerts(scope: AlertScope = 'household'): Promise<void> {
   if (!supabase) throw new Error('Supabase is not configured');
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError) throw userError;
   const userId = userData.user?.id;
   if (!userId) throw new Error('Sign in to clear alerts');
-  const { error } = await supabase
-    .from('user_alerts')
-    .delete()
-    .eq('user_id', userId)
-    .not('read_at', 'is', null);
+  let query = supabase.from('user_alerts').delete().eq('user_id', userId).not('read_at', 'is', null);
+  query = scope === 'staff' ? query.eq('segment', STAFF_ALERT_SEGMENT) : query.neq('segment', STAFF_ALERT_SEGMENT);
+  const { error } = await query;
   if (error) throw error;
 }
 
@@ -113,7 +113,8 @@ export async function fetchDisabledAlertSegments(householdId: string): Promise<S
     .from('user_alert_prefs')
     .select('segment, enabled')
     .eq('household_id', householdId)
-    .eq('enabled', false);
+    .eq('enabled', false)
+    .neq('segment', STAFF_ALERT_SEGMENT);
   if (error) throw error;
   return new Set((data ?? []).map((row) => row.segment));
 }
@@ -125,6 +126,7 @@ export async function setAlertSegmentEnabled(
   userId: string,
 ): Promise<void> {
   if (!supabase) throw new Error('Supabase is not configured');
+  if (segment === STAFF_ALERT_SEGMENT) return;
   if (enabled) {
     const { error } = await supabase
       .from('user_alert_prefs')
@@ -146,4 +148,3 @@ export async function setAlertSegmentEnabled(
   );
   if (error) throw error;
 }
-

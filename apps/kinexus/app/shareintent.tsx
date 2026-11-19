@@ -79,8 +79,9 @@ export default function ShareIntentRoute() {
       wishlist: stash.lists
         .filter((list) => list.kind === 'wishlist')
         .map((list) => ({ id: list.id, name: list.name })),
+      saves: stash.collections.map((collection) => ({ id: collection.id, name: collection.name })),
     }),
-    [readlist.lists, stash.lists, watchlist.lists],
+    [readlist.lists, stash.collections, stash.lists, watchlist.lists],
   );
 
   useEffect(() => {

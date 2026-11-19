@@ -4,15 +4,22 @@ import { rpc } from '@kinexus/db';
 import type { AuthUser } from '@/src/lib/auth';
 import { supabase } from '@/src/lib/supabase';
 
+export type HouseholdDayTaskVisibility = 'household' | 'people';
+
 export type HouseholdDayTask = {
   id: string;
   day: string;
   label: string;
   done: boolean;
-  assignedTo: string | null;
+  visibility: HouseholdDayTaskVisibility;
+  visibleTo: string[];
   createdBy: string;
   createdAt: string;
 };
+
+export type HouseholdDayTaskAudience =
+  | { visibility: 'household' }
+  | { visibility: 'people'; visibleTo: string[] };
 
 function explain(error: { message?: string; code?: string }): Error {
   const message = error.message ?? 'Could not load household tasks.';
@@ -27,7 +34,8 @@ function mapRow(row: {
   day: string;
   label: string;
   done: boolean;
-  assigned_to: string | null;
+  visibility: HouseholdDayTaskVisibility;
+  visible_to: string[] | null;
   created_by: string;
   created_at: string;
 }): HouseholdDayTask {
@@ -36,11 +44,14 @@ function mapRow(row: {
     day: row.day,
     label: row.label,
     done: row.done,
-    assignedTo: row.assigned_to,
+    visibility: row.visibility === 'people' ? 'people' : 'household',
+    visibleTo: Array.isArray(row.visible_to) ? row.visible_to.filter(Boolean) : [],
     createdBy: row.created_by,
     createdAt: row.created_at,
   };
 }
+
+const TASK_COLUMNS = 'id, day, label, done, visibility, visible_to, created_by, created_at';
 
 export async function loadHouseholdDayTasks(
   householdId: string,
@@ -49,7 +60,7 @@ export async function loadHouseholdDayTasks(
   if (!supabase) return [];
   const { data, error } = await supabase
     .from('household_day_tasks')
-    .select('id, day, label, done, assigned_to, created_by, created_at')
+    .select(TASK_COLUMNS)
     .eq('household_id', householdId)
     .eq('day', day)
     .order('created_at', { ascending: true })
@@ -79,13 +90,22 @@ export async function addHouseholdDayTask(
   householdId: string,
   day: string,
   label: string,
-  assignedTo: string | null,
+  audience: HouseholdDayTaskAudience,
 ): Promise<HouseholdDayTask> {
   if (!supabase || user.isDevBypass) {
     throw new Error('Shared tasks need a connected household account.');
   }
   const cleaned = label.replace(/\s+/g, ' ').trim().slice(0, 120);
   if (!cleaned) throw new Error('Write a task first.');
+
+  const visibility = audience.visibility;
+  const visibleTo =
+    visibility === 'people'
+      ? [...new Set(audience.visibleTo.filter((id) => id && id !== user.id))]
+      : [];
+  if (visibility === 'people' && visibleTo.length === 0) {
+    throw new Error('Tag at least one other person, or keep the task private.');
+  }
 
   const { count, error: countError } = await supabase
     .from('household_day_tasks')
@@ -103,24 +123,30 @@ export async function addHouseholdDayTask(
       household_id: householdId,
       day,
       label: cleaned,
-      assigned_to: assignedTo,
+      visibility,
+      visible_to: visibleTo,
       created_by: user.id,
     })
-    .select('id, day, label, done, assigned_to, created_by, created_at')
+    .select(TASK_COLUMNS)
     .single();
   if (error) throw explain(error);
-  try {
-    await supabase.rpc(rpc.notifyHouseholdAlert, {
-      p_household_id: householdId,
-      p_segment: 'tasks',
-      p_title: cleaned,
-      p_body: null,
-      p_href: '/today',
-      p_payload: { taskId: data.id, day, assignedTo },
-    });
-  } catch {
-    // Non-blocking.
+
+  // Whole-house notify only — tagged tasks must not leak titles to others.
+  if (visibility === 'household') {
+    try {
+      await supabase.rpc(rpc.notifyHouseholdAlert, {
+        p_household_id: householdId,
+        p_segment: 'tasks',
+        p_title: cleaned,
+        p_body: null,
+        p_href: '/today',
+        p_payload: { taskId: data.id, day, visibility },
+      });
+    } catch {
+      // Non-blocking.
+    }
   }
+
   return mapRow(data);
 }
 
@@ -128,6 +154,41 @@ export async function setHouseholdDayTaskDone(taskId: string, done: boolean): Pr
   if (!supabase) throw new Error('Shared tasks need a connected household account.');
   const { error } = await supabase.from('household_day_tasks').update({ done }).eq('id', taskId);
   if (error) throw explain(error);
+}
+
+export async function updateHouseholdDayTask(
+  user: AuthUser,
+  taskId: string,
+  label: string,
+  audience: HouseholdDayTaskAudience,
+): Promise<HouseholdDayTask> {
+  if (!supabase || user.isDevBypass) {
+    throw new Error('Shared tasks need a connected household account.');
+  }
+  const cleaned = label.replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!cleaned) throw new Error('Write a task first.');
+
+  const visibility = audience.visibility;
+  const visibleTo =
+    visibility === 'people'
+      ? [...new Set(audience.visibleTo.filter((id) => id && id !== user.id))]
+      : [];
+  if (visibility === 'people' && visibleTo.length === 0) {
+    throw new Error('Tag at least one other person, or keep the task private.');
+  }
+
+  const { data, error } = await supabase
+    .from('household_day_tasks')
+    .update({
+      label: cleaned,
+      visibility,
+      visible_to: visibleTo,
+    })
+    .eq('id', taskId)
+    .select(TASK_COLUMNS)
+    .single();
+  if (error) throw explain(error);
+  return mapRow(data);
 }
 
 export async function removeHouseholdDayTask(taskId: string): Promise<void> {

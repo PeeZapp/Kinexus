@@ -5,18 +5,17 @@ import { useAuth } from '@/src/lib/auth';
 import { retainPostgresChannel } from '@/src/lib/realtime';
 import { supabase } from '@/src/lib/supabase';
 import { fetchAlerts, fetchUnreadAlertCount, type AlertRow } from '@/src/features/alerts/alerts-api';
+import type { AlertScope } from '@/src/features/alerts/segments';
 
-function unreadKey(userId: string) {
-  return ['alerts', 'unread', userId] as const;
+function unreadKey(userId: string, scope: AlertScope) {
+  return ['alerts', 'unread', scope, userId] as const;
 }
 
-function inboxKey(userId: string) {
-  return ['alerts', 'inbox', userId] as const;
+function inboxKey(userId: string, scope: AlertScope) {
+  return ['alerts', 'inbox', scope, userId] as const;
 }
 
-export function useAlertsUnreadCount() {
-  const { user } = useAuth();
-  const userId = user && !user.isDevBypass ? user.id : null;
+function useAlertsRealtime(userId: string | null) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -27,30 +26,36 @@ export function useAlertsUnreadCount() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'user_alerts', filter: `user_id=eq.${userId}` },
         () => {
-          void queryClient.invalidateQueries({ queryKey: unreadKey(userId) });
-          void queryClient.invalidateQueries({ queryKey: inboxKey(userId) });
+          void queryClient.invalidateQueries({ queryKey: ['alerts', 'unread'] });
+          void queryClient.invalidateQueries({ queryKey: ['alerts', 'inbox'] });
         },
       ),
     );
   }, [queryClient, userId]);
+}
+
+export function useAlertsUnreadCount(scope: AlertScope = 'household', enabled = true) {
+  const { user } = useAuth();
+  const userId = user && !user.isDevBypass ? user.id : null;
+  const active = Boolean(enabled && userId && supabase);
+  useAlertsRealtime(active ? userId : null);
 
   return useQuery({
-    queryKey: userId ? unreadKey(userId) : ['alerts', 'unread', 'none'],
-    enabled: Boolean(userId && supabase),
-    queryFn: fetchUnreadAlertCount,
+    queryKey: userId ? unreadKey(userId, scope) : ['alerts', 'unread', scope, 'none'],
+    enabled: active,
+    queryFn: () => fetchUnreadAlertCount(scope),
     staleTime: 10_000,
   });
 }
 
-export function useAlertsInbox(limit = 60) {
+export function useAlertsInbox(limit = 60, scope: AlertScope = 'household', enabled = true) {
   const { user } = useAuth();
   const userId = user && !user.isDevBypass ? user.id : null;
 
   return useQuery<AlertRow[]>({
-    queryKey: userId ? inboxKey(userId) : ['alerts', 'inbox', 'none'],
-    enabled: Boolean(userId && supabase),
-    queryFn: () => fetchAlerts(limit),
+    queryKey: userId ? inboxKey(userId, scope) : ['alerts', 'inbox', scope, 'none'],
+    enabled: Boolean(enabled && userId && supabase),
+    queryFn: () => fetchAlerts(limit, scope),
     staleTime: 5_000,
   });
 }
-

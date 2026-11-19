@@ -191,7 +191,14 @@ describe('get_today overview', () => {
     const overview = await getTodayOverview(callerFor(client), { date: '2026-11-15' });
     expect(overview.date).toBe('2026-11-15');
     expect(overview.tasks).toEqual([
-      { id: 'task-1', label: 'Call mum', done: false, scope: 'personal', assignedTo: null },
+      {
+        id: 'task-1',
+        label: 'Call mum',
+        done: false,
+        scope: 'personal',
+        visibility: 'private',
+        visibleTo: [],
+      },
     ]);
     expect(overview.talk.map((t) => t.body)).toEqual(['School fees']);
     expect(overview.calendar.map((e) => e.title)).toEqual(['Soccer']);

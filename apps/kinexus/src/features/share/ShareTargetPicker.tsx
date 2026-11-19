@@ -62,7 +62,7 @@ export function ShareTargetPicker({ visible, guess, lists, busy, onCancel, onPic
     let cancelled = false;
     void (async () => {
       const next: Partial<Record<ShareListKind, LastUsedShareList | null>> = {};
-      for (const kind of ['watchlist', 'readlist', 'wishlist'] as const) {
+      for (const kind of ['watchlist', 'readlist', 'wishlist', 'saves'] as const) {
         next[kind] = await readLastUsedShareList(kind);
       }
       if (!cancelled) setPreferred(next);

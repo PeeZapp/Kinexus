@@ -14,10 +14,14 @@ import {
   type TradeSide,
 } from '@kinexus/domain';
 
+import { IsoDatePicker } from '@/src/features/household/IsoDatePicker';
 import { Btn, ErrorText, Field } from '@/src/features/household/ui';
 import { Sheet } from '@/src/features/meals/meals-kit';
 import { todayIso, type InvestItemDraft, type TradeDraft } from '@/src/features/finances/invest/use-invest-sync';
 import { colors, radius, space } from '@/src/features/shell/theme';
+
+const TRADE_YEAR_MIN = new Date().getFullYear() - 40;
+const TRADE_YEAR_MAX = new Date().getFullYear() + 1;
 
 export function formatPct(value: number): string {
   return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
@@ -322,14 +326,19 @@ export function TradeSheet({
             ))}
           </TileGrid>
         </View>
-        <View style={styles.row}>
-          <View style={styles.cell}>
-            <Field label="Symbol" value={symbol} onChangeText={setSymbol} placeholder="CBA" autoCapitalize="characters" editable={!locked} />
-          </View>
-          <View style={styles.cell}>
-            <Field label="Date" value={tradedOn} onChangeText={setTradedOn} placeholder="YYYY-MM-DD" editable={!locked} />
-          </View>
-        </View>
+        <Field label="Symbol" value={symbol} onChangeText={setSymbol} placeholder="CBA" autoCapitalize="characters" editable={!locked} />
+        {locked ? (
+          <Field label="Date" value={tradedOn} onChangeText={setTradedOn} editable={false} />
+        ) : (
+          <IsoDatePicker
+            label="Date"
+            value={tradedOn || null}
+            onChange={(next) => setTradedOn(next ?? todayIso())}
+            minYear={TRADE_YEAR_MIN}
+            maxYear={TRADE_YEAR_MAX}
+            yearOrder="desc"
+          />
+        )}
         <View style={styles.row}>
           <View style={styles.cell}>
             <Field label="Qty" value={qty} onChangeText={setQty} placeholder="0" keyboardType="decimal-pad" editable={!locked} />

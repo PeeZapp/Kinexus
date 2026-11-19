@@ -99,6 +99,21 @@ export async function setTalkItemDone(itemId: string, done: boolean): Promise<vo
   if (error) throw explain(error);
 }
 
+export async function updateTalkItem(itemId: string, body: string): Promise<TalkItem> {
+  if (!supabase) throw new Error('Talk needs a connected household account.');
+  const cleaned = body.replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!cleaned) throw new Error('Write something to talk about.');
+
+  const { data, error } = await supabase
+    .from('household_talk_items')
+    .update({ body: cleaned })
+    .eq('id', itemId)
+    .select('id, body, done, created_by, created_at')
+    .single();
+  if (error) throw explain(error);
+  return mapRow(data);
+}
+
 export async function removeTalkItem(itemId: string): Promise<void> {
   if (!supabase) throw new Error('Talk needs a connected household account.');
   const { error } = await supabase.from('household_talk_items').delete().eq('id', itemId);

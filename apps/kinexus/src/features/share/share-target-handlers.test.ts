@@ -79,6 +79,18 @@ describe('decideShareIntent', () => {
     }
   });
 
+  it('opens the picker for PWA share_target url field', () => {
+    const decision = decideShareIntent({
+      url: 'https://www.etsy.com/listing/1/mug',
+      title: 'Ceramic mug',
+    });
+    expect(decision.kind).toBe('picker');
+    if (decision.kind === 'picker') {
+      expect(decision.guess.targets[0]).toBe('wishlist');
+      expect(decision.guess.url).toContain('etsy.com');
+    }
+  });
+
   it('ranks bank csv headers ahead of list import', () => {
     expect(
       guessShareFiles([
@@ -184,6 +196,24 @@ describe('handoffShareTarget', () => {
     expect(replace).toHaveBeenCalledWith({
       pathname: '/lists/wishlists',
       params: { shareUrl: 'https://www.amazon.com/dp/B00ABCDE12', listId: 'wish1' },
+    });
+  });
+
+  it('hands saves to add-link sheet on Saves', async () => {
+    const replace = vi.fn();
+    await handoffShareTarget(
+      {
+        target: 'saves',
+        url: 'https://obscure.example/page/123',
+        text: null,
+        list: { id: 'col1', name: 'Articles' },
+      },
+      { replace },
+    );
+    expect(writeLastUsed).toHaveBeenCalledWith('saves', { id: 'col1', name: 'Articles' });
+    expect(replace).toHaveBeenCalledWith({
+      pathname: '/lists/saves',
+      params: { shareUrl: 'https://obscure.example/page/123', listId: 'col1' },
     });
   });
 

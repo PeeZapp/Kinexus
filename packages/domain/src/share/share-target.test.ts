@@ -64,9 +64,11 @@ describe('guessShareTarget', () => {
     expect(guess.url).toBeNull();
   });
 
-  it('ranks unknown URLs as recipe then wishlist', () => {
+  it('ranks unknown URLs as saves first', () => {
     const guess = guessShareTarget({ url: 'https://obscure.example/page/123', title: 'Notes' });
-    expect(guess.targets.slice(0, 2)).toEqual(['recipe', 'wishlist']);
+    expect(guess.targets[0]).toBe('saves');
+    expect(guess.targets).toContain('recipe');
+    expect(guess.targets).toContain('wishlist');
     expect(guess.preview.title).toBe('Notes');
     expect(guess.preview.host).toBe('obscure.example');
   });
@@ -76,6 +78,7 @@ describe('shareTargetPrimaryActionLabel', () => {
   it('labels the primary picker action', () => {
     expect(shareTargetPrimaryActionLabel('watchlist')).toBe('Add to Watchlist');
     expect(shareTargetPrimaryActionLabel('recipe')).toBe('Import recipe');
+    expect(shareTargetPrimaryActionLabel('saves')).toBe('Save link');
     expect(shareTargetPrimaryActionLabel('bank_transactions')).toBe('Add transactions');
     expect(shareTargetPrimaryActionLabel('list_import')).toBe('Import list');
   });

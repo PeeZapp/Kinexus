@@ -34,8 +34,8 @@ function resolveAlertHref(item: { segment: string; href: string | null; payload:
 }
 
 export function AlertsInboxScreen() {
-  const inbox = useAlertsInbox(80);
-  const unread = useAlertsUnreadCount();
+  const inbox = useAlertsInbox(80, 'household');
+  const unread = useAlertsUnreadCount('household');
   const router = useRouter();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +49,7 @@ export function AlertsInboxScreen() {
     () =>
       items.map((item) => ({
         ...item,
-        segmentLabel: alertSegmentLabel(item.segment as never),
+        segmentLabel: alertSegmentLabel(item.segment),
         unread: !item.readAt,
       })),
     [items],
@@ -72,18 +72,18 @@ export function AlertsInboxScreen() {
     }
   };
 
-  const onMarkAllRead = () => void run(markAllAlertsRead, 'Could not mark alerts read');
+  const onMarkAllRead = () => void run(() => markAllAlertsRead('household'), 'Could not mark alerts read');
 
   const onClearRead = async () => {
     const ok = await confirmAction('Clear read alerts?', 'Removes alerts you’ve already opened.');
     if (!ok) return;
-    await run(clearReadAlerts, 'Could not clear read alerts');
+    await run(() => clearReadAlerts('household'), 'Could not clear read alerts');
   };
 
   const onClearAll = async () => {
     const ok = await confirmAction('Clear all alerts?', 'Removes every alert in your inbox.');
     if (!ok) return;
-    await run(clearAllAlerts, 'Could not clear alerts');
+    await run(() => clearAllAlerts('household'), 'Could not clear alerts');
   };
 
   const onDelete = (id: string) => void run(() => deleteAlert(id), 'Could not delete alert');

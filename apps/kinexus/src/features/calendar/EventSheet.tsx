@@ -11,9 +11,13 @@ import {
 } from '@kinexus/domain';
 
 import { EVENT_COLOR } from '@/src/features/calendar/colors';
+import { IsoDatePicker } from '@/src/features/household/IsoDatePicker';
 import { Btn, ErrorText, Field, Pill } from '@/src/features/household/ui';
 import { Sheet } from '@/src/features/meals/meals-kit';
 import { colors, radius, space } from '@/src/features/shell/theme';
+
+const EVENT_YEAR_MIN = new Date().getFullYear() - 5;
+const EVENT_YEAR_MAX = new Date().getFullYear() + 15;
 
 const START_PRESETS = ['08:00', '09:00', '12:00', '15:00', '17:00', '18:00', '19:00'] as const;
 
@@ -108,28 +112,28 @@ export function EventSheet({
           </View>
         </View>
 
-        <View style={styles.row}>
-          <View style={styles.half}>
-            <Field
-              label="Starts"
-              value={draft.startsOn}
-              onChangeText={(startsOn) =>
-                set({ startsOn, endsOn: draft.endsOn < startsOn ? startsOn : draft.endsOn })
-              }
-              placeholder="YYYY-MM-DD"
-              autoCapitalize="none"
-            />
-          </View>
-          <View style={styles.half}>
-            <Field
-              label="Ends"
-              value={draft.endsOn}
-              onChangeText={(endsOn) => set({ endsOn })}
-              placeholder="YYYY-MM-DD"
-              autoCapitalize="none"
-            />
-          </View>
-        </View>
+        <IsoDatePicker
+          label="Starts"
+          value={draft.startsOn}
+          onChange={(startsOn) => {
+            if (!startsOn) return;
+            set({ startsOn, endsOn: draft.endsOn < startsOn ? startsOn : draft.endsOn });
+          }}
+          minYear={EVENT_YEAR_MIN}
+          maxYear={EVENT_YEAR_MAX}
+          yearOrder="asc"
+        />
+        <IsoDatePicker
+          label="Ends"
+          value={draft.endsOn}
+          onChange={(endsOn) => {
+            if (!endsOn) return;
+            set({ endsOn });
+          }}
+          minYear={EVENT_YEAR_MIN}
+          maxYear={EVENT_YEAR_MAX}
+          yearOrder="asc"
+        />
 
         {!draft.allDay ? (
           <View style={styles.block}>
@@ -191,12 +195,14 @@ export function EventSheet({
           {draft.recurrence !== 'none' ? (
             <>
               <Text style={styles.hint}>Edits and delete apply to the whole series.</Text>
-              <Field
-                label="Until (optional)"
-                value={draft.untilOn ?? ''}
-                onChangeText={(untilOn) => set({ untilOn: untilOn.trim() ? untilOn : null })}
-                placeholder="YYYY-MM-DD or blank"
-                autoCapitalize="none"
+              <IsoDatePicker
+                label="Until"
+                value={draft.untilOn}
+                onChange={(untilOn) => set({ untilOn })}
+                optional
+                minYear={EVENT_YEAR_MIN}
+                maxYear={EVENT_YEAR_MAX}
+                yearOrder="asc"
               />
             </>
           ) : null}

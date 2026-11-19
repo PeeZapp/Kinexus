@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
   addDaysIso,
@@ -23,7 +24,12 @@ import {
   type CalendarEventDraft,
 } from '@kinexus/domain';
 
+import {
+  takeCalendarOpen,
+  type CalendarOpenRequest,
+} from '@/src/features/calendar/calendar-open-stash';
 import { EVENT_COLOR, EVENT_COLOR_SOFT, MARKER_COLOR, MARKER_COLOR_SOFT } from '@/src/features/calendar/colors';
+import { EventDetailSheet } from '@/src/features/calendar/EventDetailSheet';
 import { EventSheet } from '@/src/features/calendar/EventSheet';
 import { loadPersonalGoogleEventsInRange } from '@/src/features/calendar/google-sync';
 import { loadCalendarMarkers } from '@/src/features/calendar/observances';
@@ -42,6 +48,7 @@ import { useHousehold } from '@/src/lib/household';
 import { isSupabaseConfigured } from '@/src/lib/supabase';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 export function CalendarScreen() {
   const { user } = useAuth();
@@ -57,6 +64,8 @@ export function CalendarScreen() {
   const [editing, setEditing] = useState<CalendarEvent | null>(null);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [pendingOpen, setPendingOpen] = useState<CalendarOpenRequest | null>(null);
+  const [detail, setDetail] = useState<CalendarEvent | null>(null);
 
   const rangeFrom = addDaysIso(monthCursor.slice(0, 7) + '-01', -7);
   const rangeTo = addDaysIso(shiftCalendarMonth(monthCursor, 1).slice(0, 7) + '-01', 41);
@@ -111,13 +120,52 @@ export function CalendarScreen() {
     setDraft(emptyEventDraft(day));
   };
 
+  const openDetail = (event: CalendarEvent) => {
+    setDetail(event);
+  };
+
   const openEdit = (event: CalendarEvent) => {
     if (event.source === 'google') return;
     const master = masters.find((item) => item.id === event.id) ?? event;
+    setDetail(null);
     setEditing(master);
     setFormError(null);
     setDraft(draftFromEvent(master));
   };
+
+  useFocusEffect(
+    useCallback(() => {
+      const next = takeCalendarOpen();
+      if (!next) return;
+      if (next.day && ISO_DAY.test(next.day)) {
+        setSelected(next.day);
+        setMonthCursor(next.day);
+      }
+      setPendingOpen(next);
+    }, []),
+  );
+
+  useEffect(() => {
+    if (!pendingOpen) return;
+
+    const targetDay = pendingOpen.day;
+    if (targetDay && ISO_DAY.test(targetDay) && selected !== targetDay) return;
+
+    if (pendingOpen.mode !== 'edit' || !pendingOpen.eventId) {
+      setPendingOpen(null);
+      return;
+    }
+
+    if (query.isLoading || query.isFetching) return;
+
+    const master = masters.find((item) => item.id === pendingOpen.eventId);
+    if (master && master.source !== 'google') {
+      setEditing(master);
+      setFormError(null);
+      setDraft(draftFromEvent(master));
+    }
+    setPendingOpen(null);
+  }, [pendingOpen, selected, masters, query.isLoading, query.isFetching]);
 
   const closeSheet = () => {
     setDraft(null);
@@ -311,12 +359,11 @@ export function CalendarScreen() {
                 <Pressable
                   key={occurrenceKey(event)}
                   accessibilityRole="button"
-                  onPress={() => openEdit(event)}
-                  disabled={personal}
+                  onPress={() => openDetail(event)}
                   style={({ pressed }) => [
                     styles.eventCard,
                     { backgroundColor: EVENT_COLOR_SOFT[event.color], borderColor: EVENT_COLOR[event.color] },
-                    pressed && !personal && styles.eventPressed,
+                    pressed && styles.eventPressed,
                   ]}>
                   <View style={[styles.eventBar, { backgroundColor: EVENT_COLOR[event.color] }]} />
                   <View style={styles.eventBody}>
@@ -371,6 +418,14 @@ export function CalendarScreen() {
           </ScrollView>
         </View>
       )}
+
+      <EventDetailSheet
+        visible={Boolean(detail)}
+        event={detail}
+        people={people}
+        onClose={() => setDetail(null)}
+        onEdit={detail && detail.source !== 'google' ? () => openEdit(detail) : undefined}
+      />
 
       {draft ? (
         <EventSheet
